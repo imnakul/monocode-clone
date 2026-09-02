@@ -159,13 +159,7 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             {
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.set_decorations(false);
-                    let _ = window.set_shadow(false);
-                    let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
-                    let _ = window_vibrancy::apply_tabbed(&window, Some(true))
-                        .or_else(|_| window_vibrancy::apply_mica(&window, Some(true)))
-                        .or_else(|_| window_vibrancy::apply_acrylic(&window, Some((10, 10, 15, 10))))
-                        .or_else(|_| window_vibrancy::apply_blur(&window, Some((10, 10, 15, 10))));
+                    window::prepare_windows_window(&window);
                     let _ = window.show();
                     let _ = window.set_focus();
                 }

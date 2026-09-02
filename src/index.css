@@ -14,17 +14,19 @@
   --color-skill: #e8c547;
   --color-mention: #38bdf8;
   --font-mono:
-    "SF Mono", "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "SF Mono", "JetBrainsMonoNL Nerd Font Mono", "Cascadia Mono", "Geist Mono",
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
   --font-sans:
-    "SF Pro Display", "SF Pro Text", "SF Pro", -apple-system, BlinkMacSystemFont, "Geist", "Inter", "Segoe UI", Roboto, Oxygen,
+    "SF Pro Text", "SF Pro Display", "SF Pro", -apple-system, BlinkMacSystemFont,
+    "Segoe UI Variable Text", "Segoe UI", "Geist", "Inter", Roboto, Oxygen,
     Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
 }
 
 :root {
   --theme-hue: 240;
   --theme-saturation: 0%;
-  --sidebar-opacity: 0.85;
+  --sidebar-opacity: 0.72;
   --background-lightness: 9%;
   --content-lightness: 92%;
   --link-color: #7dd3fc;
@@ -71,7 +73,7 @@ html:not(.is-mac) #root {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  letter-spacing: -0.011em;
+  font-kerning: normal;
 }
 
 html:not(.is-mac) ::-webkit-scrollbar {
@@ -110,8 +112,6 @@ html.has-glass #root {
     var(--theme-hue) var(--theme-saturation) var(--background-lightness) /
       var(--sidebar-opacity)
   );
-  backdrop-filter: blur(var(--window-blur-radius, 20px));
-  -webkit-backdrop-filter: blur(var(--window-blur-radius, 20px));
 }
 
 html.theme-light .sidebar-glass {
@@ -119,18 +119,18 @@ html.theme-light .sidebar-glass {
     var(--theme-hue) var(--theme-saturation) var(--background-lightness) /
       var(--sidebar-opacity)
   );
+}
+
+html.is-mac .sidebar-glass {
   backdrop-filter: blur(var(--window-blur-radius, 20px));
   -webkit-backdrop-filter: blur(var(--window-blur-radius, 20px));
 }
 
-html.is-mac .sidebar-glass,
-html.has-glass .sidebar-glass {
-  background: hsl(
-    var(--theme-hue) var(--theme-saturation) var(--background-lightness) /
-      var(--sidebar-opacity)
-  );
-  backdrop-filter: blur(var(--window-blur-radius, 20px));
-  -webkit-backdrop-filter: blur(var(--window-blur-radius, 20px));
+/* Windows gets desktop blur from DWM Desktop Acrylic. Keep these surfaces
+   translucent so CSS does not try to blur through the WebView2 boundary. */
+html.is-windows .sidebar-glass {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .body-glass {
@@ -161,12 +161,15 @@ html.has-glass .sidebar-glass {
 }
 
 html.is-mac.glass-body .body-glass,
-html.has-glass.glass-body .body-glass {
+html.is-windows.glass-body .body-glass {
   background: color-mix(
     in srgb,
     var(--color-background-base) calc(var(--sidebar-opacity) * 100%),
     transparent
   );
+}
+
+html.is-mac.glass-body .body-glass {
   backdrop-filter: blur(var(--window-blur-radius, 20px));
   -webkit-backdrop-filter: blur(var(--window-blur-radius, 20px));
 }

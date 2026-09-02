@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::window::Color;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WebviewWindowBuilder};
 
@@ -29,23 +30,32 @@ pub fn open_new_window(app: &AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     crate::macos::install(&window);
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     {
         let _ = window.set_decorations(false);
         let _ = window.set_shadow(true);
     }
 
     #[cfg(target_os = "windows")]
-    {
-        let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
-        let _ = window_vibrancy::apply_tabbed(&window, Some(true))
-            .or_else(|_| window_vibrancy::apply_mica(&window, Some(true)))
-            .or_else(|_| window_vibrancy::apply_acrylic(&window, Some((10, 10, 15, 10))))
-            .or_else(|_| window_vibrancy::apply_blur(&window, Some((10, 10, 15, 10))));
-    }
+    prepare_windows_window(&window);
 
     let _ = window.set_focus();
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn prepare_windows_window(window: &WebviewWindow) {
+    let _ = window.set_decorations(false);
+    let _ = window.set_shadow(false);
+    let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn apply_windows_glass(window: &WebviewWindow) {
+    prepare_windows_window(window);
+    if let Err(error) = window_vibrancy::apply_acrylic(window, None) {
+        eprintln!("failed to enable Windows Desktop Acrylic: {error}");
+    }
 }
 
 /// Desktop blur goes on after the first UI paint, not during the dock bounce.
@@ -57,13 +67,7 @@ pub fn enable_window_glass(window: WebviewWindow) {
         crate::macos::enable_glass(&window);
     }
     #[cfg(target_os = "windows")]
-    {
-        let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
-        let _ = window_vibrancy::apply_tabbed(&window, Some(true))
-            .or_else(|_| window_vibrancy::apply_mica(&window, Some(true)))
-            .or_else(|_| window_vibrancy::apply_acrylic(&window, Some((10, 10, 15, 10))))
-            .or_else(|_| window_vibrancy::apply_blur(&window, Some((10, 10, 15, 10))));
-    }
+    apply_windows_glass(&window);
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = window;

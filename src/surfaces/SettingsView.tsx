@@ -84,7 +84,7 @@ import {
 import { prettyCwd, projectName } from "../lib/paths";
 import { pickFile } from "../lib/fs";
 import { getCustomBinary, setCustomBinary } from "../lib/harness/customBinary";
-import { IS_MAC } from "../lib/platform";
+import { IS_MAC, IS_WINDOWS } from "../lib/platform";
 import {
   loadArchivedProjects,
   looksLikeProject,
@@ -771,16 +771,24 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
       </Row>
       <Row
         label="Blur radius"
-        description="Background blur behind the window. Higher values cost more to composite."
+        description={
+          IS_WINDOWS
+            ? "Desktop Acrylic blur is controlled by Windows; opacity and tint remain adjustable here."
+            : "Background blur behind the window. Higher values cost more to composite."
+        }
       >
-        <Slider
-          label="Blur radius"
-          value={appearance.blur}
-          display={String(appearance.blur)}
-          min={SIDEBAR_BLUR_MIN}
-          max={SIDEBAR_BLUR_MAX}
-          onChange={appearance.onBlur}
-        />
+        {IS_WINDOWS ? (
+          <span className="text-[12px] text-content/45">System controlled</span>
+        ) : (
+          <Slider
+            label="Blur radius"
+            value={appearance.blur}
+            display={String(appearance.blur)}
+            min={SIDEBAR_BLUR_MIN}
+            max={SIDEBAR_BLUR_MAX}
+            onChange={appearance.onBlur}
+          />
+        )}
       </Row>
       <Row label="Hue" description="Base hue for accents and tinted surfaces.">
         <Slider

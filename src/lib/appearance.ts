@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { IS_MAC } from "./platform";
+import { IS_MAC, IS_WINDOWS } from "./platform";
 
 const THEME_HUE_KEY = "monocode.themeHue";
 const THEME_SATURATION_KEY = "monocode.themeSaturation";
@@ -51,7 +51,7 @@ export const THEME_SATURATION_DEFAULT = 0;
 
 export const SIDEBAR_OPACITY_MIN = 0.15;
 export const SIDEBAR_OPACITY_MAX = 1;
-export const SIDEBAR_OPACITY_DEFAULT = 0.85;
+export const SIDEBAR_OPACITY_DEFAULT = 0.72;
 
 export const SIDEBAR_BLUR_MIN = 1;
 export const SIDEBAR_BLUR_MAX = 64;
@@ -155,7 +155,8 @@ export function applyThemeTint(hue: number, saturation: number) {
 
 export function initAppearance() {
   document.documentElement.classList.toggle("is-mac", IS_MAC);
-  document.documentElement.classList.add("has-glass");
+  document.documentElement.classList.toggle("is-windows", IS_WINDOWS);
+  document.documentElement.classList.toggle("has-glass", IS_MAC || IS_WINDOWS);
   applyThemeTint(loadThemeHue(), loadThemeSaturation());
   applyThemePreference(loadThemePreference());
   watchSystemColorScheme();
@@ -264,7 +265,7 @@ export function applySidebarBlur(value: number) {
     clamp(value, SIDEBAR_BLUR_MIN, SIDEBAR_BLUR_MAX),
   );
   document.documentElement.style.setProperty("--window-blur-radius", `${next}px`);
-  void invoke("set_window_background_blur", { radius: next });
+  if (IS_MAC) void invoke("set_window_background_blur", { radius: next });
   return next;
 }
 
