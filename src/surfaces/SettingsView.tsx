@@ -82,6 +82,8 @@ import {
   subscribeModels,
 } from "../lib/models";
 import { prettyCwd, projectName } from "../lib/paths";
+import { pickFile } from "../lib/fs";
+import { getCustomBinary, setCustomBinary } from "../lib/harness/customBinary";
 import { IS_MAC } from "../lib/platform";
 import {
   loadArchivedProjects,
@@ -956,6 +958,9 @@ function ProviderRow({
   const [inPicker, setInPicker] = useState(() =>
     isPickerProviderVisible(harness),
   );
+  const [customBinaryPath, setCustomBinaryPath] = useState<string | null>(() =>
+    getCustomBinary(harness),
+  );
 
   useEffect(() => {
     if (!available || models.length > 0) return;
@@ -967,18 +972,50 @@ function ProviderRow({
     setInPicker(visible);
   };
 
+  const handlePickBinary = async () => {
+    const file = await pickFile(`Choose ${HARNESS_TITLE[harness]} binary executable`);
+    if (file) {
+      setCustomBinary(harness, file);
+      setCustomBinaryPath(file);
+      void probeHarnessAvailability({ force: true });
+    }
+  };
+
+  const handleClearBinary = () => {
+    setCustomBinary(harness, null);
+    setCustomBinaryPath(null);
+    void probeHarnessAvailability({ force: true });
+  };
+
   return (
     <Row
       label={
-        <span className="flex items-center gap-2">
-          <HarnessIcon harness={harness} className="size-4 shrink-0" />
-          {HARNESS_TITLE[harness]}
-          {isDefault ? (
-            <span className="rounded-full bg-content/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-content/60">
-              Default
-            </span>
+        <div className="flex flex-col gap-1">
+          <span className="flex items-center gap-2">
+            <HarnessIcon harness={harness} className="size-4 shrink-0" />
+            {HARNESS_TITLE[harness]}
+            {isDefault ? (
+              <span className="rounded-full bg-content/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-content/60">
+                Default
+              </span>
+            ) : null}
+          </span>
+          {customBinaryPath ? (
+            <div className="flex items-center gap-1.5 text-[11px] text-emerald-400/80">
+              <span className="max-w-[280px] truncate" title={customBinaryPath}>
+                Path: {customBinaryPath}
+              </span>
+              <button
+                type="button"
+                onClick={handleClearBinary}
+                className="text-content/40 hover:text-content underline"
+                title="Reset to default detection"
+              >
+                Reset
+              </button>
+            </div>
           ) : null}
-        </span>
+        </div>
       }
       description={
         available
@@ -986,6 +1023,12 @@ function ProviderRow({
           : harnessUnavailableHint(harness)
       }
     >
+      <SecondaryButton
+        onClick={() => void handlePickBinary()}
+        title={`Select binary file for ${HARNESS_TITLE[harness]}`}
+      >
+        {customBinaryPath ? "Change binary…" : "Choose binary…"}
+      </SecondaryButton>
       {current ? (
         <Select
           label={`${HARNESS_TITLE[harness]} model`}
@@ -1392,11 +1435,13 @@ function SecondaryButton({
   onClick,
   disabled = false,
   danger = false,
+  title,
   children,
 }: {
   onClick: () => void;
   disabled?: boolean;
   danger?: boolean;
+  title?: string;
   children: ReactNode;
 }) {
   return (
@@ -1404,6 +1449,7 @@ function SecondaryButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`flex shrink-0 items-center gap-1.5 rounded-md border border-content/10 px-2.5 py-1 text-[12px] ${
         danger
           ? "text-red-400 hover:border-red-400/40 hover:bg-red-400/10"

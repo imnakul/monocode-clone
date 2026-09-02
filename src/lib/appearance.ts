@@ -155,6 +155,7 @@ export function applyThemeTint(hue: number, saturation: number) {
 
 export function initAppearance() {
   document.documentElement.classList.toggle("is-mac", IS_MAC);
+  document.documentElement.classList.add("has-glass");
   applyThemeTint(loadThemeHue(), loadThemeSaturation());
   applyThemePreference(loadThemePreference());
   watchSystemColorScheme();
@@ -262,6 +263,7 @@ export function applySidebarBlur(value: number) {
   const next = Math.round(
     clamp(value, SIDEBAR_BLUR_MIN, SIDEBAR_BLUR_MAX),
   );
+  document.documentElement.style.setProperty("--window-blur-radius", `${next}px`);
   void invoke("set_window_background_blur", { radius: next });
   return next;
 }

@@ -281,36 +281,60 @@ export function killAllChildren(): Promise<void> {
   return invoke("harness_kill_all");
 }
 
-export function resolveCursorBinary(): Promise<{ path: string }> {
+import { getCustomBinary } from "./customBinary";
+
+export async function resolveCursorBinary(): Promise<{ path: string }> {
+  const custom = getCustomBinary("cursor");
+  if (custom) return { path: custom };
   return invoke("harness_resolve_cursor");
 }
 
-export function resolveCodexBinary(): Promise<{ path: string }> {
+export async function resolveCodexBinary(): Promise<{ path: string }> {
+  const custom = getCustomBinary("codex");
+  if (custom) return { path: custom };
   return invoke("harness_resolve_codex");
 }
 
-export function resolveOpenCodeBinary(): Promise<{ path: string }> {
+export async function resolveOpenCodeBinary(): Promise<{ path: string }> {
+  const custom = getCustomBinary("opencode");
+  if (custom) return { path: custom };
   return invoke("harness_resolve_opencode");
 }
 
-export function resolveClaudeBinary(): Promise<{ path: string }> {
+export async function resolveClaudeBinary(): Promise<{ path: string }> {
+  const custom = getCustomBinary("claude");
+  if (custom) return { path: custom };
   return invoke("harness_resolve_claude");
 }
 
-export function resolvePiBinary(): Promise<{ path: string }> {
+export async function resolvePiBinary(): Promise<{ path: string }> {
+  const custom = getCustomBinary("pi");
+  if (custom) return { path: custom };
   return invoke("harness_resolve_pi");
 }
 
-export function resolveOmpBinary(): Promise<{ path: string }> {
+export async function resolveOmpBinary(): Promise<{ path: string }> {
+  const custom = getCustomBinary("omp");
+  if (custom) return { path: custom };
   return invoke("harness_resolve_omp");
 }
 
-export function resolveFxBinary(): Promise<{ path: string }> {
+export async function resolveFxBinary(): Promise<{ path: string }> {
+  const custom = getCustomBinary("fx");
+  if (custom) return { path: custom };
   return invoke("harness_resolve_fx");
 }
 
-export function resolveGrokBinary(): Promise<{ path: string }> {
+export async function resolveGrokBinary(): Promise<{ path: string }> {
+  const custom = getCustomBinary("grok");
+  if (custom) return { path: custom };
   return invoke("harness_resolve_grok");
+}
+
+export async function resolveAntigravityBinary(): Promise<{ path: string }> {
+  const custom = getCustomBinary("antigravity");
+  if (custom) return { path: custom };
+  return invoke("harness_resolve_antigravity");
 }
 
 export function freeHarnessPort(): Promise<number> {

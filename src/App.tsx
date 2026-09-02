@@ -3985,9 +3985,7 @@ export default function App({
 
   return (
     <div
-      className={`flex h-full text-content ${
-        IS_MAC ? "bg-background-base/40" : "bg-background-base"
-      }`}
+      className="flex h-full text-content bg-transparent"
     >
       <Sidebar
         cwd={sidebarCwd}

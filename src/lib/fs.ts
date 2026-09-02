@@ -34,6 +34,7 @@ export type DiscoveredSkill = {
     | "omp"
     | "fx"
     | "grok"
+    | "antigravity"
     | "monocode";
 };
 
@@ -286,6 +287,15 @@ export async function pickFolder(title = "Open project"): Promise<string | null>
   const selected = await open({
     directory: true,
     multiple: false,
+    title,
+  });
+  return typeof selected === "string" && selected ? selected : null;
+}
+
+export async function pickFile(title = "Select binary"): Promise<string | null> {
+  const selected = await open({
+    multiple: false,
+    directory: false,
     title,
   });
   return typeof selected === "string" && selected ? selected : null;

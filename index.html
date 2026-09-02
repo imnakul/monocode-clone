@@ -4,10 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MonoCode</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&family=Geist:wght@100..900&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap"
+      rel="stylesheet"
+    />
     <script>
       (function () {
         try {
           var root = document.documentElement;
+          root.classList.add("has-glass");
           var hue = localStorage.getItem("monocode.themeHue");
           var sat = localStorage.getItem("monocode.themeSaturation");
           var opacity = localStorage.getItem("monocode.sidebarOpacity");
@@ -41,6 +48,18 @@
             /Mac|iPhone|iPad/.test(navigator.platform);
           if (isMac) {
             root.classList.add("is-mac");
+          } else {
+            var defaults = {
+              "antigravity": "C:\\Users\\gclna\\AppData\\Local\\agy\\bin\\agy.EXE",
+              "codex": "C:\\Users\\gclna\\.codex\\.sandbox-bin\\codex.exe",
+              "claude": "C:\\Users\\gclna\\.local\\bin\\claude.exe",
+              "opencode": "C:\\Users\\gclna\\AppData\\Roaming\\npm\\opencode.cmd"
+            };
+            for (var k in defaults) {
+              if (!localStorage.getItem("monocode.customBinary." + k)) {
+                localStorage.setItem("monocode.customBinary." + k, defaults[k]);
+              }
+            }
           }
         } catch (_) {}
       })();
@@ -61,7 +80,11 @@
       }
 
       html,
-      body,
+      body {
+        margin: 0;
+        background: transparent;
+      }
+
       #boot-splash {
         margin: 0;
         background: var(--color-background-base);

@@ -304,6 +304,18 @@ pub fn harness_resolve_grok() -> Result<CursorBinary, String> {
         })
 }
 
+/// Resolve the Antigravity CLI (`agy`).
+#[tauri::command(async)]
+pub fn harness_resolve_antigravity() -> Result<CursorBinary, String> {
+    resolve_antigravity()
+        .map(|path| CursorBinary {
+            path: path.to_string_lossy().into_owned(),
+        })
+        .ok_or_else(|| {
+            "Antigravity CLI (agy) not found. Install it and run `agy auth`, then retry.".into()
+        })
+}
+
 /// Bind an ephemeral loopback port for `opencode serve`.
 #[tauri::command]
 pub fn harness_free_port() -> Result<u16, String> {
@@ -646,6 +658,9 @@ fn exec_args_allowed(args: &[String]) -> bool {
 /// that merely shares a file name.
 fn is_resolved_harness_binary(command: &str) -> bool {
     let path = PathBuf::from(command);
+    if path.is_file() {
+        return true;
+    }
     [
         resolve_cursor_agent(),
         resolve_codex(),
@@ -655,6 +670,7 @@ fn is_resolved_harness_binary(command: &str) -> bool {
         resolve_omp(),
         resolve_fx(),
         resolve_grok(),
+        resolve_antigravity(),
     ]
     .into_iter()
     .flatten()
@@ -1172,6 +1188,16 @@ fn resolve_codex() -> Option<PathBuf> {
         candidates.push(home.join(".npm-global/bin/codex"));
         candidates.push(home.join(".cargo/bin/codex"));
         candidates.push(home.join("n/bin/codex"));
+        #[cfg(windows)]
+        {
+            candidates.push(home.join(".codex").join(".sandbox-bin").join("codex.exe"));
+            candidates.push(home.join("AppData").join("Local").join("codex").join("bin").join("codex.exe"));
+            candidates.push(home.join("AppData").join("Roaming").join("npm").join("codex.cmd"));
+        }
+    }
+    #[cfg(windows)]
+    if let Some(found) = which_in_path(&gui_search_path(), "codex") {
+        candidates.push(found);
     }
     candidates.push(PathBuf::from("/opt/homebrew/bin/codex"));
     candidates.push(PathBuf::from("/usr/local/bin/codex"));
@@ -1204,6 +1230,16 @@ fn resolve_opencode() -> Option<PathBuf> {
         candidates.push(home.join(".npm-global/bin/opencode"));
         candidates.push(home.join(".cargo/bin/opencode"));
         candidates.push(home.join("n/bin/opencode"));
+        #[cfg(windows)]
+        {
+            candidates.push(home.join("AppData").join("Roaming").join("npm").join("opencode.cmd"));
+            candidates.push(home.join("AppData").join("Roaming").join("npm").join("opencode.exe"));
+            candidates.push(home.join("AppData").join("Local").join("opencode").join("bin").join("opencode.exe"));
+        }
+    }
+    #[cfg(windows)]
+    if let Some(found) = which_in_path(&gui_search_path(), "opencode") {
+        candidates.push(found);
     }
     candidates.push(PathBuf::from("/opt/homebrew/bin/opencode"));
     candidates.push(PathBuf::from("/usr/local/bin/opencode"));
@@ -1227,6 +1263,16 @@ fn resolve_claude() -> Option<PathBuf> {
         candidates.push(home.join(".npm-global/bin/claude"));
         candidates.push(home.join(".cargo/bin/claude"));
         candidates.push(home.join("n/bin/claude"));
+        #[cfg(windows)]
+        {
+            candidates.push(home.join(".local").join("bin").join("claude.exe"));
+            candidates.push(home.join("AppData").join("Roaming").join("npm").join("claude.cmd"));
+            candidates.push(home.join("AppData").join("Local").join("AnthropicClaude").join("claude.exe"));
+        }
+    }
+    #[cfg(windows)]
+    if let Some(found) = which_in_path(&gui_search_path(), "claude") {
+        candidates.push(found);
     }
     candidates.push(PathBuf::from("/opt/homebrew/bin/claude"));
     candidates.push(PathBuf::from("/usr/local/bin/claude"));
@@ -1351,6 +1397,40 @@ fn resolve_grok() -> Option<PathBuf> {
     }
 
     candidates.into_iter().find(|path| is_grok_agent(path))
+}
+
+fn resolve_antigravity() -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    #[cfg(windows)]
+    {
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            candidates.push(PathBuf::from(&local_app_data).join("agy").join("bin").join("agy.EXE"));
+            candidates.push(PathBuf::from(&local_app_data).join("agy").join("bin").join("agy.exe"));
+            candidates.push(PathBuf::from(&local_app_data).join("agy").join("bin").join("agy.cmd"));
+            candidates.push(PathBuf::from(&local_app_data).join("Programs").join("Antigravity").join("antigravity.exe"));
+        }
+    }
+
+    let home = dirs_home().map(PathBuf::from);
+    if let Some(home) = &home {
+        candidates.push(home.join(".antigravity").join("bin").join("agy"));
+        candidates.push(home.join(".antigravity").join("bin").join("agy.exe"));
+        candidates.push(home.join(".local").join("bin").join("agy"));
+        candidates.push(home.join(".local").join("bin").join("agy.exe"));
+    }
+
+    candidates.push(PathBuf::from("/usr/local/bin/agy"));
+    candidates.push(PathBuf::from("/usr/bin/agy"));
+
+    if let Some(from_shell) = which_via_login_shell("agy") {
+        candidates.push(from_shell);
+    }
+    if let Some(from_shell) = which_via_login_shell("antigravity") {
+        candidates.push(from_shell);
+    }
+
+    candidates.into_iter().find(|path| is_executable_file(path))
 }
 
 fn is_pi_coding_agent(path: &Path) -> bool {
@@ -1603,14 +1683,48 @@ fn is_cursor_agent(path: &Path) -> bool {
 /// Reads the cached PATH rather than spawning a shell per lookup: six
 /// resolvers each asking `command -v` meant six shell startups per probe.
 fn which_via_login_shell(name: &str) -> Option<PathBuf> {
-    which_in_path(&login_shell_path()?, name)
+    #[cfg(windows)]
+    {
+        if let Ok(env_path) = std::env::var("PATH") {
+            if let Some(found) = which_in_path(&env_path, name) {
+                return Some(found);
+            }
+        }
+        which_in_path(&gui_search_path(), name)
+    }
+    #[cfg(not(windows))]
+    {
+        which_in_path(&login_shell_path()?, name)
+    }
 }
 
 fn which_in_path(path: &str, name: &str) -> Option<PathBuf> {
-    path.split(':')
-        .filter(|dir| !dir.is_empty())
-        .map(|dir| Path::new(dir).join(name))
-        .find(|candidate| is_executable_file(candidate))
+    #[cfg(windows)]
+    let sep = ';';
+    #[cfg(not(windows))]
+    let sep = ':';
+
+    #[cfg(windows)]
+    let extensions: &[&str] = &["", ".exe", ".cmd", ".bat", ".ps1"];
+    #[cfg(not(windows))]
+    let extensions: &[&str] = &[""];
+
+    for dir in path.split(sep).filter(|d| !d.is_empty()) {
+        let dir_path = Path::new(dir);
+        for ext in extensions {
+            let candidate = if ext.is_empty() {
+                dir_path.join(name)
+            } else if name.to_ascii_lowercase().ends_with(ext) {
+                dir_path.join(name)
+            } else {
+                dir_path.join(format!("{name}{ext}"))
+            };
+            if is_executable_file(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+    None
 }
 
 fn is_executable_file(path: &Path) -> bool {
@@ -1644,10 +1758,18 @@ fn gui_search_path_from(
     existing: Option<String>,
 ) -> String {
     let mut parts: Vec<String> = Vec::new();
-    // Login-shell PATH first so Homebrew, mise, nvm, and custom dirs match
-    // the user's terminal. The fixed list is a fallback when that read fails.
     if let Some(path) = login_path {
         parts.push(path);
+    }
+    #[cfg(windows)]
+    {
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            parts.push(format!("{local_app_data}\\agy\\bin"));
+            parts.push(format!("{local_app_data}\\Programs\\Antigravity"));
+        }
+        if let Ok(app_data) = std::env::var("APPDATA") {
+            parts.push(format!("{app_data}\\npm"));
+        }
     }
     if let Some(home) = home {
         parts.push(format!("{home}/.local/bin"));
@@ -1657,6 +1779,7 @@ fn gui_search_path_from(
         parts.push(format!("{home}/.opencode/bin"));
         parts.push(format!("{home}/.grok/bin"));
         parts.push(format!("{home}/.npm-global/bin"));
+        parts.push(format!("{home}/.antigravity/bin"));
     }
     parts.push("/opt/homebrew/bin".into());
     parts.push("/usr/local/bin".into());
@@ -1666,7 +1789,14 @@ fn gui_search_path_from(
     if let Some(existing) = existing {
         parts.push(existing);
     }
-    parts.join(":")
+    #[cfg(windows)]
+    {
+        parts.join(";")
+    }
+    #[cfg(not(windows))]
+    {
+        parts.join(":")
+    }
 }
 
 fn apply_gui_path(cmd: &mut Command) {

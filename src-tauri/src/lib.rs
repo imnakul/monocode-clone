@@ -149,11 +149,25 @@ pub fn run() {
                     macos::install(&window);
                 }
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "linux")]
             {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.set_decorations(false);
                     let _ = window.set_shadow(true);
+                }
+            }
+            #[cfg(target_os = "windows")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_decorations(false);
+                    let _ = window.set_shadow(false);
+                    let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+                    let _ = window_vibrancy::apply_tabbed(&window, Some(true))
+                        .or_else(|_| window_vibrancy::apply_mica(&window, Some(true)))
+                        .or_else(|_| window_vibrancy::apply_acrylic(&window, Some((10, 10, 15, 10))))
+                        .or_else(|_| window_vibrancy::apply_blur(&window, Some((10, 10, 15, 10))));
+                    let _ = window.show();
+                    let _ = window.set_focus();
                 }
             }
             Ok(())
@@ -225,6 +239,7 @@ pub fn run() {
             harness::harness_resolve_pi,
             harness::harness_resolve_fx,
             harness::harness_resolve_grok,
+            harness::harness_resolve_antigravity,
             harness::harness_free_port,
             harness::harness_spawn,
             harness::harness_write,
@@ -295,6 +310,14 @@ pub fn run() {
                 macos::prefer_bundle_dock_icon();
             }
             window::ensure_launch_window_visible(handle);
+            #[cfg(target_os = "windows")]
+            {
+                if let Some(window) = handle.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
         }
         tauri::RunEvent::WindowEvent {
             label,

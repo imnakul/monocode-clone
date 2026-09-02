@@ -1,6 +1,7 @@
 import type { HarnessId } from "../session";
 import { HARNESSES } from "../session";
 import {
+  resolveAntigravityBinary,
   resolveClaudeBinary,
   resolveCodexBinary,
   resolveCursorBinary,
@@ -10,6 +11,7 @@ import {
   resolveOpenCodeBinary,
   resolvePiBinary,
 } from "./child";
+import { getCustomBinary } from "./customBinary";
 import { isLiveHarness } from "./registry";
 
 export type HarnessAvailability = Record<HarnessId, boolean>;
@@ -30,6 +32,10 @@ const CLI: Record<HarnessId, { name: string; install?: string }> = {
   pi: { name: "Pi CLI", install: "npm i -g @earendil-works/pi-coding-agent" },
   omp: { name: "omp CLI", install: "curl -fsSL https://omp.sh/install | sh" },
   fx: { name: "fx CLI", install: "curl -fsSL https://fx.sh/setup.sh | bash" },
+  antigravity: {
+    name: "Antigravity CLI (agy)",
+    install: "curl -fsSL https://antigravity.google/install.sh | bash",
+  },
 };
 
 let availability: HarnessAvailability = {
@@ -41,6 +47,7 @@ let availability: HarnessAvailability = {
   pi: false,
   omp: false,
   fx: false,
+  antigravity: false,
 };
 let version = 0;
 let inflight: Promise<void> | null = null;
@@ -94,6 +101,7 @@ export function probeHarnessAvailability(
   }
   inflight = Promise.all(
     HARNESSES.map(async (id) => {
+      if (getCustomBinary(id)) return [id, true] as const;
       if (!isLiveHarness(id)) return [id, false] as const;
       if (id === "cursor") {
         try {
@@ -154,6 +162,14 @@ export function probeHarnessAvailability(
       if (id === "grok") {
         try {
           await resolveGrokBinary();
+          return [id, true] as const;
+        } catch {
+          return [id, false] as const;
+        }
+      }
+      if (id === "antigravity") {
+        try {
+          await resolveAntigravityBinary();
           return [id, true] as const;
         } catch {
           return [id, false] as const;

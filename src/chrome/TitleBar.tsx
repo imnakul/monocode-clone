@@ -742,13 +742,7 @@ function TitleBarComponent({
           </div>
         </div>
 
-        {IS_MAC ? null : (
-          <div className="flex min-w-0 flex-1 items-center justify-center px-4">
-            <span className="pointer-events-none truncate text-[11.5px] font-medium text-content/40 select-none">
-              {systemTitle}
-            </span>
-          </div>
-        )}
+        <div className="flex-1" />
         {trailingControls}
       </div>
     </header>

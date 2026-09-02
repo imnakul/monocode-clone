@@ -2192,6 +2192,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
  "ureq",
+ "window-vibrancy",
 ]
 
 [[package]]

@@ -18,6 +18,7 @@ export const HARNESS_ICONS: Record<HarnessId, string> = {
   pi,
   omp,
   fx,
+  antigravity: cursor,
 };
 
 /** White marks that must follow `currentColor` so they stay visible in light mode. */
@@ -28,6 +29,7 @@ export const MONOCHROME_HARNESSES = new Set<HarnessId>([
   "pi",
   "omp",
   "fx",
+  "antigravity",
 ]);
 
 function MonoIcon({
@@ -114,6 +116,13 @@ export function HarnessIcon({
           fillRule="evenodd"
           d="M15.5 17H26.5V25.5H15.5V17ZM19 20V22.5H20.5V20H19ZM22.5 20V22.5H24V20H22.5Z"
         />
+      </MonoIcon>
+    );
+  }
+  if (harness === "antigravity") {
+    return (
+      <MonoIcon className={className} viewBox="0 0 24 24">
+        <path d="M12 2L14.4 9.6L22 12L14.4 14.4L12 22L9.6 14.4L2 12L9.6 9.6L12 2Z" />
       </MonoIcon>
     );
   }

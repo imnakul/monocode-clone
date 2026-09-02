@@ -1,6 +1,5 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-#[cfg(target_os = "macos")]
 use tauri::window::Color;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WebviewWindowBuilder};
 
@@ -36,6 +35,15 @@ pub fn open_new_window(app: &AppHandle) -> Result<(), String> {
         let _ = window.set_shadow(true);
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+        let _ = window_vibrancy::apply_tabbed(&window, Some(true))
+            .or_else(|_| window_vibrancy::apply_mica(&window, Some(true)))
+            .or_else(|_| window_vibrancy::apply_acrylic(&window, Some((10, 10, 15, 10))))
+            .or_else(|_| window_vibrancy::apply_blur(&window, Some((10, 10, 15, 10))));
+    }
+
     let _ = window.set_focus();
     Ok(())
 }
@@ -48,7 +56,15 @@ pub fn enable_window_glass(window: WebviewWindow) {
         let _ = window.set_background_color(Some(Color(0, 0, 0, 3)));
         crate::macos::enable_glass(&window);
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+        let _ = window_vibrancy::apply_tabbed(&window, Some(true))
+            .or_else(|_| window_vibrancy::apply_mica(&window, Some(true)))
+            .or_else(|_| window_vibrancy::apply_acrylic(&window, Some((10, 10, 15, 10))))
+            .or_else(|_| window_vibrancy::apply_blur(&window, Some((10, 10, 15, 10))));
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = window;
     }

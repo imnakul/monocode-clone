@@ -14,10 +14,10 @@
   --color-skill: #e8c547;
   --color-mention: #38bdf8;
   --font-mono:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "SF Mono", "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
   --font-sans:
-    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    "SF Pro Display", "SF Pro Text", "SF Pro", -apple-system, BlinkMacSystemFont, "Geist", "Inter", "Segoe UI", Roboto, Oxygen,
     Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
 }
 
@@ -55,7 +55,7 @@ body,
   width: 100%;
   height: 100%;
   margin: 0;
-  background: var(--color-background-base);
+  background: transparent;
   color: var(--color-content);
   overflow: hidden;
   overscroll-behavior: none;
@@ -71,6 +71,7 @@ html:not(.is-mac) #root {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  letter-spacing: -0.011em;
 }
 
 html:not(.is-mac) ::-webkit-scrollbar {
@@ -96,24 +97,40 @@ html:not(.is-mac) ::-webkit-scrollbar-corner {
 }
 
 html.is-mac,
+html.has-glass,
 html.is-mac body,
-html.is-mac #root {
+html.has-glass body,
+html.is-mac #root,
+html.has-glass #root {
   background: transparent;
 }
 
 .sidebar-glass {
-  background: color-mix(in srgb, var(--color-background-base) 90%, black);
-}
-
-html.theme-light .sidebar-glass {
-  background: color-mix(in srgb, var(--color-background-base) 93%, black 7%);
-}
-
-html.is-mac .sidebar-glass {
   background: hsl(
     var(--theme-hue) var(--theme-saturation) var(--background-lightness) /
       var(--sidebar-opacity)
   );
+  backdrop-filter: blur(var(--window-blur-radius, 20px));
+  -webkit-backdrop-filter: blur(var(--window-blur-radius, 20px));
+}
+
+html.theme-light .sidebar-glass {
+  background: hsl(
+    var(--theme-hue) var(--theme-saturation) var(--background-lightness) /
+      var(--sidebar-opacity)
+  );
+  backdrop-filter: blur(var(--window-blur-radius, 20px));
+  -webkit-backdrop-filter: blur(var(--window-blur-radius, 20px));
+}
+
+html.is-mac .sidebar-glass,
+html.has-glass .sidebar-glass {
+  background: hsl(
+    var(--theme-hue) var(--theme-saturation) var(--background-lightness) /
+      var(--sidebar-opacity)
+  );
+  backdrop-filter: blur(var(--window-blur-radius, 20px));
+  -webkit-backdrop-filter: blur(var(--window-blur-radius, 20px));
 }
 
 .body-glass {
@@ -143,12 +160,15 @@ html.is-mac .sidebar-glass {
   min-height: var(--transcript-viewport, 0px);
 }
 
-html.is-mac.glass-body .body-glass {
+html.is-mac.glass-body .body-glass,
+html.has-glass.glass-body .body-glass {
   background: color-mix(
     in srgb,
     var(--color-background-base) calc(var(--sidebar-opacity) * 100%),
     transparent
   );
+  backdrop-filter: blur(var(--window-blur-radius, 20px));
+  -webkit-backdrop-filter: blur(var(--window-blur-radius, 20px));
 }
 
 textarea,
