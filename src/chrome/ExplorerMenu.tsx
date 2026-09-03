@@ -122,6 +122,7 @@ export function ExplorerMenu({
             key={item.id}
             type="button"
             role={item.checked == null ? "menuitem" : "menuitemcheckbox"}
+            data-shared-hover-tone={item.danger ? "danger" : undefined}
             aria-checked={item.checked}
             disabled={item.disabled}
             onMouseDown={(e) => e.preventDefault()}

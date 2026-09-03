@@ -68,6 +68,7 @@ import { DevModeSlot, TabVisitNav } from "./TitleBar";
 import { SidebarUpdateFooter } from "./SidebarUpdate";
 import type { InstalledUpdate } from "../lib/updateNotice";
 import { SettingsNav } from "./SettingsRail";
+import { SharedHoverHighlight } from "./SharedHoverHighlight";
 import { Shimmer } from "../surfaces/Shimmer";
 import { TabGroupMenu, type TabGroupMenuExtraItem } from "./TabGroupMenu";
 import { TerminalSpinner } from "./TerminalSpinner";
@@ -356,6 +357,7 @@ export function ProjectRail({
       aria-label="Projects"
       className="sidebar-glass relative flex shrink-0 flex-col border-r border-content/10"
     >
+      <SharedHoverHighlight />
       <div
         className="flex h-10 shrink-0 select-none items-center pr-1.5"
         data-tauri-drag-region="deep"
@@ -704,6 +706,8 @@ function LiveAgentCard({
   return (
     <button
       type="button"
+      data-shared-hover-item
+      data-shared-hover-preserve={selected ? "" : undefined}
       title={title}
       aria-label={[agent.title, project, activity, elapsed]
         .filter(Boolean)
@@ -918,6 +922,8 @@ function ProjectCard({
   return (
     <div
       ref={(el) => sortable.setItemRef(item.path, el)}
+      data-shared-hover-item
+      data-shared-hover-preserve={selected ? "" : undefined}
       className={`group relative flex touch-none items-stretch rounded-md px-2 h-8 ${
         selected
           ? "bg-content/12 text-content"

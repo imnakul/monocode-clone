@@ -24,6 +24,8 @@ export function RailAction({
   return (
     <button
       type="button"
+      data-shared-hover-item
+      data-shared-hover-preserve={active ? "" : undefined}
       onClick={onClick}
       disabled={!onClick}
       aria-label={ariaLabel ?? label}
@@ -77,6 +79,8 @@ export function RailSearch({
   return (
     <button
       type="button"
+      data-shared-hover-item
+      data-shared-hover-preserve={active ? "" : undefined}
       onClick={onClick}
       disabled={!onClick}
       aria-label={ariaLabel ?? label}

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { LAYER } from "../lib/layers";
+import { SharedHoverHighlight } from "./SharedHoverHighlight";
 import {
   placePopover,
   type AnchorRect,
@@ -247,6 +248,7 @@ export function Popover({
       style={{ ...placed, zIndex: layer, ...style }}
       className={`${position ? "popover-open " : ""}${bare ? "" : `${SURFACE} `}${className ?? ""}`}
     >
+      <SharedHoverHighlight />
       {children}
     </div>,
     document.body,

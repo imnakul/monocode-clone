@@ -118,6 +118,7 @@ import { ProjectSearch } from "./ProjectSearch";
 import { ProjectLogoIcon } from "./ProjectLogoIcon";
 import { ProjectMascot } from "./ProjectMascot";
 import { SessionFiltersMenu } from "./SessionFiltersMenu";
+import { SharedHoverHighlight } from "./SharedHoverHighlight";
 import { SessionsEmpty } from "./SessionsEmpty";
 import { SidebarUpdateFooter } from "./SidebarUpdate";
 import { SourceControl } from "./SourceControl";
@@ -859,6 +860,8 @@ function SidebarComponent({
         <button
           type="button"
           role="tab"
+          data-shared-hover-item
+          data-shared-hover-preserve={active ? "" : undefined}
           aria-selected={active}
           aria-label={
             isChangesTab
@@ -899,6 +902,7 @@ function SidebarComponent({
       ref={resize.setPaneRef}
       className="sidebar-glass relative flex h-full min-h-0 shrink-0 flex-col border-r border-content/10"
     >
+      <SharedHoverHighlight />
       {railVisible ? (
         <>
           <div
@@ -1189,6 +1193,7 @@ function SidebarComponent({
                                   <div className="border-t border-content/10 p-1">
                                     <button
                                       type="button"
+                                      data-shared-hover-item
                                       data-no-drag
                                       data-tauri-drag-region="false"
                                       title="New session"
@@ -1621,6 +1626,8 @@ function FolderRow({
   return (
     <button
       type="button"
+      data-shared-hover-item
+      data-shared-hover-preserve={dropTarget ? "" : undefined}
       title={folder.name}
       aria-expanded={expanded}
       data-tauri-drag-region="false"
@@ -1950,6 +1957,10 @@ function SessionCard({
   return (
     <button
       type="button"
+      data-shared-hover-item
+      data-shared-hover-preserve={
+        isActive || needsApproval || dropTarget ? "" : undefined
+      }
       title={title}
       aria-current={isActive ? "true" : undefined}
       data-session-card={session.id}

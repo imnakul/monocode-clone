@@ -520,6 +520,9 @@ function ModelList({
           <div
             key={item.id}
             ref={highlighted ? activeRef : undefined}
+            data-shared-hover-item
+            data-shared-hover-disabled={disabled ? "" : undefined}
+            data-shared-hover-preserve={selected ? "" : undefined}
             onMouseEnter={() => onActive(index)}
             className={`flex w-full items-center gap-1 rounded-lg px-1 ${
               disabled

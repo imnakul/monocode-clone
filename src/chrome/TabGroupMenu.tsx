@@ -354,6 +354,7 @@ function MenuRow({
     <button
       type="button"
       role="menuitem"
+      data-shared-hover-tone={item.danger ? "danger" : undefined}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onPick}
       className={`flex h-8 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] leading-none ${

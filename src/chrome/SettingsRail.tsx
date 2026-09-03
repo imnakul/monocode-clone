@@ -69,6 +69,8 @@ function NavRow({
   return (
     <button
       type="button"
+      data-shared-hover-item
+      data-shared-hover-preserve={active ? "" : undefined}
       onClick={onClick}
       aria-current={active ? "true" : undefined}
       className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left ${

@@ -1,3 +1,4 @@
+import { nativeModelId } from "../models";
 import {
   killChild,
   resolveAntigravityBinary,
@@ -38,7 +39,11 @@ export async function sendAntigravityTurn(input: SendTurnInput): Promise<void> {
     },
   );
 
-  await spawnChild(sessionId, path, ["--prompt", text], cwd);
+  const model = nativeModelId(input.model);
+  const args = model
+    ? ["--model", model, "--prompt", text]
+    : ["--prompt", text];
+  await spawnChild(sessionId, path, args, cwd);
 }
 
 export function steerAntigravityTurn(input: SteerTurnInput): Promise<void> {

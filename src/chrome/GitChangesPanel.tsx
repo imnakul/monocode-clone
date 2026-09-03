@@ -793,6 +793,8 @@ function ChangeRow({
   return (
     <li>
       <div
+        data-shared-hover-item
+        data-shared-hover-preserve={active ? "" : undefined}
         className={`group flex h-7 w-full items-center gap-1 px-2 leading-none ${
           active
             ? "bg-content/10 text-content"

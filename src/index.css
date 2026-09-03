@@ -1,4 +1,13 @@
 @import "tailwindcss";
+
+[data-shared-hover-active="true"] {
+  position: relative;
+  z-index: 2;
+}
+
+[data-shared-hover-active="true"]:not([data-shared-hover-preserve]) {
+  background-color: transparent !important;
+}
 @source "../node_modules/streamdown/dist/*.js";
 @source "../node_modules/@streamdown/code/dist/*.js";
 @source "../node_modules/@streamdown/mermaid/dist/*.js";
@@ -18,7 +27,7 @@
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
   --font-sans:
-    "SF Pro Text", "SF Pro Display", "SF Pro", -apple-system, BlinkMacSystemFont,
+    "SF Pro", "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont,
     "Segoe UI Variable Text", "Segoe UI", "Geist", "Inter", Roboto, Oxygen,
     Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
 }

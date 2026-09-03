@@ -187,6 +187,8 @@ export function CwdPicker({
     >
       <button
         type="button"
+        data-shared-hover-item
+        data-shared-hover-preserve={open ? "" : undefined}
         title={cwd}
         aria-label={`Project ${label}`}
         aria-expanded={open}

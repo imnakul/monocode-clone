@@ -125,6 +125,7 @@ export function AccessPicker({ value, onChange, onClose }: Props) {
                 key={mode}
                 type="button"
                 role="option"
+                data-shared-hover-preserve={selected ? "" : undefined}
                 aria-selected={selected}
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setActive(index)}

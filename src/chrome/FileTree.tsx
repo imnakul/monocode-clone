@@ -944,6 +944,8 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
         <button
           type="button"
           role="treeitem"
+          data-shared-hover-item
+          data-shared-hover-preserve={selected ? "" : undefined}
           title={entry.path}
           aria-expanded={entry.isDir ? open : undefined}
           onClick={onClick}

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
+import { SharedHoverHighlight } from "./SharedHoverHighlight";
 import { MOD, SHIFT } from "../lib/platform";
 import { runUpdateFlow } from "../lib/updater";
 
@@ -210,15 +211,18 @@ export function MenuBar({
   return (
     <div
       ref={barRef}
-      className="flex h-7 shrink-0 items-center gap-0.5 border-b border-content/10 bg-content/5 px-2 text-[12px]"
+      className="relative flex h-7 shrink-0 items-center gap-0.5 border-b border-content/10 bg-content/5 px-2 text-[12px]"
       data-tauri-drag-region="false"
     >
+      <SharedHoverHighlight />
       {MENUS.map(({ key, label }) => {
         const isActive = activeMenu === key;
         return (
           <button
             key={key}
             type="button"
+            data-shared-hover-item
+            data-shared-hover-preserve={isActive ? "" : undefined}
             data-tauri-drag-region="false"
             onClick={(e) => {
               if (isActive) {
