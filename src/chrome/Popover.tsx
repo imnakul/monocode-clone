@@ -56,7 +56,7 @@ type Props = Omit<ComponentPropsWithoutRef<"div">, "style"> & {
 };
 
 const SURFACE =
-  "rounded-xl border border-content/10 bg-content/10 shadow-xl backdrop-blur-xl outline-none";
+  "popover-surface rounded-xl border border-content/10 shadow-xl outline-none";
 
 /** Which corner the open animation grows from, so it reads as anchored. */
 function origin(side: PopoverSide, align: PopoverAlign): string {

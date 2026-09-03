@@ -14,7 +14,12 @@ import {
   scanOscCwd,
   type TerminalMetaPatch,
 } from "../lib/terminalTab";
-import { isLightScheme, SCHEME_CHANGE_EVENT } from "../lib/appearance";
+import {
+  isLightScheme,
+  loadTerminalFontSize,
+  SCHEME_CHANGE_EVENT,
+  TYPOGRAPHY_CHANGE_EVENT,
+} from "../lib/appearance";
 import {
   applyTerminalChrome,
   fitTerminal,
@@ -97,9 +102,9 @@ function terminalTheme(light: boolean) {
 
 function monoFont(): string {
   const fromCss = getComputedStyle(document.documentElement)
-    .getPropertyValue("--font-mono")
+    .getPropertyValue("--font-terminal")
     .trim();
-  return fromCss || "ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
+  return fromCss || "ui-monospace, Cascadia Mono, Consolas, monospace";
 }
 
 // OSC 10/11/12 replies so CLIs (vim, tmux, …) pick matching colors.
@@ -129,7 +134,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       cursorBlink: true,
       cursorStyle: "bar",
       fontFamily: monoFont(),
-      fontSize: 13,
+      fontSize: loadTerminalFontSize(),
       lineHeight: 1,
       letterSpacing: 0,
       scrollback: 5000,
@@ -276,6 +281,15 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       });
     };
 
+    const onTypographyChange = () => {
+      term.options.fontFamily = monoFont();
+      term.options.fontSize = loadTerminalFontSize();
+      lastCols = 0;
+      lastRows = 0;
+      schedule();
+    };
+    window.addEventListener(TYPOGRAPHY_CHANGE_EVENT, onTypographyChange);
+
     applySizeRef.current = applySize;
     const renderSub = term.onRender(() => {
       if (!spawned.current) applySize();
@@ -296,6 +310,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       host.removeEventListener("copy", onCopy);
       host.removeEventListener("paste", onPaste);
       window.removeEventListener(SCHEME_CHANGE_EVENT, onSchemeChange);
+      window.removeEventListener(TYPOGRAPHY_CHANGE_EVENT, onTypographyChange);
       dataSub.dispose();
       oscFg.dispose();
       oscBg.dispose();

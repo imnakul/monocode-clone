@@ -18,17 +18,63 @@ import {
 import { HarnessIcon } from "../chrome/HarnessIcon";
 import { InboxProviderMark } from "../chrome/InboxProviderMark";
 import { RemoveProjectDialog } from "../chrome/RemoveProjectDialog";
+import { SelectMenu } from "../chrome/SelectMenu";
 import { WindowControls } from "../chrome/WindowControls";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import {
   applyBodyGlass,
+  applyPopoverBlur,
+  applyPopoverHighlight,
+  applyWallpaperOpacity,
+  applyWallpaperPath,
+  applyWindowGlassStrength,
+  applyPopoverSurfaceOpacity,
+  applyTerminalFont,
+  applyTerminalFontSize,
+  applyUiFont,
+  applyUiFontSize,
   applyThemePreference,
   applySidebarBlur,
   applySidebarOpacity,
   applyThemeTint,
   BODY_GLASS_DEFAULT,
+  POPOVER_BLUR_DEFAULT,
+  POPOVER_BLUR_MAX,
+  POPOVER_BLUR_MIN,
+  POPOVER_HIGHLIGHT_DEFAULT,
+  POPOVER_HIGHLIGHT_MAX,
+  POPOVER_HIGHLIGHT_MIN,
+  WALLPAPER_OPACITY_DEFAULT,
+  WALLPAPER_OPACITY_MAX,
+  WALLPAPER_OPACITY_MIN,
+  WINDOW_GLASS_STRENGTH_DEFAULT,
+  WINDOW_GLASS_STRENGTH_MAX,
+  WINDOW_GLASS_STRENGTH_MIN,
+  POPOVER_SURFACE_OPACITY_DEFAULT,
+  POPOVER_SURFACE_OPACITY_MAX,
+  POPOVER_SURFACE_OPACITY_MIN,
+  TERMINAL_FONT_DEFAULT,
+  TERMINAL_FONT_OPTIONS,
+  TERMINAL_FONT_SIZE_DEFAULT,
+  TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_FONT_SIZE_MIN,
+  UI_FONT_DEFAULT,
+  UI_FONT_OPTIONS,
+  UI_FONT_SIZE_DEFAULT,
+  UI_FONT_SIZE_MAX,
+  UI_FONT_SIZE_MIN,
   THEME_PREFERENCE_DEFAULT,
   loadBodyGlass,
+  loadPopoverBlur,
+  loadPopoverHighlight,
+  loadWallpaperOpacity,
+  loadWallpaperPath,
+  loadWindowGlassStrength,
+  loadPopoverSurfaceOpacity,
+  loadTerminalFont,
+  loadTerminalFontSize,
+  loadUiFont,
+  loadUiFontSize,
   loadThemePreference,
   loadSidebarBlur,
   loadSidebarOpacity,
@@ -37,6 +83,16 @@ import {
   loadTranscriptLayout,
   loadTranscriptAnchor,
   saveBodyGlass,
+  savePopoverBlur,
+  savePopoverHighlight,
+  saveWallpaperOpacity,
+  saveWallpaperPath,
+  saveWindowGlassStrength,
+  savePopoverSurfaceOpacity,
+  saveTerminalFont,
+  saveTerminalFontSize,
+  saveUiFont,
+  saveUiFontSize,
   saveThemePreference,
   saveSidebarBlur,
   saveSidebarOpacity,
@@ -57,7 +113,9 @@ import {
   THEME_SATURATION_DEFAULT,
   THEME_SATURATION_MAX,
   THEME_SATURATION_MIN,
+  type TerminalFontId,
   type ThemePreference,
+  type UiFontId,
   type TranscriptLayout,
 } from "../lib/appearance";
 import {
@@ -82,7 +140,7 @@ import {
   subscribeModels,
 } from "../lib/models";
 import { prettyCwd, projectName } from "../lib/paths";
-import { pickFile } from "../lib/fs";
+import { pickFile, pickImage } from "../lib/fs";
 import { getCustomBinary, setCustomBinary } from "../lib/harness/customBinary";
 import { IS_MAC, IS_WINDOWS } from "../lib/platform";
 import {
@@ -679,11 +737,53 @@ function useAppearanceSettings() {
   const [themeHue, setThemeHue] = useState(loadThemeHue);
   const [themeSaturation, setThemeSaturation] = useState(loadThemeSaturation);
   const [bodyGlass, setBodyGlass] = useState(loadBodyGlass);
+  const [popoverSurfaceOpacity, setPopoverSurfaceOpacity] = useState(
+    loadPopoverSurfaceOpacity,
+  );
+  const [popoverBlur, setPopoverBlur] = useState(loadPopoverBlur);
+  const [popoverHighlight, setPopoverHighlight] =
+    useState(loadPopoverHighlight);
+  const [wallpaperPath, setWallpaperPath] = useState(loadWallpaperPath);
+  const [wallpaperOpacity, setWallpaperOpacity] =
+    useState(loadWallpaperOpacity);
+  const [windowGlassStrength, setWindowGlassStrength] = useState(
+    loadWindowGlassStrength,
+  );
+  const [uiFont, setUiFont] = useState<UiFontId>(loadUiFont);
+  const [uiFontSize, setUiFontSize] = useState(loadUiFontSize);
+  const [terminalFont, setTerminalFont] =
+    useState<TerminalFontId>(loadTerminalFont);
+  const [terminalFontSize, setTerminalFontSize] =
+    useState(loadTerminalFontSize);
 
   const onThemePreference = useCallback((next: ThemePreference) => {
     applyThemePreference(next);
     saveThemePreference(next);
     setThemePreference(next);
+  }, []);
+
+  const onUiFont = useCallback((value: UiFontId) => {
+    const next = applyUiFont(value);
+    saveUiFont(next);
+    setUiFont(next);
+  }, []);
+
+  const onUiFontSize = useCallback((value: number) => {
+    const next = applyUiFontSize(value);
+    saveUiFontSize(next);
+    setUiFontSize(next);
+  }, []);
+
+  const onTerminalFont = useCallback((value: TerminalFontId) => {
+    const next = applyTerminalFont(value);
+    saveTerminalFont(next);
+    setTerminalFont(next);
+  }, []);
+
+  const onTerminalFontSize = useCallback((value: number) => {
+    const next = applyTerminalFontSize(value);
+    saveTerminalFontSize(next);
+    setTerminalFontSize(next);
   }, []);
 
   const onOpacity = useCallback((percent: number) => {
@@ -712,26 +812,116 @@ function useAppearanceSettings() {
     setBodyGlass(next);
   }, []);
 
+  const onPopoverSurfaceOpacity = useCallback((value: number) => {
+    const next = applyPopoverSurfaceOpacity(value);
+    savePopoverSurfaceOpacity(next);
+    setPopoverSurfaceOpacity(next);
+  }, []);
+
+  const onPopoverBlur = useCallback((value: number) => {
+    const next = applyPopoverBlur(value);
+    savePopoverBlur(next);
+    setPopoverBlur(next);
+  }, []);
+
+  const onPopoverHighlight = useCallback((value: number) => {
+    const next = applyPopoverHighlight(value);
+    savePopoverHighlight(next);
+    setPopoverHighlight(next);
+  }, []);
+
+  const onWallpaperOpacity = useCallback((value: number) => {
+    const next = applyWallpaperOpacity(value);
+    saveWallpaperOpacity(next);
+    setWallpaperOpacity(next);
+  }, []);
+
+  const onWindowGlassStrength = useCallback((value: number) => {
+    const next = applyWindowGlassStrength(value);
+    saveWindowGlassStrength(next);
+    setWindowGlassStrength(next);
+  }, []);
+
+  const onChooseWallpaper = useCallback(async () => {
+    const path = await pickImage("Choose Windows wallpaper");
+    if (!path) return;
+    if (!(await applyWallpaperPath(path))) return;
+    saveWallpaperPath(path);
+    setWallpaperPath(path);
+  }, []);
+
+  const onRemoveWallpaper = useCallback(() => {
+    saveWallpaperPath("");
+    setWallpaperPath("");
+    void applyWallpaperPath("");
+  }, []);
   const restoreDefaults = useCallback(() => {
     onThemePreference(THEME_PREFERENCE_DEFAULT);
+    onUiFont(UI_FONT_DEFAULT);
+    onUiFontSize(UI_FONT_SIZE_DEFAULT);
+    onTerminalFont(TERMINAL_FONT_DEFAULT);
+    onTerminalFontSize(TERMINAL_FONT_SIZE_DEFAULT);
     onOpacity(Math.round(SIDEBAR_OPACITY_DEFAULT * 100));
     onBlur(SIDEBAR_BLUR_DEFAULT);
     onTint(THEME_HUE_DEFAULT, THEME_SATURATION_DEFAULT);
     onBodyGlass(BODY_GLASS_DEFAULT);
-  }, [onBlur, onBodyGlass, onThemePreference, onOpacity, onTint]);
+    onPopoverSurfaceOpacity(POPOVER_SURFACE_OPACITY_DEFAULT);
+    onPopoverBlur(POPOVER_BLUR_DEFAULT);
+    onPopoverHighlight(POPOVER_HIGHLIGHT_DEFAULT);
+    onWallpaperOpacity(WALLPAPER_OPACITY_DEFAULT);
+    onWindowGlassStrength(WINDOW_GLASS_STRENGTH_DEFAULT);
+    onRemoveWallpaper();
+  }, [
+    onBlur,
+    onBodyGlass,
+    onOpacity,
+    onPopoverBlur,
+    onPopoverHighlight,
+    onPopoverSurfaceOpacity,
+    onRemoveWallpaper,
+    onWallpaperOpacity,
+    onWindowGlassStrength,
+    onTerminalFont,
+    onTerminalFontSize,
+    onThemePreference,
+    onTint,
+    onUiFont,
+    onUiFontSize,
+  ]);
 
   return {
     themePreference,
+    uiFont,
+    uiFontSize,
+    terminalFont,
+    terminalFontSize,
     opacity,
     blur,
     themeHue,
     themeSaturation,
     bodyGlass,
+    popoverSurfaceOpacity,
+    popoverBlur,
+    popoverHighlight,
+    wallpaperPath,
+    wallpaperOpacity,
+    windowGlassStrength,
     onThemePreference,
+    onUiFont,
+    onUiFontSize,
+    onTerminalFont,
+    onTerminalFontSize,
     onOpacity,
     onBlur,
     onTint,
     onBodyGlass,
+    onPopoverSurfaceOpacity,
+    onPopoverBlur,
+    onPopoverHighlight,
+    onWallpaperOpacity,
+    onWindowGlassStrength,
+    onChooseWallpaper,
+    onRemoveWallpaper,
     restoreDefaults,
   };
 }
@@ -741,6 +931,63 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
 
   return (
     <>
+      <Heading title="Typography" first />
+      <Row
+        label="Interface font"
+        description="Font used across navigation, settings, conversations, and other app UI. If a font is not installed, its system fallback is used."
+      >
+        <SelectMenu
+          label="Interface font"
+          value={appearance.uiFont}
+          options={UI_FONT_OPTIONS}
+          onChange={(value) => appearance.onUiFont(value as UiFontId)}
+          className="w-40"
+          menuWidth={220}
+        />
+      </Row>
+      <Row
+        label="Interface font size"
+        description="Scale app text without changing the sidebar or panel dimensions."
+      >
+        <Slider
+          label="Interface font size"
+          value={appearance.uiFontSize}
+          display={`${appearance.uiFontSize}%`}
+          min={UI_FONT_SIZE_MIN}
+          max={UI_FONT_SIZE_MAX}
+          onChange={appearance.onUiFontSize}
+        />
+      </Row>
+      <Row
+        label="Terminal font"
+        description="Font used by interactive terminal output and shell commands. Code/editor text keeps its existing monospace stack."
+      >
+        <SelectMenu
+          label="Terminal font"
+          value={appearance.terminalFont}
+          options={TERMINAL_FONT_OPTIONS}
+          onChange={(value) =>
+            appearance.onTerminalFont(value as TerminalFontId)
+          }
+          className="w-40"
+          menuWidth={220}
+        />
+      </Row>
+      <Row
+        label="Terminal font size"
+        description="Font size used by existing and newly opened interactive terminals."
+      >
+        <Slider
+          label="Terminal font size"
+          value={appearance.terminalFontSize}
+          display={`${appearance.terminalFontSize}px`}
+          min={TERMINAL_FONT_SIZE_MIN}
+          max={TERMINAL_FONT_SIZE_MAX}
+          onChange={appearance.onTerminalFontSize}
+        />
+      </Row>
+
+      <Heading title="Theme" />
       <Row
         label="Theme"
         description="System follows the OS appearance. Dark and light share the same tint, so the hue below applies to both."
@@ -756,45 +1003,11 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
           onChange={appearance.onThemePreference}
         />
       </Row>
-      <Row
-        label="Sidebar opacity"
-        description="How much of the desktop shows through the sidebar and the project rail."
-      >
-        <Slider
-          label="Sidebar opacity"
-          value={percent}
-          display={`${percent}%`}
-          min={Math.round(SIDEBAR_OPACITY_MIN * 100)}
-          max={Math.round(SIDEBAR_OPACITY_MAX * 100)}
-          onChange={appearance.onOpacity}
-        />
-      </Row>
-      <Row
-        label="Blur radius"
-        description={
-          IS_WINDOWS
-            ? "Desktop Acrylic blur is controlled by Windows; opacity and tint remain adjustable here."
-            : "Background blur behind the window. Higher values cost more to composite."
-        }
-      >
-        {IS_WINDOWS ? (
-          <span className="text-[12px] text-content/45">System controlled</span>
-        ) : (
-          <Slider
-            label="Blur radius"
-            value={appearance.blur}
-            display={String(appearance.blur)}
-            min={SIDEBAR_BLUR_MIN}
-            max={SIDEBAR_BLUR_MAX}
-            onChange={appearance.onBlur}
-          />
-        )}
-      </Row>
       <Row label="Hue" description="Base hue for accents and tinted surfaces.">
         <Slider
           label="Hue"
           value={appearance.themeHue}
-          display={`${appearance.themeHue}°`}
+          display={`${appearance.themeHue}${String.fromCharCode(176)}`}
           min={THEME_HUE_MIN}
           max={THEME_HUE_MAX}
           onChange={(value) =>
@@ -815,9 +1028,132 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
           onChange={(value) => appearance.onTint(appearance.themeHue, value)}
         />
       </Row>
+
+      <Heading title="Glass & transparency" />
+      <Row
+        label="Window surface opacity"
+        description="Opacity for the sidebar and project rail, and for the main pane when Main pane glass is enabled."
+      >
+        <Slider
+          label="Window surface opacity"
+          value={percent}
+          display={`${percent}%`}
+          min={Math.round(SIDEBAR_OPACITY_MIN * 100)}
+          max={Math.round(SIDEBAR_OPACITY_MAX * 100)}
+          onChange={appearance.onOpacity}
+        />
+      </Row>
+      <Row
+        label="Glass strength"
+        description="Adds app-side tint to Windows glass. With a custom wallpaper it also increases the in-app backdrop blur; it does not change the Windows Acrylic blur kernel."
+      >
+        <Slider
+          label="Glass strength"
+          value={appearance.windowGlassStrength}
+          display={`${appearance.windowGlassStrength}%`}
+          min={WINDOW_GLASS_STRENGTH_MIN}
+          max={WINDOW_GLASS_STRENGTH_MAX}
+          onChange={appearance.onWindowGlassStrength}
+        />
+      </Row>
+      {IS_WINDOWS ? (
+        <>
+          <Row
+            label="Windows wallpaper"
+            description="Place an image inside MonoCode behind the translucent window surfaces. The selected file is re-read from its original location when MonoCode starts."
+          >
+            <SecondaryButton
+              onClick={() => void appearance.onChooseWallpaper()}
+            >
+              {appearance.wallpaperPath ? "Change…" : "Choose…"}
+            </SecondaryButton>
+            {appearance.wallpaperPath ? (
+              <SecondaryButton onClick={appearance.onRemoveWallpaper}>
+                Remove
+              </SecondaryButton>
+            ) : null}
+          </Row>
+          {appearance.wallpaperPath ? (
+            <Row
+              label="Wallpaper opacity"
+              description="Controls how strongly the custom wallpaper shows behind the app glass."
+            >
+              <Slider
+                label="Wallpaper opacity"
+                value={appearance.wallpaperOpacity}
+                display={`${appearance.wallpaperOpacity}%`}
+                min={WALLPAPER_OPACITY_MIN}
+                max={WALLPAPER_OPACITY_MAX}
+                onChange={appearance.onWallpaperOpacity}
+              />
+            </Row>
+          ) : null}
+        </>
+      ) : null}
+      <Row
+        label="Menu surface tint"
+        description="Controls the translucent content-color layer on menus, dropdowns, and popovers. This is independent of window opacity."
+      >
+        <Slider
+          label="Menu surface tint"
+          value={appearance.popoverSurfaceOpacity}
+          display={`${appearance.popoverSurfaceOpacity}%`}
+          min={POPOVER_SURFACE_OPACITY_MIN}
+          max={POPOVER_SURFACE_OPACITY_MAX}
+          onChange={appearance.onPopoverSurfaceOpacity}
+        />
+      </Row>
+      <Row
+        label="Menu item highlight"
+        description="Controls the moving content-color highlight behind menu rows. Values step through 0, 10, 20, and so on up to 100."
+      >
+        <Slider
+          label="Menu item highlight"
+          value={appearance.popoverHighlight}
+          display={`${appearance.popoverHighlight}%`}
+          min={POPOVER_HIGHLIGHT_MIN}
+          max={POPOVER_HIGHLIGHT_MAX}
+          step={10}
+          onChange={appearance.onPopoverHighlight}
+        />
+      </Row>
+      <Row
+        label="Menu backdrop blur"
+        description="Controls the in-app blur behind menus, dropdowns, and popovers without changing the Windows desktop Acrylic blur."
+      >
+        <Slider
+          label="Menu backdrop blur"
+          value={appearance.popoverBlur}
+          display={`${appearance.popoverBlur}px`}
+          min={POPOVER_BLUR_MIN}
+          max={POPOVER_BLUR_MAX}
+          onChange={appearance.onPopoverBlur}
+        />
+      </Row>
+      <Row
+        label="Desktop blur radius"
+        description={
+          IS_WINDOWS
+            ? "Desktop Acrylic blur is composited by Windows and does not expose a supported blur-radius control. Menu blur above remains app-controlled."
+            : "Background blur behind the window. Higher values cost more to composite."
+        }
+      >
+        {IS_WINDOWS ? (
+          <span className="text-[12px] text-content/45">System controlled</span>
+        ) : (
+          <Slider
+            label="Desktop blur radius"
+            value={appearance.blur}
+            display={String(appearance.blur)}
+            min={SIDEBAR_BLUR_MIN}
+            max={SIDEBAR_BLUR_MAX}
+            onChange={appearance.onBlur}
+          />
+        )}
+      </Row>
       <Row
         label="Main pane glass"
-        description="Extend the translucent treatment to the main pane behind sessions and editors."
+        description="Extend the translucent window treatment to the main pane behind sessions and editors."
       >
         <Toggle
           label="Main pane glass"
@@ -1038,7 +1374,7 @@ function ProviderRow({
         {customBinaryPath ? "Change binary…" : "Choose binary…"}
       </SecondaryButton>
       {current ? (
-        <Select
+        <SelectMenu
           label={`${HARNESS_TITLE[harness]} model`}
           value={current.id}
           onChange={(next) => onModelChange(harness, next)}
@@ -1046,6 +1382,9 @@ function ProviderRow({
             value: item.id,
             label: item.name,
           }))}
+          className="w-52"
+          menuWidth={280}
+          maxHeight={420}
         />
       ) : null}
       <SecondaryButton
@@ -1350,6 +1689,7 @@ function Slider({
   display,
   min,
   max,
+  step = 1,
   onChange,
 }: {
   label: string;
@@ -1357,6 +1697,7 @@ function Slider({
   display: string;
   min: number;
   max: number;
+  step?: number;
   onChange: (value: number) => void;
 }) {
   return (
@@ -1365,6 +1706,7 @@ function Slider({
         type="range"
         min={min}
         max={max}
+        step={step}
         value={value}
         aria-valuemin={min}
         aria-valuemax={max}
@@ -1409,33 +1751,6 @@ function Toggle({
         }`}
       />
     </button>
-  );
-}
-
-function Select({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (value: string) => void;
-}) {
-  return (
-    <select
-      aria-label={label}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className="max-w-52 rounded-md border border-content/10 bg-content/5 px-2 py-1 text-[12px] text-content outline-none hover:border-content/20"
-    >
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
   );
 }
 

@@ -301,6 +301,23 @@ export async function pickFile(title = "Select binary"): Promise<string | null> 
   return typeof selected === "string" && selected ? selected : null;
 }
 
+export async function pickImage(
+  title = "Choose wallpaper",
+): Promise<string | null> {
+  const selected = await open({
+    multiple: false,
+    directory: false,
+    title,
+    filters: [
+      {
+        name: "Images",
+        extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp", "avif"],
+      },
+    ],
+  });
+  return typeof selected === "string" && selected ? selected : null;
+}
+
 export async function pickFiles(title = "Attach files"): Promise<string[] | null> {
   const selected = await open({
     multiple: true,

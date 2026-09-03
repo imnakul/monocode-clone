@@ -12,10 +12,114 @@ const SIDEBAR_TAB_ORDER_KEY = "monocode.sidebarTabOrder";
 const PROJECT_RAIL_WIDTH_KEY = "monocode.projectRailWidth";
 const TRANSCRIPT_LAYOUT_KEY = "monocode.transcriptLayout";
 const TRANSCRIPT_ANCHOR_KEY = "monocode.transcriptAnchor";
+const UI_FONT_KEY = "monocode.uiFont";
+const TERMINAL_FONT_KEY = "monocode.terminalFont";
+const UI_FONT_SIZE_KEY = "monocode.uiFontSize";
+const TERMINAL_FONT_SIZE_KEY = "monocode.terminalFontSize";
+const POPOVER_SURFACE_OPACITY_KEY = "monocode.popoverSurfaceOpacity";
+const POPOVER_BLUR_KEY = "monocode.popoverBlur";
+const POPOVER_HIGHLIGHT_KEY = "monocode.popoverHighlight";
+const WALLPAPER_PATH_KEY = "monocode.wallpaperPath";
+const WALLPAPER_OPACITY_KEY = "monocode.wallpaperOpacity";
+const WINDOW_GLASS_STRENGTH_KEY = "monocode.windowGlassStrength";
 
 export type ColorScheme = "dark" | "light";
 export type ThemePreference = ColorScheme | "system";
 export type TranscriptLayout = "full" | "chat";
+export type UiFontId = "system" | "sf-pro" | "segoe-ui" | "inter" | "geist";
+export type TerminalFontId =
+  | "system-mono"
+  | "sf-mono"
+  | "jetbrains-mono"
+  | "cascadia-mono"
+  | "consolas"
+  | "geist-mono";
+
+type FontOption<T extends string> = {
+  value: T;
+  label: string;
+  family: string;
+};
+
+export const UI_FONT_OPTIONS: readonly FontOption<UiFontId>[] = [
+  {
+    value: "system",
+    label: "System UI",
+    family:
+      'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", sans-serif',
+  },
+  {
+    value: "sf-pro",
+    label: "SF Pro",
+    family:
+      '"SF Pro", "SF Pro Text", "SF Pro Display", system-ui, -apple-system, sans-serif',
+  },
+  {
+    value: "segoe-ui",
+    label: "Segoe UI",
+    family: '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
+  },
+  { value: "inter", label: "Inter", family: '"Inter", system-ui, sans-serif' },
+  { value: "geist", label: "Geist", family: '"Geist", system-ui, sans-serif' },
+];
+
+export const TERMINAL_FONT_OPTIONS: readonly FontOption<TerminalFontId>[] = [
+  {
+    value: "system-mono",
+    label: "System monospace",
+    family: 'ui-monospace, "Cascadia Mono", Consolas, monospace',
+  },
+  {
+    value: "sf-mono",
+    label: "SF Mono",
+    family: '"SF Mono", ui-monospace, "Cascadia Mono", Consolas, monospace',
+  },
+  {
+    value: "jetbrains-mono",
+    label: "JetBrains Mono",
+    family:
+      '"JetBrainsMonoNL Nerd Font Mono", "JetBrains Mono", ui-monospace, monospace',
+  },
+  {
+    value: "cascadia-mono",
+    label: "Cascadia Mono",
+    family: '"Cascadia Mono", ui-monospace, Consolas, monospace',
+  },
+  {
+    value: "consolas",
+    label: "Consolas",
+    family: "Consolas, ui-monospace, monospace",
+  },
+  {
+    value: "geist-mono",
+    label: "Geist Mono",
+    family: '"Geist Mono", ui-monospace, monospace',
+  },
+];
+
+export const UI_FONT_DEFAULT: UiFontId = "system";
+export const TERMINAL_FONT_DEFAULT: TerminalFontId = "system-mono";
+export const UI_FONT_SIZE_MIN = 90;
+export const UI_FONT_SIZE_MAX = 120;
+export const UI_FONT_SIZE_DEFAULT = 100;
+export const TERMINAL_FONT_SIZE_MIN = 10;
+export const TERMINAL_FONT_SIZE_MAX = 20;
+export const TERMINAL_FONT_SIZE_DEFAULT = 13;
+export const POPOVER_SURFACE_OPACITY_MIN = 0;
+export const POPOVER_SURFACE_OPACITY_MAX = 30;
+export const POPOVER_SURFACE_OPACITY_DEFAULT = 10;
+export const POPOVER_BLUR_MIN = 0;
+export const POPOVER_BLUR_MAX = 48;
+export const POPOVER_BLUR_DEFAULT = 24;
+export const POPOVER_HIGHLIGHT_MIN = 0;
+export const POPOVER_HIGHLIGHT_MAX = 100;
+export const POPOVER_HIGHLIGHT_DEFAULT = 10;
+export const WALLPAPER_OPACITY_MIN = 0;
+export const WALLPAPER_OPACITY_MAX = 100;
+export const WALLPAPER_OPACITY_DEFAULT = 40;
+export const WINDOW_GLASS_STRENGTH_MIN = 0;
+export const WINDOW_GLASS_STRENGTH_MAX = 100;
+export const WINDOW_GLASS_STRENGTH_DEFAULT = 0;
 
 export const THEME_PREFERENCE_DEFAULT: ThemePreference = "dark";
 
@@ -104,6 +208,22 @@ function writeFlag(key: string, value: boolean) {
   }
 }
 
+function readText(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeText(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // private mode / quota
+  }
+}
+
 export function loadThemeHue(): number {
   return Math.round(
     clamp(
@@ -153,10 +273,344 @@ export function applyThemeTint(hue: number, saturation: number) {
   return { hue: nextHue, saturation: nextSaturation };
 }
 
+export const TYPOGRAPHY_CHANGE_EVENT = "monocode:typographychange";
+
+function notifyTypographyChange() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(TYPOGRAPHY_CHANGE_EVENT));
+}
+
+function isUiFontId(value: unknown): value is UiFontId {
+  return UI_FONT_OPTIONS.some((option) => option.value === value);
+}
+
+function isTerminalFontId(value: unknown): value is TerminalFontId {
+  return TERMINAL_FONT_OPTIONS.some((option) => option.value === value);
+}
+
+export function loadUiFont(): UiFontId {
+  const raw = readText(UI_FONT_KEY);
+  return isUiFontId(raw) ? raw : UI_FONT_DEFAULT;
+}
+
+export function saveUiFont(value: UiFontId) {
+  writeText(UI_FONT_KEY, isUiFontId(value) ? value : UI_FONT_DEFAULT);
+}
+
+export function applyUiFont(value: UiFontId): UiFontId {
+  const next = isUiFontId(value) ? value : UI_FONT_DEFAULT;
+  const option = UI_FONT_OPTIONS.find((item) => item.value === next)!;
+  document.documentElement.style.setProperty("--font-sans", option.family);
+  notifyTypographyChange();
+  return next;
+}
+
+export function loadTerminalFont(): TerminalFontId {
+  const raw = readText(TERMINAL_FONT_KEY);
+  return isTerminalFontId(raw) ? raw : TERMINAL_FONT_DEFAULT;
+}
+
+export function saveTerminalFont(value: TerminalFontId) {
+  writeText(
+    TERMINAL_FONT_KEY,
+    isTerminalFontId(value) ? value : TERMINAL_FONT_DEFAULT,
+  );
+}
+
+export function applyTerminalFont(value: TerminalFontId): TerminalFontId {
+  const next = isTerminalFontId(value) ? value : TERMINAL_FONT_DEFAULT;
+  const option = TERMINAL_FONT_OPTIONS.find((item) => item.value === next)!;
+  document.documentElement.style.setProperty("--font-terminal", option.family);
+  notifyTypographyChange();
+  return next;
+}
+
+export function loadUiFontSize(): number {
+  return Math.round(
+    clamp(
+      readNumber(UI_FONT_SIZE_KEY) ?? UI_FONT_SIZE_DEFAULT,
+      UI_FONT_SIZE_MIN,
+      UI_FONT_SIZE_MAX,
+    ),
+  );
+}
+
+export function saveUiFontSize(value: number) {
+  writeNumber(
+    UI_FONT_SIZE_KEY,
+    Math.round(clamp(value, UI_FONT_SIZE_MIN, UI_FONT_SIZE_MAX)),
+  );
+}
+
+export function applyUiFontSize(value: number): number {
+  const next = Math.round(clamp(value, UI_FONT_SIZE_MIN, UI_FONT_SIZE_MAX));
+  const scale = next / 100;
+  const root = document.documentElement;
+  root.style.setProperty("--ui-font-scale", String(scale));
+  for (const [name, size, lineHeight] of [
+    ["xs", 12, 16],
+    ["sm", 14, 20],
+    ["lg", 18, 28],
+    ["2xl", 24, 32],
+  ] as const) {
+    root.style.setProperty(`--text-${name}`, `${size * scale}px`);
+    root.style.setProperty(
+      `--text-${name}--line-height`,
+      `${lineHeight * scale}px`,
+    );
+  }
+  for (const size of [7, 8, 10, 10.5, 11, 12, 13, 14, 15, 20]) {
+    const token = String(size).replace(".", "-");
+    root.style.setProperty(`--ui-font-size-${token}`, `${size * scale}px`);
+  }
+  notifyTypographyChange();
+  return next;
+}
+
+export function loadTerminalFontSize(): number {
+  return Math.round(
+    clamp(
+      readNumber(TERMINAL_FONT_SIZE_KEY) ?? TERMINAL_FONT_SIZE_DEFAULT,
+      TERMINAL_FONT_SIZE_MIN,
+      TERMINAL_FONT_SIZE_MAX,
+    ),
+  );
+}
+
+export function saveTerminalFontSize(value: number) {
+  writeNumber(
+    TERMINAL_FONT_SIZE_KEY,
+    Math.round(clamp(value, TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX)),
+  );
+}
+
+export function applyTerminalFontSize(value: number): number {
+  const next = Math.round(
+    clamp(value, TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX),
+  );
+  document.documentElement.style.setProperty(
+    "--terminal-font-size",
+    `${next}px`,
+  );
+  notifyTypographyChange();
+  return next;
+}
+
+export function loadPopoverSurfaceOpacity(): number {
+  return Math.round(
+    clamp(
+      readNumber(POPOVER_SURFACE_OPACITY_KEY) ??
+        POPOVER_SURFACE_OPACITY_DEFAULT,
+      POPOVER_SURFACE_OPACITY_MIN,
+      POPOVER_SURFACE_OPACITY_MAX,
+    ),
+  );
+}
+
+export function savePopoverSurfaceOpacity(value: number) {
+  writeNumber(
+    POPOVER_SURFACE_OPACITY_KEY,
+    Math.round(
+      clamp(value, POPOVER_SURFACE_OPACITY_MIN, POPOVER_SURFACE_OPACITY_MAX),
+    ),
+  );
+}
+
+export function applyPopoverSurfaceOpacity(value: number): number {
+  const next = Math.round(
+    clamp(value, POPOVER_SURFACE_OPACITY_MIN, POPOVER_SURFACE_OPACITY_MAX),
+  );
+  document.documentElement.style.setProperty(
+    "--popover-surface-opacity",
+    `${next}%`,
+  );
+  return next;
+}
+
+export function loadPopoverBlur(): number {
+  return Math.round(
+    clamp(
+      readNumber(POPOVER_BLUR_KEY) ?? POPOVER_BLUR_DEFAULT,
+      POPOVER_BLUR_MIN,
+      POPOVER_BLUR_MAX,
+    ),
+  );
+}
+
+export function savePopoverBlur(value: number) {
+  writeNumber(
+    POPOVER_BLUR_KEY,
+    Math.round(clamp(value, POPOVER_BLUR_MIN, POPOVER_BLUR_MAX)),
+  );
+}
+
+export function applyPopoverBlur(value: number): number {
+  const next = Math.round(clamp(value, POPOVER_BLUR_MIN, POPOVER_BLUR_MAX));
+  document.documentElement.style.setProperty(
+    "--popover-backdrop-blur",
+    `${next}px`,
+  );
+  return next;
+}
+
+export function loadPopoverHighlight(): number {
+  return (
+    Math.round(
+      clamp(
+        readNumber(POPOVER_HIGHLIGHT_KEY) ?? POPOVER_HIGHLIGHT_DEFAULT,
+        POPOVER_HIGHLIGHT_MIN,
+        POPOVER_HIGHLIGHT_MAX,
+      ) / 10,
+    ) * 10
+  );
+}
+
+export function savePopoverHighlight(value: number) {
+  writeNumber(
+    POPOVER_HIGHLIGHT_KEY,
+    Math.round(
+      clamp(value, POPOVER_HIGHLIGHT_MIN, POPOVER_HIGHLIGHT_MAX) / 10,
+    ) * 10,
+  );
+}
+
+export function applyPopoverHighlight(value: number): number {
+  const next =
+    Math.round(
+      clamp(value, POPOVER_HIGHLIGHT_MIN, POPOVER_HIGHLIGHT_MAX) / 10,
+    ) * 10;
+  const root = document.documentElement;
+  root.style.setProperty("--popover-highlight-opacity", `${next}%`);
+  root.classList.toggle("popover-highlight-invert", next >= 50);
+  return next;
+}
+
+export function loadWallpaperPath(): string {
+  return readText(WALLPAPER_PATH_KEY) ?? "";
+}
+
+export function saveWallpaperPath(value: string) {
+  writeText(WALLPAPER_PATH_KEY, value);
+}
+
+export function loadWallpaperOpacity(): number {
+  return Math.round(
+    clamp(
+      readNumber(WALLPAPER_OPACITY_KEY) ?? WALLPAPER_OPACITY_DEFAULT,
+      WALLPAPER_OPACITY_MIN,
+      WALLPAPER_OPACITY_MAX,
+    ),
+  );
+}
+
+export function saveWallpaperOpacity(value: number) {
+  writeNumber(
+    WALLPAPER_OPACITY_KEY,
+    Math.round(clamp(value, WALLPAPER_OPACITY_MIN, WALLPAPER_OPACITY_MAX)),
+  );
+}
+
+export function applyWallpaperOpacity(value: number): number {
+  const next = Math.round(
+    clamp(value, WALLPAPER_OPACITY_MIN, WALLPAPER_OPACITY_MAX),
+  );
+  document.documentElement.style.setProperty(
+    "--app-wallpaper-opacity",
+    String(next / 100),
+  );
+  return next;
+}
+
+let wallpaperObjectUrl: string | null = null;
+
+function wallpaperMime(path: string): string {
+  const ext = path.toLowerCase().split(".").pop();
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "webp") return "image/webp";
+  if (ext === "gif") return "image/gif";
+  if (ext === "bmp") return "image/bmp";
+  if (ext === "avif") return "image/avif";
+  return "image/png";
+}
+
+export async function applyWallpaperPath(path: string): Promise<boolean> {
+  const root = document.documentElement;
+  if (!IS_WINDOWS || !path) {
+    root.classList.remove("has-app-wallpaper");
+    root.style.removeProperty("--app-wallpaper-image");
+    if (wallpaperObjectUrl) URL.revokeObjectURL(wallpaperObjectUrl);
+    wallpaperObjectUrl = null;
+    return !path;
+  }
+  try {
+    const data = await invoke<string>("read_wallpaper_base64", { path });
+    const binary = atob(data);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    const nextUrl = URL.createObjectURL(
+      new Blob([bytes], { type: wallpaperMime(path) }),
+    );
+    const previousUrl = wallpaperObjectUrl;
+    wallpaperObjectUrl = nextUrl;
+    root.style.setProperty("--app-wallpaper-image", `url("${nextUrl}")`);
+    root.classList.add("has-app-wallpaper");
+    if (previousUrl) URL.revokeObjectURL(previousUrl);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function loadWindowGlassStrength(): number {
+  return Math.round(
+    clamp(
+      readNumber(WINDOW_GLASS_STRENGTH_KEY) ?? WINDOW_GLASS_STRENGTH_DEFAULT,
+      WINDOW_GLASS_STRENGTH_MIN,
+      WINDOW_GLASS_STRENGTH_MAX,
+    ),
+  );
+}
+
+export function saveWindowGlassStrength(value: number) {
+  writeNumber(
+    WINDOW_GLASS_STRENGTH_KEY,
+    Math.round(
+      clamp(value, WINDOW_GLASS_STRENGTH_MIN, WINDOW_GLASS_STRENGTH_MAX),
+    ),
+  );
+}
+
+export function applyWindowGlassStrength(value: number): number {
+  const next = Math.round(
+    clamp(value, WINDOW_GLASS_STRENGTH_MIN, WINDOW_GLASS_STRENGTH_MAX),
+  );
+  const root = document.documentElement;
+  root.style.setProperty(
+    "--window-glass-tint-opacity",
+    `${Math.round(next * 0.3)}%`,
+  );
+  root.style.setProperty(
+    "--window-wallpaper-blur",
+    `${Math.round(next * 0.36)}px`,
+  );
+  return next;
+}
 export function initAppearance() {
   document.documentElement.classList.toggle("is-mac", IS_MAC);
   document.documentElement.classList.toggle("is-windows", IS_WINDOWS);
   document.documentElement.classList.toggle("has-glass", IS_MAC || IS_WINDOWS);
+  applyUiFont(loadUiFont());
+  applyUiFontSize(loadUiFontSize());
+  applyTerminalFont(loadTerminalFont());
+  applyTerminalFontSize(loadTerminalFontSize());
+  applyPopoverSurfaceOpacity(loadPopoverSurfaceOpacity());
+  applyPopoverBlur(loadPopoverBlur());
+  applyPopoverHighlight(loadPopoverHighlight());
+  applyWallpaperOpacity(loadWallpaperOpacity());
+  applyWindowGlassStrength(loadWindowGlassStrength());
+  void applyWallpaperPath(loadWallpaperPath());
   applyThemeTint(loadThemeHue(), loadThemeSaturation());
   applyThemePreference(loadThemePreference());
   watchSystemColorScheme();

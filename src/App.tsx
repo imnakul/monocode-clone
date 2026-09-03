@@ -3984,9 +3984,7 @@ export default function App({
   }, [currentProjectDock, dockVisible]);
 
   return (
-    <div
-      className="flex h-full text-content bg-transparent"
-    >
+    <div className="app-shell flex h-full text-content bg-transparent">
       <Sidebar
         cwd={sidebarCwd}
         gitCwd={gitCwd}

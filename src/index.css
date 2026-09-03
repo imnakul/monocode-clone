@@ -1,5 +1,50 @@
 @import "tailwindcss";
 
+.popover-surface
+  [data-shared-hover-highlight][data-shared-hover-highlight-tone="default"] {
+  background: color-mix(
+    in srgb,
+    var(--color-content) var(--popover-highlight-opacity),
+    transparent
+  ) !important;
+}
+
+.popover-surface [role="option"][aria-selected="true"],
+.popover-surface [role="menuitemcheckbox"][aria-checked="true"] {
+  background: color-mix(
+    in srgb,
+    var(--color-content) var(--popover-highlight-opacity),
+    transparent
+  ) !important;
+}
+
+html.popover-highlight-invert
+  .popover-surface
+  [data-shared-hover-active="true"]:not([data-shared-hover-tone="danger"]),
+html.popover-highlight-invert
+  .popover-surface
+  [role="option"][aria-selected="true"],
+html.popover-highlight-invert
+  .popover-surface
+  [role="menuitemcheckbox"][aria-checked="true"] {
+  color: var(--color-background-base) !important;
+}
+
+html.popover-highlight-invert
+  .popover-surface
+  [data-shared-hover-active="true"]:not([data-shared-hover-tone="danger"])
+  *,
+html.popover-highlight-invert
+  .popover-surface
+  [role="option"][aria-selected="true"]
+  *,
+html.popover-highlight-invert
+  .popover-surface
+  [role="menuitemcheckbox"][aria-checked="true"]
+  * {
+  color: inherit !important;
+}
+
 [data-shared-hover-active="true"] {
   position: relative;
   z-index: 2;
@@ -27,12 +72,20 @@
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
   --font-sans:
-    "SF Pro", "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont,
-    "Segoe UI Variable Text", "Segoe UI", "Geist", "Inter", Roboto, Oxygen,
-    Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+    "Segoe UI", sans-serif;
 }
 
 :root {
+  --font-terminal: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --ui-font-scale: 1;
+  --terminal-font-size: 13px;
+  --popover-surface-opacity: 10%;
+  --popover-backdrop-blur: 24px;
+  --popover-highlight-opacity: 10%;
+  --app-wallpaper-opacity: 0.4;
+  --window-glass-tint-opacity: 0%;
+  --window-wallpaper-blur: 0px;
   --theme-hue: 240;
   --theme-saturation: 0%;
   --sidebar-opacity: 0.72;
@@ -44,6 +97,9 @@
   --color-markdown-heading: #f9a8c9;
 }
 
+.app-shell {
+  position: relative;
+}
 html {
   color-scheme: dark;
 }
@@ -68,21 +124,52 @@ body,
   margin: 0;
   background: transparent;
   color: var(--color-content);
+  font-family: var(--font-sans);
   overflow: hidden;
   overscroll-behavior: none;
   user-select: none;
 }
 
-/* Linux/Windows: explicit sans + thin scrollbars. macOS keeps native overlay
-   scrollbars and default text rendering. */
+/* Linux/Windows keep explicit text rendering tweaks and thin scrollbars. macOS
+   keeps its native overlay scrollbars and rendering while sharing the chosen font. */
 html:not(.is-mac),
 html:not(.is-mac) body,
 html:not(.is-mac) #root {
-  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   font-kerning: normal;
+}
+
+[class~="text-[7px]"] {
+  font-size: var(--ui-font-size-7, 7px);
+}
+[class~="text-[8px]"] {
+  font-size: var(--ui-font-size-8, 8px);
+}
+[class~="text-[10px]"] {
+  font-size: var(--ui-font-size-10, 10px);
+}
+[class~="text-[10.5px]"] {
+  font-size: var(--ui-font-size-10-5, 10.5px);
+}
+[class~="text-[11px]"] {
+  font-size: var(--ui-font-size-11, 11px);
+}
+[class~="text-[12px]"] {
+  font-size: var(--ui-font-size-12, 12px);
+}
+[class~="text-[13px]"] {
+  font-size: var(--ui-font-size-13, 13px);
+}
+[class~="text-[14px]"] {
+  font-size: var(--ui-font-size-14, 14px);
+}
+[class~="text-[15px]"] {
+  font-size: var(--ui-font-size-15, 15px);
+}
+[class~="text-[20px]"] {
+  font-size: var(--ui-font-size-20, 20px);
 }
 
 html:not(.is-mac) ::-webkit-scrollbar {
@@ -105,6 +192,16 @@ html:not(.is-mac) ::-webkit-scrollbar-thumb:hover {
 
 html:not(.is-mac) ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+.popover-surface {
+  background: color-mix(
+    in srgb,
+    var(--color-content) var(--popover-surface-opacity),
+    transparent
+  );
+  backdrop-filter: blur(var(--popover-backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--popover-backdrop-blur));
 }
 
 html.is-mac,
@@ -138,6 +235,23 @@ html.is-mac .sidebar-glass {
 /* Windows gets desktop blur from DWM Desktop Acrylic. Keep these surfaces
    translucent so CSS does not try to blur through the WebView2 boundary. */
 html.is-windows .sidebar-glass {
+  background:
+    linear-gradient(
+      color-mix(
+        in srgb,
+        var(--color-background-base) var(--window-glass-tint-opacity),
+        transparent
+      ),
+      color-mix(
+        in srgb,
+        var(--color-background-base) var(--window-glass-tint-opacity),
+        transparent
+      )
+    ),
+    hsl(
+      var(--theme-hue) var(--theme-saturation) var(--background-lightness) /
+        var(--sidebar-opacity)
+    );
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -176,6 +290,109 @@ html.is-windows.glass-body .body-glass {
     var(--color-background-base) calc(var(--sidebar-opacity) * 100%),
     transparent
   );
+}
+
+html.is-windows.glass-body .body-glass {
+  background:
+    linear-gradient(
+      color-mix(
+        in srgb,
+        var(--color-background-base) var(--window-glass-tint-opacity),
+        transparent
+      ),
+      color-mix(
+        in srgb,
+        var(--color-background-base) var(--window-glass-tint-opacity),
+        transparent
+      )
+    ),
+    color-mix(
+      in srgb,
+      var(--color-background-base) calc(var(--sidebar-opacity) * 100%),
+      transparent
+    );
+}
+
+/* Paint custom wallpaper inside the same WebView compositing surfaces as the
+   glass itself. Fixed background attachment keeps one continuous image across
+   project rail, sidebar, and main pane; the oversized pseudo layer gives the
+   wallpaper blur room to sample without transparent edge seams. */
+html.is-windows.has-app-wallpaper .sidebar-glass,
+html.is-windows.has-app-wallpaper.glass-body .body-glass {
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+}
+
+html.is-windows.has-app-wallpaper .sidebar-glass > *,
+html.is-windows.has-app-wallpaper.glass-body .body-glass > * {
+  z-index: 1;
+}
+
+html.is-windows.has-app-wallpaper .sidebar-glass::before,
+html.is-windows.has-app-wallpaper.glass-body .body-glass::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: -48px;
+  pointer-events: none;
+  background-image: var(--app-wallpaper-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  opacity: var(--app-wallpaper-opacity);
+  filter: blur(var(--window-wallpaper-blur));
+}
+
+html.is-windows.has-app-wallpaper .sidebar-glass::after,
+html.is-windows.has-app-wallpaper.glass-body .body-glass::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  pointer-events: none;
+}
+
+html.is-windows.has-app-wallpaper .sidebar-glass::after {
+  background:
+    linear-gradient(
+      color-mix(
+        in srgb,
+        var(--color-background-base) var(--window-glass-tint-opacity),
+        transparent
+      ),
+      color-mix(
+        in srgb,
+        var(--color-background-base) var(--window-glass-tint-opacity),
+        transparent
+      )
+    ),
+    hsl(
+      var(--theme-hue) var(--theme-saturation) var(--background-lightness) /
+        var(--sidebar-opacity)
+    );
+}
+
+html.is-windows.has-app-wallpaper.glass-body .body-glass::after {
+  background:
+    linear-gradient(
+      color-mix(
+        in srgb,
+        var(--color-background-base) var(--window-glass-tint-opacity),
+        transparent
+      ),
+      color-mix(
+        in srgb,
+        var(--color-background-base) var(--window-glass-tint-opacity),
+        transparent
+      )
+    ),
+    color-mix(
+      in srgb,
+      var(--color-background-base) calc(var(--sidebar-opacity) * 100%),
+      transparent
+    );
 }
 
 html.is-mac.glass-body .body-glass {

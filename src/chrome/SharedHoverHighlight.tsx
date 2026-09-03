@@ -42,6 +42,8 @@ export function SharedHoverHighlight({
         rect.top - rootRect.top + root.scrollTop
       }px, 0)`;
       marker.style.borderRadius = getComputedStyle(next).borderRadius;
+      marker.dataset.sharedHoverHighlightTone =
+        next.dataset.sharedHoverTone === "danger" ? "danger" : "default";
       marker.classList.toggle(
         "bg-red-500/15",
         next.dataset.sharedHoverTone === "danger",

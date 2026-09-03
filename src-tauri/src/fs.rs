@@ -12,6 +12,7 @@ use crate::dirs_home;
 
 pub(crate) const MAX_TEXT_FILE_BYTES: u64 = 8 * 1024 * 1024;
 pub(crate) const MAX_ATTACHMENT_EMBED_BYTES: u64 = 20 * 1024 * 1024;
+const MAX_WALLPAPER_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -3025,6 +3026,41 @@ fn read_file_base64_sync(path: &str) -> Result<String, String> {
             "File is too large to attach inline (maximum {} MB).",
             MAX_ATTACHMENT_EMBED_BYTES / 1024 / 1024
         ));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        bytes,
+    ))
+}
+
+/// Base64-encode a local image for the optional in-app wallpaper.
+#[tauri::command]
+pub async fn read_wallpaper_base64(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || read_wallpaper_base64_sync(&path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn read_wallpaper_base64_sync(path: &str) -> Result<String, String> {
+    let path = expand_home(path);
+    let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if !meta.is_file() {
+        return Err("Not a file".into());
+    }
+    let ext = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !matches!(
+        ext.as_str(),
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "avif"
+    ) {
+        return Err("Unsupported wallpaper image format".into());
+    }
+    if meta.len() > MAX_WALLPAPER_BYTES {
+        return Err("Wallpaper image is too large (maximum 64 MB).".into());
     }
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(base64::Engine::encode(
