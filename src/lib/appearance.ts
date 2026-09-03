@@ -563,6 +563,23 @@ export async function applyWallpaperPath(path: string): Promise<boolean> {
   }
 }
 
+async function initWallpaper() {
+  const path = loadWallpaperPath();
+  if (!IS_WINDOWS || !path) {
+    await applyWallpaperPath(path);
+    return;
+  }
+  try {
+    const managed = await invoke<string>("persist_wallpaper", { path });
+    if (managed !== path) saveWallpaperPath(managed);
+    await applyWallpaperPath(managed);
+  } catch {
+    // Older/dev native hosts may not have the persistence command yet. Keep the
+    // existing wallpaper usable until the next native restart.
+    await applyWallpaperPath(path);
+  }
+}
+
 export function loadWindowGlassStrength(): number {
   return Math.round(
     clamp(
@@ -595,6 +612,10 @@ export function applyWindowGlassStrength(value: number): number {
     "--window-wallpaper-blur",
     `${Math.round(next * 0.36)}px`,
   );
+  root.style.setProperty(
+    "--window-wallpaper-scale",
+    String(1 + next * 0.0005),
+  );
   return next;
 }
 export function initAppearance() {
@@ -610,7 +631,7 @@ export function initAppearance() {
   applyPopoverHighlight(loadPopoverHighlight());
   applyWallpaperOpacity(loadWallpaperOpacity());
   applyWindowGlassStrength(loadWindowGlassStrength());
-  void applyWallpaperPath(loadWallpaperPath());
+  void initWallpaper();
   applyThemeTint(loadThemeHue(), loadThemeSaturation());
   applyThemePreference(loadThemePreference());
   watchSystemColorScheme();

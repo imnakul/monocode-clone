@@ -140,7 +140,12 @@ import {
   subscribeModels,
 } from "../lib/models";
 import { prettyCwd, projectName } from "../lib/paths";
-import { pickFile, pickImage } from "../lib/fs";
+import {
+  clearManagedWallpaper,
+  persistWallpaper,
+  pickFile,
+  pickImage,
+} from "../lib/fs";
 import { getCustomBinary, setCustomBinary } from "../lib/harness/customBinary";
 import { IS_MAC, IS_WINDOWS } from "../lib/platform";
 import {
@@ -843,17 +848,25 @@ function useAppearanceSettings() {
   }, []);
 
   const onChooseWallpaper = useCallback(async () => {
-    const path = await pickImage("Choose Windows wallpaper");
-    if (!path) return;
-    if (!(await applyWallpaperPath(path))) return;
-    saveWallpaperPath(path);
-    setWallpaperPath(path);
+    const selected = await pickImage("Choose Windows wallpaper");
+    if (!selected) return;
+    try {
+      const managed = await persistWallpaper(selected);
+      if (!(await applyWallpaperPath(managed))) return;
+      saveWallpaperPath(managed);
+      setWallpaperPath(managed);
+    } catch (error) {
+      console.debug("[monocode] wallpaper persist", error);
+    }
   }, []);
 
   const onRemoveWallpaper = useCallback(() => {
     saveWallpaperPath("");
     setWallpaperPath("");
     void applyWallpaperPath("");
+    void clearManagedWallpaper().catch((error) => {
+      console.debug("[monocode] wallpaper cleanup", error);
+    });
   }, []);
   const restoreDefaults = useCallback(() => {
     onThemePreference(THEME_PREFERENCE_DEFAULT);
@@ -1032,20 +1045,29 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
       <Heading title="Glass & transparency" />
       <Row
         label="Window surface opacity"
-        description="Opacity for the sidebar and project rail, and for the main pane when Main pane glass is enabled."
+        description={
+          IS_WINDOWS && appearance.wallpaperPath
+            ? "Disabled while a custom wallpaper is active. Wallpaper opacity and Glass strength control wallpaper mode."
+            : "Opacity for the sidebar and project rail, and for the main pane when Main pane glass is enabled."
+        }
       >
         <Slider
           label="Window surface opacity"
           value={percent}
-          display={`${percent}%`}
+          display={IS_WINDOWS && appearance.wallpaperPath ? "Off" : `${percent}%`}
           min={Math.round(SIDEBAR_OPACITY_MIN * 100)}
           max={Math.round(SIDEBAR_OPACITY_MAX * 100)}
+          disabled={IS_WINDOWS && Boolean(appearance.wallpaperPath)}
           onChange={appearance.onOpacity}
         />
       </Row>
       <Row
         label="Glass strength"
-        description="Adds app-side tint to Windows glass. With a custom wallpaper it also increases the in-app backdrop blur; it does not change the Windows Acrylic blur kernel."
+        description={
+          IS_WINDOWS && appearance.wallpaperPath
+            ? "Adds app-side tint and blur to the custom wallpaper. It does not change the Windows Acrylic blur kernel."
+            : "Adds app-side tint to Windows glass; it does not change the Windows Acrylic blur kernel."
+        }
       >
         <Slider
           label="Glass strength"
@@ -1690,6 +1712,7 @@ function Slider({
   min,
   max,
   step = 1,
+  disabled = false,
   onChange,
 }: {
   label: string;
@@ -1698,6 +1721,7 @@ function Slider({
   min: number;
   max: number;
   step?: number;
+  disabled?: boolean;
   onChange: (value: number) => void;
 }) {
   return (
@@ -1712,10 +1736,15 @@ function Slider({
         aria-valuemax={max}
         aria-valuenow={value}
         aria-label={label}
-        className="sidebar-opacity-slider min-w-0 flex-1"
+        disabled={disabled}
+        className="sidebar-opacity-slider min-w-0 flex-1 disabled:cursor-not-allowed disabled:opacity-35"
         onChange={(event) => onChange(Number(event.target.value))}
       />
-      <span className="w-10 shrink-0 text-right text-[12px] text-content tabular-nums">
+      <span
+        className={`w-10 shrink-0 text-right text-[12px] tabular-nums ${
+          disabled ? "text-content/35" : "text-content"
+        }`}
+      >
         {display}
       </span>
     </div>

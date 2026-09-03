@@ -17,6 +17,7 @@ import {
   useState,
 } from "react";
 import { FileTypeIcon } from "../chrome/FileTypeIcon";
+import { DiffStat as DiffCounts } from "../chrome/DiffStat";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useColorScheme } from "../hooks/useColorScheme";
 import { basename } from "../lib/fs";
@@ -677,26 +678,6 @@ function renderLineText(line: UnifiedLine, tokens?: SyntaxToken[]) {
 
 function EmptyBody({ children }: { children: string }) {
   return <p className="px-3 py-3 text-[12px] text-content/45">{children}</p>;
-}
-
-function DiffCounts({
-  additions,
-  deletions,
-}: {
-  additions: number;
-  deletions: number;
-}) {
-  if (additions <= 0 && deletions <= 0) return null;
-  return (
-    <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] font-semibold tabular-nums">
-      {additions > 0 ? (
-        <span className="text-emerald-400">+{additions}</span>
-      ) : null}
-      {deletions > 0 ? (
-        <span className="text-red-400">-{deletions}</span>
-      ) : null}
-    </span>
-  );
 }
 
 function IconButton({

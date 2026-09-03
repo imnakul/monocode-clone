@@ -220,6 +220,8 @@ pub fn run() {
             fs::inspect_paths,
             fs::read_file_base64,
             fs::read_wallpaper_base64,
+            fs::persist_wallpaper,
+            fs::clear_managed_wallpaper,
             fs::write_attachment,
             fs::read_text_file,
             fs::write_text_file,

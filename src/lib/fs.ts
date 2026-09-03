@@ -318,6 +318,14 @@ export async function pickImage(
   return typeof selected === "string" && selected ? selected : null;
 }
 
+export function persistWallpaper(path: string): Promise<string> {
+  return invoke<string>("persist_wallpaper", { path });
+}
+
+export function clearManagedWallpaper(): Promise<void> {
+  return invoke<void>("clear_managed_wallpaper");
+}
+
 export async function pickFiles(title = "Attach files"): Promise<string[] | null> {
   const selected = await open({
     multiple: true,

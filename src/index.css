@@ -86,6 +86,7 @@ html.popover-highlight-invert
   --app-wallpaper-opacity: 0.4;
   --window-glass-tint-opacity: 0%;
   --window-wallpaper-blur: 0px;
+  --window-wallpaper-scale: 1;
   --theme-hue: 240;
   --theme-saturation: 0%;
   --sidebar-opacity: 0.72;
@@ -100,6 +101,44 @@ html.popover-highlight-invert
 .app-shell {
   position: relative;
 }
+
+/* A custom wallpaper is an in-app background mode, not another translucent
+   layer over Desktop Acrylic. The opaque base prevents the Windows desktop
+   from bleeding through when wallpaper opacity is below 100%. */
+html.is-windows.has-app-wallpaper .app-shell {
+  isolation: isolate;
+  overflow: hidden;
+}
+
+html.is-windows.has-app-wallpaper .app-shell::before,
+html.is-windows.has-app-wallpaper .app-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+html.is-windows.has-app-wallpaper .app-shell::before {
+  z-index: 0;
+  background: var(--color-background-base);
+}
+
+html.is-windows.has-app-wallpaper .app-shell::after {
+  z-index: 1;
+  background-image: var(--app-wallpaper-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: var(--app-wallpaper-opacity);
+  filter: blur(var(--window-wallpaper-blur));
+  transform: scale(var(--window-wallpaper-scale));
+  transform-origin: center;
+}
+
+html.is-windows.has-app-wallpaper .app-shell > * {
+  z-index: 2;
+}
+
 html {
   color-scheme: dark;
 }
@@ -313,86 +352,18 @@ html.is-windows.glass-body .body-glass {
     );
 }
 
-/* Paint custom wallpaper inside the same WebView compositing surfaces as the
-   glass itself. Fixed background attachment keeps one continuous image across
-   project rail, sidebar, and main pane; the oversized pseudo layer gives the
-   wallpaper blur room to sample without transparent edge seams. */
+/* Wallpaper mode has its own background stack. Window surface opacity is
+   intentionally ignored here so it cannot cover the wallpaper or expose the
+   native Windows desktop. Glass strength remains the app-side tint control. */
 html.is-windows.has-app-wallpaper .sidebar-glass,
 html.is-windows.has-app-wallpaper.glass-body .body-glass {
-  position: relative;
-  isolation: isolate;
-  background: transparent;
-}
-
-html.is-windows.has-app-wallpaper .sidebar-glass > *,
-html.is-windows.has-app-wallpaper.glass-body .body-glass > * {
-  z-index: 1;
-}
-
-html.is-windows.has-app-wallpaper .sidebar-glass::before,
-html.is-windows.has-app-wallpaper.glass-body .body-glass::before {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  inset: -48px;
-  pointer-events: none;
-  background-image: var(--app-wallpaper-image);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-attachment: fixed;
-  opacity: var(--app-wallpaper-opacity);
-  filter: blur(var(--window-wallpaper-blur));
-}
-
-html.is-windows.has-app-wallpaper .sidebar-glass::after,
-html.is-windows.has-app-wallpaper.glass-body .body-glass::after {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  inset: 0;
-  pointer-events: none;
-}
-
-html.is-windows.has-app-wallpaper .sidebar-glass::after {
-  background:
-    linear-gradient(
-      color-mix(
-        in srgb,
-        var(--color-background-base) var(--window-glass-tint-opacity),
-        transparent
-      ),
-      color-mix(
-        in srgb,
-        var(--color-background-base) var(--window-glass-tint-opacity),
-        transparent
-      )
-    ),
-    hsl(
-      var(--theme-hue) var(--theme-saturation) var(--background-lightness) /
-        var(--sidebar-opacity)
-    );
-}
-
-html.is-windows.has-app-wallpaper.glass-body .body-glass::after {
-  background:
-    linear-gradient(
-      color-mix(
-        in srgb,
-        var(--color-background-base) var(--window-glass-tint-opacity),
-        transparent
-      ),
-      color-mix(
-        in srgb,
-        var(--color-background-base) var(--window-glass-tint-opacity),
-        transparent
-      )
-    ),
-    color-mix(
-      in srgb,
-      var(--color-background-base) calc(var(--sidebar-opacity) * 100%),
-      transparent
-    );
+  background: color-mix(
+    in srgb,
+    var(--color-background-base) var(--window-glass-tint-opacity),
+    transparent
+  );
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 html.is-mac.glass-body .body-glass {

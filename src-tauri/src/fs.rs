@@ -7,6 +7,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 
 use crate::dirs_home;
 
@@ -3042,7 +3043,36 @@ pub async fn read_wallpaper_base64(path: String) -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
-fn read_wallpaper_base64_sync(path: &str) -> Result<String, String> {
+/// Copy the selected wallpaper into MonoCode's app-data directory. Only one
+/// managed wallpaper is kept, so trying several images does not accumulate files.
+#[tauri::command]
+pub async fn persist_wallpaper(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<String, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("wallpaper");
+    tauri::async_runtime::spawn_blocking(move || persist_wallpaper_sync(&dir, &path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn clear_managed_wallpaper(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("wallpaper");
+    tauri::async_runtime::spawn_blocking(move || clear_managed_wallpaper_sync(&dir))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn wallpaper_source(path: &str) -> Result<(PathBuf, String), String> {
     let path = expand_home(path);
     let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     if !meta.is_file() {
@@ -3062,11 +3092,78 @@ fn read_wallpaper_base64_sync(path: &str) -> Result<String, String> {
     if meta.len() > MAX_WALLPAPER_BYTES {
         return Err("Wallpaper image is too large (maximum 64 MB).".into());
     }
+    Ok((path, ext))
+}
+
+fn read_wallpaper_base64_sync(path: &str) -> Result<String, String> {
+    let (path, _) = wallpaper_source(path)?;
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
         bytes,
     ))
+}
+
+fn persist_wallpaper_sync(dir: &Path, path: &str) -> Result<String, String> {
+    let (source, ext) = wallpaper_source(path)?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let destination = dir.join(format!("current.{ext}"));
+
+    if destination.exists() {
+        let same_file = source
+            .canonicalize()
+            .ok()
+            .zip(destination.canonicalize().ok())
+            .is_some_and(|(source, destination)| source == destination);
+        if same_file {
+            cleanup_wallpaper_dir(dir, Some(&destination))?;
+            return Ok(destination.to_string_lossy().into_owned());
+        }
+    }
+
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temp = dir.join(format!(".wallpaper-{stamp}.tmp"));
+    std::fs::copy(&source, &temp)
+        .map_err(|e| format!("{} -> {}: {e}", source.display(), temp.display()))?;
+
+    let result = (|| -> Result<(), String> {
+        cleanup_wallpaper_dir(dir, Some(&temp))?;
+        std::fs::rename(&temp, &destination)
+            .map_err(|e| format!("{} -> {}: {e}", temp.display(), destination.display()))?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result?;
+    Ok(destination.to_string_lossy().into_owned())
+}
+
+fn cleanup_wallpaper_dir(dir: &Path, keep: Option<&Path>) -> Result<(), String> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if keep.is_some_and(|keep| path == keep) {
+            continue;
+        }
+        if path.is_file() {
+            std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn clear_managed_wallpaper_sync(dir: &Path) -> Result<(), String> {
+    if dir.exists() {
+        std::fs::remove_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    Ok(())
 }
 
 /// Persist a pasted blob so non-image attachments have a real path.

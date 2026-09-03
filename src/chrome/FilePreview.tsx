@@ -3,6 +3,7 @@ import { MAX_PREVIEW_LINES } from "../lib/harness/preview";
 import { displayPath, resolveWorkspacePath } from "../lib/paths";
 import type { ToolPreview, ToolPreviewLine } from "../lib/session";
 import { FileTypeIcon } from "./FileTypeIcon";
+import { DiffStat } from "./DiffStat";
 
 type Status = "pending" | "accepted" | "rejected";
 
@@ -102,15 +103,7 @@ export function FilePreview({ preview, status, cwd, onOpenFile }: Props) {
           </span>
         )}
         {added > 0 || deleted > 0 ? (
-          <span className="shrink-0 font-mono text-[11px] font-semibold">
-            {added > 0 ? (
-              <span className="text-emerald-400">+{added}</span>
-            ) : null}
-            {added > 0 && deleted > 0 ? " " : null}
-            {deleted > 0 ? (
-              <span className="text-red-400">-{deleted}</span>
-            ) : null}
-          </span>
+          <DiffStat additions={added} deletions={deleted} compact />
         ) : (
           <StatusIcon status={status} />
         )}

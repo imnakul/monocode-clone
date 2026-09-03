@@ -11,6 +11,7 @@ import { invalidateProjectFiles } from "../lib/fileIndex";
 import { invalidateWatchedFiles } from "../lib/fileWatch";
 import { basename, notifyGitChanged, subscribeGitChanged } from "../lib/fs";
 import { FileTypeIcon } from "./FileTypeIcon";
+import { DiffStat } from "./DiffStat";
 
 type Props = {
   sessionId: string;
@@ -192,7 +193,7 @@ function FileLabel({
     >
       <FileTypeIcon name={name} isDir={false} size={14} />
       <span className="min-w-0 truncate font-mono text-[12px]">{name}</span>
-      <DiffCounts file={file} />
+      <DiffStat additions={file.additions} deletions={file.deletions} compact />
     </button>
   );
 }
@@ -216,22 +217,7 @@ function FileRow({
       <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
         {name}
       </span>
-      <DiffCounts file={file} />
+      <DiffStat additions={file.additions} deletions={file.deletions} compact />
     </button>
-  );
-}
-
-function DiffCounts({ file }: { file: CheckpointFile }) {
-  if (file.additions <= 0 && file.deletions <= 0) return null;
-  return (
-    <span className="shrink-0 font-mono text-[11px] font-semibold">
-      {file.additions > 0 ? (
-        <span className="text-emerald-400">+{file.additions}</span>
-      ) : null}
-      {file.additions > 0 && file.deletions > 0 ? " " : null}
-      {file.deletions > 0 ? (
-        <span className="text-red-400">-{file.deletions}</span>
-      ) : null}
-    </span>
   );
 }

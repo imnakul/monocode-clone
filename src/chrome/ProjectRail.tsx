@@ -65,6 +65,7 @@ import { ProjectMascot } from "./ProjectMascot";
 import { RailAction, RailSearch } from "./RailAction";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { DevModeSlot, TabVisitNav } from "./TitleBar";
+import { DiffStat } from "./DiffStat";
 import { SidebarUpdateFooter } from "./SidebarUpdate";
 import type { InstalledUpdate } from "../lib/updateNotice";
 import { SettingsNav } from "./SettingsRail";
@@ -1039,27 +1040,19 @@ function ProjectDiffStat({
   additions: number;
   deletions: number;
 }) {
-  if (additions <= 0 && deletions <= 0) return null;
-
   const label = [
     additions > 0 ? `+${additions}` : "",
     deletions > 0 ? `-${deletions}` : "",
   ]
     .filter(Boolean)
     .join(" ");
-
   return (
-    <span
+    <DiffStat
+      additions={additions}
+      deletions={deletions}
       title={`${label} uncommitted`}
-      className="flex shrink-0 items-center gap-1 font-mono text-[11px] font-semibold tabular-nums"
-    >
-      {additions > 0 ? (
-        <span className="text-emerald-400">+{additions}</span>
-      ) : null}
-      {deletions > 0 ? (
-        <span className="text-red-400">-{deletions}</span>
-      ) : null}
-    </span>
+      compact
+    />
   );
 }
 
