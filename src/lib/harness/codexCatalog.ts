@@ -39,7 +39,13 @@ export function refreshCodexCatalog(): Promise<void> {
       if (models.length > 0) setHarnessModels("codex", models);
     })
     .catch((error: unknown) => {
-      console.debug("[monocode] codex catalog", error);
+      // Warn, not debug: the health probe already passed at this point, so a
+      // catalog failure here is exceptional (timeout, auth drift, protocol
+      // change) and otherwise decays into a silent, unexplained "0 models".
+      console.warn(
+        "[monocode] codex catalog failed after successful probe:",
+        error instanceof Error ? error.message : String(error),
+      );
     })
     .finally(() => {
       inflight = null;
