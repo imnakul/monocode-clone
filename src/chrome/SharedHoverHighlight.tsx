@@ -42,16 +42,16 @@ export function SharedHoverHighlight({
         rect.top - rootRect.top + root.scrollTop
       }px, 0)`;
       marker.style.borderRadius = getComputedStyle(next).borderRadius;
-      marker.dataset.sharedHoverHighlightTone =
-        next.dataset.sharedHoverTone === "danger" ? "danger" : "default";
-      marker.classList.toggle(
-        "bg-red-500/15",
-        next.dataset.sharedHoverTone === "danger",
-      );
-      marker.classList.toggle(
-        "bg-content/8",
-        next.dataset.sharedHoverTone !== "danger",
-      );
+      const danger = next.dataset.sharedHoverTone === "danger";
+      marker.dataset.sharedHoverHighlightTone = danger ? "danger" : "default";
+      marker.classList.toggle("bg-red-500/15", danger);
+      // The moving highlight must honor the Menu item highlight setting like
+      // selected rows do (index.css reads --popover-highlight-opacity). A
+      // fixed class here would freeze it at 8% forever; the var() expression
+      // stays live so slider changes repaint immediately.
+      marker.style.background = danger
+        ? ""
+        : "color-mix(in srgb, var(--color-content) var(--popover-highlight-opacity), transparent)";
       if (first) {
         void marker.offsetWidth;
         marker.style.transition = "";

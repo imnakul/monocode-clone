@@ -239,8 +239,21 @@ html:not(.is-mac) ::-webkit-scrollbar-corner {
     var(--color-content) var(--popover-surface-opacity),
     transparent
   );
-  backdrop-filter: blur(var(--popover-backdrop-blur));
   -webkit-backdrop-filter: blur(var(--popover-backdrop-blur));
+}
+
+/*
+ * The standard property MUST live inside @supports (same pattern Tailwind
+ * emits for its own utilities): the production minifier otherwise keeps
+ * only the -webkit- alias for this rule, and the alias does not track the
+ * slider variable at runtime in WebView2 — Menu backdrop blur then silently
+ * stops responding while tint/highlight (plain paint, no prefix) keep
+ * working. Verified in the bundle: both declarations must be present.
+ */
+@supports (backdrop-filter: blur(0px)) {
+  .popover-surface {
+    backdrop-filter: blur(var(--popover-backdrop-blur));
+  }
 }
 
 html.is-mac,
