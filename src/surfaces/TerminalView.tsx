@@ -3,6 +3,9 @@ import { useEffect, useRef } from "react";
 import {
   getPtyStatus,
   killPty,
+  markUnsupportedNotified,
+  PTY_SUPPORTED,
+  PTY_UNSUPPORTED_MESSAGE,
   resizePty,
   spawnPty,
   subscribePty,
@@ -120,6 +123,14 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const spawned = useRef(false);
+  /**
+   * Permanent failure: on Windows there is no PTY runtime, so every spawn
+   * attempt fails identically. Without this latch, each failed attempt
+   * prints an error line, whose render re-triggers `applySize` via
+   * `onRender`, which spawns again — an infinite spawn-fail-render loop
+   * that pegs the UI. Unix keeps the old retry-on-render behavior.
+   */
+  const dead = useRef(!PTY_SUPPORTED);
   const applySizeRef = useRef<() => void>(() => {});
   const onMetaChangeRef = useRef(onMetaChange);
   onMetaChangeRef.current = onMetaChange;
@@ -146,6 +157,12 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
     term.open(host);
     termRef.current = term;
     let closed = false;
+    if (dead.current && markUnsupportedNotified(id)) {
+      // Unsupported platform: explain once per terminal per launch, never
+      // invoke the backend. (Component remounts from tab switches or layout
+      // restores must not reprint it.)
+      term.writeln(`\x1b[31m${PTY_UNSUPPORTED_MESSAGE}\x1b[0m`);
+    }
 
     const onCopy = (event: ClipboardEvent) => {
       const text = term.getSelection();
@@ -203,6 +220,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
     );
 
     const dataSub = term.onData((data) => {
+      if (dead.current) return;
       void writePty(id, data);
     });
 
@@ -251,7 +269,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
     };
 
     const applySize = () => {
-      if (closed) return;
+      if (closed || dead.current) return;
       const next = fitTerminal(term, host, fitMode());
       if (!next) return;
       const { cols, rows } = next;
@@ -261,11 +279,18 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       if (!spawned.current) {
         spawned.current = true;
         void spawnPty(id, cwd, cols, rows).catch((error) => {
-          spawned.current = false;
-          lastCols = 0;
-          lastRows = 0;
           const message =
             error instanceof Error ? error.message : String(error);
+          if (!PTY_SUPPORTED || message === PTY_UNSUPPORTED_MESSAGE) {
+            // No PTY runtime on this OS: print once and stop. Retrying only
+            // reprints the error (each writeln re-renders, which would
+            // re-trigger applySize through onRender below).
+            dead.current = true;
+          } else {
+            spawned.current = false;
+            lastCols = 0;
+            lastRows = 0;
+          }
           term.writeln(`\x1b[31m${message}\x1b[0m`);
         });
         return;
@@ -331,7 +356,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
   const wantsMeta = !!onMetaChange;
 
   useEffect(() => {
-    if (!wantsMeta) return;
+    if (!wantsMeta || !PTY_SUPPORTED) return;
     let lastForeground: string | null = null;
     let inFlight = false;
     const refresh = () => {

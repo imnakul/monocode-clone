@@ -2193,6 +2193,8 @@ dependencies = [
  "tauri-plugin-window-state",
  "ureq",
  "window-vibrancy",
+ "windows-sys 0.61.2",
+ "winreg",
 ]
 
 [[package]]

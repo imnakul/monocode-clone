@@ -97,12 +97,12 @@ pub(crate) fn list_project_files_sync(cwd: &str) -> Result<Vec<ProjectFile>, Str
 }
 
 fn git_ls_files(root: &Path) -> Option<Vec<ProjectFile>> {
-    let output = Command::new("git")
-        .arg("-C")
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
         .arg(root)
-        .args(["ls-files", "-co", "--exclude-standard", "-z"])
-        .output()
-        .ok()?;
+        .args(["ls-files", "-co", "--exclude-standard", "-z"]);
+    crate::harness::hide_console_window(&mut cmd);
+    let output = cmd.output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -1040,7 +1040,8 @@ fn git_index_mode(root: &Path, relative: &str) -> Option<String> {
 }
 
 fn git_hash_object(root: &Path, relative: &str, contents: &[u8]) -> Result<String, String> {
-    let mut child = Command::new("git")
+    let mut spawn = Command::new("git");
+    spawn
         .arg("--no-pager")
         .arg("-C")
         .arg(root)
@@ -1049,9 +1050,9 @@ fn git_hash_object(root: &Path, relative: &str, contents: &[u8]) -> Result<Strin
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())?;
+        .stderr(Stdio::piped());
+    crate::harness::hide_console_window(&mut spawn);
+    let mut child = spawn.spawn().map_err(|e| e.to_string())?;
     let mut stdin = child
         .stdin
         .take()
@@ -2125,6 +2126,7 @@ fn gh_run(root: &Path, args: &[&str], allow_empty: bool) -> Result<String, Strin
         .env("GH_PAGER", "cat")
         .env("GIT_PAGER", "cat");
     crate::harness::apply_gui_env(&mut cmd);
+    crate::harness::hide_console_window(&mut cmd);
     let output = cmd.output().map_err(|error| {
         if error.kind() == ErrorKind::NotFound {
             "GitHub CLI (`gh`) is not installed.".to_string()
@@ -2172,15 +2174,15 @@ pub(crate) fn resolve_repo_path(root: &Path, relative: &str) -> Result<String, S
 }
 
 pub(crate) fn git_checked(root: &Path, args: &[&str]) -> Result<(), String> {
-    let output = Command::new("git")
-        .arg("--no-pager")
+    let mut cmd = Command::new("git");
+    cmd.arg("--no-pager")
         .arg("-C")
         .arg(root)
         .args(args)
         .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
-        .map_err(|e| e.to_string())?;
+        .env("GIT_TERMINAL_PROMPT", "0");
+    crate::harness::hide_console_window(&mut cmd);
+    let output = cmd.output().map_err(|e| e.to_string())?;
     if output.status.success() {
         return Ok(());
     }
@@ -2206,15 +2208,15 @@ fn git_run(root: &Path, args: &[&str]) -> Option<String> {
 }
 
 fn git_output(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
-    let output = Command::new("git")
-        .arg("--no-pager")
+    let mut cmd = Command::new("git");
+    cmd.arg("--no-pager")
         .arg("-C")
         .arg(root)
         .args(args)
         .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
-        .ok()?;
+        .env("GIT_TERMINAL_PROMPT", "0");
+    crate::harness::hide_console_window(&mut cmd);
+    let output = cmd.output().ok()?;
     if output.status.success() {
         return Some(output.stdout);
     }
@@ -2411,14 +2413,14 @@ fn git_branch_name(root: &Path, name: &str) -> Result<String, String> {
     if name.is_empty() {
         return Err("Branch name cannot be empty".into());
     }
-    let output = Command::new("git")
-        .arg("-C")
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
         .arg(root)
         .args(["check-ref-format", "--branch", name])
         .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
-        .map_err(|e| e.to_string())?;
+        .env("GIT_TERMINAL_PROMPT", "0");
+    crate::harness::hide_console_window(&mut cmd);
+    let output = cmd.output().map_err(|e| e.to_string())?;
     if !output.status.success() {
         return Err(format!("'{name}' is not a valid branch name"));
     }
@@ -2537,12 +2539,10 @@ fn git_ahead_behind(root: &Path, base: &str) -> (i64, i64) {
 }
 
 fn git_stdout(root: &Path, args: &[&str]) -> Option<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(args)
-        .output()
-        .ok()?;
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(root).args(args);
+    crate::harness::hide_console_window(&mut cmd);
+    let output = cmd.output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -2855,16 +2855,16 @@ fn clone_repo_sync(url: &str, parent: &str) -> Result<String, String> {
         return Err(format!("{} already exists", dest.display()));
     }
     let dest_str = dest.to_str().ok_or("Invalid destination path")?;
-    let output = std::process::Command::new("git")
-        .args(["clone", "--", url, dest_str])
-        .output()
-        .map_err(|e| {
-            if e.kind() == ErrorKind::NotFound {
-                "git is not installed".into()
-            } else {
-                format!("git clone failed: {e}")
-            }
-        })?;
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["clone", "--", url, dest_str]);
+    crate::harness::hide_console_window(&mut cmd);
+    let output = cmd.output().map_err(|e| {
+        if e.kind() == ErrorKind::NotFound {
+            "git is not installed".into()
+        } else {
+            format!("git clone failed: {e}")
+        }
+    })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let msg = stderr
@@ -3046,10 +3046,7 @@ pub async fn read_wallpaper_base64(path: String) -> Result<String, String> {
 /// Copy the selected wallpaper into MonoCode's app-data directory. Only one
 /// managed wallpaper is kept, so trying several images does not accumulate files.
 #[tauri::command]
-pub async fn persist_wallpaper(
-    app: tauri::AppHandle,
-    path: String,
-) -> Result<String, String> {
+pub async fn persist_wallpaper(app: tauri::AppHandle, path: String) -> Result<String, String> {
     let dir = app
         .path()
         .app_data_dir()

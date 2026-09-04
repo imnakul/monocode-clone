@@ -87,6 +87,7 @@ fn git_grep(root: &Path, options: &SearchOptions, query: &str) -> Option<SearchR
     for spec in pathspecs(&options.include, &options.exclude) {
         cmd.arg(spec);
     }
+    crate::harness::hide_console_window(&mut cmd);
 
     let output = cmd.output().ok()?;
     if !output.status.success() && !output.stdout.is_empty() {

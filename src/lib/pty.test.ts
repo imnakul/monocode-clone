@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { trimReplay } from "./pty";
+import {
+  markUnsupportedNotified,
+  PTY_SUPPORTED,
+  PTY_UNSUPPORTED_MESSAGE,
+  trimReplay,
+} from "./pty";
+import { IS_WINDOWS } from "./platform";
 
 const KB = 1024;
 
@@ -33,5 +39,26 @@ describe("trimReplay", () => {
   it("never drops the only chunk", () => {
     const sizes = [512 * KB];
     expect(trimReplay(sizes, 512 * KB)).toEqual({ drop: 0, bytes: 512 * KB });
+  });
+});
+
+describe("PTY platform support", () => {
+  it("derives support from the Windows flag", () => {
+    expect(PTY_SUPPORTED).toBe(!IS_WINDOWS);
+  });
+
+  it("keeps the unsupported message identical to the Rust backend rejection", () => {
+    // Must match pty_spawn/pty_resize in src-tauri/src/pty.rs; TerminalView
+    // compares backend errors against this string to stop retrying.
+    expect(PTY_UNSUPPORTED_MESSAGE).toBe(
+      "Terminals are supported on macOS and Linux.",
+    );
+  });
+
+  it("notifies unsupported only once per terminal id", () => {
+    const id = `term-${Date.now()}-${Math.random()}`;
+    expect(markUnsupportedNotified(id)).toBe(true);
+    expect(markUnsupportedNotified(id)).toBe(false);
+    expect(markUnsupportedNotified(`${id}-other`)).toBe(true);
   });
 });

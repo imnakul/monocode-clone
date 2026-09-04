@@ -1,8 +1,35 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { IS_WINDOWS } from "./platform";
 
 type DataPayload = { id: string; data: string };
 type ExitPayload = { id: string; code: number | null };
+
+/**
+ * The Rust backend only implements PTYs on Unix (`pty_spawn` rejects
+ * everything else), so on Windows there is no runtime to retry against.
+ * Must stay identical to the backend rejection in `src-tauri/src/pty.rs`.
+ */
+export const PTY_UNSUPPORTED_MESSAGE =
+  "Terminals are supported on macOS and Linux.";
+
+/** False on Windows: no PTY runtime exists, do not attempt (or retry) spawns. */
+export const PTY_SUPPORTED = !IS_WINDOWS;
+
+/**
+ * Remount guard for the unsupported notice. Terminal views remount whenever
+ * their parent pane remounts (tab switches, layout restores), and each mount
+ * would otherwise reprint the notice. Window-scoped: one notice per terminal
+ * id per app launch is enough.
+ */
+const unsupportedNotified = new Set<string>();
+
+/** Returns true on the first call per id (caller should print), false after. */
+export function markUnsupportedNotified(id: string): boolean {
+  if (unsupportedNotified.has(id)) return false;
+  unsupportedNotified.add(id);
+  return true;
+}
 
 type DataHandler = (data: Uint8Array) => void;
 type ExitHandler = (code: number | null) => void;

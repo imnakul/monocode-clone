@@ -63,9 +63,86 @@ pub struct CursorBinary {
     pub path: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessProbe {
+    pub path: String,
+    pub version: Option<String>,
+}
+
+#[cfg(windows)]
+struct WindowsJob {
+    handle: usize,
+}
+
+#[cfg(windows)]
+impl WindowsJob {
+    fn attach(pid: u32) -> Option<Self> {
+        use std::mem::{size_of, zeroed};
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+            SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        };
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+        };
+
+        unsafe {
+            let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if job.is_null() {
+                return None;
+            }
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = zeroed();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            if SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const _,
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            ) == 0
+            {
+                CloseHandle(job);
+                return None;
+            }
+            let process = OpenProcess(
+                PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+                0,
+                pid,
+            );
+            if process.is_null() {
+                CloseHandle(job);
+                return None;
+            }
+            let assigned = AssignProcessToJobObject(job, process) != 0;
+            CloseHandle(process);
+            if !assigned {
+                CloseHandle(job);
+                return None;
+            }
+            Some(Self {
+                handle: job as usize,
+            })
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for WindowsJob {
+    fn drop(&mut self) {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        unsafe {
+            let _ = CloseHandle(self.handle as _);
+        }
+    }
+}
+
 struct LiveChild {
     stdin: Mutex<ChildStdin>,
     pid: u32,
+    #[cfg(windows)]
+    _job: Option<WindowsJob>,
 }
 
 struct LiveSse {
@@ -205,115 +282,172 @@ impl Drop for HarnessHost {
     }
 }
 
+fn resolve_requested_binary(
+    override_path: Option<String>,
+    resolver: fn() -> Option<PathBuf>,
+    missing_message: &str,
+) -> Result<PathBuf, String> {
+    if let Some(raw) = override_path {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let path = expand_home(trimmed);
+            if is_executable_file(&path) {
+                return Ok(path);
+            }
+            return Err(format!(
+                "Selected harness binary is not a launchable file: {}",
+                path.display()
+            ));
+        }
+    }
+    resolver().ok_or_else(|| missing_message.to_string())
+}
+
+fn cursor_binary(path: PathBuf) -> CursorBinary {
+    CursorBinary {
+        path: path.to_string_lossy().into_owned(),
+    }
+}
+
 /// Resolve the Cursor CLI (`cursor-agent`), never Grok's `agent` shim.
 #[tauri::command(async)]
-pub fn harness_resolve_cursor() -> Result<CursorBinary, String> {
-    resolve_cursor_agent()
-        .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
-        })
-        .ok_or_else(|| "Cursor CLI not found. Install it and run `agent login`, then retry.".into())
+pub fn harness_resolve_cursor(override_path: Option<String>) -> Result<CursorBinary, String> {
+    resolve_requested_binary(
+        override_path,
+        resolve_cursor_agent,
+        "Cursor CLI not found. Install it and run `agent login`, then retry.",
+    )
+    .map(cursor_binary)
 }
 
 /// Resolve the Codex CLI (`codex`).
 #[tauri::command(async)]
-pub fn harness_resolve_codex() -> Result<CursorBinary, String> {
-    resolve_codex()
-        .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
-        })
-        .ok_or_else(|| {
-            "Codex CLI not found. Install it from https://developers.openai.com/codex/cli and run `codex login`, then retry."
-                .into()
-        })
+pub fn harness_resolve_codex(override_path: Option<String>) -> Result<CursorBinary, String> {
+    resolve_requested_binary(
+        override_path,
+        resolve_codex,
+        "Codex CLI not found. On Windows install the standalone CLI with the official Codex installer, then run `codex login`.",
+    )
+    .map(cursor_binary)
 }
 
 /// Resolve the OpenCode CLI (`opencode`).
 #[tauri::command(async)]
-pub fn harness_resolve_opencode() -> Result<CursorBinary, String> {
-    resolve_opencode()
-        .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
-        })
-        .ok_or_else(|| {
-            "OpenCode CLI not found. Install it from https://opencode.ai and run `opencode auth login`, then retry."
-                .into()
-        })
+pub fn harness_resolve_opencode(override_path: Option<String>) -> Result<CursorBinary, String> {
+    resolve_requested_binary(
+        override_path,
+        resolve_opencode,
+        "OpenCode CLI not found. Install it from https://opencode.ai and run `opencode auth login`, then retry.",
+    )
+    .map(cursor_binary)
 }
 
 /// Resolve the Claude Code CLI (`claude`).
 #[tauri::command(async)]
-pub fn harness_resolve_claude() -> Result<CursorBinary, String> {
-    resolve_claude()
-        .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
-        })
-        .ok_or_else(|| {
-            "Claude Code CLI not found. Install it from https://claude.com/product/claude-code and run `claude auth login`, then retry."
-                .into()
-        })
+pub fn harness_resolve_claude(override_path: Option<String>) -> Result<CursorBinary, String> {
+    resolve_requested_binary(
+        override_path,
+        resolve_claude,
+        "Claude Code CLI not found. Install it from https://claude.com/product/claude-code and run `claude auth login`, then retry.",
+    )
+    .map(cursor_binary)
 }
 
 /// Resolve the Pi coding agent CLI (`pi`).
 #[tauri::command(async)]
-pub fn harness_resolve_pi() -> Result<CursorBinary, String> {
-    resolve_pi()
-        .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
-        })
-        .ok_or_else(|| {
-            "Pi CLI not found. Install it with `npm install -g @earendil-works/pi-coding-agent` and authenticate, then retry."
-                .into()
-        })
+pub fn harness_resolve_pi(override_path: Option<String>) -> Result<CursorBinary, String> {
+    resolve_requested_binary(
+        override_path,
+        resolve_pi,
+        "Pi CLI not found. Install it with `npm install -g @earendil-works/pi-coding-agent` and authenticate, then retry.",
+    )
+    .map(cursor_binary)
 }
 
 /// Resolve the omp (oh-my-pi) coding agent CLI.
 #[tauri::command(async)]
-pub fn harness_resolve_omp() -> Result<CursorBinary, String> {
-    resolve_omp()
-        .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
-        })
-        .ok_or_else(|| {
-            "omp CLI not found. Install it with `curl -fsSL https://omp.sh/install | sh` and authenticate, then retry."
-                .into()
-        })
+pub fn harness_resolve_omp(override_path: Option<String>) -> Result<CursorBinary, String> {
+    resolve_requested_binary(
+        override_path,
+        resolve_omp,
+        "omp CLI not found. Install it with `curl -fsSL https://omp.sh/install | sh` and authenticate, then retry.",
+    )
+    .map(cursor_binary)
 }
 
-/// Resolve the Vercel fx coding agent CLI (`fx`), never the JSON viewer of the same name.
+/// Resolve the Vercel fx coding agent CLI (`fx`).
 #[tauri::command(async)]
-pub fn harness_resolve_fx() -> Result<CursorBinary, String> {
-    resolve_fx()
-        .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
-        })
-        .ok_or_else(|| {
-            "fx CLI not found. Install it from https://fx.sh and run `fx login`, then retry.".into()
-        })
+pub fn harness_resolve_fx(override_path: Option<String>) -> Result<CursorBinary, String> {
+    resolve_requested_binary(
+        override_path,
+        resolve_fx,
+        "fx CLI not found. Install it from https://fx.sh and run `fx login`, then retry.",
+    )
+    .map(cursor_binary)
 }
 
 /// Resolve xAI Grok Build (`grok`).
 #[tauri::command(async)]
-pub fn harness_resolve_grok() -> Result<CursorBinary, String> {
-    resolve_grok()
-        .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
-        })
-        .ok_or_else(|| {
-            "Grok Build CLI not found. Install it with `curl -fsSL https://x.ai/cli/install.sh | bash` and run `grok login`, then retry.".into()
-        })
+pub fn harness_resolve_grok(override_path: Option<String>) -> Result<CursorBinary, String> {
+    resolve_requested_binary(
+        override_path,
+        resolve_grok,
+        "Grok Build CLI not found. Install it with `curl -fsSL https://x.ai/cli/install.sh | bash` and run `grok login`, then retry.",
+    )
+    .map(cursor_binary)
 }
 
 /// Resolve the Antigravity CLI (`agy`).
 #[tauri::command(async)]
-pub fn harness_resolve_antigravity() -> Result<CursorBinary, String> {
-    resolve_antigravity()
-        .map(|path| CursorBinary {
-            path: path.to_string_lossy().into_owned(),
-        })
-        .ok_or_else(|| {
-            "Antigravity CLI (agy) not found. Install it and run `agy auth`, then retry.".into()
-        })
+pub fn harness_resolve_antigravity(override_path: Option<String>) -> Result<CursorBinary, String> {
+    resolve_requested_binary(
+        override_path,
+        resolve_antigravity,
+        "Antigravity CLI (agy) not found. Install it and authenticate, then retry.",
+    )
+    .map(cursor_binary)
+}
+
+fn resolve_provider_binary(
+    provider: &str,
+    override_path: Option<String>,
+) -> Result<PathBuf, String> {
+    match provider {
+        "cursor" => {
+            resolve_requested_binary(override_path, resolve_cursor_agent, "Cursor CLI not found")
+        }
+        "codex" => resolve_requested_binary(override_path, resolve_codex, "Codex CLI not found"),
+        "opencode" => {
+            resolve_requested_binary(override_path, resolve_opencode, "OpenCode CLI not found")
+        }
+        "claude" => {
+            resolve_requested_binary(override_path, resolve_claude, "Claude Code CLI not found")
+        }
+        "pi" => resolve_requested_binary(override_path, resolve_pi, "Pi CLI not found"),
+        "omp" => resolve_requested_binary(override_path, resolve_omp, "omp CLI not found"),
+        "fx" => resolve_requested_binary(override_path, resolve_fx, "fx CLI not found"),
+        "grok" => resolve_requested_binary(override_path, resolve_grok, "Grok Build CLI not found"),
+        "antigravity" => resolve_requested_binary(
+            override_path,
+            resolve_antigravity,
+            "Antigravity CLI not found",
+        ),
+        _ => Err(format!("Unknown harness provider: {provider}")),
+    }
+}
+
+/// Resolve and actively probe a provider before the UI marks it available.
+#[tauri::command(async)]
+pub fn harness_probe_provider(
+    provider: String,
+    override_path: Option<String>,
+) -> Result<HarnessProbe, String> {
+    let path = resolve_provider_binary(&provider, override_path)?;
+    let version = probe_provider_binary(&provider, &path)?;
+    Ok(HarnessProbe {
+        path: path.to_string_lossy().into_owned(),
+        version,
+    })
 }
 
 /// Bind an ephemeral loopback port for `opencode serve`.
@@ -350,9 +484,9 @@ pub fn harness_spawn(
         ));
     }
 
-    let mut cmd = Command::new(&command);
-    cmd.args(&args)
-        .current_dir(&workdir)
+    let provider_path = PathBuf::from(&command);
+    let mut cmd = new_provider_command(&provider_path, &args)?;
+    cmd.current_dir(&workdir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -376,9 +510,13 @@ pub fn harness_spawn(
         .take()
         .ok_or_else(|| "Failed to open harness stderr".to_string())?;
 
+    #[cfg(windows)]
+    let job = WindowsJob::attach(pid);
     let live = Arc::new(LiveChild {
         stdin: Mutex::new(stdin),
         pid,
+        #[cfg(windows)]
+        _job: job,
     });
     if let Some(rejected) = host.install_spawn(session_id.clone(), epoch, kill_all, live) {
         // A kill, or a newer spawn, won the race while this one was forking.
@@ -644,6 +782,8 @@ const EXEC_ALLOWED_ARGS: &[&[&str]] = &[
     &["models", "--verbose"],
     &["models", "--json"],
     &["models"],
+    &["models", "--output-format", "json"],
+    &["--output-format", "json", "models"],
     &["status", "--json"],
     &["agent", "list"],
 ];
@@ -655,12 +795,11 @@ fn exec_args_allowed(args: &[String]) -> bool {
 }
 
 /// Must be a path a resolver would hand back, not an arbitrary binary
-/// that merely shares a file name.
+/// that merely shares a file name. Explicit overrides are validated at
+/// resolve time via `is_executable_file`, but `harness_exec` must still only
+/// run a binary the backend itself resolves — never any existing file.
 fn is_resolved_harness_binary(command: &str) -> bool {
     let path = PathBuf::from(command);
-    if path.is_file() {
-        return true;
-    }
     [
         resolve_cursor_agent(),
         resolve_codex(),
@@ -697,10 +836,98 @@ pub async fn harness_exec(
     .map_err(|e| e.to_string())?
 }
 
+fn probe_command_output(path: &Path, args: &[&str], timeout: Duration) -> Result<String, String> {
+    let command = path.to_string_lossy().into_owned();
+    let owned: Vec<String> = args.iter().map(|item| item.to_string()).collect();
+    let mut cmd = new_provider_command(path, &owned)?;
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    prepare_child(&mut cmd, &command);
+    let child = cmd
+        .spawn()
+        .map_err(|error| format!("Failed to run {}: {error}", path.display()))?;
+    let pid = child.id();
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+    match rx.recv_timeout(timeout) {
+        Ok(Ok(output)) => {
+            let text = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            if output.status.success() || !text.trim().is_empty() {
+                Ok(text)
+            } else {
+                Err(format!(
+                    "{} exited with {} while probing {}",
+                    path.display(),
+                    output.status,
+                    args.join(" ")
+                ))
+            }
+        }
+        Ok(Err(error)) => Err(format!("Failed to probe {}: {error}", path.display())),
+        Err(_) => {
+            terminate(pid);
+            Err(format!("{} probe timed out", path.display()))
+        }
+    }
+}
+
+fn first_probe_line(text: &str) -> Option<String> {
+    text.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.chars().take(200).collect())
+}
+
+fn require_probe_markers(path: &Path, args: &[&str], markers: &[&str]) -> Result<(), String> {
+    let output = probe_command_output(path, args, Duration::from_secs(8))?;
+    let lower = output.to_ascii_lowercase();
+    if markers.iter().all(|marker| lower.contains(marker)) {
+        return Ok(());
+    }
+    Err(format!(
+        "{} does not expose the expected {} protocol",
+        path.display(),
+        args.join(" ")
+    ))
+}
+
+fn probe_provider_binary(provider: &str, path: &Path) -> Result<Option<String>, String> {
+    if !matches!(provider, "codex" | "claude" | "opencode" | "antigravity") {
+        return Ok(None);
+    }
+    let version_output = probe_command_output(path, &["--version"], Duration::from_secs(8))?;
+    match provider {
+        "codex" => require_probe_markers(path, &["app-server", "--help"], &["app-server"])?,
+        "claude" => require_probe_markers(
+            path,
+            &["--help"],
+            &["--input-format", "--output-format", "stream-json"],
+        )?,
+        "opencode" => require_probe_markers(
+            path,
+            &["serve", "--help"],
+            &["serve", "--hostname", "--port"],
+        )?,
+        "antigravity" => require_probe_markers(
+            path,
+            &["--help"],
+            &["--input-format", "--output-format", "stream-json"],
+        )?,
+        _ => unreachable!(),
+    }
+    Ok(first_probe_line(&version_output))
+}
+
 fn exec_capture(command: &str, args: &[String], cwd: Option<&str>) -> Result<String, String> {
-    let mut cmd = Command::new(command);
-    cmd.args(args)
-        .stdin(Stdio::null())
+    let mut cmd = new_provider_command(Path::new(command), args)?;
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     prepare_child(&mut cmd, command);
@@ -762,6 +989,446 @@ fn isolate_child(cmd: &mut Command) {
     {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
+    }
+    hide_console_window(cmd);
+}
+
+/// Hide the console window for helper CLIs (git/gh/…) on Windows.
+///
+/// EVERY backend `Command` that is not an interactive terminal must go
+/// through here (or `isolate_child`, which calls it): without
+/// `CREATE_NO_WINDOW`, each `git status`/`gh pr view`/`git grep` opens a
+/// visible console that steals focus — death by a thousand terminals in big
+/// repos with 2s git polling. No-op off Windows.
+pub(crate) fn hide_console_window(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = cmd;
+    }
+}
+
+/// Windows launcher classification, mirroring T3 Code's `resolveSpawnCommand`:
+/// native executables spawn directly, while `.cmd`/`.bat` shims (npm, pnpm)
+/// must be routed through `cmd.exe` shell mode with safely escaped args.
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowsLauncherKind {
+    Native,
+    CmdShim,
+    PowerShellShim,
+}
+
+#[cfg(windows)]
+fn windows_launcher_kind(path: &Path) -> WindowsLauncherKind {
+    let ext = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "cmd" | "bat" => WindowsLauncherKind::CmdShim,
+        "ps1" => WindowsLauncherKind::PowerShellShim,
+        _ => WindowsLauncherKind::Native,
+    }
+}
+
+/// Escape one argument for `cmd.exe` shell mode (`cmd /d /s /c`).
+/// Mirrors T3 Code / cross-spawn: survive both `cmd.exe` parsing and the
+/// target program's `CommandLineToArgvW` parsing.
+#[cfg(windows)]
+fn escape_windows_shell_arg(arg: &str) -> String {
+    // Double backslashes that precede a quote, then escape the quote itself.
+    let mut escaped = String::with_capacity(arg.len() + 2);
+    let bytes = arg.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            let mut run = 0usize;
+            while i + run < bytes.len() && bytes[i + run] == b'\\' {
+                run += 1;
+            }
+            let next_is_quote = i + run < bytes.len() && bytes[i + run] == b'"';
+            if next_is_quote {
+                for _ in 0..run {
+                    escaped.push_str("\\\\");
+                }
+                escaped.push_str("\\\"");
+                i += run + 1;
+            } else {
+                for _ in 0..run {
+                    escaped.push('\\');
+                }
+                i += run;
+            }
+        } else if bytes[i] == b'"' {
+            escaped.push_str("\\\"");
+            i += 1;
+        } else {
+            escaped.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    // Double trailing backslashes so the closing quote is not escaped away.
+    let mut trailing = 0usize;
+    for b in arg.bytes().rev() {
+        if b == b'\\' {
+            trailing += 1;
+        } else {
+            break;
+        }
+    }
+    let mut quoted = String::with_capacity(escaped.len() + 2 + trailing);
+    quoted.push('"');
+    quoted.push_str(&escaped);
+    for _ in 0..trailing {
+        quoted.push('\\');
+    }
+    quoted.push('"');
+    // Escape cmd.exe metacharacters so cmd passes them through verbatim.
+    let mut out = String::with_capacity(quoted.len() * 2);
+    for ch in quoted.chars() {
+        if matches!(
+            ch,
+            '(' | ')'
+                | '['
+                | ']'
+                | '%'
+                | '!'
+                | '^'
+                | '"'
+                | '`'
+                | '<'
+                | '>'
+                | '&'
+                | '|'
+                | ';'
+                | ','
+                | ' '
+                | '*'
+                | '?'
+                | '\''
+        ) {
+            out.push('^');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+#[cfg(windows)]
+fn build_windows_shell_command_line(command: &str, args: &[String]) -> String {
+    let mut parts = Vec::with_capacity(args.len() + 1);
+    parts.push(escape_windows_shell_arg(command));
+    for arg in args {
+        parts.push(escape_windows_shell_arg(arg));
+    }
+    parts.join(" ")
+}
+
+/// Build a `Command` for a resolved provider binary, handling Windows shims.
+/// Returns `Err` for `.ps1` when no PowerShell host can be located.
+#[cfg(windows)]
+fn new_provider_command(path: &Path, args: &[String]) -> Result<Command, String> {
+    match windows_launcher_kind(path) {
+        WindowsLauncherKind::Native => {
+            let mut cmd = Command::new(path);
+            cmd.args(args);
+            Ok(cmd)
+        }
+        WindowsLauncherKind::CmdShim => {
+            let command = path.to_string_lossy().into_owned();
+            let line = build_windows_shell_command_line(&command, args);
+            let mut cmd = Command::new("cmd.exe");
+            cmd.args(["/D", "/S", "/C", &line]);
+            Ok(cmd)
+        }
+        WindowsLauncherKind::PowerShellShim => {
+            let shell = resolve_windows_powershell().ok_or_else(|| {
+                format!(
+                    "PowerShell shim {} cannot be launched: no powershell host found",
+                    path.display()
+                )
+            })?;
+            let mut cmd = Command::new(shell);
+            cmd.args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ]);
+            cmd.arg(path);
+            cmd.args(args);
+            Ok(cmd)
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn new_provider_command(path: &Path, args: &[String]) -> Result<Command, String> {
+    let mut cmd = Command::new(path);
+    cmd.args(args);
+    Ok(cmd)
+}
+
+#[cfg(windows)]
+#[cfg(test)]
+mod windows_spawn_tests {
+    use super::*;
+
+    #[test]
+    fn escapes_spaces_and_ampersands() {
+        let line = build_windows_shell_command_line(
+            r"C:\Tools\opencode.cmd",
+            &[String::from("serve"), String::from("a&b")],
+        );
+        assert!(line.contains("opencode.cmd"));
+        assert!(line.contains("^&"));
+    }
+
+    #[test]
+    fn classifies_launchers() {
+        assert_eq!(
+            windows_launcher_kind(Path::new(r"C:\a\opencode.cmd")),
+            WindowsLauncherKind::CmdShim
+        );
+        assert_eq!(
+            windows_launcher_kind(Path::new(r"C:\a\tool.EXE")),
+            WindowsLauncherKind::Native
+        );
+    }
+
+    #[test]
+    fn classifies_launchers_case_insensitive_and_bat() {
+        assert_eq!(
+            windows_launcher_kind(Path::new(r"C:\a\run.BAT")),
+            WindowsLauncherKind::CmdShim
+        );
+        assert_eq!(
+            windows_launcher_kind(Path::new(r"C:\a\run.CMD")),
+            WindowsLauncherKind::CmdShim
+        );
+        assert_eq!(
+            windows_launcher_kind(Path::new(r"C:\a\tool.ExE")),
+            WindowsLauncherKind::Native
+        );
+        assert_eq!(
+            windows_launcher_kind(Path::new(r"C:\a\script.ps1")),
+            WindowsLauncherKind::PowerShellShim
+        );
+        assert_eq!(
+            windows_launcher_kind(Path::new(r"C:\a\script.PS1")),
+            WindowsLauncherKind::PowerShellShim
+        );
+    }
+
+    #[test]
+    fn command_candidates_expand_bare_names_and_keep_shims() {
+        let candidates = windows_command_candidates("opencode");
+        let upper: Vec<String> = candidates.iter().map(|c| c.to_ascii_uppercase()).collect();
+        assert!(upper.iter().any(|c| c == "OPENCODE.EXE"));
+        assert!(upper.iter().any(|c| c == "OPENCODE.CMD"));
+        assert!(upper.iter().any(|c| c == "OPENCODE.BAT"));
+        // An explicit shim name must not gain a second extension.
+        assert_eq!(
+            windows_command_candidates("opencode.cmd"),
+            vec![String::from("opencode.cmd")]
+        );
+        assert_eq!(
+            windows_command_candidates("tool.EXE"),
+            vec![String::from("tool.EXE")]
+        );
+    }
+
+    #[test]
+    fn which_in_path_uses_semicolons_quotes_spaces_and_first_hit() {
+        let root = std::env::temp_dir().join(format!("monocode-winpath-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let first = root.join("first dir");
+        let second = root.join("second");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        // Only the second dir holds the shim.
+        std::fs::write(second.join("opencode.cmd"), b"@echo off\n").unwrap();
+        let quoted = format!("\"{}\";\"{}\"", first.display(), second.display());
+        let found = which_in_path(&quoted, "opencode").expect("find shim");
+        assert_eq!(found, second.join("opencode.cmd"));
+
+        // Precedence: first dir wins once it also holds a native exe.
+        std::fs::write(first.join("opencode.exe"), b"MZ").unwrap();
+        let path = format!("{};{}", first.display(), second.display());
+        let found = which_in_path(&path, "opencode").expect("first hit wins");
+        assert_eq!(found, first.join("opencode.exe"));
+
+        // Duplicates and empty segments are skipped without failing.
+        let dup = format!(
+            "{};;{};{}",
+            first.display(),
+            first.display(),
+            second.display()
+        );
+        let found = which_in_path(&dup, "opencode").expect("dup path");
+        assert_eq!(found, first.join("opencode.exe"));
+
+        // Missing binary resolves to None.
+        assert_eq!(which_in_path(&path, "definitely-not-a-cli-xyz"), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn which_in_path_matches_extensions_case_insensitively() {
+        let root = std::env::temp_dir().join(format!("monocode-winext-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("agy.EXE"), b"MZ").unwrap();
+        let path = root.display().to_string();
+        let found = which_in_path(&path, "agy").expect("case-insensitive match");
+        // Windows FS is case-insensitive: the resolver may return the probed
+        // lowercase spelling; both spellings address the same file.
+        assert_eq!(
+            found.to_string_lossy().to_ascii_lowercase(),
+            root.join("agy.exe").to_string_lossy().to_ascii_lowercase()
+        );
+        assert!(found.is_file());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn is_executable_file_accepts_shims_and_rejects_unknown() {
+        let root = std::env::temp_dir().join(format!("monocode-winexe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let exe = root.join("tool.exe");
+        let cmd = root.join("tool.cmd");
+        let bat = root.join("tool.bat");
+        let txt = root.join("tool.txt");
+        std::fs::write(&exe, b"MZ").unwrap();
+        std::fs::write(&cmd, b"@echo off\n").unwrap();
+        std::fs::write(&bat, b"@echo off\n").unwrap();
+        std::fs::write(&txt, b"hello\n").unwrap();
+        assert!(is_executable_file(&exe));
+        assert!(is_executable_file(&cmd));
+        assert!(is_executable_file(&bat));
+        assert!(!is_executable_file(&txt));
+        assert!(!is_executable_file(&root.join("missing.exe")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn push_windows_path_value_dedups_and_unquotes() {
+        let mut parts = Vec::new();
+        let mut seen = Vec::new();
+        push_windows_path_value(
+            &mut parts,
+            &mut seen,
+            Some(r#"C:\A;"C:\A";c:\a\;C:\B;;"#.into()),
+        );
+        assert_eq!(parts, vec![String::from(r"C:\A"), String::from(r"C:\B")]);
+    }
+
+    #[test]
+    fn shell_escaping_covers_pipes_quotes_and_spaces() {
+        let line = build_windows_shell_command_line(
+            r"C:\Program Files\tool.cmd",
+            &[
+                String::from("a|b"),
+                String::from("say \"hi\""),
+                String::from("sp ace"),
+            ],
+        );
+        assert!(line.contains("^|"));
+        assert!(line.contains("sp^ ace"));
+    }
+
+    #[test]
+    fn new_provider_command_routes_shims_through_shell() {
+        let native = Path::new(r"C:\Tools\claude.exe");
+        let cmd = new_provider_command(native, &[String::from("--version")]).expect("native");
+        assert!(format!("{cmd:?}").contains("claude.exe"));
+
+        let shim = Path::new(r"C:\Tools\opencode.cmd");
+        let cmd = new_provider_command(shim, &[String::from("--version")]).expect("shim");
+        assert!(format!("{cmd:?}").contains("cmd.exe"));
+    }
+
+    #[test]
+    fn resolve_requested_binary_honors_valid_override_and_rejects_files() {
+        fn no_binary() -> Option<PathBuf> {
+            None
+        }
+        let root = std::env::temp_dir().join(format!("monocode-winover-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let exe = root.join("claude.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+        let ok = resolve_requested_binary(
+            Some(exe.to_string_lossy().into_owned()),
+            no_binary,
+            "missing",
+        )
+        .expect("valid override");
+        assert_eq!(ok, exe);
+        let err = resolve_requested_binary(
+            Some(root.join("missing.exe").to_string_lossy().into_owned()),
+            no_binary,
+            "missing",
+        )
+        .expect_err("invalid override must fail");
+        assert!(err.contains("not a launchable file"));
+        // Empty override falls back to the resolver (here: missing).
+        let err = resolve_requested_binary(Some(String::from("   ")), no_binary, "missing")
+            .expect_err("empty override falls through");
+        assert_eq!(err, "missing");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn known_cli_dirs_are_derived_from_environment() {
+        let dirs = windows_known_cli_dirs();
+        assert!(!dirs.is_empty());
+        // Every entry must sit under a live env root (LOCALAPPDATA, APPDATA,
+        // HOME/USERPROFILE, or ProgramFiles) — never a hardcoded username.
+        // On this machine those roots may themselves contain the current user
+        // name, which is correct because it is derived, not a literal.
+        let roots: Vec<String> = [
+            std::env::var("LOCALAPPDATA").ok(),
+            std::env::var("APPDATA").ok(),
+            dirs_home(),
+            std::env::var("ProgramFiles").ok(),
+            std::env::var("USERPROFILE").ok(),
+        ]
+        .into_iter()
+        .flatten()
+        .map(|r| r.to_ascii_lowercase())
+        .collect();
+        assert!(!roots.is_empty());
+        for dir in &dirs {
+            let lower = dir.to_ascii_lowercase();
+            assert!(
+                roots.iter().any(|root| lower.starts_with(root)),
+                "known dir not derived from env: {dir}"
+            );
+        }
+    }
+
+    #[test]
+    fn gui_search_path_merges_process_user_machine_and_known_dirs() {
+        let merged = windows_gui_search_path();
+        assert!(merged.contains(';'));
+        for dir in windows_known_cli_dirs() {
+            assert!(
+                merged
+                    .to_ascii_lowercase()
+                    .contains(&dir.to_ascii_lowercase()),
+                "merged PATH missing known dir: {dir}"
+            );
+        }
     }
 }
 
@@ -841,10 +1508,46 @@ fn signal_tree(pid: u32, signal: TreeSignal) {
             libc::kill(ipid, sig);
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        let _ = signal;
-        let _ = Command::new("kill").arg(pid.to_string()).status();
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let mut cmd = Command::new("taskkill.exe");
+        cmd.args(["/PID", &pid.to_string(), "/T"]);
+        if matches!(signal, TreeSignal::Kill) {
+            cmd.arg("/F");
+        }
+        let _ = cmd
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (pid, signal);
+    }
+}
+
+#[cfg(windows)]
+fn windows_process_alive(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    if pid == 0 {
+        return false;
+    }
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if process.is_null() {
+            return false;
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(process, &mut code) != 0;
+        CloseHandle(process);
+        ok && code == STILL_ACTIVE as u32
     }
 }
 
@@ -854,7 +1557,11 @@ fn tree_alive(pid: u32) -> bool {
         let ipid = pid as i32;
         unsafe { libc::kill(ipid, 0) == 0 || libc::kill(-ipid, 0) == 0 }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        windows_process_alive(pid)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = pid;
         false
@@ -869,7 +1576,11 @@ fn process_alive(pid: u32) -> bool {
     {
         unsafe { libc::kill(pid as i32, 0) == 0 }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        windows_process_alive(pid)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = pid;
         false
@@ -1183,47 +1894,84 @@ fn resolve_codex() -> Option<PathBuf> {
     let home = dirs_home().map(PathBuf::from);
     let mut candidates: Vec<PathBuf> = Vec::new();
 
-    if let Some(home) = &home {
-        candidates.push(home.join(".local/bin/codex"));
-        candidates.push(home.join(".npm-global/bin/codex"));
-        candidates.push(home.join(".cargo/bin/codex"));
-        candidates.push(home.join("n/bin/codex"));
-        #[cfg(windows)]
-        {
-            candidates.push(home.join(".codex").join(".sandbox-bin").join("codex.exe"));
-            candidates.push(home.join("AppData").join("Local").join("codex").join("bin").join("codex.exe"));
-            candidates.push(home.join("AppData").join("Roaming").join("npm").join("codex.cmd"));
-        }
-    }
     #[cfg(windows)]
-    if let Some(found) = which_in_path(&gui_search_path(), "codex") {
-        candidates.push(found);
-    }
-    candidates.push(PathBuf::from("/opt/homebrew/bin/codex"));
-    candidates.push(PathBuf::from("/usr/local/bin/codex"));
-    candidates.push(PathBuf::from("/usr/bin/codex"));
-    candidates.push(PathBuf::from("/snap/bin/codex"));
-    if let Some(from_shell) = which_via_login_shell("codex") {
-        candidates.push(from_shell);
+    {
+        // PATH (process + User + Machine + known dirs, already merged by
+        // `gui_search_path`) wins so a real standalone CLI install always
+        // beats the packaged fallback. Packaged resources are last resort.
+        // Never use `~\.codex\.sandbox-bin\codex.exe` or the MSIX package's
+        // internal `codex.exe` (Access is denied / missing code-mode host).
+        if let Some(found) = which_in_path(&gui_search_path(), "codex") {
+            candidates.push(found);
+        }
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            let root = PathBuf::from(local);
+            candidates.push(
+                root.join("Programs")
+                    .join("OpenAI")
+                    .join("Codex")
+                    .join("bin")
+                    .join("codex.exe"),
+            );
+            candidates.push(
+                root.join("Programs")
+                    .join("OpenAI")
+                    .join("Codex")
+                    .join("bin")
+                    .join("codex.cmd"),
+            );
+        }
+        if let Some(home) = &home {
+            candidates.push(home.join(".local").join("bin").join("codex.exe"));
+            candidates.push(
+                home.join("AppData")
+                    .join("Roaming")
+                    .join("npm")
+                    .join("codex.cmd"),
+            );
+        }
+        return candidates.into_iter().find(|path| is_executable_file(path));
     }
 
-    // Last resort: the Codex app bundles its own CLI, but never puts it on
-    // PATH. It is pinned to the app release (often a prerelease), so a real
-    // CLI install always wins.
-    if let Some(home) = &home {
-        candidates.push(home.join("Applications/Codex.app/Contents/Resources/codex"));
+    #[cfg(not(windows))]
+    {
+        if let Some(home) = &home {
+            candidates.push(home.join(".local/bin/codex"));
+            candidates.push(home.join(".npm-global/bin/codex"));
+            candidates.push(home.join(".cargo/bin/codex"));
+            candidates.push(home.join("n/bin/codex"));
+        }
+        candidates.push(PathBuf::from("/opt/homebrew/bin/codex"));
+        candidates.push(PathBuf::from("/usr/local/bin/codex"));
+        candidates.push(PathBuf::from("/usr/bin/codex"));
+        candidates.push(PathBuf::from("/snap/bin/codex"));
+        if let Some(from_shell) = which_via_login_shell("codex") {
+            candidates.push(from_shell);
+        }
+        // The macOS app bundle is a usable fallback. The Windows Store bundle is
+        // intentionally not used: its resources are package-protected and are not
+        // a stable external CLI installation boundary.
+        if let Some(home) = &home {
+            candidates.push(home.join("Applications/Codex.app/Contents/Resources/codex"));
+        }
+        candidates.push(PathBuf::from(
+            "/Applications/Codex.app/Contents/Resources/codex",
+        ));
+        candidates.into_iter().find(|path| is_executable_file(path))
     }
-    candidates.push(PathBuf::from(
-        "/Applications/Codex.app/Contents/Resources/codex",
-    ));
-
-    candidates.into_iter().find(|path| path.is_file())
 }
 
 fn resolve_opencode() -> Option<PathBuf> {
     let home = dirs_home().map(PathBuf::from);
     let mut candidates: Vec<PathBuf> = Vec::new();
 
+    // Prefer PATH (which already merges User/Machine/known npm dirs) so npm
+    // shims like `%APPDATA%\npm\opencode.cmd` resolve dynamically per user.
+    // Explicit home fallbacks stay as backup for Finder-launched GUIs.
+    #[cfg(windows)]
+    if let Some(found) = which_in_path(&gui_search_path(), "opencode") {
+        candidates.push(found);
+    }
     if let Some(home) = &home {
         candidates.push(home.join(".opencode/bin/opencode"));
         candidates.push(home.join(".local/bin/opencode"));
@@ -1232,14 +1980,26 @@ fn resolve_opencode() -> Option<PathBuf> {
         candidates.push(home.join("n/bin/opencode"));
         #[cfg(windows)]
         {
-            candidates.push(home.join("AppData").join("Roaming").join("npm").join("opencode.cmd"));
-            candidates.push(home.join("AppData").join("Roaming").join("npm").join("opencode.exe"));
-            candidates.push(home.join("AppData").join("Local").join("opencode").join("bin").join("opencode.exe"));
+            candidates.push(
+                home.join("AppData")
+                    .join("Roaming")
+                    .join("npm")
+                    .join("opencode.cmd"),
+            );
+            candidates.push(
+                home.join("AppData")
+                    .join("Roaming")
+                    .join("npm")
+                    .join("opencode.exe"),
+            );
+            candidates.push(
+                home.join("AppData")
+                    .join("Local")
+                    .join("opencode")
+                    .join("bin")
+                    .join("opencode.exe"),
+            );
         }
-    }
-    #[cfg(windows)]
-    if let Some(found) = which_in_path(&gui_search_path(), "opencode") {
-        candidates.push(found);
     }
     candidates.push(PathBuf::from("/opt/homebrew/bin/opencode"));
     candidates.push(PathBuf::from("/usr/local/bin/opencode"));
@@ -1249,13 +2009,19 @@ fn resolve_opencode() -> Option<PathBuf> {
         candidates.push(from_shell);
     }
 
-    candidates.into_iter().find(|path| path.is_file())
+    candidates.into_iter().find(|path| is_executable_file(path))
 }
 
 fn resolve_claude() -> Option<PathBuf> {
     let home = dirs_home().map(PathBuf::from);
     let mut candidates: Vec<PathBuf> = Vec::new();
 
+    // PATH first so `%USERPROFILE%\.local\bin\claude.exe` (or any npm shim)
+    // resolves dynamically for arbitrary users.
+    #[cfg(windows)]
+    if let Some(found) = which_in_path(&gui_search_path(), "claude") {
+        candidates.push(found);
+    }
     if let Some(home) = &home {
         candidates.push(home.join(".local/bin/claude"));
         candidates.push(home.join(".claude/local/claude"));
@@ -1266,13 +2032,19 @@ fn resolve_claude() -> Option<PathBuf> {
         #[cfg(windows)]
         {
             candidates.push(home.join(".local").join("bin").join("claude.exe"));
-            candidates.push(home.join("AppData").join("Roaming").join("npm").join("claude.cmd"));
-            candidates.push(home.join("AppData").join("Local").join("AnthropicClaude").join("claude.exe"));
+            candidates.push(
+                home.join("AppData")
+                    .join("Roaming")
+                    .join("npm")
+                    .join("claude.cmd"),
+            );
+            candidates.push(
+                home.join("AppData")
+                    .join("Local")
+                    .join("AnthropicClaude")
+                    .join("claude.exe"),
+            );
         }
-    }
-    #[cfg(windows)]
-    if let Some(found) = which_in_path(&gui_search_path(), "claude") {
-        candidates.push(found);
     }
     candidates.push(PathBuf::from("/opt/homebrew/bin/claude"));
     candidates.push(PathBuf::from("/usr/local/bin/claude"));
@@ -1282,7 +2054,7 @@ fn resolve_claude() -> Option<PathBuf> {
         candidates.push(from_shell);
     }
 
-    candidates.into_iter().find(|path| path.is_file())
+    candidates.into_iter().find(|path| is_executable_file(path))
 }
 
 fn resolve_pi() -> Option<PathBuf> {
@@ -1402,13 +2174,41 @@ fn resolve_grok() -> Option<PathBuf> {
 fn resolve_antigravity() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
+    // PATH first so `%LOCALAPPDATA%\agy\bin\agy.EXE` resolves dynamically per
+    // user instead of via a hardcoded username. Explicit install dirs are
+    // fallback for GUI-launched processes with a stale PATH.
+    #[cfg(windows)]
+    if let Some(found) = which_in_path(&gui_search_path(), "agy") {
+        candidates.push(found);
+    }
+
     #[cfg(windows)]
     {
         if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-            candidates.push(PathBuf::from(&local_app_data).join("agy").join("bin").join("agy.EXE"));
-            candidates.push(PathBuf::from(&local_app_data).join("agy").join("bin").join("agy.exe"));
-            candidates.push(PathBuf::from(&local_app_data).join("agy").join("bin").join("agy.cmd"));
-            candidates.push(PathBuf::from(&local_app_data).join("Programs").join("Antigravity").join("antigravity.exe"));
+            candidates.push(
+                PathBuf::from(&local_app_data)
+                    .join("agy")
+                    .join("bin")
+                    .join("agy.EXE"),
+            );
+            candidates.push(
+                PathBuf::from(&local_app_data)
+                    .join("agy")
+                    .join("bin")
+                    .join("agy.exe"),
+            );
+            candidates.push(
+                PathBuf::from(&local_app_data)
+                    .join("agy")
+                    .join("bin")
+                    .join("agy.cmd"),
+            );
+            candidates.push(
+                PathBuf::from(&local_app_data)
+                    .join("Programs")
+                    .join("Antigravity")
+                    .join("antigravity.exe"),
+            );
         }
     }
 
@@ -1463,9 +2263,10 @@ fn file_mentions_pi_coding_agent(path: &Path) -> bool {
 }
 
 fn help_mentions_rpc_mode(path: &Path) -> bool {
-    let mut cmd = Command::new(path);
-    cmd.arg("--help")
-        .stdin(Stdio::null())
+    let Ok(mut cmd) = new_provider_command(path, &[String::from("--help")]) else {
+        return false;
+    };
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     // npm-installed harnesses are `#!/usr/bin/env node` scripts, so this probe
@@ -1556,9 +2357,10 @@ fn file_mentions_fx_agent(path: &Path) -> bool {
 }
 
 fn fx_help_mentions_acp(path: &Path) -> bool {
-    let mut cmd = Command::new(path);
-    cmd.arg("--help")
-        .stdin(Stdio::null())
+    let Ok(mut cmd) = new_provider_command(path, &[String::from("--help")]) else {
+        return false;
+    };
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     // npm-installed harnesses are `#!/usr/bin/env node` scripts, so this probe
@@ -1619,9 +2421,10 @@ fn file_mentions_grok_agent(path: &Path) -> bool {
 }
 
 fn grok_help_mentions_agent(path: &Path) -> bool {
-    let mut cmd = Command::new(path);
-    cmd.arg("--help")
-        .stdin(Stdio::null())
+    let Ok(mut cmd) = new_provider_command(path, &[String::from("--help")]) else {
+        return false;
+    };
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     apply_gui_env(&mut cmd);
@@ -1678,18 +2481,10 @@ fn is_cursor_agent(path: &Path) -> bool {
     false
 }
 
-/// Look `name` up in the interactive login shell's PATH.
-///
-/// Reads the cached PATH rather than spawning a shell per lookup: six
-/// resolvers each asking `command -v` meant six shell startups per probe.
+/// Look `name` up in the environment a terminal on this machine would use.
 fn which_via_login_shell(name: &str) -> Option<PathBuf> {
     #[cfg(windows)]
     {
-        if let Ok(env_path) = std::env::var("PATH") {
-            if let Some(found) = which_in_path(&env_path, name) {
-                return Some(found);
-            }
-        }
         which_in_path(&gui_search_path(), name)
     }
     #[cfg(not(windows))]
@@ -1698,33 +2493,149 @@ fn which_via_login_shell(name: &str) -> Option<PathBuf> {
     }
 }
 
+#[cfg(windows)]
+fn windows_registry_user_path() -> Option<String> {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
+    use winreg::RegKey;
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey_with_flags("Environment", KEY_READ)
+        .ok()?
+        .get_value::<String, _>("Path")
+        .ok()
+        .map(|value| expand_windows_environment_variables(&value))
+}
+
+#[cfg(windows)]
+fn windows_registry_machine_value(name: &str) -> Option<String> {
+    use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ};
+    use winreg::RegKey;
+    RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey_with_flags(
+            r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+            KEY_READ,
+        )
+        .ok()?
+        .get_value::<String, _>(name)
+        .ok()
+        .map(|value| expand_windows_environment_variables(&value))
+}
+
+#[cfg(windows)]
+fn windows_registry_machine_path() -> Option<String> {
+    windows_registry_machine_value("Path")
+}
+
+#[cfg(windows)]
+fn windows_env_var_case_insensitive(name: &str) -> Option<String> {
+    std::env::vars()
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value)
+}
+
+#[cfg(windows)]
+fn expand_windows_environment_variables(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut cursor = 0usize;
+    while cursor < bytes.len() {
+        if bytes[cursor] != b'%' {
+            output.push(bytes[cursor] as char);
+            cursor += 1;
+            continue;
+        }
+        let Some(relative_end) = input[cursor + 1..].find('%') else {
+            output.push('%');
+            cursor += 1;
+            continue;
+        };
+        let end = cursor + 1 + relative_end;
+        let key = &input[cursor + 1..end];
+        if let Some(value) = windows_env_var_case_insensitive(key) {
+            output.push_str(&value);
+        } else {
+            output.push_str(&input[cursor..=end]);
+        }
+        cursor = end + 1;
+    }
+    output
+}
+
+#[cfg(windows)]
+fn windows_path_extensions() -> Vec<String> {
+    let value = windows_env_var_case_insensitive("PATHEXT")
+        .or_else(|| windows_registry_machine_value("PATHEXT"))
+        .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".to_string());
+    let mut extensions = Vec::new();
+    for raw in value.split(';') {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let extension = if trimmed.starts_with('.') {
+            trimmed.to_ascii_uppercase()
+        } else {
+            format!(".{}", trimmed.to_ascii_uppercase())
+        };
+        if !extensions.iter().any(|known: &String| known == &extension) {
+            extensions.push(extension);
+        }
+    }
+    if extensions.is_empty() {
+        vec![".COM".into(), ".EXE".into(), ".BAT".into(), ".CMD".into()]
+    } else {
+        extensions
+    }
+}
+
+#[cfg(windows)]
+fn windows_command_candidates(name: &str) -> Vec<String> {
+    let extensions = windows_path_extensions();
+    let path = Path::new(name);
+    let existing_extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| format!(".{}", value.to_ascii_uppercase()));
+    if existing_extension
+        .as_ref()
+        .is_some_and(|extension| extensions.iter().any(|known| known == extension))
+    {
+        return vec![name.to_string()];
+    }
+    extensions
+        .into_iter()
+        .map(|extension| format!("{name}{}", extension.to_ascii_lowercase()))
+        .collect()
+}
+
 fn which_in_path(path: &str, name: &str) -> Option<PathBuf> {
     #[cfg(windows)]
-    let sep = ';';
+    {
+        let candidates = windows_command_candidates(name);
+        for raw_dir in path.split(';') {
+            let dir = raw_dir.trim().trim_matches('"');
+            if dir.is_empty() {
+                continue;
+            }
+            let dir_path = Path::new(dir);
+            for candidate_name in &candidates {
+                let candidate = dir_path.join(candidate_name);
+                if is_executable_file(&candidate) {
+                    return Some(candidate);
+                }
+            }
+        }
+        None
+    }
     #[cfg(not(windows))]
-    let sep = ':';
-
-    #[cfg(windows)]
-    let extensions: &[&str] = &["", ".exe", ".cmd", ".bat", ".ps1"];
-    #[cfg(not(windows))]
-    let extensions: &[&str] = &[""];
-
-    for dir in path.split(sep).filter(|d| !d.is_empty()) {
-        let dir_path = Path::new(dir);
-        for ext in extensions {
-            let candidate = if ext.is_empty() {
-                dir_path.join(name)
-            } else if name.to_ascii_lowercase().ends_with(ext) {
-                dir_path.join(name)
-            } else {
-                dir_path.join(format!("{name}{ext}"))
-            };
+    {
+        for dir in path.split(':').filter(|dir| !dir.is_empty()) {
+            let candidate = Path::new(dir).join(name);
             if is_executable_file(&candidate) {
                 return Some(candidate);
             }
         }
+        None
     }
-    None
 }
 
 fn is_executable_file(path: &Path) -> bool {
@@ -1735,23 +2646,117 @@ fn is_executable_file(path: &Path) -> bool {
             .map(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
             .unwrap_or(false)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        if !path.is_file() {
+            return false;
+        }
+        let extension = path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(|value| format!(".{}", value.to_ascii_uppercase()));
+        extension.is_some_and(|extension| {
+            windows_path_extensions()
+                .iter()
+                .any(|known| known == &extension)
+        })
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         path.is_file()
     }
 }
 
-/// Resolve `name` the way a terminal would, then fall back to common install
-/// dirs. Finder-launched apps inherit launchd's PATH (`/usr/bin:/bin/…`), so
-/// Homebrew / mise / `~/.local/bin` tools look missing unless we search here.
+/// Resolve `name` the way a terminal would, then fall back to common install dirs.
 pub(crate) fn resolve_gui_binary(name: &str) -> Option<PathBuf> {
     which_in_path(&gui_search_path(), name)
 }
 
 fn gui_search_path() -> String {
-    gui_search_path_from(login_shell_path(), dirs_home(), std::env::var("PATH").ok())
+    #[cfg(windows)]
+    {
+        return windows_gui_search_path();
+    }
+    #[cfg(not(windows))]
+    {
+        gui_search_path_from(login_shell_path(), dirs_home(), std::env::var("PATH").ok())
+    }
 }
 
+#[cfg(windows)]
+fn push_windows_path_value(parts: &mut Vec<String>, seen: &mut Vec<String>, value: Option<String>) {
+    let Some(value) = value else { return };
+    for raw in value.split(';') {
+        let part = raw.trim().trim_matches('"');
+        if part.is_empty() {
+            continue;
+        }
+        let normalized = part
+            .replace('/', "\\")
+            .trim_end_matches('\\')
+            .to_ascii_lowercase();
+        if normalized.is_empty() || seen.iter().any(|item| item == &normalized) {
+            continue;
+        }
+        seen.push(normalized);
+        parts.push(part.to_string());
+    }
+}
+
+#[cfg(windows)]
+fn windows_known_cli_dirs() -> Vec<String> {
+    let mut dirs = Vec::new();
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        dirs.push(format!(r"{local}\Programs\OpenAI\Codex\bin"));
+        dirs.push(format!(r"{local}\agy\bin"));
+        dirs.push(format!(r"{local}\Programs\Antigravity"));
+        dirs.push(format!(r"{local}\Programs\nodejs"));
+        dirs.push(format!(r"{local}\Volta\bin"));
+        dirs.push(format!(r"{local}\pnpm"));
+    }
+    if let Ok(app_data) = std::env::var("APPDATA") {
+        dirs.push(format!(r"{app_data}\npm"));
+    }
+    if let Some(home) = dirs_home() {
+        let home = PathBuf::from(home);
+        for relative in [
+            ".local\\bin",
+            ".bun\\bin",
+            "scoop\\shims",
+            ".cargo\\bin",
+            ".opencode\\bin",
+            ".claude\\local",
+            ".local\\share\\claude",
+            ".antigravity\\bin",
+        ] {
+            dirs.push(home.join(relative).to_string_lossy().into_owned());
+        }
+    }
+    if let Ok(program_files) = std::env::var("ProgramFiles") {
+        dirs.push(format!(r"{program_files}\nodejs"));
+    }
+    dirs
+}
+
+#[cfg(windows)]
+fn windows_gui_search_path() -> String {
+    let mut parts = Vec::new();
+    let mut seen = Vec::new();
+    push_windows_path_value(&mut parts, &mut seen, login_shell_path());
+    push_windows_path_value(
+        &mut parts,
+        &mut seen,
+        windows_env_var_case_insensitive("PATH"),
+    );
+    push_windows_path_value(&mut parts, &mut seen, windows_registry_user_path());
+    for dir in windows_known_cli_dirs() {
+        push_windows_path_value(&mut parts, &mut seen, Some(dir));
+    }
+    push_windows_path_value(&mut parts, &mut seen, windows_registry_machine_path());
+    parts.join(";")
+}
+
+#[cfg(not(windows))]
 fn gui_search_path_from(
     login_path: Option<String>,
     home: Option<String>,
@@ -1760,16 +2765,6 @@ fn gui_search_path_from(
     let mut parts: Vec<String> = Vec::new();
     if let Some(path) = login_path {
         parts.push(path);
-    }
-    #[cfg(windows)]
-    {
-        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-            parts.push(format!("{local_app_data}\\agy\\bin"));
-            parts.push(format!("{local_app_data}\\Programs\\Antigravity"));
-        }
-        if let Ok(app_data) = std::env::var("APPDATA") {
-            parts.push(format!("{app_data}\\npm"));
-        }
     }
     if let Some(home) = home {
         parts.push(format!("{home}/.local/bin"));
@@ -1789,18 +2784,13 @@ fn gui_search_path_from(
     if let Some(existing) = existing {
         parts.push(existing);
     }
-    #[cfg(windows)]
-    {
-        parts.join(";")
-    }
-    #[cfg(not(windows))]
-    {
-        parts.join(":")
-    }
+    parts.join(":")
 }
 
 fn apply_gui_path(cmd: &mut Command) {
     cmd.env("PATH", gui_search_path());
+    #[cfg(windows)]
+    cmd.env("PATHEXT", windows_path_extensions().join(";"));
 }
 
 pub(crate) fn apply_gui_env(cmd: &mut Command) {
@@ -1826,13 +2816,32 @@ pub(crate) fn apply_gui_env(cmd: &mut Command) {
 
 fn prepare_child(cmd: &mut Command, command: &str) {
     apply_gui_env(cmd);
-    if command_basename(command) == "fx" {
-        apply_fx_env(cmd);
-    }
-    if command_basename(command) == "grok" {
-        apply_grok_env(cmd);
+    match command_stem(command).as_str() {
+        "fx" => apply_fx_env(cmd),
+        "grok" => apply_grok_env(cmd),
+        "claude" => apply_login_shell_keys(
+            cmd,
+            &[
+                "ANTHROPIC_API_KEY",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                "CLAUDE_CONFIG_DIR",
+            ],
+        ),
+        "codex" => apply_login_shell_keys(cmd, &["OPENAI_API_KEY", "CODEX_HOME"]),
+        _ => {}
     }
     isolate_child(cmd);
+}
+
+fn apply_login_shell_keys(cmd: &mut Command, keys: &[&str]) {
+    for key in keys {
+        if std::env::var_os(key).is_some() {
+            continue;
+        }
+        if let Some(value) = login_shell_env(key) {
+            cmd.env(key, value);
+        }
+    }
 }
 
 /// fx keeps its Gateway credential in the macOS Keychain and reads it by
@@ -1841,42 +2850,35 @@ fn prepare_child(cmd: &mut Command, command: &str) {
 /// outright. Forwarding an API key from the login shell skips the Keychain
 /// entirely for users who have one set.
 fn apply_fx_env(cmd: &mut Command) {
-    for key in [
-        "AI_GATEWAY_API_KEY",
-        "FX_AI_GATEWAY_API_KEY",
-        "VERCEL_OIDC_TOKEN",
-    ] {
-        if std::env::var_os(key).is_some() {
-            continue;
-        }
-        if let Some(value) = login_shell_env(key) {
-            cmd.env(key, value);
-        }
-    }
+    apply_login_shell_keys(
+        cmd,
+        &[
+            "AI_GATEWAY_API_KEY",
+            "FX_AI_GATEWAY_API_KEY",
+            "VERCEL_OIDC_TOKEN",
+        ],
+    );
 }
 
 fn apply_grok_env(cmd: &mut Command) {
-    for key in ["XAI_API_KEY", "GROK_CODE_XAI_API_KEY"] {
-        if std::env::var_os(key).is_some() {
-            continue;
-        }
-        if let Some(value) = login_shell_env(key) {
-            cmd.env(key, value);
-        }
-    }
+    apply_login_shell_keys(cmd, &["XAI_API_KEY", "GROK_CODE_XAI_API_KEY"]);
 }
 
 static LOGIN_SHELL_ENV: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
 
-/// Keys worth keeping out of `printenv`. PATH is the important one: a
-/// Finder-launched app inherits only launchd's bare PATH.
-const LOGIN_SHELL_KEYS: [&str; 6] = [
+/// Environment values that can differ between a desktop app and an interactive terminal.
+const LOGIN_SHELL_KEYS: [&str; 11] = [
     "PATH",
     "AI_GATEWAY_API_KEY",
     "FX_AI_GATEWAY_API_KEY",
     "VERCEL_OIDC_TOKEN",
     "XAI_API_KEY",
     "GROK_CODE_XAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CONFIG_DIR",
+    "OPENAI_API_KEY",
+    "CODEX_HOME",
 ];
 
 fn login_shell_path() -> Option<String> {
@@ -1894,23 +2896,8 @@ fn login_shell_env(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-/// Read the environment the user actually gets in a terminal.
-///
-/// `-lic`, not `-lc`: zsh reads `.zshrc` only for *interactive* shells, and
-/// version managers (nvm, fnm, mise, volta) all initialize from there. A
-/// login-but-not-interactive shell sees `.zshenv`/`.zprofile` only, so every
-/// nvm-managed CLI looks uninstalled.
-fn load_login_shell_env() -> HashMap<String, String> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| {
-        if cfg!(target_os = "macos") {
-            "/bin/zsh".into()
-        } else {
-            "/bin/bash".into()
-        }
-    });
-    let mut cmd = Command::new(&shell);
-    cmd.args(["-lic", "printenv"])
-        .stdin(Stdio::null())
+fn run_environment_probe(mut cmd: Command, marker: Option<&str>) -> HashMap<String, String> {
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     isolate_child(&mut cmd);
@@ -1930,7 +2917,13 @@ fn load_login_shell_env() -> HashMap<String, String> {
         }
     };
     let mut map = HashMap::new();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
+    for raw in String::from_utf8_lossy(&output.stdout).lines() {
+        let line = marker
+            .and_then(|prefix| raw.strip_prefix(prefix))
+            .unwrap_or(raw);
+        if marker.is_some() && line == raw {
+            continue;
+        }
         let Some((key, value)) = line.split_once('=') else {
             continue;
         };
@@ -1939,6 +2932,77 @@ fn load_login_shell_env() -> HashMap<String, String> {
         }
     }
     map
+}
+
+/// Read the environment the user actually gets in a terminal.
+#[cfg(not(windows))]
+fn load_login_shell_env() -> HashMap<String, String> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| {
+        if cfg!(target_os = "macos") {
+            "/bin/zsh".into()
+        } else {
+            "/bin/bash".into()
+        }
+    });
+    let mut cmd = Command::new(shell);
+    cmd.args(["-lic", "printenv"]);
+    run_environment_probe(cmd, None)
+}
+
+#[cfg(windows)]
+fn resolve_windows_powershell() -> Option<PathBuf> {
+    if let Some(path) = windows_env_var_case_insensitive("PATH") {
+        if let Some(found) = which_in_path(&path, "pwsh") {
+            return Some(found);
+        }
+        if let Some(found) = which_in_path(&path, "powershell") {
+            return Some(found);
+        }
+    }
+    if let Ok(program_files) = std::env::var("ProgramFiles") {
+        let candidate = PathBuf::from(program_files)
+            .join("PowerShell")
+            .join("7")
+            .join("pwsh.exe");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+    let candidate = PathBuf::from(system_root)
+        .join("System32")
+        .join("WindowsPowerShell")
+        .join("v1.0")
+        .join("powershell.exe");
+    candidate.is_file().then_some(candidate)
+}
+
+/// PowerShell profiles are the Windows equivalent of the interactive shell rc files
+/// used by version managers. Marker-prefixed output ignores any profile startup chatter.
+#[cfg(windows)]
+fn load_login_shell_env() -> HashMap<String, String> {
+    let Some(shell) = resolve_windows_powershell() else {
+        return HashMap::new();
+    };
+    let names = LOGIN_SHELL_KEYS
+        .iter()
+        .map(|name| format!("'{name}'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let script = format!(
+        "$names=@({names}); foreach($name in $names) {{ $value=[Environment]::GetEnvironmentVariable($name,'Process'); if($null -ne $value -and $value.Length -gt 0) {{ Write-Output ('__MONOCODE_ENV__'+$name+'='+$value) }} }}"
+    );
+    let mut cmd = Command::new(shell);
+    cmd.args(["-NoLogo", "-NonInteractive", "-Command", &script]);
+    run_environment_probe(cmd, Some("__MONOCODE_ENV__"))
+}
+
+fn command_stem(command: &str) -> String {
+    Path::new(command)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or(command)
+        .to_ascii_lowercase()
 }
 
 fn command_basename(command: &str) -> &str {
@@ -2461,6 +3525,16 @@ mod exec_allowlist_tests {
         assert!(exec_args_allowed(&args(&["models", "--verbose"])));
         assert!(exec_args_allowed(&args(&["models", "--json"])));
         assert!(exec_args_allowed(&args(&["models"])));
+        assert!(exec_args_allowed(&args(&[
+            "models",
+            "--output-format",
+            "json"
+        ])));
+        assert!(exec_args_allowed(&args(&[
+            "--output-format",
+            "json",
+            "models"
+        ])));
         assert!(exec_args_allowed(&args(&["status", "--json"])));
         assert!(exec_args_allowed(&args(&["agent", "list"])));
     }

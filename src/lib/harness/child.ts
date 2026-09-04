@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { HarnessId } from "../session";
 
 type LinePayload = { sessionId: string; line: string };
 type ExitPayload = { sessionId: string; code: number | null; pid?: number };
@@ -283,58 +284,51 @@ export function killAllChildren(): Promise<void> {
 
 import { getCustomBinary } from "./customBinary";
 
-export async function resolveCursorBinary(): Promise<{ path: string }> {
-  const custom = getCustomBinary("cursor");
-  if (custom) return { path: custom };
-  return invoke("harness_resolve_cursor");
+function resolveBinary(id: HarnessId, command: string): Promise<{ path: string }> {
+  return invoke(command, { overridePath: getCustomBinary(id) });
 }
 
-export async function resolveCodexBinary(): Promise<{ path: string }> {
-  const custom = getCustomBinary("codex");
-  if (custom) return { path: custom };
-  return invoke("harness_resolve_codex");
+export function probeHarnessBinary(id: HarnessId): Promise<{ path: string; version?: string }> {
+  return invoke("harness_probe_provider", {
+    provider: id,
+    overridePath: getCustomBinary(id),
+  });
 }
 
-export async function resolveOpenCodeBinary(): Promise<{ path: string }> {
-  const custom = getCustomBinary("opencode");
-  if (custom) return { path: custom };
-  return invoke("harness_resolve_opencode");
+export function resolveCursorBinary(): Promise<{ path: string }> {
+  return resolveBinary("cursor", "harness_resolve_cursor");
 }
 
-export async function resolveClaudeBinary(): Promise<{ path: string }> {
-  const custom = getCustomBinary("claude");
-  if (custom) return { path: custom };
-  return invoke("harness_resolve_claude");
+export function resolveCodexBinary(): Promise<{ path: string }> {
+  return resolveBinary("codex", "harness_resolve_codex");
 }
 
-export async function resolvePiBinary(): Promise<{ path: string }> {
-  const custom = getCustomBinary("pi");
-  if (custom) return { path: custom };
-  return invoke("harness_resolve_pi");
+export function resolveOpenCodeBinary(): Promise<{ path: string }> {
+  return resolveBinary("opencode", "harness_resolve_opencode");
 }
 
-export async function resolveOmpBinary(): Promise<{ path: string }> {
-  const custom = getCustomBinary("omp");
-  if (custom) return { path: custom };
-  return invoke("harness_resolve_omp");
+export function resolveClaudeBinary(): Promise<{ path: string }> {
+  return resolveBinary("claude", "harness_resolve_claude");
 }
 
-export async function resolveFxBinary(): Promise<{ path: string }> {
-  const custom = getCustomBinary("fx");
-  if (custom) return { path: custom };
-  return invoke("harness_resolve_fx");
+export function resolvePiBinary(): Promise<{ path: string }> {
+  return resolveBinary("pi", "harness_resolve_pi");
 }
 
-export async function resolveGrokBinary(): Promise<{ path: string }> {
-  const custom = getCustomBinary("grok");
-  if (custom) return { path: custom };
-  return invoke("harness_resolve_grok");
+export function resolveOmpBinary(): Promise<{ path: string }> {
+  return resolveBinary("omp", "harness_resolve_omp");
 }
 
-export async function resolveAntigravityBinary(): Promise<{ path: string }> {
-  const custom = getCustomBinary("antigravity");
-  if (custom) return { path: custom };
-  return invoke("harness_resolve_antigravity");
+export function resolveFxBinary(): Promise<{ path: string }> {
+  return resolveBinary("fx", "harness_resolve_fx");
+}
+
+export function resolveGrokBinary(): Promise<{ path: string }> {
+  return resolveBinary("grok", "harness_resolve_grok");
+}
+
+export function resolveAntigravityBinary(): Promise<{ path: string }> {
+  return resolveBinary("antigravity", "harness_resolve_antigravity");
 }
 
 export function freeHarnessPort(): Promise<number> {
