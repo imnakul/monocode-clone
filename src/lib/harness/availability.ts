@@ -25,6 +25,10 @@ const CLI: Record<HarnessId, { name: string; install?: string }> = {
     name: "Antigravity CLI (agy)",
     install: "curl -fsSL https://antigravity.google/install.sh | bash",
   },
+  cline: {
+    name: "Cline CLI",
+    install: "npm i -g cline",
+  },
 };
 
 let availability: HarnessAvailability = {
@@ -37,6 +41,7 @@ let availability: HarnessAvailability = {
   omp: false,
   fx: false,
   antigravity: false,
+  cline: false,
 };
 let version = 0;
 let inflight: Promise<void> | null = null;

@@ -176,6 +176,36 @@ export const MODELS: AgentModel[] = [
     name: "Default",
     nativeId: "",
   },
+  {
+    id: "cline:anthropic/claude-sonnet-5",
+    harness: "cline",
+    name: "Claude Sonnet 5",
+    nativeId: "anthropic/claude-sonnet-5",
+  },
+  {
+    id: "cline:anthropic/claude-opus-5",
+    harness: "cline",
+    name: "Claude Opus 5",
+    nativeId: "anthropic/claude-opus-5",
+  },
+  {
+    id: "cline:z-ai/glm-5.3-flash",
+    harness: "cline",
+    name: "GLM 5.3 Flash",
+    nativeId: "z-ai/glm-5.3-flash",
+  },
+  {
+    id: "cline:openai/gpt-5.4",
+    harness: "cline",
+    name: "GPT-5.4",
+    nativeId: "openai/gpt-5.4",
+  },
+  {
+    id: "cline:google/gemini-3.7-flash",
+    harness: "cline",
+    name: "Gemini 3.7 Flash",
+    nativeId: "google/gemini-3.7-flash",
+  },
 ];
 
 export const DEFAULT_MODEL_ID: Record<HarnessId, string> = {
@@ -188,6 +218,7 @@ export const DEFAULT_MODEL_ID: Record<HarnessId, string> = {
   omp: "omp:default",
   fx: "fx:zai/glm-5.2-fast",
   antigravity: "antigravity:default",
+  cline: "cline:anthropic/claude-sonnet-5",
 };
 
 const FAVORITES_KEY = "monocode.favoriteModels";
@@ -214,6 +245,7 @@ const HARNESS_ORDER: HarnessId[] = [
   "omp",
   "fx",
   "antigravity",
+  "cline",
 ];
 
 const EMPTY_MODELS: AgentModel[] = [];

@@ -58,6 +58,38 @@ describe("Antigravity model catalog", () => {
     ).toEqual([{ slug: "gemini-3.7-flash-low", name: "Gemini 3.7 Flash (Low)" }]);
     expect(parseAgyModels('{"status":"ERROR","error":"authentication required"}')).toEqual([]);
   });
+
+  it("parses the live agy 1.1.25 models envelope (captured 2026-09-04)", () => {
+    const live = JSON.stringify({
+      conversation_id: "",
+      status: "SUCCESS",
+      response:
+        "gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n" +
+        "gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n" +
+        "claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n" +
+        "gpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n",
+      duration_seconds: 0,
+      num_turns: 0,
+      usage: { input_tokens: 0, output_tokens: 0 },
+      command: {
+        name: "models",
+        data: {
+          models: [
+            { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+            { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
+            { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
+            { id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" },
+          ],
+        },
+      },
+    });
+    expect(modelsFromAntigravityOutput(live).map((model) => model.id)).toEqual([
+      "antigravity:claude-sonnet-4-6",
+      "antigravity:gemini-3.8-flash-high",
+      "antigravity:gemini-3.8-flash-medium",
+      "antigravity:gpt-oss-120b-medium",
+    ]);
+  });
 });
 
 describe("Antigravity headless args", () => {

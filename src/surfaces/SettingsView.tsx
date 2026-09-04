@@ -129,6 +129,7 @@ import { refreshHarnessCatalogs } from "../lib/harness/registry";
 import {
   defaultModelId,
   getModelSnapshot,
+  hasLiveCatalog,
   isPickerProviderVisible,
   loadDefaultModels,
   loadLastModelChoice,
@@ -1327,9 +1328,14 @@ function ProviderRow({
   const [customBinaryPath, setCustomBinaryPath] = useState<string | null>(() =>
     getCustomBinary(harness),
   );
+  const [rechecking, setRechecking] = useState(false);
 
+  // Refresh the live catalog on visit: the built-in fallback list (e.g. a
+  // single "Default" entry) must not suppress discovery. One-shot per
+  // harness — refreshHarnessCatalogs dedupes inflight work and skips
+  // harnesses that already have a live overlay.
   useEffect(() => {
-    if (!available || models.length > 0) return;
+    if (!available || hasLiveCatalog(harness)) return;
     void refreshHarnessCatalogs([harness]);
   }, [available, harness, models.length]);
 
@@ -1351,6 +1357,20 @@ function ProviderRow({
     setCustomBinary(harness, null);
     setCustomBinaryPath(null);
     void probeHarnessAvailability({ force: true });
+  };
+
+  // Manual health check + model refresh for this row: re-probes every CLI
+  // (fast `--version` checks, no quota) and refreshes this harness's model
+  // catalog. Auto-refresh on visit stays as the no-click path.
+  const handleRecheck = async () => {
+    if (rechecking) return;
+    setRechecking(true);
+    try {
+      await probeHarnessAvailability({ force: true });
+      await refreshHarnessCatalogs([harness]);
+    } finally {
+      setRechecking(false);
+    }
   };
 
   return (
@@ -1394,6 +1414,13 @@ function ProviderRow({
         title={`Select binary file for ${HARNESS_TITLE[harness]}`}
       >
         {customBinaryPath ? "Change binary…" : "Choose binary…"}
+      </SecondaryButton>
+      <SecondaryButton
+        onClick={() => void handleRecheck()}
+        disabled={rechecking}
+        title={`Re-probe ${HARNESS_TITLE[harness]} and refresh its model list`}
+      >
+        {rechecking ? "Checking…" : "Recheck"}
       </SecondaryButton>
       {current ? (
         <SelectMenu

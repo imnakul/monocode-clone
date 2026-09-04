@@ -331,6 +331,10 @@ export function resolveAntigravityBinary(): Promise<{ path: string }> {
   return resolveBinary("antigravity", "harness_resolve_antigravity");
 }
 
+export function resolveClineBinary(): Promise<{ path: string }> {
+  return resolveBinary("cline", "harness_resolve_cline");
+}
+
 export function freeHarnessPort(): Promise<number> {
   return invoke("harness_free_port");
 }

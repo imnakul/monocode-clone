@@ -19,7 +19,8 @@ export type HarnessId =
   | "pi"
   | "omp"
   | "fx"
-  | "antigravity";
+  | "antigravity"
+  | "cline";
 
 export const HARNESSES: HarnessId[] = [
   "claude",
@@ -31,6 +32,7 @@ export const HARNESSES: HarnessId[] = [
   "omp",
   "fx",
   "antigravity",
+  "cline",
 ];
 
 export type BlockRole =
@@ -216,6 +218,7 @@ export const HARNESS_LABEL: Record<HarnessId, string> = {
   omp: "omp",
   fx: "fx",
   antigravity: "agy",
+  cline: "cline",
 };
 
 export const HARNESS_TITLE: Record<HarnessId, string> = {
@@ -228,6 +231,7 @@ export const HARNESS_TITLE: Record<HarnessId, string> = {
   omp: "omp",
   fx: "fx",
   antigravity: "Antigravity CLI (agy)",
+  cline: "Cline",
 };
 
 /** fx and Grok Build ACP reject image and audio blocks. */

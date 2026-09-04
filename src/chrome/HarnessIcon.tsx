@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import claude from "../assets/providers/claude.svg";
+import cline from "../assets/providers/cline.svg";
 import codex from "../assets/providers/codex.svg";
 import cursor from "../assets/providers/cursor.svg";
 import fx from "../assets/providers/fx.svg";
@@ -11,6 +12,7 @@ import type { HarnessId } from "../lib/session";
 
 export const HARNESS_ICONS: Record<HarnessId, string> = {
   claude,
+  cline,
   codex,
   cursor,
   grok,
@@ -23,6 +25,7 @@ export const HARNESS_ICONS: Record<HarnessId, string> = {
 
 /** White marks that must follow `currentColor` so they stay visible in light mode. */
 export const MONOCHROME_HARNESSES = new Set<HarnessId>([
+  "cline",
   "cursor",
   "grok",
   "opencode",

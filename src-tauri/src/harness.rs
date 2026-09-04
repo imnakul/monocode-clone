@@ -408,6 +408,17 @@ pub fn harness_resolve_antigravity(override_path: Option<String>) -> Result<Curs
     .map(cursor_binary)
 }
 
+/// Resolve the Cline CLI (`cline`, installed via `npm i -g cline`).
+#[tauri::command(async)]
+pub fn harness_resolve_cline(override_path: Option<String>) -> Result<CursorBinary, String> {
+    resolve_requested_binary(
+        override_path,
+        resolve_cline,
+        "Cline CLI not found. Install it with `npm install -g cline` and run `cline auth`, then retry.",
+    )
+    .map(cursor_binary)
+}
+
 fn resolve_provider_binary(
     provider: &str,
     override_path: Option<String>,
@@ -432,6 +443,7 @@ fn resolve_provider_binary(
             resolve_antigravity,
             "Antigravity CLI not found",
         ),
+        "cline" => resolve_requested_binary(override_path, resolve_cline, "Cline CLI not found"),
         _ => Err(format!("Unknown harness provider: {provider}")),
     }
 }
@@ -798,6 +810,24 @@ fn exec_args_allowed(args: &[String]) -> bool {
 /// that merely shares a file name. Explicit overrides are validated at
 /// resolve time via `is_executable_file`, but `harness_exec` must still only
 /// run a binary the backend itself resolves — never any existing file.
+/// Comparison is case-insensitive on Windows: an explicit override keeps the
+/// user's spelling (`agy.EXE`) while the resolver returns its probed
+/// spelling (`agy.exe`), and both address the same file.
+fn resolved_binary_matches(resolved: &Path, command: &Path) -> bool {
+    if resolved == command {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        resolved.to_string_lossy().to_ascii_lowercase()
+            == command.to_string_lossy().to_ascii_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
 fn is_resolved_harness_binary(command: &str) -> bool {
     let path = PathBuf::from(command);
     [
@@ -810,10 +840,11 @@ fn is_resolved_harness_binary(command: &str) -> bool {
         resolve_fx(),
         resolve_grok(),
         resolve_antigravity(),
+        resolve_cline(),
     ]
     .into_iter()
     .flatten()
-    .any(|resolved| resolved == path)
+    .any(|resolved| resolved_binary_matches(&resolved, &path))
 }
 
 /// One-shot capture of stdout (used for `cursor-agent --list-models`).
@@ -899,7 +930,10 @@ fn require_probe_markers(path: &Path, args: &[&str], markers: &[&str]) -> Result
 }
 
 fn probe_provider_binary(provider: &str, path: &Path) -> Result<Option<String>, String> {
-    if !matches!(provider, "codex" | "claude" | "opencode" | "antigravity") {
+    if !matches!(
+        provider,
+        "codex" | "claude" | "opencode" | "antigravity" | "cline"
+    ) {
         return Ok(None);
     }
     let version_output = probe_command_output(path, &["--version"], Duration::from_secs(8))?;
@@ -920,6 +954,9 @@ fn probe_provider_binary(provider: &str, path: &Path) -> Result<Option<String>, 
             &["--help"],
             &["--input-format", "--output-format", "stream-json"],
         )?,
+        // `cline --help` documents `--acp` (Agent Client Protocol over
+        // stdio), the transport MonoCode drives. Verified against 3.0.61.
+        "cline" => require_probe_markers(path, &["--help"], &["--acp"])?,
         _ => unreachable!(),
     }
     Ok(first_probe_line(&version_output))
@@ -1038,103 +1075,56 @@ fn windows_launcher_kind(path: &Path) -> WindowsLauncherKind {
     }
 }
 
-/// Escape one argument for `cmd.exe` shell mode (`cmd /d /s /c`).
-/// Mirrors T3 Code / cross-spawn: survive both `cmd.exe` parsing and the
-/// target program's `CommandLineToArgvW` parsing.
+/// Quote one token with `CommandLineToArgvW` rules (backslash runs before a
+/// quote are doubled, quotes are backslash-escaped, trailing runs doubled).
+/// Char-based so non-ASCII (UTF-8) arguments survive intact.
 #[cfg(windows)]
-fn escape_windows_shell_arg(arg: &str) -> String {
-    // Double backslashes that precede a quote, then escape the quote itself.
-    let mut escaped = String::with_capacity(arg.len() + 2);
-    let bytes = arg.as_bytes();
-    let mut i = 0usize;
-    while i < bytes.len() {
-        if bytes[i] == b'\\' {
-            let mut run = 0usize;
-            while i + run < bytes.len() && bytes[i + run] == b'\\' {
-                run += 1;
+fn quote_windows_argv_arg(arg: &str) -> String {
+    let mut out = String::with_capacity(arg.len() + 2);
+    out.push('"');
+    let mut backslashes = 0usize;
+    for ch in arg.chars() {
+        if ch == '\\' {
+            backslashes += 1;
+            out.push('\\');
+            continue;
+        }
+        if ch == '"' {
+            for _ in 0..backslashes {
+                out.push('\\');
             }
-            let next_is_quote = i + run < bytes.len() && bytes[i + run] == b'"';
-            if next_is_quote {
-                for _ in 0..run {
-                    escaped.push_str("\\\\");
-                }
-                escaped.push_str("\\\"");
-                i += run + 1;
-            } else {
-                for _ in 0..run {
-                    escaped.push('\\');
-                }
-                i += run;
-            }
-        } else if bytes[i] == b'"' {
-            escaped.push_str("\\\"");
-            i += 1;
-        } else {
-            escaped.push(bytes[i] as char);
-            i += 1;
+            out.push('\\');
         }
-    }
-    // Double trailing backslashes so the closing quote is not escaped away.
-    let mut trailing = 0usize;
-    for b in arg.bytes().rev() {
-        if b == b'\\' {
-            trailing += 1;
-        } else {
-            break;
-        }
-    }
-    let mut quoted = String::with_capacity(escaped.len() + 2 + trailing);
-    quoted.push('"');
-    quoted.push_str(&escaped);
-    for _ in 0..trailing {
-        quoted.push('\\');
-    }
-    quoted.push('"');
-    // Escape cmd.exe metacharacters so cmd passes them through verbatim.
-    let mut out = String::with_capacity(quoted.len() * 2);
-    for ch in quoted.chars() {
-        if matches!(
-            ch,
-            '(' | ')'
-                | '['
-                | ']'
-                | '%'
-                | '!'
-                | '^'
-                | '"'
-                | '`'
-                | '<'
-                | '>'
-                | '&'
-                | '|'
-                | ';'
-                | ','
-                | ' '
-                | '*'
-                | '?'
-                | '\''
-        ) {
-            out.push('^');
-        }
+        backslashes = 0;
         out.push(ch);
     }
+    for _ in 0..backslashes {
+        out.push('\\');
+    }
+    out.push('"');
     out
 }
 
+/// Build the tail for `cmd.exe /D /S /C`, passed via `raw_arg` (see below).
+/// The whole line is wrapped once: `/S` strips the outer pair and `cmd`
+/// parses the quoted tokens inside, where spaces and `&|<>()^%!` are safe.
+/// No caret-escaping: inside double quotes `cmd` passes metacharacters
+/// through verbatim (only `%VAR%`-shaped text would still expand).
 #[cfg(windows)]
 fn build_windows_shell_command_line(command: &str, args: &[String]) -> String {
     let mut parts = Vec::with_capacity(args.len() + 1);
-    parts.push(escape_windows_shell_arg(command));
+    parts.push(quote_windows_argv_arg(command));
     for arg in args {
-        parts.push(escape_windows_shell_arg(arg));
+        parts.push(quote_windows_argv_arg(arg));
     }
-    parts.join(" ")
+    format!("\"{}\"", parts.join(" "))
 }
 
 /// Build a `Command` for a resolved provider binary, handling Windows shims.
 /// Returns `Err` for `.ps1` when no PowerShell host can be located.
 #[cfg(windows)]
 fn new_provider_command(path: &Path, args: &[String]) -> Result<Command, String> {
+    use std::os::windows::process::CommandExt;
     match windows_launcher_kind(path) {
         WindowsLauncherKind::Native => {
             let mut cmd = Command::new(path);
@@ -1145,7 +1135,14 @@ fn new_provider_command(path: &Path, args: &[String]) -> Result<Command, String>
             let command = path.to_string_lossy().into_owned();
             let line = build_windows_shell_command_line(&command, args);
             let mut cmd = Command::new("cmd.exe");
-            cmd.args(["/D", "/S", "/C", &line]);
+            cmd.args(["/D", "/S", "/C"]);
+            // `raw_arg`, not `args`: Rust's argv quoting would wrap our
+            // pre-quoted line in another `"..."` layer (escaping inner quotes
+            // as `\"`), which `cmd.exe` misparses — every `.cmd` probe then
+            // fails with "'...' is not recognized". Node's spawn (which the
+            // T3-style caret escaping was written for) quotes differently,
+            // so that approach cannot be ported to Rust verbatim.
+            cmd.raw_arg(&line);
             Ok(cmd)
         }
         WindowsLauncherKind::PowerShellShim => {
@@ -1183,13 +1180,28 @@ mod windows_spawn_tests {
     use super::*;
 
     #[test]
-    fn escapes_spaces_and_ampersands() {
+    fn quotes_command_and_args_for_cmd_s_parsing() {
+        // `cmd /S` strips exactly one outer pair, so the line must be one
+        // outer pair wrapping argv-quoted tokens — and must NOT be passed
+        // through Rust's argv quoting again (see `raw_arg` in
+        // `new_provider_command`).
         let line = build_windows_shell_command_line(
             r"C:\Tools\opencode.cmd",
             &[String::from("serve"), String::from("a&b")],
         );
-        assert!(line.contains("opencode.cmd"));
-        assert!(line.contains("^&"));
+        assert_eq!(line, "\"\"C:\\Tools\\opencode.cmd\" \"serve\" \"a&b\"\"");
+        // Metacharacters stay literal inside quotes: no caret-escaping.
+        assert!(!line.contains('^'));
+    }
+
+    #[test]
+    fn argv_quoter_escapes_quotes_and_trailing_backslashes() {
+        assert_eq!(quote_windows_argv_arg("plain"), "\"plain\"");
+        assert_eq!(quote_windows_argv_arg("sp ace"), "\"sp ace\"");
+        assert_eq!(quote_windows_argv_arg("say \"hi\""), "\"say \\\"hi\\\"\"");
+        assert_eq!(quote_windows_argv_arg("trail\\"), "\"trail\\\\\"");
+        // Non-ASCII survives as UTF-8 (never byte-cast per byte).
+        assert_eq!(quote_windows_argv_arg("caf\u{00e9}"), "\"caf\u{00e9}\"");
     }
 
     #[test]
@@ -1333,7 +1345,7 @@ mod windows_spawn_tests {
     }
 
     #[test]
-    fn shell_escaping_covers_pipes_quotes_and_spaces() {
+    fn shell_quoting_covers_pipes_quotes_and_spaces() {
         let line = build_windows_shell_command_line(
             r"C:\Program Files\tool.cmd",
             &[
@@ -1342,8 +1354,11 @@ mod windows_spawn_tests {
                 String::from("sp ace"),
             ],
         );
-        assert!(line.contains("^|"));
-        assert!(line.contains("sp^ ace"));
+        assert_eq!(
+            line,
+            "\"\"C:\\Program Files\\tool.cmd\" \"a|b\" \"say \\\"hi\\\"\" \"sp ace\"\""
+        );
+        assert!(!line.contains('^'));
     }
 
     #[test]
@@ -1355,6 +1370,24 @@ mod windows_spawn_tests {
         let shim = Path::new(r"C:\Tools\opencode.cmd");
         let cmd = new_provider_command(shim, &[String::from("--version")]).expect("shim");
         assert!(format!("{cmd:?}").contains("cmd.exe"));
+    }
+
+    #[test]
+    fn resolved_binary_matches_ignores_case_on_windows() {
+        // Explicit overrides keep the user's spelling (`agy.EXE`) while the
+        // resolver returns its probed spelling (`agy.exe`). Rejecting on case
+        // broke model catalogs for every such override.
+        let lower = PathBuf::from(r"C:\Tools\agy.exe");
+        let upper = PathBuf::from(r"C:\Tools\AGY.EXE");
+        assert!(resolved_binary_matches(&lower, &lower));
+        #[cfg(windows)]
+        assert!(resolved_binary_matches(&lower, &upper));
+        #[cfg(not(windows))]
+        assert!(!resolved_binary_matches(&lower, &upper));
+        assert!(!resolved_binary_matches(
+            &lower,
+            &PathBuf::from(r"C:\Tools\other.exe")
+        ));
     }
 
     #[test]
@@ -1414,6 +1447,73 @@ mod windows_spawn_tests {
                 roots.iter().any(|root| lower.starts_with(root)),
                 "known dir not derived from env: {dir}"
             );
+        }
+    }
+
+    /// Live validation against the real CLIs on this machine. Ignored by
+    /// default (needs installs + network for some catalog calls); run with
+    /// `cargo test -p monocode live_probe -- --ignored --nocapture`.
+    /// This executes the exact resolve+probe path the UI availability uses,
+    /// so a FAIL here reproduces a "not found" row 1:1.
+    #[test]
+    #[ignore]
+    fn live_debug_opencode_probe() {
+        println!("GUI-PATH={}", gui_search_path());
+        let path = std::path::Path::new(r"C:\Users\gclna\AppData\Roaming\npm\opencode.cmd");
+        match probe_command_output(
+            path,
+            &["serve", "--help"],
+            std::time::Duration::from_secs(8),
+        ) {
+            Ok(text) => {
+                let lower = text.to_ascii_lowercase();
+                println!(
+                    "LEN={} has_serve={} has_hostname={} has_port={}",
+                    text.len(),
+                    lower.contains("serve"),
+                    lower.contains("--hostname"),
+                    lower.contains("--port")
+                );
+                println!("HEAD={:?}", text.chars().take(300).collect::<String>());
+            }
+            Err(error) => println!("ERR={error}"),
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn live_print_windows_shell_lines() {
+        for (cmd, args) in [
+            (
+                r"C:\Users\gclna\AppData\Roaming\npm\opencode.cmd",
+                vec!["serve".to_string(), "--help".to_string()],
+            ),
+            (
+                r"C:\Users\gclna\AppData\Roaming\npm\cline.cmd",
+                vec!["--help".to_string()],
+            ),
+        ] {
+            println!(
+                "LINE: cmd.exe /D /S /C {}",
+                build_windows_shell_command_line(cmd, &args)
+            );
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn live_probe_reports_installed_providers() {
+        for provider in ["codex", "claude", "opencode", "antigravity", "cline"] {
+            match resolve_provider_binary(provider, None)
+                .and_then(|path| probe_provider_binary(provider, &path).map(|v| (path, v)))
+            {
+                Ok((path, version)) => println!(
+                    "{provider}: OK path={} version={:?}",
+                    path.display(),
+                    version
+                ),
+                Err(error) => println!("{provider}: FAIL {error}"),
+            }
         }
     }
 
@@ -2227,6 +2327,49 @@ fn resolve_antigravity() -> Option<PathBuf> {
         candidates.push(from_shell);
     }
     if let Some(from_shell) = which_via_login_shell("antigravity") {
+        candidates.push(from_shell);
+    }
+
+    candidates.into_iter().find(|path| is_executable_file(path))
+}
+
+fn resolve_cline() -> Option<PathBuf> {
+    let home = dirs_home().map(PathBuf::from);
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    // PATH first so the npm shim (`%APPDATA%\npm\cline.cmd` on Windows)
+    // resolves dynamically per user. Explicit home fallbacks stay as backup
+    // for GUI-launched processes with a stale PATH.
+    #[cfg(windows)]
+    if let Some(found) = which_in_path(&gui_search_path(), "cline") {
+        candidates.push(found);
+    }
+    if let Some(home) = &home {
+        candidates.push(home.join(".local/bin/cline"));
+        candidates.push(home.join(".npm-global/bin/cline"));
+        candidates.push(home.join(".cargo/bin/cline"));
+        candidates.push(home.join("n/bin/cline"));
+        #[cfg(windows)]
+        {
+            candidates.push(
+                home.join("AppData")
+                    .join("Roaming")
+                    .join("npm")
+                    .join("cline.cmd"),
+            );
+            candidates.push(
+                home.join("AppData")
+                    .join("Roaming")
+                    .join("npm")
+                    .join("cline.exe"),
+            );
+        }
+    }
+    candidates.push(PathBuf::from("/opt/homebrew/bin/cline"));
+    candidates.push(PathBuf::from("/usr/local/bin/cline"));
+    candidates.push(PathBuf::from("/usr/bin/cline"));
+    candidates.push(PathBuf::from("/snap/bin/cline"));
+    if let Some(from_shell) = which_via_login_shell("cline") {
         candidates.push(from_shell);
     }
 
