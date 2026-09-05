@@ -49,6 +49,7 @@ const { __claudeTestReset, stopClaudeSession } = await import("./claude");
 const { __codexTestReset, stopCodexSession, __codexTestResumeMap } =
   await import("./codex");
 const {
+  canReplay,
   createNativeResumeSession,
   nativeHarnessFor,
   resolveImportModel,
@@ -201,7 +202,7 @@ describe("sessionImport native resume", () => {
     );
   });
 
-  it("maps native harnesses per source, honoring row overrides", () => {
+  it("maps native harnesses per source", () => {
     expect(nativeHarnessFor(claudeInfo())).toBe("claude");
     expect(nativeHarnessFor(codexInfo())).toBe("codex");
     expect(
@@ -211,49 +212,26 @@ describe("sessionImport native resume", () => {
       nativeHarnessFor({ ...codexInfo(), source: "cline" }),
     ).toBe("cline");
     expect(
+      nativeHarnessFor({ ...codexInfo(), source: "antigravity" }),
+    ).toBe("antigravity");
+    expect(
       nativeHarnessFor({ ...codexInfo(), source: "zcode" }),
     ).toBeUndefined();
-    expect(
-      nativeHarnessFor({
-        ...codexInfo(),
-        source: "t3",
-        harness: "codex",
-      }),
-    ).toBe("codex");
-    expect(
-      nativeHarnessFor({ ...codexInfo(), source: "t3" }),
-    ).toBeUndefined();
   });
 
-  it("resumes t3 rows through their harness override", () => {
-    const session = createNativeResumeSession({
-      ...codexInfo(),
-      source: "t3",
-      id: "thr-live-1",
-      nativeId: "native-uuid-9",
-      harness: "claude",
-    });
-    expect(session.harness).toBe("claude");
+  it("marks replay support per source", () => {
+    expect(canReplay(claudeInfo())).toBe(true);
+    expect(canReplay({ ...codexInfo(), source: "zcode" })).toBe(true);
+    expect(canReplay({ ...codexInfo(), source: "antigravity" })).toBe(false);
   });
 
-  it("prefers nativeId over id for t3 resume", async () => {
-    spawned.length = 0;
+  it("creates a bound antigravity session", () => {
     const session = createNativeResumeSession({
       ...codexInfo(),
-      source: "t3",
-      id: "thr-live-1",
-      nativeId: "native-uuid-9",
-      harness: "claude",
+      source: "antigravity",
+      id: "conv-abc-123",
     });
-    const done = firstTurn(session.id, "claude", session.cwd, session.model);
-    await waitFor(() => spawned.length > 0, "claude spawn");
-    const args = spawned[0].args;
-    const resumeAt = args.indexOf("--resume");
-    expect(resumeAt).toBeGreaterThanOrEqual(0);
-    expect(args[resumeAt + 1]).toBe("native-uuid-9");
-    await stopHarnessSession("claude", session.id).catch(() => undefined);
-    await stopClaudeSession(session.id).catch(() => undefined);
-    await settle(done);
+    expect(session.harness).toBe("antigravity");
   });
 
   it("passes --resume with the native id to the claude CLI", async () => {

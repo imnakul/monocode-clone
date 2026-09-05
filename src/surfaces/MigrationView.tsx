@@ -6,6 +6,7 @@ import { getCustomBinary } from "../lib/harness/customBinary";
 import { probeHarnessBinary } from "../lib/harness/child";
 import {
   SOURCE_LABEL,
+  canReplay,
   createNativeResumeSession,
   nativeHarnessFor,
   scanExternalSessions,
@@ -145,6 +146,7 @@ export function MigrationView({ onImportSessions }: Props) {
     () => loadSelection().replayHarness,
   );
   const [preflight, setPreflight] = useState<string[]>([]);
+  const [showModeHelp, setShowModeHelp] = useState(false);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0, label: "" });
   const [results, setResults] = useState<ItemResult[]>([]);
@@ -276,13 +278,42 @@ export function MigrationView({ onImportSessions }: Props) {
   ): Promise<Session> => {
     if (mode === "native") {
       const session = createNativeResumeSession(info);
+      if (!canReplay(info)) {
+        // Resume-only sources (Antigravity) have no readable transcript —
+        // their store can be resumed, not read — so a prefill attempt is
+        // doomed. Say so plainly instead of failing into a vague notice.
+        session.blocks = [
+          {
+            id: crypto.randomUUID(),
+            role: "system",
+            text: `History preview isn't available for ${SOURCE_LABEL[info.source]} — its store can only be resumed, not read. Send your first message and the original conversation continues where you left off.`,
+          },
+        ];
+        return session;
+      }
       // Prefill visible history best-effort: the thread still resumes
-      // natively on first send, but it no longer opens empty. A prefill
-      // failure must never block the binding itself.
+      // natively on first send, but it no longer opens empty. The summary
+      // also seeds the composer as a safety net — a healthy resume ignores
+      // it (the seed says to delete it), a state-losing resume (compaction,
+      // expiry) recovers from it. A prefill failure must never block the
+      // binding itself — it leaves an honest notice in the thread instead
+      // of failing silently. (Tauri invoke rejections arrive as plain
+      // strings, not Errors, so String() the fallback — otherwise every
+      // reason renders as "unknown reason".)
       try {
-        session.blocks = (await loadReplayImport(info)).blocks;
+        const imported = await loadReplayImport(info, undefined, "resume");
+        session.blocks = imported.blocks;
+        session.composerSeed = imported.summary;
       } catch (error) {
-        console.debug("[monocode] native import without history", error);
+        session.blocks = [
+          {
+            id: crypto.randomUUID(),
+            role: "system",
+            text: `Could not load prior history (${
+              error instanceof Error ? error.message : String(error)
+            }). The native conversation still resumes when you send your first message.`,
+          },
+        ];
       }
       return session;
     }
@@ -373,17 +404,17 @@ export function MigrationView({ onImportSessions }: Props) {
   return (
     <div className="flex flex-col gap-2 pb-8">
       <p className="pb-2 text-[12px] leading-relaxed text-content/45">
-        Bring past sessions in from Claude, Codex, OpenCode, ZCode, T3, and
-        Cline. Native resume continues the original conversation in its own
-        CLI; replay copies the transcript as labeled, read-only history into
-        any provider. Nothing is re-executed and no CLIs are spawned until
-        you import.
+        Bring past sessions in from Claude, Codex, OpenCode, ZCode, Cline,
+        and Antigravity. Native resume continues the original conversation
+        in its own CLI; replay copies the transcript as labeled, read-only
+        history into any provider. Nothing is re-executed and no CLIs are
+        spawned until you import.
       </p>
 
       {step === "scan" || workspaces.length === 0 ? (
         <Row
           label="Scan for external sessions"
-          description="Reads Claude, Codex, OpenCode, ZCode, T3, and Cline stores. Pure file reads — no terminals or consoles open."
+          description="Reads Claude, Codex, OpenCode, ZCode, Cline, and Antigravity stores. Pure file reads — no terminals or consoles open."
         >
           <SelectMenu
             label="Scan range"
@@ -477,6 +508,12 @@ export function MigrationView({ onImportSessions }: Props) {
           </div>
           <div className="flex justify-end gap-2">
             <SecondaryButton
+              onClick={() => setStep("scan")}
+              title="Back to scan settings — change range or scan again"
+            >
+              Back to scan
+            </SecondaryButton>
+            <SecondaryButton
               onClick={() => {
                 setSelectedWorkspaces(new Set());
                 setSelectedIds(new Set());
@@ -504,30 +541,76 @@ export function MigrationView({ onImportSessions }: Props) {
             title="Sessions"
             hint={`${selectedSessions.length} selected`}
           />
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="text-[12px] text-content/50">
-              Replay target harness:
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="text-[12px] text-content/50">
+                Replay target harness:
+              </span>
+              <SelectMenu
+                label="Replay target harness"
+                value={replayHarness}
+                onChange={(next) => {
+                  const harness = next as HarnessId;
+                  setReplayHarness(harness);
+                  persistSelection(selectedIds, modes, harness);
+                }}
+                options={HARNESSES.map((id) => ({
+                  value: id,
+                  label: HARNESS_TITLE[id],
+                }))}
+                className="w-44"
+              />
             </span>
-            <SelectMenu
-              label="Replay target harness"
-              value={replayHarness}
-              onChange={(next) => {
-                const harness = next as HarnessId;
-                setReplayHarness(harness);
-                persistSelection(selectedIds, modes, harness);
-              }}
-              options={HARNESSES.map((id) => ({
-                value: id,
-                label: HARNESS_TITLE[id],
-              }))}
-              className="w-44"
-            />
+            <button
+              type="button"
+              aria-expanded={showModeHelp}
+              aria-controls="migration-mode-help"
+              aria-label="What is the difference between Resume and Replay?"
+              title="What is the difference between Resume and Replay?"
+              onClick={() => setShowModeHelp((visible) => !visible)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-full border border-content/20 text-content/60 transition-colors hover:border-content/40 hover:text-content"
+            >
+              <span
+                aria-hidden
+                className="text-[12px] font-semibold italic leading-none"
+              >
+                i
+              </span>
+            </button>
+          </div>
+          {/* Always mounted so open/close animates both ways via the
+              shared zen-phase-body collapse (320ms ease-out-expo rows +
+              220ms opacity fade). Spacing lives inside the clipped child so
+              the collapsed state takes zero height. */}
+          <div
+            id="migration-mode-help"
+            data-open={showModeHelp}
+            aria-hidden={!showModeHelp}
+            className="zen-phase-body"
+          >
+            <div>
+              <div className="mb-2 flex flex-col gap-1 rounded-lg border border-content/10 px-3 py-2 text-[12px] leading-relaxed text-content/60">
+              <p>
+                <span className="font-medium text-content/85">Resume</span>{" "}
+                keeps talking where you left off, inside the original agent
+                — a Claude chat continues in Claude, with a short summary
+                prefilled in your composer as backup.
+              </p>
+                <p>
+                  <span className="font-medium text-content/85">Replay</span>{" "}
+                  copies the old chat as read-only history into any provider
+                  you pick — an old Codex chat becomes background context for
+                  a fresh OpenCode thread.
+                </p>
+              </div>
+            </div>
           </div>
           <div className="flex flex-col overflow-hidden rounded-lg border border-content/10">
             {sessions.map(({ info }) => {
               const key = importKey(info);
               const on = selectedIds.has(key);
               const nativeHarness = nativeHarnessFor(info);
+              const replayable = canReplay(info);
               const mode = effectiveMode(info, modes);
               const done = importedIds.has(key);
               return (
@@ -578,7 +661,7 @@ export function MigrationView({ onImportSessions }: Props) {
                     </span>
                   </button>
                   <div className="flex shrink-0 items-center pl-7 sm:pl-0">
-                    {nativeHarness ? (
+                    {nativeHarness && replayable ? (
                       <Segmented<ImportMode>
                         label={`Import mode for ${info.title}`}
                         value={mode}
@@ -590,7 +673,7 @@ export function MigrationView({ onImportSessions }: Props) {
                       />
                     ) : (
                       <span className="text-[12px] text-content/50">
-                        Replay only
+                        {nativeHarness ? "Resume only" : "Replay only"}
                       </span>
                     )}
                   </div>
@@ -629,11 +712,16 @@ export function MigrationView({ onImportSessions }: Props) {
               disabled={importing || selectedSessions.length === 0}
               title="Import the selected sessions"
             >
-              {importing
-                ? `Importing ${progress.done}/${progress.total}…`
-                : `Import ${selectedSessions.length} ${
-                    selectedSessions.length === 1 ? "session" : "sessions"
-                  }`}
+              {importing ? (
+                <>
+                  <TerminalSpinner />
+                  {`Importing ${progress.done}/${progress.total}…`}
+                </>
+              ) : (
+                `Import ${selectedSessions.length} ${
+                  selectedSessions.length === 1 ? "session" : "sessions"
+                }`
+              )}
             </SecondaryButton>
           </div>
         </>
@@ -689,7 +777,13 @@ export function MigrationView({ onImportSessions }: Props) {
               </div>
             ))}
           </div>
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <SecondaryButton
+              onClick={() => setStep("scan")}
+              title="Start over with a fresh scan"
+            >
+              New scan
+            </SecondaryButton>
             <SecondaryButton
               onClick={() => setStep("sessions")}
               title="Back to session selection"
@@ -714,11 +808,13 @@ function sourceLabel(source: string): string {
   );
 }
 
-/** Stored choice, falling back to replay when native resume is unavailable. */
+/** Stored choice, clamped to what the source supports (Antigravity is
+ * resume-only, ZCode replay-only). */
 function effectiveMode(
   info: ExternalSessionInfo,
   modes: Record<string, ImportMode>,
 ): ImportMode {
+  if (!canReplay(info)) return "native";
   const stored = modes[importKey(info)];
   if (stored === "replay") return "replay";
   if (stored === "native" && nativeHarnessFor(info)) return "native";

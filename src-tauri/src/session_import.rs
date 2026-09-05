@@ -4,8 +4,8 @@
 //! reintroduce the visible-console class of bugs the Windows stabilization
 //! work eliminated, so this module must never gain a `Command`.
 //!
-//! Sources: `~/.claude/projects/*/*.jsonl` (Claude Code transcripts) and
-//! `~/.codex/sessions/**/*.jsonl` (Codex rollout files). Missing stores,
+//! Sources: Claude transcripts, Codex rollouts, OpenCode/ZCode sqlite
+//! stores, Cline manifests, Antigravity metadata. Missing stores,
 //! unreadable dirs, and corrupt files all yield empty lists, never `Err`:
 //! a missing agent install is normal, not a failure.
 
@@ -33,16 +33,6 @@ pub struct ExternalSession {
     /// Absolute transcript path (file sources), used by the Phase 3 replay
     /// reader. Empty for database sources (see `read_external_transcript`).
     pub file: String,
-    /// Native resume harness override. Set when the source row dictates the
-    /// harness (T3 rows carry their own provider); otherwise the frontend
-    /// maps `source` → harness itself.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub harness: Option<String>,
-    /// Native provider session id for resume. T3 rows store the provider id
-    /// separately from the listing id (the T3 thread id); other sources use
-    /// `id` for both.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub native_id: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -56,7 +46,14 @@ pub struct ExternalWorkspace {
 }
 
 /// Canonical source order used for `sources` lists and UI pills.
-const SOURCE_ORDER: &[&str] = &["claude", "codex", "opencode", "zcode", "t3", "cline"];
+const SOURCE_ORDER: &[&str] = &[
+    "claude",
+    "codex",
+    "opencode",
+    "zcode",
+    "cline",
+    "antigravity",
+];
 
 /// Scan external agent sessions, grouped by workspace, most recent first.
 ///
@@ -102,24 +99,22 @@ fn scan_external_sessions_for_home(
             .join("opencode")
             .join("opencode.db"),
         &home.join(".zcode").join("cli").join("db").join("db.sqlite"),
-        &t3_state_db(),
         &home.join(".cline").join("data").join("sessions"),
+        &home.join(".gemini").join("antigravity-cli"),
         since_days,
         limit,
     )
 }
 
-/// Explicit-paths variant so tests never touch real machine stores. The T3
-/// state database resolves globally (`~/.t3/…`, not under the passed home),
-/// so it stays an explicit parameter.
+/// Explicit-paths variant so tests never touch real machine stores.
 #[allow(clippy::too_many_arguments)]
 fn scan_external_sessions_from_paths(
     claude_projects: &Path,
     codex_sessions: &Path,
     opencode_db: &Path,
     zcode_db: &Path,
-    t3_db: &Option<PathBuf>,
     cline_sessions: &Path,
+    agy_cli_dir: &Path,
     since_days: u32,
     limit: u32,
 ) -> Vec<ExternalWorkspace> {
@@ -134,17 +129,19 @@ fn scan_external_sessions_from_paths(
     scan_codex_dir(codex_sessions, &mut sessions);
     scan_opencode_db(opencode_db, &mut sessions);
     scan_zcode_db(zcode_db, &mut sessions);
-    scan_t3_db(t3_db, &mut sessions);
     scan_cline_dir(cline_sessions, &mut sessions);
+    scan_agy_dir(agy_cli_dir, &mut sessions);
     sessions.retain(|(epoch, _)| *epoch >= cutoff_epoch);
     sessions.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
     if limit > 0 && sessions.len() > limit as usize {
         sessions.truncate(limit as usize);
     }
 
-    // Group by workspace, preserving recency order.
+    // Group by workspace, preserving recency order. Cwds are normalized
+    // first so `E:/dir` (OpenCode) and `E:\dir` (everyone else) merge.
     let mut workspaces: Vec<ExternalWorkspace> = Vec::new();
-    for (_, session) in sessions {
+    for (_, mut session) in sessions {
+        session.cwd = normalize_cwd(&session.cwd);
         match workspaces
             .iter_mut()
             .find(|workspace| workspace.workspace_path == session.cwd)
@@ -167,6 +164,22 @@ fn scan_external_sessions_from_paths(
             .collect();
     }
     workspaces
+}
+
+/// Normalize a workspace path for grouping: OpenCode stores `E:/…` while
+/// every other source stores `E:\…`, which otherwise splits one directory
+/// into two workspaces (and later into two MonoCode projects). Windows-only
+/// rewrite — backslashes are legal filename characters on Unix.
+fn normalize_cwd(cwd: &str) -> String {
+    let trimmed = cwd.trim();
+    #[cfg(windows)]
+    {
+        trimmed.replace('/', "\\")
+    }
+    #[cfg(not(windows))]
+    {
+        trimmed.to_string()
+    }
 }
 
 fn now_epoch() -> u64 {
@@ -294,8 +307,6 @@ fn parse_claude_file(path: &Path, slug: &str) -> Option<(u64, ExternalSession)> 
             source: "claude".to_string(),
             cwd,
             file: path.to_string_lossy().into_owned(),
-            harness: None,
-            native_id: None,
         },
     ))
 }
@@ -520,8 +531,6 @@ fn parse_codex_file(path: &Path) -> Option<(u64, ExternalSession)> {
             source: "codex".to_string(),
             cwd,
             file: path.to_string_lossy().into_owned(),
-            harness: None,
-            native_id: None,
         },
     ))
 }
@@ -608,7 +617,7 @@ fn first_input_text(payload: &serde_json::Value) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// SQLite-backed sources: OpenCode, ZCode CLI, T3/HARI threads, Cline.
+// SQLite-backed sources: OpenCode, ZCode CLI.
 // Opened strictly read-only — the scanner must never lock or modify
 // another agent's live database (WAL sidecars are read alongside).
 // ---------------------------------------------------------------------------
@@ -722,8 +731,6 @@ fn scan_opencode_db(db: &Path, out: &mut Vec<(u64, ExternalSession)>) {
                 source: "opencode".to_string(),
                 cwd,
                 file: String::new(),
-                harness: None,
-                native_id: None,
             },
         ));
     }
@@ -779,162 +786,98 @@ fn scan_zcode_db(db: &Path, out: &mut Vec<(u64, ExternalSession)>) {
                 source: "zcode".to_string(),
                 cwd,
                 file: String::new(),
-                harness: None,
-                native_id: None,
             },
         ));
     }
 }
 
-/// T3/HARI threads (`%APPDATA%/<*>hari/hari.db`, table `threads`). The app
-/// dir embeds the OS username (`com.gclna.hari`), so match any dir whose
-/// name contains "hari" instead of hardcoding it. Rows carry the NATIVE
-/// provider session id + harness, so claude/codex rows resume natively;
-/// anything else is replay-by-summary (see `read_external_transcript`).
-/// Live T3 Code store: `~/.t3/userdata/state.sqlite`. (The older
-/// `%APPDATA%/*hari*/hari.db` snapshot this replaced went stale in
-/// 2026-07 and is deliberately not read — it would duplicate live rows.)
-fn t3_state_db() -> Option<PathBuf> {
-    user_home().map(|home| home.join(".t3").join("userdata").join("state.sqlite"))
-}
-
-/// Map a T3 provider name to the MonoCode harness that can natively resume
-/// its stored provider session id. Unknown → replay-only.
-fn map_t3_provider(provider: &str) -> Option<String> {
-    let normalized = provider.trim().to_ascii_lowercase();
-    match normalized.as_str() {
-        "claude" => Some("claude".to_string()),
-        "codex" => Some("codex".to_string()),
-        "opencode" => Some("opencode".to_string()),
-        "cline" => Some("cline".to_string()),
-        _ => None,
+/// Antigravity (`~/.gemini/antigravity-cli/`): `cache/conversation_metadata.json`
+/// maps conversation id -> {summary: {Title, Preview, UpdatedAt,
+/// WorkspaceURIs[]}, last_modified_time}. Internal entries (no summary) are
+/// skipped. Conversations resume natively via `--conversation <id>`; their
+/// step store is protobuf, so rows are resume-only (no replay).
+fn scan_agy_dir(cli_dir: &Path, out: &mut Vec<(u64, ExternalSession)>) {
+    const MAX_METADATA_BYTES: u64 = 8 * 1024 * 1024;
+    let meta_path = cli_dir.join("cache").join("conversation_metadata.json");
+    let meta_len = std::fs::metadata(&meta_path)
+        .map(|meta| meta.len())
+        .unwrap_or(0);
+    if meta_len == 0 || meta_len > MAX_METADATA_BYTES {
+        return;
     }
-}
-
-type T3ThreadRow = (
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
-
-type T3SessionRow = (Option<String>, Option<String>, Option<String>);
-
-fn scan_t3_db(db: &Option<PathBuf>, out: &mut Vec<(u64, ExternalSession)>) {
-    let Some(db) = db else {
+    let text = match std::fs::read_to_string(&meta_path) {
+        Ok(text) => text,
+        Err(_) => return,
+    };
+    let Ok(root) = serde_json::from_str::<serde_json::Value>(&text) else {
         return;
     };
-    let Some(conn) = open_ro(db) else {
+    let Some(conversations) = root.get("conversations").and_then(|v| v.as_object()) else {
         return;
     };
-    let mut threads_stmt = match conn.prepare(
-        "SELECT t.thread_id, t.title, t.updated_at, p.workspace_root, t.archived_at \
-         FROM projection_threads t \
-         LEFT JOIN projection_projects p ON p.project_id = t.project_id \
-         WHERE t.archived_at IS NULL",
-    ) {
-        Ok(stmt) => stmt,
-        Err(_) => return,
-    };
-    let threads: Vec<T3ThreadRow> = match threads_stmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-            ))
-        })
-        .map(|rows| rows.flatten().collect())
-    {
-        Ok(rows) => rows,
-        Err(_) => return,
-    };
-    let mut sessions_stmt = match conn.prepare(
-        "SELECT provider_name, provider_session_id, provider_thread_id \
-         FROM projection_thread_sessions WHERE thread_id = ?1 \
-         ORDER BY updated_at DESC",
-    ) {
-        Ok(stmt) => stmt,
-        Err(_) => return,
-    };
-    let mut count_stmt = match conn
-        .prepare("SELECT COUNT(*) FROM projection_thread_messages WHERE thread_id = ?1")
-    {
-        Ok(stmt) => stmt,
-        Err(_) => return,
-    };
-    for (thread_id, title, updated_at, workspace_root, _archived) in threads {
-        if thread_id.trim().is_empty() {
+    for (id, entry) in conversations {
+        if id.trim().is_empty() {
             continue;
         }
-        // Latest provider session wins; threads can switch providers.
-        let session_rows: Vec<T3SessionRow> = sessions_stmt
-            .query_map([thread_id.as_str()], |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            })
-            .map(|rows| rows.flatten().collect())
-            .unwrap_or_default();
-        let mut harness: Option<String> = None;
-        let mut native_id: Option<String> = None;
-        for (provider, provider_session_id, provider_thread_id) in &session_rows {
-            let mapped = provider.as_deref().and_then(map_t3_provider);
-            let native = provider_session_id
-                .as_deref()
-                .filter(|id| !id.trim().is_empty())
-                .or_else(|| {
-                    provider_thread_id
-                        .as_deref()
-                        .filter(|id| !id.trim().is_empty())
-                })
-                .map(str::to_string);
-            if harness.is_none() {
-                harness = mapped.clone();
-            }
-            if native_id.is_none() {
-                if let (Some(mapped), Some(native)) = (mapped, native) {
-                    harness = Some(mapped);
-                    native_id = Some(native);
-                    break;
-                }
-            }
-            if native_id.is_some() && harness.is_some() {
-                break;
-            }
+        let Some(entry) = entry.as_object() else {
+            continue;
+        };
+        if entry
+            .get("is_internal")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            continue;
         }
-        let epoch = updated_at
+        let summary = entry.get("summary");
+        let title = summary
+            .and_then(|summary| summary.get("Title"))
+            .and_then(|v| v.as_str())
+            .filter(|title| !title.trim().is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                summary
+                    .and_then(|summary| summary.get("Preview"))
+                    .and_then(|v| v.as_str())
+                    .filter(|preview| !preview.trim().is_empty())
+                    .map(truncate_title)
+            })
+            .unwrap_or_else(|| "Antigravity session".to_string());
+        let last_modified = entry
+            .get("last_modified_time")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.trim().is_empty())
+            .map(str::to_string);
+        let updated_summary = summary
+            .and_then(|summary| summary.get("UpdatedAt"))
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.trim().is_empty())
+            .map(str::to_string);
+        let epoch = last_modified
             .as_deref()
             .and_then(parse_rfc3339_epoch)
+            .or_else(|| updated_summary.as_deref().and_then(parse_rfc3339_epoch))
             .unwrap_or(0);
-        let cwd = workspace_root
+        let cwd = summary
+            .and_then(|summary| summary.get("WorkspaceURIs"))
+            .and_then(|uris| uris.as_array())
+            .and_then(|uris| uris.first())
+            .and_then(|uri| uri.as_str())
+            .map(|uri| uri.strip_prefix("file:///").unwrap_or(uri).to_string())
             .filter(|dir| !dir.trim().is_empty())
             .unwrap_or_else(|| "(unknown workspace)".to_string());
-        let title = title
-            .filter(|title| !title.trim().is_empty())
-            .map(|title| truncate_title(&title))
-            .unwrap_or_else(|| "Untitled session".to_string());
-        let message_count: u32 = count_stmt
-            .query_row([thread_id.as_str()], |row| row.get::<_, i64>(0))
-            .map(|count| count.max(0) as u32)
-            .unwrap_or(0);
+        // Display prefers the human-facing stamp; recency prefers last touch.
+        let updated_display = last_modified.or(updated_summary);
         out.push((
             epoch,
             ExternalSession {
-                id: thread_id,
+                id: id.clone(),
                 title,
-                updated_at,
-                message_count,
-                source: "t3".to_string(),
+                updated_at: updated_display,
+                message_count: 0,
+                source: "antigravity".to_string(),
                 cwd,
                 file: String::new(),
-                harness,
-                native_id,
             },
         ));
     }
@@ -1015,8 +958,6 @@ fn scan_cline_dir(sessions: &Path, out: &mut Vec<(u64, ExternalSession)>) {
                 source: "cline".to_string(),
                 cwd,
                 file: manifest_path.to_string_lossy().into_owned(),
-                harness: None,
-                native_id: None,
             },
         ));
     }
@@ -1029,7 +970,8 @@ const MAX_EXPORT_PARTS: usize = 5000;
 /// Export an sqlite-backed transcript for replay: ordered `{role, time,
 /// parts}` rows where each part is the stored JSON value verbatim. File
 /// sources (claude/codex/cline) are read with `read_text_file` + parsed in
-/// the frontend instead. T3 exports its live messages in the same shape.
+/// the frontend instead. Antigravity rows resume natively and have no
+/// transcript export (protobuf step store).
 #[tauri::command(async)]
 pub fn read_external_transcript(source: String, session_id: String) -> Result<String, String> {
     let home = user_home().ok_or_else(|| "Home directory not found".to_string())?;
@@ -1046,61 +988,10 @@ pub fn read_external_transcript(source: String, session_id: String) -> Result<St
             let db = home.join(".zcode").join("cli").join("db").join("db.sqlite");
             export_transcript_for_db(&db, &session_id)
         }
-        "t3" => {
-            let db = t3_state_db().ok_or_else(|| "Session store not found".to_string())?;
-            export_t3_messages(&db, &session_id)
-        }
         _ => Err(format!(
             "Transcript export for source \"{source}\" goes through the transcript file"
         )),
     }
-}
-
-/// T3 live messages (`projection_thread_messages`): clean role/text rows,
-/// normalized to the same `{messages: [{role, time, parts}]}` export shape
-/// as the sqlite transcript export so the frontend reuses one parser.
-fn export_t3_messages(db: &Path, thread_id: &str) -> Result<String, String> {
-    let conn = open_ro(db).ok_or_else(|| "Session store not found".to_string())?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT role, text, created_at FROM projection_thread_messages \
-             WHERE thread_id = ?1 ORDER BY created_at, rowid LIMIT 5000",
-        )
-        .map_err(|e| format!("Transcript query failed: {e}"))?;
-    let rows: Vec<(Option<String>, Option<String>, Option<String>)> = stmt
-        .query_map([thread_id], |row| {
-            Ok((
-                row.get::<_, Option<String>>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<String>>(2)?,
-            ))
-        })
-        .map_err(|e| format!("Transcript query failed: {e}"))?
-        .flatten()
-        .collect();
-    let mut messages: Vec<serde_json::Value> = Vec::new();
-    for (role, text, created_at) in rows {
-        let role = role.unwrap_or_default();
-        if role != "user" && role != "assistant" {
-            continue;
-        }
-        let text = text.unwrap_or_default();
-        if text.trim().is_empty() {
-            continue;
-        }
-        let time_ms = created_at
-            .as_deref()
-            .and_then(parse_rfc3339_epoch)
-            .map(|epoch| epoch.saturating_mul(1000))
-            .unwrap_or(0);
-        messages.push(serde_json::json!({
-            "role": role,
-            "time": time_ms,
-            "parts": [{ "type": "text", "text": text }],
-        }));
-    }
-    serde_json::to_string(&serde_json::json!({ "messages": messages }))
-        .map_err(|e| format!("Transcript export failed: {e}"))
 }
 
 fn export_transcript_for_db(db: &Path, session_id: &str) -> Result<String, String> {
@@ -1111,15 +1002,18 @@ fn export_transcript_for_db(db: &Path, session_id: &str) -> Result<String, Strin
     let mut part_count = 0usize;
     let mut msg_stmt = conn
         .prepare(
-            "SELECT id, role, time_created FROM message WHERE session_id = ?1 ORDER BY time_created, rowid",
+            "SELECT id, time_created, data FROM message WHERE session_id = ?1 ORDER BY time_created, rowid",
         )
         .map_err(|e| format!("Transcript query failed: {e}"))?;
-    let msg_rows: Vec<(String, Option<String>, Option<i64>)> = msg_stmt
+    // NOTE: `role` lives inside the `data` JSON, not as a column — the real
+    // OpenCode/ZCode schema is (id, session_id, time_created, time_updated,
+    // data). Selecting a `role` column fails on real stores.
+    let msg_rows: Vec<(String, Option<i64>, Option<String>)> = msg_stmt
         .query_map([session_id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<i64>>(2)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, Option<String>>(2)?,
             ))
         })
         .map_err(|e| format!("Transcript query failed: {e}"))?
@@ -1128,8 +1022,18 @@ fn export_transcript_for_db(db: &Path, session_id: &str) -> Result<String, Strin
     let mut part_stmt = conn
         .prepare("SELECT data FROM part WHERE message_id = ?1 ORDER BY time_created, rowid")
         .map_err(|e| format!("Transcript query failed: {e}"))?;
-    for (msg_id, role, time) in msg_rows {
-        let role = role.unwrap_or_default();
+    for (msg_id, time, data) in msg_rows {
+        // Role is embedded in the message envelope, not a column.
+        let role = data
+            .as_deref()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+            .and_then(|envelope| {
+                envelope
+                    .get("role")
+                    .and_then(|role| role.as_str())
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
         if role != "user" && role != "assistant" {
             continue;
         }

@@ -10,14 +10,16 @@ import {
 import { bindHarnessSession } from "./registry";
 
 /** Sources the scanner can emit. File sources replay from transcripts;
- * database sources replay from `read_external_transcript`. */
+ * database sources replay from `read_external_transcript`. Antigravity
+ * rows are resume-only (protobuf step store, no transcript parser).
+ */
 export type ExternalSource =
   | "claude"
   | "codex"
   | "opencode"
   | "zcode"
-  | "t3"
-  | "cline";
+  | "cline"
+  | "antigravity";
 
 /** Short pill labels for workspace source badges. */
 export const SOURCE_LABEL: Record<ExternalSource, string> = {
@@ -25,8 +27,8 @@ export const SOURCE_LABEL: Record<ExternalSource, string> = {
   codex: "Codex",
   opencode: "OpenCode",
   zcode: "ZCode",
-  t3: "T3",
   cline: "Cline",
+  antigravity: "Antigravity",
 };
 
 /** One row of the `scan_external_sessions` backend result. */
@@ -38,13 +40,6 @@ export type ExternalSessionInfo = {
   source: ExternalSource;
   cwd: string;
   file: string;
-  /** Native resume harness override (T3 rows carry their own provider). */
-  harness?: HarnessId;
-  /**
-   * Native provider session id for resume. T3 rows store it separately
-   * from the listing id (the T3 thread id); other sources use `id`.
-   */
-  nativeId?: string;
 };
 
 export type ExternalWorkspace = {
@@ -57,19 +52,35 @@ export type ExternalWorkspace = {
 
 /**
  * Which MonoCode harness natively resumes each external source.
- * ZCode has no harness (replay-only); T3 resolves per row via
- * `ExternalSessionInfo.harness` instead.
+ * ZCode has no harness (replay-only).
  */
 export const NATIVE_HARNESS: Partial<Record<ExternalSource, HarnessId>> = {
   claude: "claude",
   codex: "codex",
   opencode: "opencode",
   cline: "cline",
+  antigravity: "antigravity",
 };
 
+/** Sources with a transcript reader (everything but Antigravity). */
+const REPLAYABLE_SOURCES: ReadonlySet<ExternalSource> = new Set([
+  "claude",
+  "codex",
+  "opencode",
+  "zcode",
+  "cline",
+]);
+
 /** The harness a session would resume natively in, if any. */
-export function nativeHarnessFor(info: ExternalSessionInfo): HarnessId | undefined {
-  return info.harness ?? NATIVE_HARNESS[info.source];
+export function nativeHarnessFor(
+  info: ExternalSessionInfo,
+): HarnessId | undefined {
+  return NATIVE_HARNESS[info.source];
+}
+
+/** Whether a session can be replayed as history (Antigravity cannot). */
+export function canReplay(info: ExternalSessionInfo): boolean {
+  return REPLAYABLE_SOURCES.has(info.source);
 }
 
 /** Session titles stay tab-sized no matter how long the transcript title is. */
@@ -156,7 +167,7 @@ export function createNativeResumeSession(
   if (!harness) {
     throw new Error(`No native resume harness for source "${info.source}"`);
   }
-  const nativeId = (info.nativeId ?? info.id).trim();
+  const nativeId = info.id.trim();
   if (!nativeId) {
     throw new Error("Cannot resume a session without a native id");
   }

@@ -9,8 +9,6 @@ import {
   parseClineMessages,
   parseCodexRollout,
   parseOpencodeTranscript,
-  parseT3Summary,
-  summaryOnlyImport,
 } from "./sessionReplay";
 import type { ExternalSessionInfo } from "./sessionImport";
 
@@ -112,6 +110,20 @@ describe("buildReplayBlocks", () => {
     expect(imported.blocks[imported.blocks.length - 1].text).toContain(
       "Older history was not imported",
     );
+  });
+
+  it("builds a resume-flavored safety-net summary without changing blocks", () => {
+    const { turns } = parseClaudeTranscript(CLAUDE_GOLDEN);
+    const replay = buildReplayBlocks(claudeSource, turns);
+    const resume = buildReplayBlocks(claudeSource, turns, "resume");
+    // Same visible history (ids are freshly minted per call — compare content).
+    expect(resume.blocks.map((block) => [block.role, block.text])).toEqual(
+      replay.blocks.map((block) => [block.role, block.text]),
+    );
+    expect(resume.turnCount).toBe(replay.turnCount);
+    expect(resume.summary).toContain('Resuming Claude session "Fix the login redirect loop"');
+    expect(resume.summary).toContain("delete this draft");
+    expect(resume.summary).not.toContain("don't share its live state");
   });
 });
 
@@ -223,52 +235,6 @@ describe("parseClineMessages", () => {
   });
 });
 
-describe("t3 live messages", () => {
-  it("parses the shared export shape", () => {
-    const { turns } = parseOpencodeTranscript(
-      JSON.stringify({
-        messages: [
-          {
-            role: "user",
-            time: 1788500001000,
-            parts: [{ type: "text", text: "Docs question" }],
-          },
-          {
-            role: "assistant",
-            time: 1788500002000,
-            parts: [{ type: "text", text: "Plan answer" }],
-          },
-        ],
-      }),
-    );
-    expect(turns.map((turn) => turn.role)).toEqual(["user", "assistant"]);
-    expect(turns[0].text).toBe("Docs question");
-  });
-});
-
-describe("t3 summary replay", () => {
-  it("parses the summary export", () => {
-    expect(parseT3Summary('{"summary":"  Did things.  "}')).toBe(
-      "Did things.",
-    );
-    expect(parseT3Summary("{}")).toBe("");
-    expect(parseT3Summary("garbage")).toBe("");
-  });
-
-  it("builds a badged single-block import", () => {
-    const imported = summaryOnlyImport(claudeSource, "Did things.");
-    expect(imported.truncated).toBe(false);
-    expect(imported.blocks).toHaveLength(2);
-    expect(imported.blocks[0].role).toBe("system");
-    expect(imported.blocks[0].text).toContain("not re-executable");
-    expect(imported.blocks[1]).toMatchObject({
-      role: "assistant",
-      text: "Did things.",
-    });
-    expect(imported.summary).toContain("claude");
-  });
-});
-
 describe("loadReplayImport", () => {
   const readers = {
     readFile: async (path: string) => {
@@ -314,21 +280,6 @@ describe("loadReplayImport", () => {
     expect(opencode.blocks[1].text).toBe("Exported hi");
   });
 
-  it("loads t3 live messages", async () => {
-    const t3 = await loadReplayImport(
-      { ...claudeSource, source: "t3" },
-      {
-        ...readers,
-        readExport: async () =>
-          JSON.stringify({
-            messages: [{ role: "user", time: 1, parts: [{ type: "text", text: "T3 hi" }] }],
-          }),
-      },
-    );
-    expect(t3.turnCount).toBe(1);
-    expect(t3.blocks[1].text).toBe("T3 hi");
-  });
-
   it("throws when nothing replayable comes back", async () => {
     await expect(
       loadReplayImport(claudeSource, {
@@ -336,5 +287,12 @@ describe("loadReplayImport", () => {
         readExport: async () => "{}",
       }),
     ).rejects.toThrow(/no replayable turns/i);
+  });
+
+  it("passes the resume flavor through to the summary", async () => {
+    const resume = await loadReplayImport(claudeSource, readers, "resume");
+    expect(resume.turnCount).toBe(3);
+    expect(resume.summary).toContain("Resuming Claude");
+    expect(resume.summary).toContain("delete this draft");
   });
 });

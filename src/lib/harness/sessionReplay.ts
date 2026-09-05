@@ -9,6 +9,7 @@ import {
 import { readTextFile } from "../fs";
 import {
   readExternalTranscript,
+  SOURCE_LABEL,
   truncateImportTitle,
   type ExternalSessionInfo,
 } from "./sessionImport";
@@ -185,11 +186,14 @@ const HISTORY_BADGE =
 
 /**
  * Build the blocks for a replay import: a badge block, the capped history,
- * and a truncation notice when the transcript exceeds the cap.
+ * and a truncation notice when the transcript exceeds the cap. The
+ * `flavor` only changes the summary text: "replay" seeds a fresh
+ * conversation, "resume" seeds a natively-resumed one as a safety net.
  */
 export function buildReplayBlocks(
   source: ExternalSessionInfo,
   turns: ReplayTurn[],
+  flavor: ReplaySummaryFlavor = "replay",
 ): ReplayImport {
   const truncated = turns.length > MAX_REPLAY_TURNS;
   const kept = truncated ? turns.slice(-MAX_REPLAY_TURNS) : turns;
@@ -219,7 +223,10 @@ export function buildReplayBlocks(
     blocks,
     truncated,
     turnCount: turns.length,
-    summary: buildReplaySummary(source, turns, truncated),
+    summary:
+      flavor === "resume"
+        ? buildResumeSummary(source, turns, truncated)
+        : buildReplaySummary(source, turns, truncated),
   };
 }
 
@@ -242,6 +249,39 @@ function buildReplaySummary(
       ? `Only the most recent ${MAX_REPLAY_TURNS} turns were kept.`
       : "",
     "Ask me to continue the work; I don't share its live state.",
+  ];
+  return parts.filter(Boolean).join(" ");
+}
+
+/** Which conversation the summary seeds: a fresh replay, or a native
+ * resume (safety net for lost native state). */
+export type ReplaySummaryFlavor = "replay" | "resume";
+
+/**
+ * Safety-net summary for native resume: the CLI normally restores full
+ * state itself, so this only matters when it lost it (compaction,
+ * expiry). Says what to do with the draft so an intact resume isn't
+ * polluted by redundant context.
+ */
+function buildResumeSummary(
+  source: ExternalSessionInfo,
+  turns: ReplayTurn[],
+  truncated: boolean,
+): string {
+  const users = turns.filter((turn) => turn.role === "user").length;
+  const tools = [
+    ...new Set(turns.flatMap((turn) => turn.toolCalls)),
+  ].slice(0, 5);
+  const firstTopic = turns.find((turn) => turn.role === "user")?.text ?? "";
+  const topic = firstTopic.split(/\s+/).slice(0, 24).join(" ");
+  const parts = [
+    `Resuming ${SOURCE_LABEL[source.source]} session "${source.title}" (${turns.length} turns, ${users} from you).`,
+    topic ? `It started with: ${topic}.` : "",
+    tools.length > 0 ? `Tools used there: ${tools.join(", ")}.` : "",
+    truncated
+      ? `Only the most recent ${MAX_REPLAY_TURNS} turns were kept.`
+      : "",
+    "If the resumed chat already remembers this, delete this draft — otherwise send it so the agent recovers context.",
   ];
   return parts.filter(Boolean).join(" ");
 }
@@ -393,23 +433,10 @@ export function parseClineMessages(json: string): ReplayParse {
 }
 
 /**
- * Parse an `read_external_transcript` `{summary}` export (T3 threads).
- * Returns the trimmed summary or an empty string.
- */
-export function parseT3Summary(json: string): string {
-  try {
-    const summary = asRecord(JSON.parse(json))?.summary;
-    return typeof summary === "string" ? summary.trim() : "";
-  } catch {
-    return "";
-  }
-}
-
-/**
  * Load the replayable history for an external session, whatever its
- * storage: sqlite-backed sources export through the backend, T3 threads
- * replay from their summary, file sources are read + parsed directly.
- * Readers are injectable so tests never touch disk or Tauri.
+ * storage: sqlite-backed sources export through the backend, file sources
+ * are read + parsed directly. Readers are injectable so tests never touch
+ * disk or Tauri.
  */
 export type ReplayReaders = {
   readFile: (path: string) => Promise<string>;
@@ -419,12 +446,13 @@ export type ReplayReaders = {
 export async function loadReplayImport(
   info: ExternalSessionInfo,
   readers?: Partial<ReplayReaders>,
+  flavor: ReplaySummaryFlavor = "replay",
 ): Promise<ReplayImport> {
   const { turns } = await loadReplayTurns(info, readers);
   if (turns.length === 0) {
     throw new Error("No replayable turns found in transcript");
   }
-  return buildReplayBlocks(info, turns);
+  return buildReplayBlocks(info, turns, flavor);
 }
 
 async function loadReplayTurns(
@@ -433,13 +461,8 @@ async function loadReplayTurns(
 ): Promise<ReplayParse> {
   const readFile = readers?.readFile ?? readTextFile;
   const readExport = readers?.readExport ?? readExternalTranscript;
-  if (
-    info.source === "t3" ||
-    info.source === "opencode" ||
-    info.source === "zcode"
-  ) {
-    // Database sources export through the backend in one shared shape
-    // (T3 live messages included).
+  if (info.source === "opencode" || info.source === "zcode") {
+    // Database sources export through the backend in one shared shape.
     return parseOpencodeTranscript(await readExport(info.source, info.id));
   }
   const json =
@@ -450,34 +473,4 @@ async function loadReplayTurns(
   return info.source === "codex"
     ? parseCodexRollout(json)
     : parseClaudeTranscript(json);
-}
-
-/**
- * Summary-only replay for sources without an accessible transcript (T3
- * threads carry a summary but their full history lives in provider
- * stores). One context block, still badged as imported history.
- */
-export function summaryOnlyImport(
-  source: ExternalSessionInfo,
-  summary: string,
-): ReplayImport {
-  const text = summary.trim() || source.title;
-  const blocks: Block[] = [
-    {
-      id: crypto.randomUUID(),
-      role: "system",
-      text: HISTORY_BADGE,
-    },
-    {
-      id: crypto.randomUUID(),
-      role: "assistant",
-      text: capText(text),
-    },
-  ];
-  return {
-    blocks,
-    truncated: false,
-    turnCount: 1,
-    summary: `Imported the summary of ${source.source} session "${source.title}". Ask me to continue the work; I don't share its live state.`,
-  };
 }

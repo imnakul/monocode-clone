@@ -20,8 +20,8 @@ fn scan_fixtures(since_days: u32, limit: u32) -> Vec<ExternalWorkspace> {
         &home.join(".codex").join("sessions"),
         &home.join("no-opencode.db"),
         &home.join("no-zcode.db"),
-        &None,
         &home.join("no-cline"),
+        &home.join("no-agy"),
         since_days,
         limit,
     )
@@ -112,8 +112,8 @@ fn missing_stores_yield_empty_lists() {
         &missing.join("sessions"),
         &missing.join("opencode.db"),
         &missing.join("zcode.db"),
-        &None,
         &missing.join("cline"),
+        &missing.join("agy"),
         0,
         0,
     )
@@ -197,6 +197,22 @@ fn session_import_live() {
     }
     assert!(claude_sessions > 0, "expected real Claude sessions");
     assert!(codex_sessions > 0, "expected real Codex sessions");
+    // Newest opencode session must export a non-empty transcript (guards
+    // against schema drift like the `role`-column regression).
+    let opencode = workspaces
+        .iter()
+        .flat_map(|w| &w.sessions)
+        .find(|s| s.source == "opencode")
+        .expect("expected a real OpenCode session");
+    let json = super::read_external_transcript("opencode".to_string(), opencode.id.clone())
+        .expect("opencode export");
+    let value: serde_json::Value = serde_json::from_str(&json).expect("json");
+    let messages = value
+        .get("messages")
+        .and_then(|v| v.as_array())
+        .expect("messages");
+    println!("opencode_export_messages={}", messages.len());
+    assert!(!messages.is_empty(), "expected transcript content");
 }
 
 fn temp_case(name: &str) -> PathBuf {
@@ -214,7 +230,7 @@ fn make_agent_db(path: &Path) {
     conn.execute_batch(
         "CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, title TEXT, \
          time_created INTEGER, time_updated INTEGER); \
-         CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, role TEXT, time_created INTEGER, data TEXT); \
+         CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT); \
          CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, \
          time_created INTEGER, time_updated INTEGER, data TEXT);",
     )
@@ -226,8 +242,8 @@ fn make_agent_db(path: &Path) {
     )
     .expect("insert session");
     conn.execute(
-        "INSERT INTO message (id, session_id, role, time_created, data) \
-         VALUES ('msg_1', 'ses_1', 'user', 1788500001000, '{\"role\":\"user\"}')",
+        "INSERT INTO message (id, session_id, time_created, data) \
+         VALUES ('msg_1', 'ses_1', 1788500001000, '{\"role\":\"user\"}')",
         [],
     )
     .expect("insert message");
@@ -266,88 +282,78 @@ fn scans_opencode_and_zcode_databases() {
 }
 
 #[test]
+fn normalizes_workspace_separators() {
+    // Forward slashes (OpenCode) and backslashes (everyone else) address
+    // the same directory on Windows and must group into one workspace.
+    #[cfg(windows)]
+    {
+        assert_eq!(normalize_cwd("E:/Fake/App"), "E:\\Fake\\App");
+        assert_eq!(normalize_cwd("E:\\Fake\\App"), "E:\\Fake\\App");
+    }
+    assert_eq!(normalize_cwd("  padded  "), "padded");
+}
+
+#[test]
 fn missing_databases_scan_empty() {
     let missing = PathBuf::from("/definitely/not/here/monocode-test.db");
     let mut out = Vec::new();
     scan_opencode_db(&missing, &mut out);
     scan_zcode_db(&missing, &mut out);
-    scan_t3_db(&None, &mut out);
     assert!(out.is_empty());
 }
 
 #[test]
-fn scans_t3_threads_with_native_mapping() {
-    let root = temp_case("t3db");
-    let db = root.join("state.sqlite");
-    {
-        let conn = rusqlite::Connection::open(&db).expect("create t3 db");
-        conn.execute_batch(
-            "CREATE TABLE projection_threads (thread_id TEXT, project_id TEXT, title TEXT, \
-             branch TEXT, worktree_path TEXT, updated_at TEXT, archived_at TEXT); \
-             CREATE TABLE projection_projects (project_id TEXT, workspace_root TEXT); \
-             CREATE TABLE projection_thread_sessions (thread_id TEXT, provider_name TEXT, \
-             provider_session_id TEXT, provider_thread_id TEXT, updated_at TEXT); \
-             CREATE TABLE projection_thread_messages (message_id TEXT, thread_id TEXT, \
-             role TEXT, text TEXT, created_at TEXT); \
-             INSERT INTO projection_projects VALUES ('proj-1', 'E:\\Fake\\T3 App'); \
-             INSERT INTO projection_threads VALUES \
-             ('thr-1', 'proj-1', 'Thread one', NULL, NULL, '2026-09-04T10:00:00.000Z', NULL), \
-             ('thr-2', 'proj-1', 'Thread two', NULL, NULL, '2026-09-04T11:00:00.000Z', NULL), \
-             ('thr-3', 'proj-1', 'Archived thread', NULL, NULL, '2026-09-04T12:00:00.000Z', '2026-09-04T13:00:00.000Z'), \
-             ('', 'proj-1', 'No id thread', NULL, NULL, '2026-09-04T14:00:00.000Z', NULL); \
-             INSERT INTO projection_thread_sessions VALUES \
-             ('thr-1', 'claude', 'native-uuid-1', NULL, '2026-09-04T10:00:00.000Z'), \
-             ('thr-1', 'opencode', NULL, NULL, '2026-09-04T09:00:00.000Z'), \
-             ('thr-2', 'cursor', 'cursor-1', NULL, '2026-09-04T11:00:00.000Z'); \
-             INSERT INTO projection_thread_messages VALUES \
-             ('m1', 'thr-1', 'user', 'hello t3', '2026-09-04T10:00:00.000Z'), \
-             ('m2', 'thr-1', 'assistant', 'hi back', '2026-09-04T10:01:00.000Z');",
-        )
-        .expect("t3 rows");
-    }
+fn scans_agy_conversations() {
+    let root = temp_case("agydir");
+    let cache = root.join("cache");
+    std::fs::create_dir_all(&cache).expect("agy cache dir");
+    std::fs::write(
+        cache.join("conversation_metadata.json"),
+        r#"{"conversations":{
+            "conv-1": {"is_internal": false, "last_modified_time": "2026-09-04T10:00:00.000+05:30",
+             "summary": {"Title": "Fix login", "Preview": "Fix login preview",
+              "UpdatedAt": "2026-09-04T04:00:00.0000000Z",
+              "WorkspaceURIs": ["file:///e:/Fake/Agy App"]}},
+            "conv-2": {"is_internal": false, "last_modified_time": "2026-09-03T10:00:00Z",
+             "summary": {"Title": "", "Preview": "Plan the migration",
+              "UpdatedAt": "2026-09-03T10:00:00Z", "WorkspaceURIs": []}},
+            "conv-internal": {"is_internal": true},
+            "": {"is_internal": false}
+        }}"#,
+    )
+    .expect("agy metadata");
     let mut out = Vec::new();
-    scan_t3_db(&Some(db.clone()), &mut out);
-    // thr-3 archived out, empty-id row skipped.
+    scan_agy_dir(&root, &mut out);
     assert_eq!(out.len(), 2);
     let by_id = |id: &str| {
         out.iter()
             .find(|(_, s)| s.id == id)
             .map(|(epoch, s)| (*epoch, s.clone()))
     };
-    let (epoch, one) = by_id("thr-1").expect("claude thread");
-    assert_eq!(one.source, "t3");
-    assert_eq!(one.harness.as_deref(), Some("claude"));
-    assert_eq!(one.native_id.as_deref(), Some("native-uuid-1"));
-    assert_eq!(one.message_count, 2);
-    assert_eq!(one.cwd, "E:\\Fake\\T3 App");
+    let (epoch, one) = by_id("conv-1").expect("titled conversation");
+    assert_eq!(one.source, "antigravity");
+    assert_eq!(one.title, "Fix login");
+    assert_eq!(one.cwd, "e:/Fake/Agy App");
     assert!(epoch > 0);
-    assert_eq!(one.updated_at.as_deref(), Some("2026-09-04T10:00:00.000Z"));
-    // Cursor has no native harness but the row still lists for replay.
-    let (_, two) = by_id("thr-2").expect("cursor thread");
-    assert_eq!(two.harness, None);
-    assert_eq!(two.native_id, None);
-
-    // Messages export in the shared shape.
-    let json = export_t3_messages(&db, "thr-1").expect("export");
-    let value: serde_json::Value = serde_json::from_str(&json).expect("json");
-    let messages = value
-        .get("messages")
-        .and_then(|v| v.as_array())
-        .expect("messages");
-    assert_eq!(messages.len(), 2);
     assert_eq!(
-        messages[0].get("role").and_then(|v| v.as_str()),
-        Some("user")
+        one.updated_at.as_deref(),
+        Some("2026-09-04T10:00:00.000+05:30")
     );
-    assert_eq!(
-        messages[0]
-            .get("parts")
-            .and_then(|v| v.as_array())
-            .and_then(|parts| parts[0].get("text"))
-            .and_then(|v| v.as_str()),
-        Some("hello t3")
-    );
+    // Empty title falls back to the preview; missing workspace falls back.
+    let (_, two) = by_id("conv-2").expect("preview conversation");
+    assert_eq!(two.title, "Plan the migration");
+    assert_eq!(two.cwd, "(unknown workspace)");
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn missing_agy_dir_scans_empty() {
+    let mut out = Vec::new();
+    scan_agy_dir(
+        &PathBuf::from("/definitely/not/here/monocode-test"),
+        &mut out,
+    );
+    assert!(out.is_empty());
 }
 
 #[test]
@@ -395,8 +401,8 @@ fn exports_transcript_parts_in_order() {
     {
         let conn = rusqlite::Connection::open(&db).expect("open export db");
         conn.execute(
-            "INSERT INTO message (id, session_id, role, time_created, data) \
-             VALUES ('msg_2', 'ses_1', 'assistant', 1788500002000, '{\"role\":\"assistant\"}')",
+            "INSERT INTO message (id, session_id, time_created, data) \
+             VALUES ('msg_2', 'ses_1', 1788500002000, '{\"role\":\"assistant\"}')",
             [],
         )
         .expect("insert msg2");
@@ -458,14 +464,4 @@ fn formats_epoch_millis_as_dates() {
         let days = days_from_civil(year, month, day).expect("days");
         assert_eq!(civil_from_days(days), Some((year, month, day)));
     }
-}
-
-#[test]
-fn maps_t3_provider_names() {
-    assert_eq!(map_t3_provider("claude"), Some("claude".to_string()));
-    assert_eq!(map_t3_provider("CODEX"), Some("codex".to_string()));
-    assert_eq!(map_t3_provider("opencode"), Some("opencode".to_string()));
-    assert_eq!(map_t3_provider("cline"), Some("cline".to_string()));
-    assert_eq!(map_t3_provider("cursor"), None);
-    assert_eq!(map_t3_provider(""), None);
 }
