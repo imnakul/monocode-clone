@@ -2,6 +2,7 @@ import {
   Archive,
   ArrowLeft,
   Bot,
+  Inbox,
   Keyboard,
   Palette,
   SlidersHorizontal,
@@ -19,6 +20,7 @@ const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
   keybindings: Keyboard,
   providers: Bot,
   archive: Archive,
+  migration: Inbox,
 };
 
 type Props = {

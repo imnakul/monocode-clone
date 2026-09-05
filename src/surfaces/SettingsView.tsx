@@ -19,6 +19,8 @@ import { HarnessIcon } from "../chrome/HarnessIcon";
 import { InboxProviderMark } from "../chrome/InboxProviderMark";
 import { RemoveProjectDialog } from "../chrome/RemoveProjectDialog";
 import { SelectMenu } from "../chrome/SelectMenu";
+import { TerminalSpinner } from "../chrome/TerminalSpinner";
+import { MigrationView } from "./MigrationView";
 import { WindowControls } from "../chrome/WindowControls";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import {
@@ -160,6 +162,7 @@ import {
   HARNESS_TITLE,
   sessionDisplayTitle,
   type HarnessId,
+  type Session,
 } from "../lib/session";
 import {
   loadSessionSidebarFilters,
@@ -221,6 +224,7 @@ type Props = {
   onRestoreProject?: (path: string) => void;
   onDeleteProject?: (path: string) => void;
   onOpenWhatsNew: (version: string) => void;
+  onImportSessions: (sessions: Session[]) => void;
 };
 
 export function SettingsView({
@@ -235,6 +239,7 @@ export function SettingsView({
   onRestoreProject,
   onDeleteProject,
   onOpenWhatsNew,
+  onImportSessions,
 }: Props) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const onCloseRef = useRef(onClose);
@@ -314,6 +319,9 @@ export function SettingsView({
               onRestoreProject={onRestoreProject}
               onDeleteProject={onDeleteProject}
             />
+          ) : null}
+          {section === "migration" ? (
+            <MigrationView onImportSessions={onImportSessions} />
           ) : null}
         </div>
       </div>
@@ -1448,7 +1456,14 @@ function ProviderRow({
         disabled={rechecking}
         title={`Re-probe ${HARNESS_TITLE[harness]} and refresh its model list`}
       >
-        {rechecking ? "Checking…" : "Recheck"}
+        {rechecking ? (
+          <>
+            <TerminalSpinner />
+            Checking…
+          </>
+        ) : (
+          "Recheck"
+        )}
       </SecondaryButton>
       {current ? (
         <SelectMenu
@@ -1697,7 +1712,7 @@ function Heading({ title, first = false }: { title: string; first?: boolean }) {
   );
 }
 
-function Row({
+export function Row({
   label,
   description,
   children,
@@ -1723,7 +1738,7 @@ function Row({
   );
 }
 
-function Segmented<T extends string>({
+export function Segmented<T extends string>({
   label,
   value,
   options,
@@ -1839,7 +1854,7 @@ function Toggle({
   );
 }
 
-function SecondaryButton({
+export function SecondaryButton({
   onClick,
   disabled = false,
   danger = false,

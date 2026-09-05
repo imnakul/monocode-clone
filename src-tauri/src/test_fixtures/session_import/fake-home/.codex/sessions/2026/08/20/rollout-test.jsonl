@@ -1,0 +1,4 @@
+{"timestamp":"2026-08-20T12:00:00.000Z","type":"session_meta","payload":{"id":"thread-aaa-1111","timestamp":"2026-08-20T12:00:00.000Z","cwd":"E:\\Fake\\Project With Spaces\\app","originator":"codex_cli","cli_version":"0.151.0","model_provider":"openai"}}
+{"timestamp":"2026-08-20T12:01:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Refactor the settings panel"}]}}
+{"timestamp":"2026-08-20T12:02:00.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done, split into three components."}]}}
+{"timestamp":"2026-08-20T12:03:00.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{}"}}

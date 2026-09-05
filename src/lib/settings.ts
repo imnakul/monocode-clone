@@ -3,7 +3,12 @@ import { ALT, IS_MAC, MOD, SHIFT } from "./platform";
 const SECTION_KEY = "monocode.settingsSection";
 
 export type SettingsSectionId =
-  "general" | "appearance" | "keybindings" | "providers" | "archive";
+  | "general"
+  | "appearance"
+  | "keybindings"
+  | "providers"
+  | "archive"
+  | "migration";
 
 export const SETTINGS_SECTIONS: {
   id: SettingsSectionId;
@@ -36,6 +41,12 @@ export const SETTINGS_SECTIONS: {
     id: "archive",
     label: "Archive",
     description: "Projects and conversations you have archived.",
+  },
+  {
+    id: "migration",
+    label: "Migration",
+    description:
+      "Import past Claude and Codex sessions — resume natively or replay as history.",
   },
 ];
 
