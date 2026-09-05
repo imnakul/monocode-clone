@@ -1281,6 +1281,7 @@ export function Composer({
                   </p>
                   <button
                     type="button"
+                    data-shared-hover-item
                     disabled={!attachmentsSupported}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
@@ -1301,6 +1302,7 @@ export function Composer({
                   </button>
                   <button
                     type="button"
+                    data-shared-hover-item
                     aria-pressed={planSelected}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
