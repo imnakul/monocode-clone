@@ -5,9 +5,7 @@ use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 use std::sync::{Arc, Mutex};
-#[cfg(unix)]
 use std::thread;
-#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -18,11 +16,9 @@ use crate::fs::expand_home;
 
 const DATA_EVENT: &str = "pty-data";
 const EXIT_EVENT: &str = "pty-exit";
-#[cfg(unix)]
 const READ_CHUNK: usize = 32 * 1024;
 /// Cap how often a busy PTY hops the webview. Each `emit` is a JS eval; a
 /// flood of small reads was thousands per second and froze input.
-#[cfg(unix)]
 const PTY_COALESCE: Duration = Duration::from_millis(8);
 #[cfg(unix)]
 const KILL_ESCALATE: Duration = Duration::from_secs(1);
@@ -45,6 +41,14 @@ struct LivePty {
     writer: Mutex<Box<dyn Write + Send>>,
     #[cfg(unix)]
     master_fd: i32,
+    /// Retained for `pty_resize`. `MasterPty: Send`, so `Mutex` is enough to
+    /// share it between the Tauri thread pool and the reader/waiter threads.
+    #[cfg(windows)]
+    master: Mutex<Box<dyn portable_pty::MasterPty>>,
+    /// Direct kill handle. `terminate_all` (taskkill tree-kill) is the primary
+    /// path; this covers the interim before the pid is known or reachable.
+    #[cfg(windows)]
+    killer: Mutex<Box<dyn portable_pty::ChildKiller + Send + Sync>>,
     pid: u32,
 }
 
@@ -100,6 +104,11 @@ impl PtyHost {
             hangup(live.pid);
             #[cfg(unix)]
             close_fd(live.master_fd);
+            // Draining the map already drops writer + master on this thread;
+            // poke the child directly first so a wedged console does not wait
+            // for the taskkill escalation below.
+            #[cfg(windows)]
+            windows_pty_teardown(&live);
         }
         // Quit and `Drop` both exit the process, so the SIGKILL has to land
         // before this returns. `terminate`'s detached escalate thread never gets
@@ -124,12 +133,19 @@ pub fn pty_spawn(
     rows: u16,
 ) -> Result<(), String> {
     if let Some(prev) = host.remove(&id) {
+        #[cfg(windows)]
+        windows_pty_teardown(&prev);
         terminate(prev.pid);
         #[cfg(unix)]
         close_fd(prev.master_fd);
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        spawn_windows(app, host, id, cwd, cols.max(2), rows.max(2))
+    }
+
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (app, cwd, cols, rows);
         return Err("Terminals are supported on macOS and Linux.".into());
@@ -162,7 +178,19 @@ pub fn pty_resize(host: State<PtyHost>, id: String, cols: u16, rows: u16) -> Res
     {
         resize_fd(live.master_fd, cols.max(2), rows.max(2))
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use portable_pty::PtySize;
+        let master = live.master.lock().unwrap_or_else(|e| e.into_inner());
+        master
+            .resize(PtySize {
+                rows: rows.max(2),
+                cols: cols.max(2),
+                ..Default::default()
+            })
+            .map_err(|e| format!("Failed to resize terminal: {e:#}"))
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (live, cols, rows);
         Err("Terminals are supported on macOS and Linux.".into())
@@ -197,6 +225,8 @@ pub fn pty_status(host: State<'_, PtyHost>, id: String) -> Result<PtyStatus, Str
 #[tauri::command]
 pub fn pty_kill(host: State<PtyHost>, id: String) -> Result<(), String> {
     if let Some(live) = host.remove(&id) {
+        #[cfg(windows)]
+        windows_pty_teardown(&live);
         terminate(live.pid);
         #[cfg(unix)]
         close_fd(live.master_fd);
@@ -210,6 +240,353 @@ pub fn pty_kill(host: State<PtyHost>, id: String) -> Result<(), String> {
 pub fn pty_kill_all(host: State<'_, PtyHost>) -> Result<(), String> {
     host.kill_all();
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Windows (ConPTY via portable-pty)
+// ---------------------------------------------------------------------------
+
+/// ConPTY read poll interval. The pipe read blocks, so this only bounds how
+/// fast a dead child is noticed — not input latency.
+#[cfg(windows)]
+const WIN_WAIT_POLL: Duration = Duration::from_millis(50);
+
+/// Answer ConPTY emits to cursor-position queries on session start.
+/// microsoft/terminal#1810: ConPTY blocks the child until something answers
+/// `ESC[6n`; portable-pty never does, so shells hang forever at startup.
+/// Write `ESC[1;1R` (cursor at 1,1) to the input pipe right after spawn.
+/// Windows-only: on Unix this would corrupt stdin for interactive readers.
+#[cfg(windows)]
+const CONPTY_DSR_REPLY: &[u8] = b"\x1b[1;1R";
+
+/// Shell search order on Windows: PowerShell 7, Windows PowerShell, cmd.
+/// Mirrors the T3 reference. Never route through `cmd /c` — ConPTY needs the
+/// interactive shell itself, not a one-shot wrapper.
+#[cfg(windows)]
+fn windows_shell_search_order() -> [&'static str; 3] {
+    ["pwsh", "powershell", "cmd"]
+}
+
+/// Flags per shell, matched on the resolved file name (case-insensitive).
+/// PowerShell prints its banner on every tab without `-NoLogo`.
+#[cfg(windows)]
+fn windows_shell_args(file_name: &str) -> &'static [&'static str] {
+    let lower = file_name.to_ascii_lowercase();
+    let base = lower.rsplit(['/', '\\']).next().unwrap_or(&lower);
+    match base {
+        "pwsh.exe" | "pwsh" | "powershell.exe" | "powershell" => &["-NoLogo"],
+        _ => &[],
+    }
+}
+
+/// First shell from the search order that resolves on the GUI PATH, plus
+/// `%ComSpec%` as a last resort (usually cmd.exe).
+#[cfg(windows)]
+fn resolve_windows_shell() -> Option<(String, Vec<String>)> {
+    for name in windows_shell_search_order() {
+        if let Some(path) = crate::harness::resolve_gui_binary(name) {
+            let text = path.to_string_lossy().into_owned();
+            let args = windows_shell_args(&text)
+                .iter()
+                .map(|arg| (*arg).to_string())
+                .collect();
+            return Some((text, args));
+        }
+    }
+    let comspec = std::env::var("ComSpec")
+        .ok()
+        .filter(|v| !v.trim().is_empty())?;
+    if !std::path::Path::new(&comspec).is_file() {
+        return None;
+    }
+    let args = windows_shell_args(&comspec)
+        .iter()
+        .map(|arg| (*arg).to_string())
+        .collect();
+    Some((comspec, args))
+}
+
+/// Best-effort direct kill. The taskkill tree-kill in `kill_all`/`pty_kill`
+/// is the primary path; this shortens the window where a wedged console
+/// outlives its tab.
+#[cfg(windows)]
+fn windows_pty_teardown(live: &LivePty) {
+    if let Ok(mut killer) = live.killer.lock() {
+        let _ = killer.kill();
+    }
+    if live.pid > 1 {
+        crate::harness::terminate_all(&[live.pid]);
+    }
+}
+
+#[cfg(windows)]
+fn spawn_windows(
+    app: AppHandle,
+    host: State<PtyHost>,
+    id: String,
+    cwd: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+    use std::io::Read;
+
+    let workdir = working_dir(&cwd);
+    let (shell, args) = resolve_windows_shell()
+        .ok_or_else(|| "No Windows shell found (looked for pwsh, powershell, cmd)".to_string())?;
+    let size = PtySize {
+        rows: rows.max(2),
+        cols: cols.max(2),
+        ..Default::default()
+    };
+    let pair = native_pty_system()
+        .openpty(size)
+        .map_err(|e| format!("Failed to open terminal: {e:#}"))?;
+
+    let mut cmd = CommandBuilder::new(&shell);
+    cmd.args(args);
+    cmd.cwd(&workdir);
+    // CommandBuilder starts with an empty environment (unlike
+    // std::process::Command), so inherit the GUI process env first. Profile
+    // scripts repair PATH interactively from here.
+    for (key, value) in std::env::vars() {
+        cmd.env(&key, &value);
+    }
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("TERM_PROGRAM", "MonoCode");
+
+    let mut child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("Failed to start {shell}: {e:#}"))?;
+    let pid = child.process_id().unwrap_or(0);
+
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|e| format!("Failed to read terminal: {e:#}"))?;
+    let mut writer = pair
+        .master
+        .take_writer()
+        .map_err(|e| format!("Failed to write terminal: {e:#}"))?;
+    writer
+        .write_all(CONPTY_DSR_REPLY)
+        .and_then(|_| writer.flush())
+        .map_err(|e| format!("Failed to start terminal: {e}"))?;
+    let killer = child.clone_killer();
+
+    let live = Arc::new(LivePty {
+        writer: Mutex::new(writer),
+        master: Mutex::new(pair.master),
+        killer: Mutex::new(killer),
+        pid,
+    });
+    host.insert(id.clone(), live);
+
+    // ConPTY closes the pipe once the child is gone, which unblocks the
+    // reader below. No poll fd exists on Windows — a plain blocking read
+    // with the shared coalesce thresholds (same 8ms budget as Unix).
+    let data_app = app.clone();
+    let data_id = id.clone();
+    thread::spawn(move || {
+        let mut reader = reader;
+        let mut buf = vec![0_u8; READ_CHUNK];
+        let mut acc = Vec::with_capacity(READ_CHUNK);
+        let mut last_emit = Instant::now();
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    acc.extend_from_slice(&buf[..n]);
+                    if pty_should_flush(acc.len(), last_emit.elapsed()) {
+                        emit_pty_data(&data_app, &data_id, &acc);
+                        acc.clear();
+                        last_emit = Instant::now();
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        emit_pty_data(&data_app, &data_id, &acc);
+    });
+
+    // Never block on `wait()`: with ConPTY torn down it can hang forever
+    // (ClosePseudoConsole flushes into a full pipe). Poll instead, then drop
+    // the child on this background thread so the pseudo-console closes here
+    // rather than on a Tauri pool thread. `remove_if_pid` keeps a respawned
+    // session from inheriting this exit, mirroring the Unix waiter.
+    let wait_app = app;
+    let wait_id = id;
+    thread::spawn(move || {
+        let code: Option<i32> = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break Some(status.exit_code() as i32),
+                Ok(None) => thread::sleep(WIN_WAIT_POLL),
+                Err(_) => break None,
+            }
+        };
+        drop(child);
+        if let Some(host) = wait_app.try_state::<PtyHost>() {
+            if host.remove_if_pid(&wait_id, pid).is_some() {
+                let _ = wait_app.emit(EXIT_EVENT, PtyExit { id: wait_id, code });
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[cfg(all(test, windows))]
+mod windows_pty_tests {
+    use super::*;
+
+    #[test]
+    fn shell_search_prefers_pwsh_over_cmd() {
+        assert_eq!(windows_shell_search_order(), ["pwsh", "powershell", "cmd"]);
+    }
+
+    #[test]
+    fn shell_args_add_nologo_for_powershell() {
+        assert_eq!(windows_shell_args("pwsh.exe"), &["-NoLogo"]);
+        assert_eq!(windows_shell_args("POWERSHELL.EXE"), &["-NoLogo"]);
+        assert_eq!(
+            windows_shell_args("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"),
+            &["-NoLogo"]
+        );
+        assert_eq!(windows_shell_args("cmd.exe"), &[] as &[&str]);
+        assert_eq!(
+            windows_shell_args("C:\\Windows\\System32\\cmd.exe"),
+            &[] as &[&str]
+        );
+        assert_eq!(windows_shell_args("nu.exe"), &[] as &[&str]);
+    }
+
+    #[test]
+    fn conpty_dsr_reply_is_a_cursor_position_answer() {
+        // `ESC[1;1R` — cursor at row 1, col 1. Must stay a single DSR answer:
+        // anything else lands in the shell as stray typed input.
+        assert_eq!(CONPTY_DSR_REPLY, b"\x1b[1;1R");
+    }
+
+    #[test]
+    fn remove_if_pid_ignores_a_replaced_session() {
+        let Some((shell, args)) = resolve_windows_shell() else {
+            eprintln!("skipping: no Windows shell found");
+            return;
+        };
+        let pair = portable_pty::native_pty_system()
+            .openpty(portable_pty::PtySize {
+                rows: 24,
+                cols: 80,
+                ..Default::default()
+            })
+            .expect("openpty for test double");
+        let mut cmd = portable_pty::CommandBuilder::new(&shell);
+        cmd.args(args);
+        let killer = pair
+            .slave
+            .spawn_command(cmd)
+            .expect("spawn for test double")
+            .clone_killer();
+        let host = PtyHost::new();
+        let live = Arc::new(LivePty {
+            writer: Mutex::new(Box::new(std::io::sink())),
+            master: Mutex::new(pair.master),
+            killer: Mutex::new(killer),
+            pid: 4242,
+        });
+        host.insert("term".into(), live.clone());
+        assert!(host.remove_if_pid("term", 7).is_none());
+        assert!(host.get("term").is_some());
+        assert!(host.remove_if_pid("term", 4242).is_some());
+        assert!(host.get("term").is_none());
+        // Precise kill via the stored handle (pid 4242 is a stand-in — never
+        // taskkill it). Dropping master tears down ConPTY behind it.
+        live.killer.lock().unwrap().kill().ok();
+    }
+
+    /// Live ConPTY smoke: spawn the resolved shell, prove the DSR startup
+    /// fix works (bytes flow instead of hanging), then kill. Skips when no
+    /// shell resolves. Mirrors the manual `pwsh echo` verification.
+    #[test]
+    fn conpty_spawns_shell_and_echoes() {
+        use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+        use std::io::Read;
+        use std::sync::mpsc;
+
+        let Some((shell, args)) = resolve_windows_shell() else {
+            eprintln!("skipping ConPTY smoke test: no Windows shell found");
+            return;
+        };
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                ..Default::default()
+            })
+            .expect("openpty");
+        let mut cmd = CommandBuilder::new(&shell);
+        cmd.args(args);
+        for (key, value) in std::env::vars() {
+            cmd.env(&key, &value);
+        }
+        cmd.env("TERM", "xterm-256color");
+        let mut child = pair.slave.spawn_command(cmd).expect("spawn shell");
+        let reader = pair.master.try_clone_reader().expect("reader");
+        let mut writer = pair.master.take_writer().expect("writer");
+        writer
+            .write_all(CONPTY_DSR_REPLY)
+            .and_then(|_| writer.flush())
+            .expect("DSR reply");
+        // `\r` submits the line in both cmd and PowerShell.
+        writer
+            .write_all(b"echo monocode-pty-probe-42\r")
+            .and_then(|_| writer.flush())
+            .expect("write echo");
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut reader = reader;
+            let mut buf = vec![0u8; 4096];
+            let mut acc = Vec::new();
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        acc.extend_from_slice(&buf[..n]);
+                        if tx.send(acc.clone()).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let mut output = String::new();
+        let mut found = false;
+        while Instant::now() < deadline {
+            match rx.recv_timeout(Duration::from_millis(500)) {
+                Ok(chunk) => {
+                    output = String::from_utf8_lossy(&chunk).into_owned();
+                    if output.contains("monocode-pty-probe-42") {
+                        found = true;
+                        break;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        child.kill().ok();
+        assert!(
+            found,
+            "no echo marker in PTY output (shell: {shell}): {}",
+            output.chars().take(500).collect::<String>()
+        );
+    }
 }
 
 #[cfg(unix)]
@@ -341,7 +718,8 @@ fn spawn_unix(
     Ok(())
 }
 
-#[cfg(unix)]
+/// Home fallback for a missing project dir. Identical on every platform —
+/// only the callers are cfg-gated.
 fn working_dir(cwd: &str) -> std::path::PathBuf {
     let path = expand_home(cwd);
     if path.is_dir() {
@@ -545,7 +923,6 @@ fn os_err(ctx: &str) -> String {
     format!("{ctx}: {}", std::io::Error::last_os_error())
 }
 
-#[cfg(unix)]
 fn emit_pty_data(app: &AppHandle, id: &str, bytes: &[u8]) {
     if bytes.is_empty() {
         return;
@@ -560,7 +937,6 @@ fn emit_pty_data(app: &AppHandle, id: &str, bytes: &[u8]) {
     );
 }
 
-#[cfg(unix)]
 fn pty_should_flush(buffered: usize, since: Duration) -> bool {
     buffered >= READ_CHUNK || since >= PTY_COALESCE
 }
