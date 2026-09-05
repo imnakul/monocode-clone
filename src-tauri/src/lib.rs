@@ -13,6 +13,7 @@ mod project_logo;
 mod pty;
 mod rate_limits;
 mod search;
+mod session_import;
 mod session_store;
 mod skills;
 mod window;
@@ -267,6 +268,8 @@ pub fn run() {
             session_store::session_take_in_flight,
             session_store::workspace_set_snapshot,
             session_store::workspace_get_snapshot,
+            session_import::scan_external_sessions,
+            session_import::read_external_transcript,
             notes::notes_list,
             notes::notes_get,
             notes::notes_upsert,

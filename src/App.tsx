@@ -181,6 +181,7 @@ import {
   normalizeProjectPath,
   rememberProject,
   sameProjectPath,
+  type RecentProject,
 } from "./lib/recents";
 import {
   applyDeletedSessionToWorkspace,
@@ -1256,6 +1257,35 @@ export default function App({
       sessionDefaults?.runtimeMode,
       projectCwd,
     ],
+  );
+
+  const onImportSessions = useCallback(
+    (imported: Session[]) => {
+      if (imported.length === 0) return;
+      // Register every project imported into: sessions for an existing
+      // MonoCode project land there, otherwise remembering the directory
+      // creates the project entry. Mirrors the inbox-start flow afterwards.
+      const cwds = [
+        ...new Set(
+          imported.map((session) => normalizeProjectPath(session.cwd)),
+        ),
+      ];
+      let recents: RecentProject[] | undefined;
+      for (const cwd of cwds) {
+        if (cwd === "~") continue;
+        recents = rememberProject(cwd);
+      }
+      if (recents) setRecents(recents);
+      setSettingsOpen(false);
+      setSidebarTab("sessions");
+      setSessions((prev) => [...prev, ...imported]);
+      const last = imported[imported.length - 1];
+      const tab = newTab(last.id);
+      appendTab(tab, last.cwd);
+      setActiveTabId(tab.id);
+      setComposerFocused(true);
+    },
+    [appendTab],
   );
 
   const onAddNoteToChat = useCallback(
@@ -4270,6 +4300,7 @@ export default function App({
               onRemoveProject(path, { purgeData: true })
             }
             onOpenWhatsNew={onOpenWhatsNew}
+            onImportSessions={onImportSessions}
           />
         ) : null}
         {searchViewOpen || inboxViewOpen || notesViewOpen || settingsOpen ? null : (
