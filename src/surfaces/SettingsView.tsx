@@ -720,12 +720,12 @@ function UpdateRow({
         </SecondaryButton>
         <SecondaryButton onClick={() => void onClick()} disabled={busy}>
           {busy ? (
-          <Loader className="size-3.5 animate-spin" aria-hidden />
-        ) : hasUpdate ? (
-          <ArrowDownCircle className="size-3.5 text-accent" aria-hidden />
-        ) : (
-          <RefreshCw className="size-3.5" strokeWidth={1.75} aria-hidden />
-        )}
+            <Loader className="size-3.5 animate-spin" aria-hidden />
+          ) : hasUpdate ? (
+            <ArrowDownCircle className="size-3.5 text-accent" aria-hidden />
+          ) : (
+            <RefreshCw className="size-3.5" strokeWidth={1.75} aria-hidden />
+          )}
           {hasUpdate ? "Download" : "Check for updates"}
         </SecondaryButton>
       </div>
@@ -1055,7 +1055,9 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         <Slider
           label="Window surface opacity"
           value={percent}
-          display={IS_WINDOWS && appearance.wallpaperPath ? "Off" : `${percent}%`}
+          display={
+            IS_WINDOWS && appearance.wallpaperPath ? "Off" : `${percent}%`
+          }
           min={Math.round(SIDEBAR_OPACITY_MIN * 100)}
           max={Math.round(SIDEBAR_OPACITY_MAX * 100)}
           disabled={IS_WINDOWS && Boolean(appearance.wallpaperPath)}
@@ -1345,7 +1347,9 @@ function ProviderRow({
   };
 
   const handlePickBinary = async () => {
-    const file = await pickFile(`Choose ${HARNESS_TITLE[harness]} binary executable`);
+    const file = await pickFile(
+      `Choose ${HARNESS_TITLE[harness]} binary executable`,
+    );
     if (file) {
       setCustomBinary(harness, file);
       setCustomBinaryPath(file);

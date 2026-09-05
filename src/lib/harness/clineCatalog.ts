@@ -28,7 +28,10 @@ export function refreshClineCatalog(): Promise<void> {
       if (models.length > 0) setHarnessModels("cline", models);
     })
     .catch((error: unknown) => {
-      console.debug("[monocode] cline catalog", error);
+      console.warn(
+        "[monocode] cline catalog failed after successful probe:",
+        error instanceof Error ? error.message : String(error),
+      );
     })
     .finally(() => {
       inflight = null;
@@ -37,10 +40,7 @@ export function refreshClineCatalog(): Promise<void> {
 }
 
 async function discoverClineModels(): Promise<AgentModel[]> {
-  return discoverViaAcp().catch((error: unknown) => {
-    console.debug("[monocode] cline ACP catalog failed", error);
-    return [];
-  });
+  return discoverViaAcp();
 }
 
 async function discoverViaAcp(): Promise<AgentModel[]> {
@@ -58,33 +58,37 @@ async function discoverViaAcp(): Promise<AgentModel[]> {
     await killChild(PROBE_ID).catch(() => undefined);
   };
 
-  watchChild(
-    PROBE_ID,
-    (line) => acp.pushLine(line),
-    () => acp.close(new Error("Cline probe exited")),
-  );
-
   try {
+    watchChild(
+      PROBE_ID,
+      (line) => acp.pushLine(line),
+      (code) =>
+        acp.close(new Error(`Cline probe exited (code ${code ?? "unknown"})`)),
+    );
     await spawnChild(PROBE_ID, path, ["--acp"], cwd);
-    return await withTimeout(DISCOVERY_TIMEOUT_MS, async () => {
-      await acp.request(
-        "initialize",
-        {
-          protocolVersion: 1,
-          clientCapabilities: CLINE_CLIENT_CAPABILITIES,
-          clientInfo: { name: "monocode", version: "0.1.0" },
-        },
-        REQUEST_TIMEOUT_MS,
-      );
-      const created = await acp.request<unknown>(
-        "session/new",
-        { cwd, mcpServers: [] },
-        REQUEST_TIMEOUT_MS,
-      );
-      return modelsFromSessionNew(created).models;
-    }, () => {
-      void stop();
-    });
+    return await withTimeout(
+      DISCOVERY_TIMEOUT_MS,
+      async () => {
+        await acp.request(
+          "initialize",
+          {
+            protocolVersion: 1,
+            clientCapabilities: CLINE_CLIENT_CAPABILITIES,
+            clientInfo: { name: "monocode", version: "0.1.0" },
+          },
+          REQUEST_TIMEOUT_MS,
+        );
+        const created = await acp.request<unknown>(
+          "session/new",
+          { cwd, mcpServers: [] },
+          REQUEST_TIMEOUT_MS,
+        );
+        return modelsFromSessionNew(created).models;
+      },
+      () => {
+        void stop();
+      },
+    );
   } finally {
     await stop();
   }

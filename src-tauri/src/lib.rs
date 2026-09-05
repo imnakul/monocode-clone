@@ -48,7 +48,39 @@ pub(crate) fn dirs_home() -> Option<String> {
             return Some(home);
         }
     }
+    #[cfg(windows)]
+    if let Some(home) = windows_home_from_parts(
+        std::env::var_os("USERPROFILE"),
+        std::env::var_os("HOMEDRIVE"),
+        std::env::var_os("HOMEPATH"),
+    ) {
+        return Some(home);
+    }
     passwd_identity().map(|id| id.home)
+}
+
+#[cfg(windows)]
+fn windows_home_from_parts(
+    user_profile: Option<std::ffi::OsString>,
+    home_drive: Option<std::ffi::OsString>,
+    home_path: Option<std::ffi::OsString>,
+) -> Option<String> {
+    let non_empty = |value: Option<std::ffi::OsString>| {
+        value
+            .map(|value| value.to_string_lossy().into_owned())
+            .filter(|value| !value.trim().is_empty())
+    };
+    if let Some(profile) = non_empty(user_profile) {
+        return Some(profile);
+    }
+    let drive = non_empty(home_drive)?;
+    let path = non_empty(home_path)?;
+    let separator = if drive.ends_with(['\\', '/']) || path.starts_with(['\\', '/']) {
+        ""
+    } else {
+        "\\"
+    };
+    Some(format!("{drive}{separator}{path}"))
 }
 
 /// Finder-launched .app bundles often omit HOME/USER/SHELL. Fall back to the
@@ -91,6 +123,37 @@ pub(crate) fn passwd_identity() -> Option<PasswdIdentity> {
     #[cfg(not(unix))]
     {
         None
+    }
+}
+
+#[cfg(all(test, windows))]
+mod home_tests {
+    use std::ffi::OsString;
+
+    use super::windows_home_from_parts;
+
+    #[test]
+    fn windows_home_prefers_user_profile_when_home_is_missing() {
+        assert_eq!(
+            windows_home_from_parts(
+                Some(OsString::from(r"C:\Users\Nakul")),
+                Some(OsString::from("D:")),
+                Some(OsString::from(r"\Fallback")),
+            ),
+            Some(r"C:\Users\Nakul".into())
+        );
+    }
+
+    #[test]
+    fn windows_home_combines_drive_and_path_without_user_profile() {
+        assert_eq!(
+            windows_home_from_parts(
+                None,
+                Some(OsString::from("C:")),
+                Some(OsString::from(r"\Users\Nakul")),
+            ),
+            Some(r"C:\Users\Nakul".into())
+        );
     }
 }
 
