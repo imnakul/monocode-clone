@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { SelectMenu } from "../chrome/SelectMenu";
 import { Check } from "../chrome/icons";
 import { TerminalSpinner } from "../chrome/TerminalSpinner";
@@ -33,6 +33,15 @@ type Props = {
 type Step = "scan" | "workspaces" | "sessions" | "import";
 type ImportMode = "native" | "replay";
 
+/** Header toggle: one mode for every session, or per-session choice. */
+type BulkMode = "native" | "replay" | "custom";
+
+const BULK_OPTIONS: { value: BulkMode; label: string }[] = [
+  { value: "native", label: "Resume" },
+  { value: "replay", label: "Replay" },
+  { value: "custom", label: "Custom" },
+];
+
 type ItemResult = {
   id: string;
   title: string;
@@ -60,6 +69,7 @@ type PersistedSelection = {
   ids: string[];
   modes: Record<string, ImportMode>;
   replayHarness: HarnessId;
+  bulkMode: BulkMode;
 };
 
 function loadParams(): { sinceDays: string; limit: string } {
@@ -87,9 +97,15 @@ function loadParams(): { sinceDays: string; limit: string } {
 }
 
 function loadSelection(): PersistedSelection {
+  const fallback: PersistedSelection = {
+    ids: [],
+    modes: {},
+    replayHarness: "claude",
+    bulkMode: "custom",
+  };
   try {
     const raw = localStorage.getItem(SELECTION_KEY);
-    if (!raw) return { ids: [], modes: {}, replayHarness: "claude" };
+    if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Partial<PersistedSelection>;
     const ids = Array.isArray(parsed.ids)
       ? parsed.ids.filter((id): id is string => typeof id === "string")
@@ -105,9 +121,13 @@ function loadSelection(): PersistedSelection {
     )
       ? (parsed.replayHarness as HarnessId)
       : "claude";
-    return { ids, modes, replayHarness };
+    const bulkMode: BulkMode =
+      parsed.bulkMode === "native" || parsed.bulkMode === "replay"
+        ? parsed.bulkMode
+        : "custom";
+    return { ids, modes, replayHarness, bulkMode };
   } catch {
-    return { ids: [], modes: {}, replayHarness: "claude" };
+    return fallback;
   }
 }
 
@@ -145,6 +165,9 @@ export function MigrationView({ onImportSessions }: Props) {
   const [replayHarness, setReplayHarness] = useState<HarnessId>(
     () => loadSelection().replayHarness,
   );
+  const [bulkMode, setBulkMode] = useState<BulkMode>(
+    () => loadSelection().bulkMode,
+  );
   const [preflight, setPreflight] = useState<string[]>([]);
   const [showModeHelp, setShowModeHelp] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -179,12 +202,29 @@ export function MigrationView({ onImportSessions }: Props) {
     [sessions, selectedIds],
   );
 
+  /** Replay target matters only when something actually replays: always in
+   * Replay mode, in Custom only when a selected session replays, never in
+   * Resume mode. */
+  const showReplayHarness = useMemo(() => {
+    if (bulkMode === "replay") return true;
+    if (bulkMode !== "custom") return false;
+    return selectedSessions.some(
+      ({ info }) => effectiveMode(info, modes, bulkMode) === "replay",
+    );
+  }, [bulkMode, modes, selectedSessions]);
+
   const persistSelection = (
     ids: Set<string>,
     nextModes: Record<string, ImportMode>,
     harness: HarnessId,
+    bulk: BulkMode,
   ): void => {
-    saveSelection({ ids: [...ids], modes: nextModes, replayHarness: harness });
+    saveSelection({
+      ids: [...ids],
+      modes: nextModes,
+      replayHarness: harness,
+      bulkMode: bulk,
+    });
   };
 
   const runScan = async (): Promise<void> => {
@@ -234,7 +274,7 @@ export function MigrationView({ onImportSessions }: Props) {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      persistSelection(next, modes, replayHarness);
+      persistSelection(next, modes, replayHarness, bulkMode);
       return next;
     });
   };
@@ -242,9 +282,14 @@ export function MigrationView({ onImportSessions }: Props) {
   const setMode = (id: string, mode: ImportMode): void => {
     setModes((prev) => {
       const next = { ...prev, [id]: mode };
-      persistSelection(selectedIds, next, replayHarness);
+      persistSelection(selectedIds, next, replayHarness, bulkMode);
       return next;
     });
+  };
+
+  const setBulk = (bulk: BulkMode): void => {
+    setBulkMode(bulk);
+    persistSelection(selectedIds, modes, replayHarness, bulk);
   };
 
   const runPreflight = async (
@@ -340,7 +385,7 @@ export function MigrationView({ onImportSessions }: Props) {
       try {
         const session = await importOne(
           info,
-          effectiveMode(info, modes),
+          effectiveMode(info, modes, bulkMode),
           replayHarness,
         );
         created.push(session);
@@ -371,7 +416,7 @@ export function MigrationView({ onImportSessions }: Props) {
       const session = await importOne(info, "replay", replayHarness);
       setModes((prev) => {
         const next = { ...prev, [importKey(info)]: "replay" as ImportMode };
-        persistSelection(selectedIds, next, replayHarness);
+        persistSelection(selectedIds, next, replayHarness, bulkMode);
         return next;
       });
       setResults((prev) =>
@@ -540,44 +585,54 @@ export function MigrationView({ onImportSessions }: Props) {
             index={2}
             title="Sessions"
             hint={`${selectedSessions.length} selected`}
+            action={
+              <>
+                {showReplayHarness ? (
+                  <span className="flex items-center gap-2">
+                    <span className="text-[12px] text-content/50">
+                      Replay target harness:
+                    </span>
+                    <SelectMenu
+                      label="Replay target harness"
+                      value={replayHarness}
+                      onChange={(next) => {
+                        const harness = next as HarnessId;
+                        setReplayHarness(harness);
+                        persistSelection(selectedIds, modes, harness, bulkMode);
+                      }}
+                      options={HARNESSES.map((id) => ({
+                        value: id,
+                        label: HARNESS_TITLE[id],
+                      }))}
+                      className="w-44"
+                    />
+                  </span>
+                ) : null}
+                <Segmented<BulkMode>
+                  label="Import mode for all sessions"
+                  value={bulkMode}
+                  onChange={setBulk}
+                  options={BULK_OPTIONS}
+                />
+                <button
+                  type="button"
+                  aria-expanded={showModeHelp}
+                  aria-controls="migration-mode-help"
+                  aria-label="What is the difference between Resume and Replay?"
+                  title="What is the difference between Resume and Replay?"
+                  onClick={() => setShowModeHelp((visible) => !visible)}
+                  className="flex size-6 shrink-0 items-center justify-center rounded-full border border-content/20 text-content/60 transition-colors hover:border-content/40 hover:text-content"
+                >
+                  <span
+                    aria-hidden
+                    className="text-[12px] font-semibold italic leading-none"
+                  >
+                    i
+                  </span>
+                </button>
+              </>
+            }
           />
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <span className="flex flex-wrap items-center gap-2">
-              <span className="text-[12px] text-content/50">
-                Replay target harness:
-              </span>
-              <SelectMenu
-                label="Replay target harness"
-                value={replayHarness}
-                onChange={(next) => {
-                  const harness = next as HarnessId;
-                  setReplayHarness(harness);
-                  persistSelection(selectedIds, modes, harness);
-                }}
-                options={HARNESSES.map((id) => ({
-                  value: id,
-                  label: HARNESS_TITLE[id],
-                }))}
-                className="w-44"
-              />
-            </span>
-            <button
-              type="button"
-              aria-expanded={showModeHelp}
-              aria-controls="migration-mode-help"
-              aria-label="What is the difference between Resume and Replay?"
-              title="What is the difference between Resume and Replay?"
-              onClick={() => setShowModeHelp((visible) => !visible)}
-              className="flex size-6 shrink-0 items-center justify-center rounded-full border border-content/20 text-content/60 transition-colors hover:border-content/40 hover:text-content"
-            >
-              <span
-                aria-hidden
-                className="text-[12px] font-semibold italic leading-none"
-              >
-                i
-              </span>
-            </button>
-          </div>
           {/* Always mounted so open/close animates both ways via the
               shared zen-phase-body collapse (320ms ease-out-expo rows +
               220ms opacity fade). Spacing lives inside the clipped child so
@@ -611,7 +666,7 @@ export function MigrationView({ onImportSessions }: Props) {
               const on = selectedIds.has(key);
               const nativeHarness = nativeHarnessFor(info);
               const replayable = canReplay(info);
-              const mode = effectiveMode(info, modes);
+              const mode = effectiveMode(info, modes, bulkMode);
               const done = importedIds.has(key);
               return (
                 <div
@@ -661,7 +716,7 @@ export function MigrationView({ onImportSessions }: Props) {
                     </span>
                   </button>
                   <div className="flex shrink-0 items-center pl-7 sm:pl-0">
-                    {nativeHarness && replayable ? (
+                    {nativeHarness && replayable && bulkMode === "custom" ? (
                       <Segmented<ImportMode>
                         label={`Import mode for ${info.title}`}
                         value={mode}
@@ -673,7 +728,13 @@ export function MigrationView({ onImportSessions }: Props) {
                       />
                     ) : (
                       <span className="text-[12px] text-content/50">
-                        {nativeHarness ? "Resume only" : "Replay only"}
+                        {nativeHarness && replayable
+                          ? mode === "native"
+                            ? "Resume"
+                            : "Replay"
+                          : nativeHarness
+                            ? "Resume only"
+                            : "Replay only"}
                       </span>
                     )}
                   </div>
@@ -809,13 +870,15 @@ function sourceLabel(source: string): string {
 }
 
 /** Stored choice, clamped to what the source supports (Antigravity is
- * resume-only, ZCode replay-only). */
+ * resume-only, ZCode replay-only). A non-custom bulk choice acts as the
+ * stored mode for every row, still clamped the same way. */
 function effectiveMode(
   info: ExternalSessionInfo,
   modes: Record<string, ImportMode>,
+  bulk: BulkMode,
 ): ImportMode {
   if (!canReplay(info)) return "native";
-  const stored = modes[importKey(info)];
+  const stored = bulk === "custom" ? modes[importKey(info)] : bulk;
   if (stored === "replay") return "replay";
   if (stored === "native" && nativeHarnessFor(info)) return "native";
   return nativeHarnessFor(info) ? "native" : "replay";
@@ -825,19 +888,26 @@ function StepHeading({
   index,
   title,
   hint,
+  action,
 }: {
   index: number;
   title: string;
   hint: string;
+  action?: ReactNode;
 }) {
   return (
-    <div className="mt-4 flex items-baseline gap-2">
+    <div className="mt-4 flex flex-wrap items-baseline gap-2">
       <span className="text-[12px] font-medium tabular-nums text-content/40">
         {index}.
       </span>
       <h3 className="text-[13px] font-medium text-content">{title}</h3>
       {hint ? (
         <span className="text-[12px] text-content/45">{hint}</span>
+      ) : null}
+      {action ? (
+        <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {action}
+        </span>
       ) : null}
     </div>
   );
