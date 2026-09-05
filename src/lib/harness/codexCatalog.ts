@@ -145,7 +145,10 @@ export function parseCodexModelList(data: unknown[]): AgentModel[] {
 function parseModel(raw: unknown): AgentModel | null {
   const rec = asRecord(raw);
   if (!rec) return null;
-  if (rec.hidden === true) return null;
+  // Codex flags older but still served models as hidden. Like the T3
+  // reference, keep them visible and mark them legacy instead of dropping
+  // them from the picker.
+  const legacy = rec.hidden === true;
   const nativeId =
     stringField(rec, "model") ??
     stringField(rec, "slug") ??
@@ -160,7 +163,7 @@ function parseModel(raw: unknown): AgentModel | null {
   return {
     id: `codex:${nativeId}`,
     harness: "codex",
-    name,
+    name: legacy ? `${name} (legacy)` : name,
     nativeId,
     ...(settings.length > 0 ? { settings } : {}),
   };

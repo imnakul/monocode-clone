@@ -377,6 +377,20 @@ describe("parseCodexModelList", () => {
       luna?.settings?.find((s) => s.id === "reasoningEffort")?.value,
     ).toBe("medium");
   });
+
+  it("keeps hidden models visible with a legacy suffix", () => {
+    const models = parseCodexModelList([
+      { model: "gpt-5.6-sol", displayName: "GPT-5.6-Sol" },
+      { model: "gpt-5.2", displayName: "GPT-5.2", hidden: true },
+    ]);
+    expect(models.map((m) => m.nativeId)).toEqual([
+      "gpt-5.6-sol",
+      "gpt-5.2",
+    ]);
+    expect(
+      models.find((m) => m.nativeId === "gpt-5.2")?.name,
+    ).toBe("GPT-5.2 (legacy)");
+  });
 });
 
 describe("mapCodexNotification thread/tokenUsage/updated", () => {

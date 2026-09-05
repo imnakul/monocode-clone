@@ -48,18 +48,6 @@
             /Mac|iPhone|iPad/.test(navigator.platform);
           if (isMac) {
             root.classList.add("is-mac");
-          } else {
-            var defaults = {
-              "antigravity": "C:\\Users\\gclna\\AppData\\Local\\agy\\bin\\agy.EXE",
-              "codex": "C:\\Users\\gclna\\.codex\\.sandbox-bin\\codex.exe",
-              "claude": "C:\\Users\\gclna\\.local\\bin\\claude.exe",
-              "opencode": "C:\\Users\\gclna\\AppData\\Roaming\\npm\\opencode.cmd"
-            };
-            for (var k in defaults) {
-              if (!localStorage.getItem("monocode.customBinary." + k)) {
-                localStorage.setItem("monocode.customBinary." + k, defaults[k]);
-              }
-            }
           }
         } catch (_) {}
       })();
