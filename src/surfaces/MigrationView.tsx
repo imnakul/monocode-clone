@@ -613,6 +613,8 @@ export function MigrationView({ onImportSessions }: Props) {
                   value={bulkMode}
                   onChange={setBulk}
                   options={BULK_OPTIONS}
+                  className="w-60"
+                  hoverSlide
                 />
                 <button
                   type="button"

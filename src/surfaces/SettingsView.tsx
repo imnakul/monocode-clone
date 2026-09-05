@@ -150,6 +150,7 @@ import {
   pickImage,
 } from "../lib/fs";
 import { getCustomBinary, setCustomBinary } from "../lib/harness/customBinary";
+import { SharedHoverHighlight } from "../chrome/SharedHoverHighlight";
 import { IS_MAC, IS_WINDOWS } from "../lib/platform";
 import {
   loadArchivedProjects,
@@ -1743,25 +1744,33 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  className,
+  hoverSlide,
 }: {
   label: string;
   value: T;
   options: { value: T; label: string }[];
   onChange: (value: T) => void;
+  /** Container width override (default `w-40`, sized for two options). */
+  className?: string;
+  /** Sliding hover marker over the options (shared hover system). */
+  hoverSlide?: boolean;
 }) {
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className="grid w-40 gap-0.5 rounded-md border border-content/10 p-0.5 text-[12px]"
+      className={`relative grid w-40 gap-0.5 rounded-md border border-content/10 p-0.5 text-[12px] ${className ?? ""}`}
       style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
     >
+      {hoverSlide ? <SharedHoverHighlight /> : null}
       {options.map((option) => (
         <button
           key={option.value}
           type="button"
           role="radio"
           aria-checked={value === option.value}
+          data-shared-hover-item={hoverSlide ? "" : undefined}
           onClick={() => onChange(option.value)}
           className={`min-w-0 rounded-[5px] px-1.5 py-1 ${
             value === option.value
