@@ -36,11 +36,13 @@ export function SharedHoverHighlight({
       const rect = next.getBoundingClientRect();
       const first = marker.dataset.visible !== "true";
       if (first) marker.style.transition = "none";
-      marker.style.width = `${rect.width}px`;
-      marker.style.height = `${rect.height}px`;
-      marker.style.transform = `translate3d(${rect.left - rootRect.left + root.scrollLeft}px, ${
-        rect.top - rootRect.top + root.scrollTop
-      }px, 0)`;
+      // Snap to whole pixels: fractional translate/width blurs the marker's
+      // edges, which reads as a smaller box next to a crisp selected pill.
+      marker.style.width = `${Math.round(rect.width)}px`;
+      marker.style.height = `${Math.round(rect.height)}px`;
+      const x = Math.round(rect.left - rootRect.left + root.scrollLeft);
+      const y = Math.round(rect.top - rootRect.top + root.scrollTop);
+      marker.style.transform = `translate3d(${x}px, ${y}px, 0)`;
       marker.style.borderRadius = getComputedStyle(next).borderRadius;
       const danger = next.dataset.sharedHoverTone === "danger";
       marker.dataset.sharedHoverHighlightTone = danger ? "danger" : "default";
