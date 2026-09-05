@@ -614,7 +614,6 @@ export function MigrationView({ onImportSessions }: Props) {
                   onChange={setBulk}
                   options={BULK_OPTIONS}
                   className="w-60"
-                  hoverSlide
                 />
                 <button
                   type="button"
@@ -727,7 +726,6 @@ export function MigrationView({ onImportSessions }: Props) {
                           { value: "native", label: "Resume" },
                           { value: "replay", label: "Replay" },
                         ]}
-                        hoverSlide
                       />
                     ) : (
                       <span className="text-[12px] text-content/50">
