@@ -1,3 +1,4 @@
+import { ask } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Check,
@@ -17,6 +18,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -24,9 +26,18 @@ import {
 import { FileTypeIcon } from "./FileTypeIcon";
 import { DiffStat as DiffCounts } from "./DiffStat";
 import {
+  GitHistoryGraph,
+  GraphResizeSash,
+  GRAPH_PANEL_DEFAULT,
+  GRAPH_PANEL_MIN,
+  loadGraphPanelHeight,
+  saveGraphPanelHeight,
+} from "./GitHistoryGraph";
+import {
   basename,
   gitCommit,
   gitDiffIndex,
+  gitDiscardAll,
   gitDiscardFile,
   gitPrCreate,
   gitPrStatus,
@@ -40,6 +51,7 @@ import {
   subscribeGitChanged,
   type GitChangedFile,
   type GitDiffIndex,
+  type GitHistoryCommit,
   type GitPr,
 } from "../lib/fs";
 import type { HarnessId } from "../lib/session";
@@ -50,8 +62,18 @@ import { applyProjectDiffStats } from "../hooks/useProjectDiffStats";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 
 const GIT_POLL_MS = 2000;
+
+function confirmNative(message: string, okLabel?: string): Promise<boolean> {
+  return ask(message, {
+    title: "MonoCode",
+    kind: "warning",
+    ...(okLabel ? { okLabel } : {}),
+  });
+}
+
 let stagedOpen = true;
 let changesOpen = true;
+let graphOpen = true;
 const indexByCwd = new Map<string, GitDiffIndex>();
 const prByCwd = new Map<string, GitPr | null>();
 
@@ -60,7 +82,9 @@ type Props = {
   enabled: boolean;
   textHarness?: HarnessId;
   selectedPath?: string;
+  selectedSha?: string;
   onOpenFile: (path: string) => void;
+  onOpenCommit: (commit: GitHistoryCommit) => void;
 };
 
 export function GitChangesPanel({
@@ -68,10 +92,25 @@ export function GitChangesPanel({
   enabled,
   textHarness,
   selectedPath,
+  selectedSha,
   onOpenFile,
+  onOpenCommit,
 }: Props) {
   const { index, reload } = useDiffIndex(cwd, enabled);
   const files = index?.files ?? [];
+  const paneRef = useRef<HTMLDivElement>(null);
+  const [graphHeight, setGraphHeight] = useState(loadGraphPanelHeight);
+  const [graphExpanded, setGraphExpanded] = useState(graphOpen);
+
+  useLayoutEffect(() => {
+    const pane = paneRef.current;
+    if (!pane || pane.clientHeight < GRAPH_PANEL_MIN + 160) return;
+    const max = pane.clientHeight - 160;
+    if (graphHeight > max) {
+      setGraphHeight(max);
+      saveGraphPanelHeight(max);
+    }
+  }, [graphHeight]);
 
   if (!cwd || cwd === "~") {
     return (
@@ -80,7 +119,10 @@ export function GitChangesPanel({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+    <div
+      ref={paneRef}
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+    >
       <header className="flex h-9 shrink-0 items-center gap-2 border-b border-content/10 px-3">
         {(index?.additions ?? 0) > 0 || (index?.deletions ?? 0) > 0 ? (
           <DiffCounts
@@ -116,6 +158,7 @@ export function GitChangesPanel({
         files={files}
         selected={selectedPath}
         enabled={enabled}
+        fill
         onOpenFile={onOpenFile}
         onMutated={(paths) => {
           reload();
@@ -124,6 +167,42 @@ export function GitChangesPanel({
           window.setTimeout(() => invalidateWatchedFiles(paths), 150);
         }}
       />
+      {graphExpanded ? (
+      <GraphResizeSash
+        height={graphHeight}
+        onHeightPaint={setGraphHeight}
+        onHeightCommit={(next) => {
+          setGraphHeight(next);
+          saveGraphPanelHeight(next);
+        }}
+        maxHeight={() => {
+          const pane = paneRef.current;
+          if (!pane) return GRAPH_PANEL_DEFAULT * 2;
+          return Math.max(
+            GRAPH_PANEL_MIN,
+            pane.clientHeight - 160,
+          );
+        }}
+      />
+      ) : null}
+      <div
+        className={`shrink-0 overflow-hidden border-t border-content/10 ${
+          graphExpanded ? "min-h-0" : "h-7"
+        }`}
+        style={graphExpanded ? { height: graphHeight } : undefined}
+      >
+        <GitHistoryGraph
+          cwd={cwd}
+          enabled={enabled}
+          expanded={graphExpanded}
+          selectedSha={selectedSha}
+          onToggleExpanded={() => {
+            graphOpen = !graphExpanded;
+            setGraphExpanded(graphOpen);
+          }}
+          onOpenCommit={onOpenCommit}
+        />
+      </div>
     </div>
   );
 }
@@ -135,6 +214,7 @@ function ChangedFiles({
   files,
   selected,
   enabled,
+  fill,
   onOpenFile,
   onMutated,
 }: {
@@ -144,6 +224,7 @@ function ChangedFiles({
   files: GitChangedFile[];
   selected?: string;
   enabled: boolean;
+  fill: boolean;
   onOpenFile: (path: string) => void;
   onMutated: (paths?: string[]) => void;
 }) {
@@ -206,10 +287,10 @@ function ChangedFiles({
     window.alert(error instanceof Error ? error.message : String(error));
   };
 
-  const confirmDefault = (kind: "push" | "pr") => {
+  const confirmDefault = async (kind: "push" | "pr") => {
     if (!onDefault || !index?.branch) return true;
     const branch = index.branch;
-    return window.confirm(
+    return confirmNative(
       kind === "pr"
         ? `Create a pull request from default branch "${branch}"?`
         : `Push to default branch "${branch}"?`,
@@ -223,10 +304,12 @@ function ChangedFiles({
     if (busy) return;
     if (action === "discard") {
       const name = basename(file.relative);
-      const ok = window.confirm(
-        file.status === "untracked"
+      const untracked = file.status === "untracked";
+      const ok = await confirmNative(
+        untracked
           ? `Delete untracked file ${name}?`
           : `Discard changes in ${name}? This cannot be undone.`,
+        untracked ? "Delete" : "Discard",
       );
       if (!ok) return;
     }
@@ -243,13 +326,31 @@ function ChangedFiles({
     }
   };
 
-  const runAll = async (action: "stage" | "unstage") => {
+  const runAll = async (action: "stage" | "unstage" | "discard") => {
     if (busy) return;
+    if (action === "discard") {
+      const n = unstaged.length;
+      if (n === 0) return;
+      const only = unstaged[0];
+      const untrackedOnly = n === 1 && only?.status === "untracked";
+      const ok = await confirmNative(
+        untrackedOnly
+          ? `Delete untracked file ${basename(only.relative)}?`
+          : n === 1 && only
+            ? `Discard changes in ${basename(only.relative)}? This cannot be undone.`
+            : `Discard all unstaged changes in ${n} files? This cannot be undone.`,
+        untrackedOnly ? "Delete" : "Discard",
+      );
+      if (!ok) return;
+    }
     setBusy(action);
     try {
       if (action === "stage") await gitStageAll(cwd);
-      else await gitUnstageAll(cwd);
-      onMutated();
+      else if (action === "unstage") await gitUnstageAll(cwd);
+      else await gitDiscardAll(cwd);
+      onMutated(
+        action === "discard" ? unstaged.map((file) => file.path) : undefined,
+      );
     } catch (error) {
       fail(error);
     } finally {
@@ -271,7 +372,12 @@ function ChangedFiles({
 
   const commit = async (push: boolean, createPr = false) => {
     if (!canCommit) return;
-    if ((push || createPr) && !confirmDefault(createPr ? "pr" : "push")) return;
+    if (
+      (push || createPr) &&
+      !(await confirmDefault(createPr ? "pr" : "push"))
+    ) {
+      return;
+    }
     setBusy(createPr ? "pr" : "commit");
     setMenuOpen(false);
     try {
@@ -293,8 +399,6 @@ function ChangedFiles({
 
   const sync = async () => {
     if (!index || !(canSync || canPublish)) return;
-    const willPush = !index.upstream || index.ahead > 0;
-    if (willPush && !confirmDefault("push")) return;
     setBusy("sync");
     try {
       await gitSync(cwd);
@@ -323,7 +427,7 @@ function ChangedFiles({
 
   const createPr = async () => {
     if (!canCreatePr) return;
-    if (!confirmDefault("pr")) return;
+    if (!(await confirmDefault("pr"))) return;
     setBusy("pr");
     try {
       if ((index?.ahead ?? 0) > 0) await gitPush(cwd);
@@ -339,7 +443,9 @@ function ChangedFiles({
   };
 
   return (
-    <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <aside
+      className={`flex min-h-0 min-w-0 flex-col ${fill ? "flex-1" : "shrink-0"}`}
+    >
       <div className="shrink-0 border-b border-content/10 p-2">
         <div className="relative">
           <textarea
@@ -461,11 +567,13 @@ function ChangedFiles({
                   stagedOpen = !stagedExpanded;
                   setStagedExpanded(stagedOpen);
                 }}
-                headerAction={{
-                  title: "Unstage All Changes",
-                  icon: <Minus className="size-3.5" strokeWidth={1.75} />,
-                  onClick: () => void runAll("unstage"),
-                }}
+                headerActions={[
+                  {
+                    title: "Unstage All Changes",
+                    icon: <Minus className="size-3.5" strokeWidth={1.75} />,
+                    onClick: () => void runAll("unstage"),
+                  },
+                ]}
               >
                 {staged.map((file) => (
                   <ChangeRow
@@ -489,11 +597,18 @@ function ChangedFiles({
                   changesOpen = !changesExpanded;
                   setChangesExpanded(changesOpen);
                 }}
-                headerAction={{
-                  title: "Stage All Changes",
-                  icon: <Plus className="size-3.5" strokeWidth={1.75} />,
-                  onClick: () => void runAll("stage"),
-                }}
+                headerActions={[
+                  {
+                    title: "Discard All Changes",
+                    icon: <Undo2 className="size-3.5" strokeWidth={1.75} />,
+                    onClick: () => void runAll("discard"),
+                  },
+                  {
+                    title: "Stage All Changes",
+                    icon: <Plus className="size-3.5" strokeWidth={1.75} />,
+                    onClick: () => void runAll("stage"),
+                  },
+                ]}
               >
                 {unstaged.map((file) => (
                   <ChangeRow
@@ -723,14 +838,14 @@ function FileSection({
   count,
   open,
   onToggle,
-  headerAction,
+  headerActions,
   children,
 }: {
   title: string;
   count: number;
   open: boolean;
   onToggle: () => void;
-  headerAction: { title: string; icon: ReactNode; onClick: () => void };
+  headerActions: { title: string; icon: ReactNode; onClick: () => void }[];
   children: ReactNode;
 }) {
   return (
@@ -759,10 +874,16 @@ function FileSection({
             {count}
           </span>
         </button>
-        <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
-          <IconAction title={headerAction.title} onClick={headerAction.onClick}>
-            {headerAction.icon}
-          </IconAction>
+        <div className="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+          {headerActions.map((action) => (
+            <IconAction
+              key={action.title}
+              title={action.title}
+              onClick={action.onClick}
+            >
+              {action.icon}
+            </IconAction>
+          ))}
         </div>
       </div>
       {open ? <ul>{children}</ul> : null}

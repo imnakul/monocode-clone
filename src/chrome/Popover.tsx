@@ -43,7 +43,7 @@ type Props = Omit<ComponentPropsWithoutRef<"div">, "style"> & {
   maxHeight?: number;
   /** Defaults to `LAYER.popover`; a flyout off an open popover wants higher. */
   layer?: number;
-  /** Drops the glass surface and keeps only placement and the open animation. */
+  /** Drops the glass frame and keeps only placement and the content animation. */
   bare?: boolean;
   style?: CSSProperties;
   autoFocus?: boolean;
@@ -55,8 +55,10 @@ type Props = Omit<ComponentPropsWithoutRef<"div">, "style"> & {
   ref?: Ref<HTMLDivElement>;
 };
 
-const SURFACE =
-  "popover-surface rounded-xl border border-content/10 shadow-xl outline-none";
+const FRAME =
+  "isolate overflow-hidden rounded-xl border border-content/10 shadow-xl";
+const BACKDROP =
+  "pointer-events-none absolute inset-0 z-0 bg-content/10 backdrop-blur-xl [backface-visibility:hidden] [transform:translateZ(0)]";
 
 /** Which corner the open animation grows from, so it reads as anchored. */
 function origin(side: PopoverSide, align: PopoverAlign): string {
@@ -146,6 +148,7 @@ export function Popover({
   children,
   ...rest
 }: Props) {
+  const frame = useRef<HTMLDivElement | null>(null);
   const surface = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState<PopoverPosition | null>(null);
   const anchorRef = useRef(anchor);
@@ -155,7 +158,7 @@ export function Popover({
   const key = anchorKey(anchor);
 
   const place = useCallback(() => {
-    const el = surface.current;
+    const el = frame.current;
     const rect = anchorRect(anchorRef.current);
     if (!el || !rect) return;
     const next = placePopover(
@@ -175,7 +178,7 @@ export function Popover({
     // the surface, and a top-anchored menu has to be measured again to sit
     // above its trigger rather than drift over it.
     const observer = new ResizeObserver(place);
-    if (surface.current) observer.observe(surface.current);
+    if (frame.current) observer.observe(frame.current);
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
     return () => {
@@ -194,7 +197,7 @@ export function Popover({
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
-      if (surface.current?.contains(target)) return;
+      if (frame.current?.contains(target)) return;
       if (anchorElement(anchorRef.current)?.contains(target)) return;
       const el =
         target instanceof Element ? target : (target.parentElement ?? null);
@@ -225,7 +228,6 @@ export function Popover({
         bottom: position.bottom,
         width: position.width,
         maxHeight: position.maxHeight,
-        transformOrigin: origin(position.side, align),
       }
     : {
         position: "fixed",
@@ -236,20 +238,42 @@ export function Popover({
         visibility: "hidden",
       };
 
+  // Keep the backdrop-filter on a stable frame. WebKit can briefly paint a
+  // stale backdrop when the same composited element is transformed and then
+  // invalidated by a child hover. Only this unblurred content layer moves.
+  const frameInset = bare ? 0 : 2;
+  const contentMaxHeight = position
+    ? Math.max(0, position.maxHeight - frameInset)
+    : maxHeight != null
+      ? Math.max(0, maxHeight - frameInset)
+      : `calc(100vh - ${16 + frameInset}px)`;
+
   return createPortal(
     <div
-      {...rest}
-      ref={(el) => {
-        surface.current = el;
-        if (typeof ref === "function") ref(el);
-        else if (ref) ref.current = el;
-      }}
+      ref={frame}
       data-popover-side={position?.side ?? side}
-      style={{ ...placed, zIndex: layer, ...style }}
-      className={`${position ? "popover-open " : ""}${bare ? "" : `${SURFACE} `}${className ?? ""}`}
+      style={{ ...placed, zIndex: layer }}
+      className={bare ? undefined : FRAME}
     >
-      <SharedHoverHighlight />
-      {children}
+      {bare ? null : <div aria-hidden="true" className={BACKDROP} />}
+      <div
+        {...rest}
+        ref={(el) => {
+          surface.current = el;
+          if (typeof ref === "function") ref(el);
+          else if (ref) ref.current = el;
+        }}
+        data-popover-side={position?.side ?? side}
+        style={{
+          maxHeight: contentMaxHeight,
+          transformOrigin: origin(position?.side ?? side, align),
+          ...style,
+        }}
+        className={`${position ? "popover-open " : ""}popover-surface relative z-[1] outline-none ${className ?? ""}`}
+      >
+        <SharedHoverHighlight />
+        {children}
+      </div>
     </div>,
     document.body,
   );

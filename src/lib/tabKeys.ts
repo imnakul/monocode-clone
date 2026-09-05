@@ -1,6 +1,7 @@
 /**
  * Workspace keybindings:
  *   New tab             cmd-t
+ *   Close other tabs    cmd-opt-t
  *   Close tab           cmd-w
  *   Split pane right    cmd-d
  *   Split pane down     shift-cmd-d
@@ -16,6 +17,10 @@
  *   New terminal        cmd-`
  *   New terminal tab    shift-cmd-`
  *   Toggle terminal     cmd-j
+ *   Previous session    shift-cmd-up
+ *   Next session        shift-cmd-down
+ *   Previous project    shift-cmd-left
+ *   Next project        shift-cmd-right
  *   Stop focused turn   escape
  */
 
@@ -23,6 +28,7 @@ import type { FocusDir } from "./layout";
 
 export type TabCommand =
   | "new"
+  | "close-others"
   | "close"
   | "next"
   | "prev"
@@ -33,6 +39,10 @@ export type TabCommand =
   | "new-terminal"
   | "new-terminal-tab"
   | "toggle-terminal"
+  | "prev-session"
+  | "next-session"
+  | "prev-project"
+  | "next-project"
   | { activate: number }
   | { focus: FocusDir };
 
@@ -42,6 +52,7 @@ export function tabCommand(e: KeyboardEvent): TabCommand | null {
   const mod = e.metaKey || e.ctrlKey;
 
   if (mod && e.altKey && !e.shiftKey) {
+    if (e.key.toLowerCase() === "t") return "close-others";
     if (e.key === "ArrowLeft") return { focus: "left" };
     if (e.key === "ArrowRight") return { focus: "right" };
     if (e.key === "ArrowUp") return { focus: "up" };
@@ -64,6 +75,10 @@ export function tabCommand(e: KeyboardEvent): TabCommand | null {
   if (e.shiftKey) {
     if (e.key === "]" || e.key === "}") return "next";
     if (e.key === "[" || e.key === "{") return "prev";
+    if (e.key === "ArrowUp") return "prev-session";
+    if (e.key === "ArrowDown") return "next-session";
+    if (e.key === "ArrowLeft") return "prev-project";
+    if (e.key === "ArrowRight") return "next-project";
     if (key === "d") return "split-down";
     return null;
   }
@@ -77,6 +92,28 @@ export function tabCommand(e: KeyboardEvent): TabCommand | null {
   if (key >= "1" && key <= "8") return { activate: Number(key) - 1 };
   if (key === "9") return { activate: -1 };
   return null;
+}
+
+export function adjacentItemId(
+  ids: readonly string[],
+  current: string | null,
+  delta: number,
+): string | null {
+  if (ids.length === 0) return null;
+  const index = current ? ids.indexOf(current) : -1;
+  if (index < 0) return delta < 0 ? ids[ids.length - 1] : ids[0];
+  const next = (index + (delta < 0 ? -1 : 1) + ids.length) % ids.length;
+  return ids[next] ?? null;
+}
+
+export function shouldHandleListNavigation(input: {
+  blockedTarget: boolean;
+  emptyComposerTarget: boolean;
+  surfaceOpen: boolean;
+}): boolean {
+  return (
+    !input.surfaceOpen && (!input.blockedTarget || input.emptyComposerTarget)
+  );
 }
 
 type EscapeKeyEvent = Pick<
