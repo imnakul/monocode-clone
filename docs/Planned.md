@@ -116,14 +116,32 @@ A "Scratch" root directory (e.g. `~/.monocode/scratch/<id>/`) as the cwd for pro
 chats; resume already works off provider session ids, so continuity is mostly a UI concern
 (list scratch threads alongside project threads).
 
-### 7. Scheduled tasks (medium)
+### 7. Branch / fork a thread (ChatGPT/Codex-style clone)
+
+"Branch" on any message (or the thread menu): clone the conversation up to that point into a
+new thread; the original stays untouched. Two levels:
+
+- **UI-level fork (do first, works everywhere):** the new thread copies the transcript up to
+  the chosen message and starts a **fresh native session** whose first prompt carries a
+  compacted transcript ("conversation so far — continue from here"). No protocol needed, every
+  provider works; this is the handoff mechanic, and UltraContext later becomes the
+  high-fidelity version of the same bundle.
+- **Native fork (later, where supported):** clone server-side history where a provider allows
+  it. Never let two branches *share* one native session — a fork must copy, or the branches'
+  turns interleave into one history.
+
+Pairs well with the rest: a branch optionally carries queued messages; on the kanban a branch
+is naturally a "try another approach" card; Hari can fan one task out to N branches and keep
+the winner.
+
+### 8. Scheduled tasks (medium)
 
 In-app scheduler (the app is already long-running): a task = cron/human schedule + prompt +
 project/thread. Runs create real threads so results appear in the kanban, not in a log.
 Hooks (pre/post turn, on-question, on-error) fall out of the same engine — and `Needs Input`
 can be one of the hook targets.
 
-### 8. Hari, phase 0 — kanban without AI (medium, and worth doing early)
+### 9. Hari, phase 0 — kanban without AI (medium, and worth doing early)
 
 The kanban does **not** need Hari's brain to be useful on day one:
 - `Needs Input` can be fed mechanically from events that already exist: `question.asked`,
@@ -133,7 +151,7 @@ The kanban does **not** need Hari's brain to be useful on day one:
 - Only *routing* (which thread next, spawn or continue, which provider) needs the model —
   and by then, the queue, usage meter, and review bridge give Hari cheap tools to work with.
 
-### 9. Later / big: codebase graph, UltraContext, full Hari
+### 10. Later / big: codebase graph, UltraContext, full Hari
 
 - **Code graph**: tree-sitter/ctags-style index built by the harness; expose "relevant files"
   to any provider as attachable context. Pairs with UltraContext (pack a thread's brain into a
