@@ -217,7 +217,7 @@ export const HARNESS_LABEL: Record<HarnessId, string> = {
   pi: "pi",
   omp: "omp",
   fx: "fx",
-  antigravity: "agy",
+  antigravity: "antigravity",
   cline: "cline",
 };
 
@@ -230,7 +230,7 @@ export const HARNESS_TITLE: Record<HarnessId, string> = {
   pi: "Pi",
   omp: "omp",
   fx: "fx",
-  antigravity: "Antigravity CLI (agy)",
+  antigravity: "Antigravity ACP",
   cline: "Cline",
 };
 
