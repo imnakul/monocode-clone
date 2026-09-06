@@ -118,9 +118,14 @@ export async function sendAntigravityTurn(input: SendTurnInput): Promise<void> {
   if (!live?.nativeId) {
     live = await getOrCreateLive(input, epoch);
     if (turnCancelled(input.sessionId, epoch)) {
-      // This turn was cancelled while its startup ran. The session it started
-      // may already belong to a newer turn - only dispose what we own.
-      if (sessions.get(input.sessionId) === live && live.turnEpoch === epoch) {
+      // A newer turn may be awaiting this same startup without having resumed
+      // far enough to update live.turnEpoch yet. Keep its session registered
+      // and attached; only the latest submitted turn may dispose the startup.
+      if (
+        sessions.get(input.sessionId) === live &&
+        live.turnEpoch === epoch &&
+        turnEpochs.get(input.sessionId) === epoch
+      ) {
         await stopAntigravitySession(input.sessionId);
       }
       throw new Error(ANTIGRAVITY_TURN_CANCELLED);

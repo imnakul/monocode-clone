@@ -218,18 +218,48 @@ describe("official Antigravity ACP child boundary", (): void => {
   // session id - never into a half-ready session.
   it("delivers a message sent during a cancelled startup exactly once", async (): Promise<void> => {
     const first = agy.sendAntigravityTurn(input);
+    const cancelled = expect(first).rejects.toThrow(/cancelled/i);
     await request("initialize");
     await agy.cancelAntigravityTurn(input.sessionId);
     const second = agy.sendAntigravityTurn({ ...input, text: "Try again" });
     await hostHandshake();
     const session = await request("session/new");
     reply(session.id, { sessionId: "S1", configOptions });
-    await expect(first).rejects.toThrow(/cancelled/i);
+    await cancelled;
     const prompt = await request("session/prompt");
     expect(prompt.params).toEqual({ sessionId: "S1", prompt: [{ type: "text", text: "Try again" }] });
     expect(boundary.writes.filter((m) => m.method === "session/prompt")).toHaveLength(1);
     reply(prompt.id, { stopReason: "end_turn" });
     await second;
+  });
+
+  // A cancelled startup must not detach the session a waiting retry will use.
+  // Hold session/new (not initialize) to exercise the handover boundary.
+  it("preserves retry streaming and approvals when Stop interrupts session creation", async (): Promise<void> => {
+    const first = agy.sendAntigravityTurn(input);
+    const cancelled = expect(first).rejects.toThrow(/cancelled/i);
+    await hostHandshake();
+    const session = await request("session/new");
+    await agy.cancelAntigravityTurn(input.sessionId);
+    const second = agy.sendAntigravityTurn({ ...input, text: "Try again" });
+    reply(session.id, { sessionId: "S1", configOptions });
+    await cancelled;
+    const prompt = await request("session/prompt");
+    expect(prompt.params).toEqual({ sessionId: "S1", prompt: [{ type: "text", text: "Try again" }] });
+    boundary.stdout(JSON.stringify({ method: "session/update", params: { sessionId: "S1", update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Retry reasoning" } } } }));
+    boundary.stdout(JSON.stringify({ id: "retry-approval", method: "session/request_permission", params: { sessionId: "S1", toolCall: { toolCallId: "retry-command", title: "Run retry?", kind: "execute" }, options: [{ optionId: "retry-allow", kind: "allow_once", name: "Allow" }] } }));
+    // Settle the native request even if a later routing assertion fails.
+    reply(prompt.id, { stopReason: "end_turn" });
+    await second;
+    expect(events).toContainEqual({ type: "reasoning.delta", text: "Retry reasoning" });
+    const approval = events.find((event) => event.type === "approval.requested");
+    if (approval?.type !== "approval.requested") throw new Error("Missing retry approval");
+    agy.respondAntigravityApproval(input.sessionId, approval.requestId, "allow");
+    await vi.waitFor((): void => {
+      expect(boundary.writes).toContainEqual({ jsonrpc: "2.0", id: "retry-approval", result: { outcome: { outcome: "selected", optionId: "retry-allow" } } });
+    });
+    expect(boundary.writes.filter((message) => message.method === "session/prompt")).toHaveLength(1);
+    expect(boundary.writes.filter((message) => message.method === "session/new")).toHaveLength(1);
   });
 
   // Regression (review #2): deleting a chat mid-prompt must bound the agent —
