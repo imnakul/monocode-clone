@@ -22,7 +22,8 @@ const CLI: Record<HarnessId, { name: string; install?: string }> = {
   omp: { name: "omp CLI", install: "curl -fsSL https://omp.sh/install | sh" },
   fx: { name: "fx CLI", install: "curl -fsSL https://fx.sh/setup.sh | bash" },
   antigravity: {
-    name: "Antigravity ACP runtime",
+    name: "Antigravity CLI (agy)",
+    install: "curl -fsSL https://antigravity.google/install.sh | bash",
   },
   cline: {
     name: "Cline CLI",
@@ -45,7 +46,6 @@ let availability: HarnessAvailability = {
 let version = 0;
 let inflight: Promise<void> | null = null;
 let probedAt = 0;
-let antigravityProbeError: string | null = null;
 const listeners = new Set<() => void>();
 
 /**
@@ -81,9 +81,6 @@ export function isHarnessAvailable(id: HarnessId): boolean {
 }
 
 export function harnessUnavailableHint(id: HarnessId): string {
-  if (id === "antigravity") {
-    return antigravityProbeError ?? "Antigravity ACP runtime not found. Download the official ACP executable and matching helper, then choose the ACP binary in Providers.";
-  }
   const { name, install } = CLI[id];
   const how = install ? ` (\`${install}\`)` : "";
   return `${name} not found${how}. Install it, or restart MonoCode if it is already installed.`;
@@ -101,12 +98,8 @@ export function probeHarnessAvailability(
       if (!isLiveHarness(id)) return [id, false] as const;
       try {
         await probeHarnessBinary(id);
-        if (id === "antigravity") antigravityProbeError = null;
         return [id, true] as const;
-      } catch (error: unknown) {
-        if (id === "antigravity") {
-          antigravityProbeError = error instanceof Error ? error.message : String(error);
-        }
+      } catch {
         return [id, false] as const;
       }
     }),

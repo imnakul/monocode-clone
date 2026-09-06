@@ -2271,59 +2271,6 @@ fn resolve_grok() -> Option<PathBuf> {
     candidates.into_iter().find(|path| is_grok_agent(path))
 }
 
-#[cfg(test)]
-mod antigravity_acp_tests {
-    use super::*;
-
-    fn fixture(name: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("monocode-acp-{name}-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
-        root
-    }
-
-    fn executable(path: &Path) {
-        std::fs::write(path, b"fixture").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
-        }
-    }
-
-    // Legacy overrides must not sneak through generic executable validation.
-    #[test]
-    fn antigravity_acp_rejects_legacy_override() {
-        let root = fixture("legacy");
-        let path = root.join(if cfg!(windows) { "agy.exe" } else { "agy" });
-        executable(&path);
-        let result = harness_resolve_antigravity(Some(path.to_string_lossy().into_owned()));
-        assert!(result.is_err(), "legacy agy must not resolve as ACP");
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    // An ACP executable alone cannot start a functional runtime.
-    #[test]
-    fn antigravity_acp_requires_sibling_helper() {
-        let root = fixture("missing-helper");
-        let path = root.join(if cfg!(windows) { "agy_acp_server.exe" } else { "agy_acp_server.par" });
-        executable(&path);
-        let result = harness_resolve_antigravity(Some(path.to_string_lossy().into_owned()));
-        assert!(result.is_err(), "missing localharness_external must fail resolution");
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn antigravity_acp_accepts_complete_runtime() {
-        let root = fixture("complete runtime");
-        let path = root.join(if cfg!(windows) { "AGY_ACP_SERVER.EXE" } else { "agy_acp_server.par" });
-        executable(&path);
-        executable(&root.join(if cfg!(windows) { "LOCALHARNESS_EXTERNAL.EXE" } else { "localharness_external" }));
-        let result = harness_resolve_antigravity(Some(path.to_string_lossy().into_owned())).unwrap();
-        assert!(resolved_binary_matches(Path::new(&result.path), &path));
-        std::fs::remove_dir_all(root).unwrap();
-    }
-}
-
 fn resolve_antigravity() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
