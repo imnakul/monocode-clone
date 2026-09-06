@@ -87,6 +87,9 @@ const resumes = new Map<string, Resume>();
  * targets, so aborting a starting turn can never swallow the next message. */
 const turnEpochs = new Map<string, number>();
 const cancelledEpochs = new Map<string, number>();
+/** One startup per session: concurrent messages await the same native-session
+ * startup instead of picking up a half-ready session from the shared map. */
+const startings = new Map<string, Promise<Live>>();
 
 const ANTIGRAVITY_TURN_CANCELLED = "Antigravity turn cancelled.";
 
@@ -112,11 +115,16 @@ export async function sendAntigravityTurn(input: SendTurnInput): Promise<void> {
   const epoch = (turnEpochs.get(input.sessionId) ?? 0) + 1;
   turnEpochs.set(input.sessionId, epoch);
 
-  if (!live) live = await createLive(input);
-  if (turnCancelled(input.sessionId, epoch)) {
-    // Cancelled while the runtime or session was starting; nothing was sent.
-    await stopAntigravitySession(input.sessionId);
-    throw new Error(ANTIGRAVITY_TURN_CANCELLED);
+  if (!live?.nativeId) {
+    live = await getOrCreateLive(input, epoch);
+    if (turnCancelled(input.sessionId, epoch)) {
+      // This turn was cancelled while its startup ran. The session it started
+      // may already belong to a newer turn - only dispose what we own.
+      if (sessions.get(input.sessionId) === live && live.turnEpoch === epoch) {
+        await stopAntigravitySession(input.sessionId);
+      }
+      throw new Error(ANTIGRAVITY_TURN_CANCELLED);
+    }
   }
   live.onEvent = input.onEvent;
   live.turnEpoch = epoch;
@@ -308,7 +316,28 @@ export function bindAntigravitySession(
   resumes.set(threadId, { kind: "legacy", cwd });
 }
 
-async function createLive(input: SendTurnInput): Promise<Live> {
+/** Single-flight session startup: a ready session passes through, concurrent
+ * messages await the same startup, and a startup that was cancelled sends the
+ * next message into a clean replacement instead of a half-ready session. */
+async function getOrCreateLive(input: SendTurnInput, epoch: number): Promise<Live> {
+  const starting = startings.get(input.sessionId);
+  if (starting) {
+    try {
+      return await starting;
+    } catch {
+      // That startup was cancelled or failed; start a replacement below.
+    }
+  }
+  const fresh = createLive(input, epoch);
+  startings.set(input.sessionId, fresh);
+  try {
+    return await fresh;
+  } finally {
+    if (startings.get(input.sessionId) === fresh) startings.delete(input.sessionId);
+  }
+}
+
+async function createLive(input: SendTurnInput, epoch: number): Promise<Live> {
   const resume = resumes.get(input.sessionId);
   const canResume = resume?.kind === "acp" && resume.cwd === input.cwd;
   if (resume && resume.cwd !== input.cwd) resumes.delete(input.sessionId);
@@ -356,7 +385,7 @@ async function createLive(input: SendTurnInput): Promise<Live> {
     runtime: host,
     cwd: input.cwd,
     nativeId: "",
-    turnEpoch: turnEpochs.get(input.sessionId) ?? 0,
+    turnEpoch: epoch,
     configOptions: [],
     promptCapabilities: {},
     onEvent: input.onEvent,
@@ -373,7 +402,7 @@ async function createLive(input: SendTurnInput): Promise<Live> {
 
   let attachedId: string | null = null;
   try {
-    if (turnCancelled(input.sessionId, live.turnEpoch)) {
+    if (turnCancelled(input.sessionId, epoch)) {
       // Stop was pressed while the runtime was starting; do not open a native
       // session for a turn that is already abandoned.
       throw new Error(ANTIGRAVITY_TURN_CANCELLED);

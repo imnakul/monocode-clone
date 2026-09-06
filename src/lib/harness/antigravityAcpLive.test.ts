@@ -213,6 +213,25 @@ describe("official Antigravity ACP child boundary", (): void => {
     expect(boundary.writes.filter((m) => m.method === "session/prompt")).toHaveLength(1);
   });
 
+  // Regression (review round 2 #1): a message sent right after Stop during
+  // another turn's startup must be delivered exactly once with a valid
+  // session id - never into a half-ready session.
+  it("delivers a message sent during a cancelled startup exactly once", async (): Promise<void> => {
+    const first = agy.sendAntigravityTurn(input);
+    await request("initialize");
+    await agy.cancelAntigravityTurn(input.sessionId);
+    const second = agy.sendAntigravityTurn({ ...input, text: "Try again" });
+    await hostHandshake();
+    const session = await request("session/new");
+    reply(session.id, { sessionId: "S1", configOptions });
+    await expect(first).rejects.toThrow(/cancelled/i);
+    const prompt = await request("session/prompt");
+    expect(prompt.params).toEqual({ sessionId: "S1", prompt: [{ type: "text", text: "Try again" }] });
+    expect(boundary.writes.filter((m) => m.method === "session/prompt")).toHaveLength(1);
+    reply(prompt.id, { stopReason: "end_turn" });
+    await second;
+  });
+
   // Regression (review #2): deleting a chat mid-prompt must bound the agent —
   // native cancel with the grace, then retire a runtime that ignores it.
   it("bounds disposal when a chat is forgotten during an active prompt", async (): Promise<void> => {

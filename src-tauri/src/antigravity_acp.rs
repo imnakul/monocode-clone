@@ -163,6 +163,7 @@ pub(crate) fn configure(
     std::fs::create_dir_all(&runtime_temp)
         .map_err(|_| "Could not create the Antigravity runtime temp directory.".to_string())?;
     sweep_stale_extractions(&runtime_temp);
+    sweep_stray_helper_extractions(&std::env::temp_dir());
     cmd.env("TMP", &runtime_temp).env("TEMP", &runtime_temp);
     // Scrub inherited names and explicitly configured aliases, including mixed-case Windows keys.
     let keys: Vec<OsString> = std::env::vars_os()
@@ -187,12 +188,51 @@ pub(crate) fn configure(
     Ok(())
 }
 
-/// Delete extraction folders left behind by runtimes killed more than a day
+/// The `localharness_external` helper is itself a onefile binary, and some of
+/// its launch paths do not inherit our TMP override, so its ~1 GB extractions
+/// can pile up in the user's real temp folder. Remove only obvious orphans:
+/// `_MEI*` directories carrying the harness payload marker that are older than
+/// an hour and not held by a live process. Other applications' `_MEI`
+/// extractions never carry the marker and are never touched.
+fn sweep_stray_helper_extractions(system_temp: &Path) {
+    sweep_stray_helper_extractions_before(
+        system_temp,
+        std::time::SystemTime::now() - std::time::Duration::from_secs(60 * 60),
+    );
+}
+
+fn sweep_stray_helper_extractions_before(system_temp: &Path, cutoff: std::time::SystemTime) {
+    let Ok(entries) = std::fs::read_dir(system_temp) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else { continue };
+        if !meta.is_dir() || !entry.file_name().to_string_lossy().starts_with("_MEI") {
+            continue;
+        }
+        let path = entry.path();
+        if !path
+            .join("google3/third_party/jetski_prod/localharness")
+            .exists()
+        {
+            continue;
+        }
+        let stale = meta.modified().ok().is_some_and(|modified| modified < cutoff);
+        if stale && !extraction_in_use(&path) {
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
+}
+
+/// Delete extraction folders left behind by runtimes killed more than an hour
 /// ago. Best effort: anything locked or undeletable is simply skipped.
 fn sweep_stale_extractions(runtime_temp: &Path) {
+    // The liveness probe spares anything a running payload still holds, so the
+    // age floor only protects concurrent mid-extraction launches - one hour is
+    // generous and keeps daily use from piling up gigabytes.
     sweep_stale_extractions_before(
         runtime_temp,
-        std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 60 * 60),
+        std::time::SystemTime::now() - std::time::Duration::from_secs(60 * 60),
     );
 }
 
@@ -246,12 +286,14 @@ fn extraction_in_use(dir: &Path) -> bool {
 #[cfg(windows)]
 fn file_in_use(path: &Path) -> bool {
     use std::os::windows::fs::OpenOptionsExt;
-    const DELETE_ACCESS: u32 = 0x0010_0000;
+    // FILE_DELETE from the SDK - 0x0001_0000. (0x0010_0000 is SYNCHRONIZE,
+    // which share modes do not gate and which would miss live payloads.)
+    const DELETE: u32 = windows_sys::Win32::Storage::FileSystem::DELETE;
     const FILE_SHARE_READ: u32 = 0x0000_0001;
     const FILE_SHARE_WRITE: u32 = 0x0000_0002;
     const FILE_SHARE_DELETE: u32 = 0x0000_0004;
     std::fs::OpenOptions::new()
-        .access_mode(DELETE_ACCESS)
+        .access_mode(DELETE)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
         .open(path)
         .is_err()
@@ -525,6 +567,40 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    // Stray helper extractions in the user's real temp are removed only when
+    // they carry the harness marker, are stale, and are not in use.
+    #[test]
+    fn antigravity_acp_stray_helper_sweep_is_marker_targeted_and_liveness_safe() {
+        let root = std::env::temp_dir().join(format!("monocode-acp-stray-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let marker = "google3/third_party/jetski_prod/localharness";
+        std::fs::create_dir_all(root.join("_MEIstray").join(marker)).unwrap();
+        std::fs::create_dir_all(root.join("_MEIother")).unwrap();
+        std::fs::create_dir_all(root.join("_MEIlive").join(marker)).unwrap();
+        let live = root.join("_MEIlive").join(marker).join("localharness.exe");
+        std::fs::write(&live, b"payload").unwrap();
+        #[cfg(windows)]
+        let _guard = {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_SHARE_READ: u32 = 0x0000_0001;
+            std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ)
+                .open(&live)
+                .unwrap()
+        };
+        #[cfg(not(windows))]
+        let _guard = ();
+        let future = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        sweep_stray_helper_extractions_before(&root, future);
+        assert!(!root.join("_MEIstray").exists(), "marked orphan must go");
+        assert!(root.join("_MEIother").exists(), "unmarked folders stay");
+        #[cfg(windows)]
+        assert!(root.join("_MEIlive").exists(), "live folder stays");
+        drop(_guard);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     // An old but actively owned extraction must survive cleanup; an abandoned
     // one goes. The lock here mirrors an executing PyInstaller payload: the
     // file is held without delete sharing, exactly like a running image.
@@ -537,12 +613,16 @@ mod tests {
         std::fs::create_dir_all(root.join("tmp/_MEIdead")).unwrap();
         std::fs::write(root.join("tmp/_MEIdead/server.exe"), b"payload").unwrap();
         let locked = root.join("tmp/_MEIlive/server.exe");
+        // Read sharing allowed, delete sharing denied - exactly how an
+        // executing payload is held. A probe that checks SYNCHRONIZE (the
+        // wrong right) would see this file as free and delete the tree.
         #[cfg(windows)]
         let _guard = {
             use std::os::windows::fs::OpenOptionsExt;
+            const FILE_SHARE_READ: u32 = 0x0000_0001;
             std::fs::OpenOptions::new()
                 .read(true)
-                .share_mode(0)
+                .share_mode(FILE_SHARE_READ)
                 .open(&locked)
                 .unwrap()
         };
