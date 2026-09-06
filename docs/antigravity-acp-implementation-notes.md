@@ -194,6 +194,19 @@ provider instance, reused by probe/catalog/chat and retired only on exit. That a
 nearly all of the congestion we hit; the TMP redirection and sweep then become safety nets
 rather than load-bearing mitigations.
 
+### Long-lived runtime: implemented (2026-09-06)
+
+`antigravityRuntimeHost.ts` now owns **one** shared `agy_acp_server` process per app run
+(`monocode-antigravity-runtime` harness slot): initialize + authenticate happen once, and
+catalog discovery, every chat session, and resume attach to it as native sessions demuxed by
+`sessionId` (unbound `session/update` traffic is buffered per session and flushed on attach).
+The per-session transport, per-catalog spawn, and per-chat process are gone; the setup panel's
+sign-in keeps its dedicated process and **retires the shared runtime** when it finishes so the
+next launch picks up the fresh token. A wedged cancel (no settlement within T3's 15 s grace)
+also retires the runtime, and any attached session observes process death as `session.ended`
+and resumes on its next turn. Remaining per-launch spawns: the Rust availability probe
+(explicit Recheck only) and sign-in.
+
 ### Updates to "Not verified live"
 
 Real Google sign-in: **verified** (2026-09-06). Real model prompts with image attachments:

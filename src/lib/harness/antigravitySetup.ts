@@ -2,37 +2,14 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { homeDir } from "../fs";
 import { killChild, resolveAntigravityBinary, spawnChild, unwatchChild, watchChild } from "./child";
 import { JsonRpcClient } from "./jsonRpc";
+import { retireAntigravityRuntime } from "./antigravityRuntimeHost";
 
-const AUTH_PREFIX = "Open the following link to authenticate the ACP server: ";
-const BROWSER_MARKER = "__MONOCODE_ANTIGRAVITY_AUTH_URL__";
+export { parseAntigravityAuthLine } from "./antigravityAuthLine";
+import { parseAntigravityAuthLine } from "./antigravityAuthLine";
+
 const AUTH_PROCESS_ID = "monocode-antigravity-sign-in";
 let inflight: Promise<void> | null = null;
 let cancelCurrent: (() => Promise<void>) | null = null;
-
-/** Reads a validated authorization URL without exposing tokens to the transcript. */
-export function parseAntigravityAuthLine(line: string): string | null {
-  const message = line.trim();
-  let candidate: unknown;
-  if (message.startsWith(AUTH_PREFIX)) candidate = message.slice(AUTH_PREFIX.length);
-  else if (message.startsWith(BROWSER_MARKER)) {
-    try { candidate = JSON.parse(message.slice(BROWSER_MARKER.length)); }
-    catch { throw new Error("Antigravity returned an invalid sign-in URL."); }
-  } else return null;
-  const invalid = (): Error => new Error("Antigravity returned an invalid Google sign-in URL.");
-  if (typeof candidate !== "string" || candidate.length > 16_384 || /\s/.test(candidate)) throw invalid();
-  let url: URL;
-  try { url = new URL(candidate); } catch { throw invalid(); }
-  const state = url.searchParams.get("state");
-  const redirect = url.searchParams.get("redirect_uri");
-  if (url.origin !== "https://accounts.google.com" || url.pathname !== "/o/oauth2/v2/auth" || url.username || url.password || url.hash ||
-    url.searchParams.getAll("state").length !== 1 || !state || state.length > 512 || /\s/.test(state) ||
-    url.searchParams.getAll("redirect_uri").length !== 1 || !redirect || !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}\/$/.test(redirect) ||
-    url.searchParams.getAll("response_type").length !== 1 || url.searchParams.get("response_type") !== "code") throw invalid();
-  let callback: URL;
-  try { callback = new URL(redirect); } catch { throw invalid(); }
-  if (Number(callback.port) < 1024 || Number(callback.port) > 65535) throw invalid();
-  return candidate;
-}
 
 /** Starts only on an explicit Settings action; never sends a model prompt. */
 export function signInAntigravity(): Promise<void> {
@@ -93,7 +70,12 @@ async function runSignIn(): Promise<void> {
     await rpc.request("authenticate", { methodId: "oauth-personal" }, 5 * 60_000);
     await Promise.all(browserTasks);
     if (browserFailure) throw browserFailure;
-  } finally { await stop(); }
+  } finally {
+    await stop();
+    // Credentials changed on disk; the shared runtime must not keep serving
+    // the pre-sign-in token it authenticated with.
+    await retireAntigravityRuntime().catch((): void => {});
+  }
 }
 
 /** Cancels an explicit sign-in without touching existing account credentials. */

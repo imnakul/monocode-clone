@@ -1,7 +1,7 @@
 import { homeDir } from "../fs";
 import { setHarnessModels } from "../models";
 import { antigravityConfigs, antigravityModels } from "./antigravityAcpProtocol";
-import { createAntigravityConnection } from "./antigravityAcpTransport";
+import { acquireAntigravityRuntime } from "./antigravityRuntimeHost";
 
 export type AntigravityCatalogPhase = "idle" | "loading" | "ready" | "error";
 
@@ -34,10 +34,11 @@ function setSnapshot(next: AntigravityCatalogSnapshot): void {
 }
 
 /**
- * Discover models over the official ACP contract: initialize + authenticate +
- * session/new, then read the `model` select config option. Discovery needs a
- * signed-in account; without one this reports the sign-in state instead of
- * pretending the runtime has no models.
+ * Discover models over the official ACP contract: session/new on the shared
+ * runtime (which handles initialize + authenticate once), then read the
+ * `model` select config option. Discovery needs a signed-in account; without
+ * one this reports the sign-in state instead of pretending the runtime has no
+ * models.
  */
 export function refreshAntigravityCatalog(force = false): Promise<void> {
   if (inflight) return inflight;
@@ -52,28 +53,26 @@ async function discover(): Promise<void> {
   setSnapshot({ phase: "loading" });
   try {
     const cwd = await homeDir();
-    const connection = createAntigravityConnection("monocode-antigravity-catalog", cwd, {});
-    try {
-      await connection.start();
-      const setup = await connection.rpc.request(
-        "session/new",
-        { cwd, mcpServers: [] },
-        45_000,
-      );
-      const models = antigravityModels(antigravityConfigs(setup));
-      if (models.length === 0) {
-        setSnapshot({
-          phase: "error",
-          error:
-            "The Antigravity runtime returned no models for this account. Sign in again, update the official ACP runtime, then Recheck.",
-        });
-        return;
-      }
-      setHarnessModels("antigravity", models);
-      setSnapshot({ phase: "ready" });
-    } finally {
-      await connection.stop();
+    // Discovery runs on the shared long-lived runtime; the throwaway session
+    // is abandoned inside it on purpose, since spawning a fresh onefile
+    // process per Recheck costs a ~500 MB self-extraction.
+    const host = await acquireAntigravityRuntime();
+    const setup = await host.rpc.request(
+      "session/new",
+      { cwd, mcpServers: [] },
+      45_000,
+    );
+    const models = antigravityModels(antigravityConfigs(setup));
+    if (models.length === 0) {
+      setSnapshot({
+        phase: "error",
+        error:
+          "The Antigravity runtime returned no models for this account. Sign in again, update the official ACP runtime, then Recheck.",
+      });
+      return;
     }
+    setHarnessModels("antigravity", models);
+    setSnapshot({ phase: "ready" });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setSnapshot({

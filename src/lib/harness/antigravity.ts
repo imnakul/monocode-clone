@@ -14,10 +14,12 @@ import {
   type AntigravityConfig,
 } from "./antigravityAcpProtocol";
 import {
-  createAntigravityConnection,
-  type AntigravityConnection,
-} from "./antigravityAcpTransport";
-import { type JsonRpcClient, type JsonRpcHandlers, type JsonRpcId } from "./jsonRpc";
+  acquireAntigravityRuntime,
+  retireAntigravityRuntime,
+  type AntigravitySessionHandlers,
+  type AntigravitySharedRuntime,
+} from "./antigravityRuntimeHost";
+import { type JsonRpcId } from "./jsonRpc";
 import type {
   ApprovalDecision,
   HarnessEvent,
@@ -60,7 +62,7 @@ type Resume =
   | { kind: "legacy"; cwd: string };
 
 type Live = {
-  connection: AntigravityConnection;
+  runtime: AntigravitySharedRuntime;
   cwd: string;
   nativeId: string;
   configOptions: AntigravityConfig[];
@@ -135,7 +137,7 @@ export function respondAntigravityApproval(
   if (!live || !pending) return;
   live.approvals.delete(requestId);
   const optionId = permissionOptionByKind(decision, pending.options);
-  void live.connection.rpc
+  void live.runtime.rpc
     .respond(pending.nativeId, optionId ? { outcome: { outcome: "selected", optionId } } : CANCELLED_OUTCOME)
     .catch((): void => {});
   live.onEvent({ type: "approval.resolved", requestId, decision });
@@ -152,7 +154,7 @@ export function respondAntigravityQuestion(
   if (!live || !pending) return;
   if (reply.kind === "skipped") {
     live.questions.delete(requestId);
-    void live.connection.rpc.respond(pending.nativeId, CANCELLED_OUTCOME).catch((): void => {});
+    void live.runtime.rpc.respond(pending.nativeId, CANCELLED_OUTCOME).catch((): void => {});
     live.onEvent({ type: "question.resolved", requestId, decision: "skipped" });
     return;
   }
@@ -166,7 +168,7 @@ export function respondAntigravityQuestion(
   const option = exact ?? (byLabel.length === 1 ? byLabel[0] : undefined);
   if (!option) return;
   live.questions.delete(requestId);
-  void live.connection.rpc
+  void live.runtime.rpc
     .respond(pending.nativeId, { outcome: { outcome: "selected", optionId: option.id } })
     .catch((): void => {});
   live.onEvent({ type: "question.resolved", requestId, decision: "answered" });
@@ -182,14 +184,14 @@ export async function cancelAntigravityTurn(sessionId: string): Promise<void> {
   live.muteUpdates = true;
   // Release pending provider requests so the agent can wrap the turn up.
   for (const [, pending] of live.approvals) {
-    void live.connection.rpc.respond(pending.nativeId, CANCELLED_OUTCOME).catch((): void => {});
+    void live.runtime.rpc.respond(pending.nativeId, CANCELLED_OUTCOME).catch((): void => {});
   }
   live.approvals.clear();
   for (const [, pending] of live.questions) {
-    void live.connection.rpc.respond(pending.nativeId, CANCELLED_OUTCOME).catch((): void => {});
+    void live.runtime.rpc.respond(pending.nativeId, CANCELLED_OUTCOME).catch((): void => {});
   }
   live.questions.clear();
-  await live.connection.rpc
+  await live.runtime.rpc
     .notify("session/cancel", { sessionId: live.nativeId })
     .catch((): void => {});
   const settled = live.activePrompt;
@@ -200,8 +202,10 @@ export async function cancelAntigravityTurn(sessionId: string): Promise<void> {
   ]);
   if (!finished) {
     // The runtime ignored session/cancel; its process state is unknown, so
-    // retire it instead of reusing a wedged transport.
+    // retire the shared runtime instead of reusing a wedged transport. Every
+    // attached session reports the exit and resumes on its next turn.
     await stopAntigravitySession(sessionId);
+    await retireAntigravityRuntime();
   }
 }
 
@@ -212,16 +216,17 @@ export async function stopAntigravitySession(sessionId: string): Promise<void> {
   if (live) {
     live.muteUpdates = true;
     live.activePrompt = null;
+    // Detach only: the shared runtime keeps serving the other sessions.
+    live.runtime.detach(live.nativeId);
     for (const [, pending] of live.approvals) {
-      void live.connection.rpc.respond(pending.nativeId, CANCELLED_OUTCOME).catch((): void => {});
+      void live.runtime.rpc.respond(pending.nativeId, CANCELLED_OUTCOME).catch((): void => {});
     }
     live.approvals.clear();
     for (const [, pending] of live.questions) {
-      void live.connection.rpc.respond(pending.nativeId, CANCELLED_OUTCOME).catch((): void => {});
+      void live.runtime.rpc.respond(pending.nativeId, CANCELLED_OUTCOME).catch((): void => {});
     }
     live.questions.clear();
   }
-  await live?.connection.stop();
   if (!live) {
     await killChild(sessionId).catch((): void => {});
   }
@@ -260,23 +265,15 @@ async function createLive(input: SendTurnInput): Promise<Live> {
   const canResume = resume?.kind === "acp" && resume.cwd === input.cwd;
   if (resume && resume.cwd !== input.cwd) resumes.delete(input.sessionId);
 
-  const liveRef: { current: Live | null } = { current: null };
-  const rpcRef: { current: JsonRpcClient | null } = { current: null };
-  /** session/update notifications that arrive before the session binds. */
-  const startupBuffer: Array<{ sessionId: string; params: unknown }> = [];
+  // Spawning the onefile runtime costs a ~500 MB self-extraction, so chats
+  // attach to the shared long-lived runtime instead of owning a process.
+  const host = await acquireAntigravityRuntime();
 
-  const handlers: JsonRpcHandlers = {
+  const liveRef: { current: Live | null } = { current: null };
+  const handlers: AntigravitySessionHandlers = {
     onNotification: (method, params): void => {
       const current = liveRef.current;
-      if (!current || !current.nativeId) {
-        const sessionId = asRecord(params)?.sessionId;
-        if (method === "session/update" && typeof sessionId === "string") {
-          startupBuffer.push({ sessionId, params });
-          if (startupBuffer.length > 100) startupBuffer.shift();
-        }
-        return;
-      }
-      handleNotification(current, method, params);
+      if (current) handleNotification(current, method, params);
     },
     onRequest: (id, method, params): void => {
       const current = liveRef.current;
@@ -284,39 +281,31 @@ async function createLive(input: SendTurnInput): Promise<Live> {
         void handlePermissionRequest(current, id, params);
         return;
       }
-      void rpcRef.current
-        ?.respondError(id, { code: -32601, message: `Method not found: ${method}` })
+      void host.rpc
+        .respondError(id, { code: -32601, message: `Method not found: ${method}` })
         .catch((): void => {});
     },
-  };
-
-  const connection = createAntigravityConnection(
-    input.sessionId,
-    input.cwd,
-    handlers,
-    undefined,
-    (code) => {
+    onExit: (code): void => {
       // Process death keeps the resume reference; the next turn respawns and
       // resumes instead of silently starting a new conversation.
       const dying = liveRef.current;
       liveRef.current = null;
-      if (dying) {
-        for (const [requestId] of dying.approvals) {
-          dying.onEvent({ type: "approval.resolved", requestId, decision: "cancelled" });
-        }
-        dying.approvals.clear();
-        for (const [requestId] of dying.questions) {
-          dying.onEvent({ type: "question.resolved", requestId, decision: "cancelled" });
-        }
-        dying.questions.clear();
-        if (sessions.get(input.sessionId) === dying) sessions.delete(input.sessionId);
-        dying.onEvent({ type: "session.ended", code });
+      if (!dying) return;
+      for (const [requestId] of dying.approvals) {
+        dying.onEvent({ type: "approval.resolved", requestId, decision: "cancelled" });
       }
+      dying.approvals.clear();
+      for (const [requestId] of dying.questions) {
+        dying.onEvent({ type: "question.resolved", requestId, decision: "cancelled" });
+      }
+      dying.questions.clear();
+      if (sessions.get(input.sessionId) === dying) sessions.delete(input.sessionId);
+      dying.onEvent({ type: "session.ended", code });
     },
-  );
-  rpcRef.current = connection.rpc;
+  };
+
   const live: Live = {
-    connection,
+    runtime: host,
     cwd: input.cwd,
     nativeId: "",
     configOptions: [],
@@ -333,30 +322,31 @@ async function createLive(input: SendTurnInput): Promise<Live> {
   liveRef.current = live;
   sessions.set(input.sessionId, live);
 
+  let attachedId: string | null = null;
   try {
-    const initialized = await connection.start();
-    if (liveRef.current !== live) throw new Error("Antigravity session stopped.");
-    const agentCapabilities = asRecord(initialized.agentCapabilities);
-    live.promptCapabilities = asRecord(agentCapabilities?.promptCapabilities) ?? {};
+    live.promptCapabilities = host.promptCapabilities;
 
     let nativeId: string;
     let setup: unknown;
     if (canResume && resume?.kind === "acp") {
-      const sessionCapabilities = asRecord(agentCapabilities?.sessionCapabilities);
+      const sessionCapabilities = asRecord(host.sessionCapabilities);
       if (!sessionCapabilities?.resume) {
         throw new Error(
           "The installed Antigravity runtime does not support session/resume. Update the official ACP runtime or start a new chat.",
         );
       }
       // A failed resume must surface, never fall back to a fresh conversation.
-      setup = await connection.rpc.request(
+      // Attach before the request so replayed updates are never missed.
+      attachedId = resume.id;
+      host.attach(resume.id, handlers);
+      setup = await host.rpc.request(
         "session/resume",
         { sessionId: resume.id, cwd: input.cwd, mcpServers: [] },
         SESSION_TIMEOUT_MS,
       );
       nativeId = resume.id;
     } else {
-      setup = await connection.rpc.request(
+      setup = await host.rpc.request(
         "session/new",
         { cwd: input.cwd, mcpServers: [] },
         SESSION_TIMEOUT_MS,
@@ -366,15 +356,16 @@ async function createLive(input: SendTurnInput): Promise<Live> {
         throw new Error("Antigravity did not return a session ID.");
       }
       nativeId = created;
+      attachedId = nativeId;
+      host.attach(nativeId, handlers);
+      for (const params of host.takeBuffered(nativeId)) {
+        handleNotification(live, "session/update", params);
+      }
     }
 
     live.nativeId = nativeId;
     live.configOptions = antigravityConfigs(setup);
     resumes.set(input.sessionId, { kind: "acp", id: nativeId, cwd: input.cwd });
-    for (const buffered of startupBuffer) {
-      if (buffered.sessionId === nativeId) handleNotification(live, "session/update", buffered.params);
-    }
-    startupBuffer.length = 0;
     live.onEvent({ type: "session.started" });
     live.onEvent({
       type: "session.providerBound",
@@ -382,8 +373,9 @@ async function createLive(input: SendTurnInput): Promise<Live> {
     });
     return live;
   } catch (error) {
+    liveRef.current = null;
+    host.detach(attachedId ?? "");
     if (sessions.get(input.sessionId) === live) sessions.delete(input.sessionId);
-    await connection.stop();
     throw error;
   }
 }
@@ -409,7 +401,7 @@ async function handlePermissionRequest(
     // never approvals and are never answered automatically.
     const question = questionFromPermission(request, options);
     if (!question) {
-      void live.connection.rpc.respond(id, CANCELLED_OUTCOME).catch((): void => {});
+      void live.runtime.rpc.respond(id, CANCELLED_OUTCOME).catch((): void => {});
       live.onEvent({
         type: "session.error",
         message: "Antigravity asked a question MonoCode could not read. It was cancelled — resend your request.",
@@ -473,7 +465,7 @@ async function applyRuntimeMode(live: Live, runtimeMode: SendTurnInput["runtimeM
 }
 
 async function setConfigOption(live: Live, configId: string, value: string): Promise<void> {
-  const result = await live.connection.rpc.request(
+  const result = await live.runtime.rpc.request(
     "session/set_config_option",
     { sessionId: live.nativeId, configId, value },
     CONTROL_TIMEOUT_MS,
@@ -490,7 +482,7 @@ async function prompt(live: Live, input: SendTurnInput): Promise<void> {
   });
   live.activePrompt = { settled };
   try {
-    await live.connection.rpc.request(
+    await live.runtime.rpc.request(
       "session/prompt",
       { sessionId: live.nativeId, prompt: blocks },
       PROMPT_TIMEOUT_MS,
