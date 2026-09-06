@@ -217,7 +217,10 @@ fn sweep_stray_helper_extractions_before(system_temp: &Path, cutoff: std::time::
         {
             continue;
         }
-        let stale = meta.modified().ok().is_some_and(|modified| modified < cutoff);
+        let stale = meta
+            .modified()
+            .ok()
+            .is_some_and(|modified| modified < cutoff);
         if stale && !extraction_in_use(&path) {
             let _ = std::fs::remove_dir_all(&path);
         }
@@ -631,13 +634,22 @@ mod tests {
         let future = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
         sweep_stale_extractions_before(&root.join("tmp"), future);
         #[cfg(windows)]
-        assert!(root.join("tmp/_MEIlive").exists(), "live extraction must survive");
+        assert!(
+            root.join("tmp/_MEIlive").exists(),
+            "live extraction must survive"
+        );
         #[cfg(not(windows))]
         let _ = &locked;
-        assert!(!root.join("tmp/_MEIdead").exists(), "abandoned extraction must go");
+        assert!(
+            !root.join("tmp/_MEIdead").exists(),
+            "abandoned extraction must go"
+        );
         drop(_guard);
         sweep_stale_extractions_before(&root.join("tmp"), future);
-        assert!(!root.join("tmp/_MEIlive").exists(), "released extraction must go");
+        assert!(
+            !root.join("tmp/_MEIlive").exists(),
+            "released extraction must go"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
