@@ -30,10 +30,29 @@ export function antigravityModels(configs: AntigravityConfig[]): AgentModel[] {
 }
 export function antigravityMode(mode: RuntimeMode): string { return mode === "full-access" ? "yolo" : mode === "auto-accept-edits" ? "auto_edit" : "default"; }
 
+function numberFromCount(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  return null;
+}
+
 /** Normalize native command/output fields before using the shared pure ACP parser. */
 export function antigravityEvents(params: unknown): HarnessEvent[] {
   const rec = asRecord(params); const update = asRecord(rec?.update);
   if (!update) return [];
+  // Backend usage frames (surfaced by the host from the runtime's websocket
+  // log) feed the context meter; they are never transcript content. The
+  // runtime advertises no context window, so like Claude this reports tokens
+  // used only.
+  if (update.sessionUpdate === "usage_update") {
+    const usage = asRecord(update.usage);
+    const total = numberFromCount(usage?.totalTokenCount) ?? numberFromCount(usage?.total_token_count);
+    const used = total ?? numberFromCount(usage?.promptTokenCount) ?? numberFromCount(usage?.prompt_token_count);
+    return used != null && used > 0 ? [{ type: "context", used }] : [];
+  }
+  // Agent-originated configuration changes (mode fallbacks, model switches)
+  // are applied to adapter state by the driver before this mapper runs.
+  if (update.sessionUpdate === "config_option_update") return [];
   const rawInput = asRecord(update.rawInput); const rawOutput = asRecord(update.rawOutput);
   const command = rawInput?.CommandLine ?? rawInput?.command_line ?? rawInput?.commandLine ?? rawInput?.command;
   const output = rawOutput?.combinedOutput ?? rawOutput?.combined_output;

@@ -209,10 +209,57 @@ fn sweep_stale_extractions_before(runtime_temp: &Path, cutoff: std::time::System
             .modified()
             .ok()
             .is_some_and(|modified| modified < cutoff);
-        if stale {
+        // Age alone is not ownership: the shared runtime can outlive the
+        // cutoff while a probe or a second launch sweeps. Establish that no
+        // live process still holds the extraction before deleting it.
+        if stale && !extraction_in_use(&entry.path()) {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }
+}
+
+/// True when any file under `dir` is held without delete sharing - the
+/// signature of an executing PyInstaller payload. On Windows an executing
+/// image cannot be opened for delete access; a `remove_dir_all` would still
+/// strip unlocked siblings before failing on the locked one, so probe first
+/// and skip the whole directory on any doubt. Unreadable trees are treated as
+/// live. Unix does not lock data files this way; there this is always false
+/// and cleanup behaves exactly as before.
+fn extraction_in_use(dir: &Path) -> bool {
+    fn walk(dir: &Path) -> std::io::Result<bool> {
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if entry.metadata()?.is_dir() {
+                if walk(&path)? {
+                    return Ok(true);
+                }
+            } else if file_in_use(&path) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+    walk(dir).unwrap_or(true)
+}
+
+#[cfg(windows)]
+fn file_in_use(path: &Path) -> bool {
+    use std::os::windows::fs::OpenOptionsExt;
+    const DELETE_ACCESS: u32 = 0x0010_0000;
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+    std::fs::OpenOptions::new()
+        .access_mode(DELETE_ACCESS)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .open(path)
+        .is_err()
+}
+
+#[cfg(not(windows))]
+fn file_in_use(_path: &Path) -> bool {
+    false
 }
 
 /// Handle the browser helper before initializing Tauri. Broken pipes must exit successfully.
@@ -475,6 +522,42 @@ mod tests {
             std::time::SystemTime::now() - std::time::Duration::from_secs(3600),
         );
         assert!(runtime_temp.join("notes.txt").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    // An old but actively owned extraction must survive cleanup; an abandoned
+    // one goes. The lock here mirrors an executing PyInstaller payload: the
+    // file is held without delete sharing, exactly like a running image.
+    #[test]
+    fn antigravity_acp_sweep_spares_live_extraction_and_clears_dead_one() {
+        let root = std::env::temp_dir().join(format!("monocode-acp-live-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("tmp/_MEIlive")).unwrap();
+        std::fs::write(root.join("tmp/_MEIlive/server.exe"), b"payload").unwrap();
+        std::fs::create_dir_all(root.join("tmp/_MEIdead")).unwrap();
+        std::fs::write(root.join("tmp/_MEIdead/server.exe"), b"payload").unwrap();
+        let locked = root.join("tmp/_MEIlive/server.exe");
+        #[cfg(windows)]
+        let _guard = {
+            use std::os::windows::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(0)
+                .open(&locked)
+                .unwrap()
+        };
+        #[cfg(not(windows))]
+        let _guard = ();
+        let future = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        sweep_stale_extractions_before(&root.join("tmp"), future);
+        #[cfg(windows)]
+        assert!(root.join("tmp/_MEIlive").exists(), "live extraction must survive");
+        #[cfg(not(windows))]
+        let _ = &locked;
+        assert!(!root.join("tmp/_MEIdead").exists(), "abandoned extraction must go");
+        drop(_guard);
+        sweep_stale_extractions_before(&root.join("tmp"), future);
+        assert!(!root.join("tmp/_MEIlive").exists(), "released extraction must go");
         std::fs::remove_dir_all(root).unwrap();
     }
 

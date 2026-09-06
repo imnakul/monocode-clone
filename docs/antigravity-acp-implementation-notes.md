@@ -212,3 +212,31 @@ and resumes on its next turn. Remaining per-launch spawns: the Rust availability
 Real Google sign-in: **verified** (2026-09-06). Real model prompts with image attachments:
 **verified** (2026-09-06). Permission/question dialogs from the real agent, resume across an
 app restart, and installer behavior on a machine without the runtime: still unverified.
+
+## Review fixes (2026-09-06, post f1f5b89 review)
+
+Six issues from the post-implementation review, all fixed with regression tests:
+
+1. **Cancel during startup** sent the prompt anyway and the flag swallowed the next message.
+   Cancellation is now tagged to a per-session **turn epoch**: a stop during runtime
+   acquisition, `createLive`, config application, or attachment preparation aborts exactly that
+   turn (before `session/new` even) and can never consume a later, independent message.
+2. **Deleting a running chat** could strand the agent (forget cleared the prompt before cancel
+   read it). Disposal is now self-contained: `forget` cancels, and `stop` itself performs a
+   bounded native cancel for any live prompt — a runtime that ignores `session/cancel` is
+   retired, which is what bounds the wait.
+3. **`config_option_update` was ignored**, letting agent-side mode/model fallbacks go unseen.
+   The driver refreshes its cached config from those notifications, so the next turn
+   reconciles (e.g. restores supervised after the agent flipped itself to yolo).
+4. **The temp sweeper** deleted by age alone and could strip a live runtime's extraction.
+   Cleanup now probes every file for delete-access first (an executing PyInstaller payload is
+   held without delete sharing); any doubt spares the whole tree. Unix behavior unchanged.
+5. **Changing the binary in Settings** left the old shared runtime running. `acquire` now
+   resolves the executable every time and restarts the host when it changed (a resolution
+   failure never tears down a working runtime).
+6. **Unix PATH discovery** searched the extensionless name while the validator requires
+   `agy_acp_server.par`; discovery now searches the platform-correct name.
+
+Plus: **usage meter** — the runtime logs backend `usageUpdate` websocket frames on stderr
+(`trajectoryId` == our ACP session id); the host parses them and feeds `{type:"context",
+used: totalTokenCount}` like Codex/Claude. Best-effort: format changes degrade to no meter.

@@ -194,4 +194,99 @@ describe("official Antigravity ACP child boundary", (): void => {
     expect(boundary.writes.some((m) => m.method === "session/prompt")).toBe(false);
     expect(boundary.writes.some((m) => m.method === "session/set_config_option")).toBe(false);
   });
+
+  // Regression (review #1): a Stop pressed during startup aborts that turn,
+  // never sends the prompt, and never swallows the next independent message.
+  it("aborts a cancelled startup without sending the prompt or dropping the next turn", async (): Promise<void> => {
+    const first = agy.sendAntigravityTurn(input);
+    await request("initialize");
+    await agy.cancelAntigravityTurn(input.sessionId);
+    await hostHandshake();
+    await expect(first).rejects.toThrow(/cancelled/i);
+    expect(boundary.writes.some((m) => m.method === "session/new")).toBe(false);
+    expect(boundary.writes.some((m) => m.method === "session/prompt")).toBe(false);
+    const second = agy.sendAntigravityTurn({ ...input, text: "still here?" });
+    await openSession();
+    const p = await request("session/prompt");
+    reply(p.id, { stopReason: "end_turn" });
+    await second;
+    expect(boundary.writes.filter((m) => m.method === "session/prompt")).toHaveLength(1);
+  });
+
+  // Regression (review #2): deleting a chat mid-prompt must bound the agent —
+  // native cancel with the grace, then retire a runtime that ignores it.
+  it("bounds disposal when a chat is forgotten during an active prompt", async (): Promise<void> => {
+    const turn = agy.sendAntigravityTurn(input);
+    await openSession();
+    const prompt = await request("session/prompt");
+    const failed = expect(turn).rejects.toThrow();
+    vi.useFakeTimers();
+    try {
+      const forgotten = agy.forgetAntigravitySession(input.sessionId);
+      await vi.advanceTimersByTimeAsync(0);
+      await request("session/cancel");
+      await vi.advanceTimersByTimeAsync(15_000);
+      await forgotten;
+      expect(boundary.kill).toHaveBeenCalled();
+      expect(boundary.writes.some((m) => m.id === prompt.id && m.result)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+    await failed;
+  });
+
+  // Regression (review #3): agent-side mode changes must refresh the cached
+  // config so the next turn reconciles instead of trusting stale state.
+  it("reconciles agent-originated config changes before the next turn", async (): Promise<void> => {
+    const first = agy.sendAntigravityTurn(input);
+    await openSession();
+    const p1 = await request("session/prompt"); reply(p1.id, { stopReason: "end_turn" }); await first;
+    boundary.writes.length = 0;
+    boundary.stdout(JSON.stringify({ method: "session/update", params: { sessionId: "S1", update: { sessionUpdate: "config_option_update", configOptions: [
+      { id: "mode", type: "select", currentValue: "yolo", options: [{ value: "default", name: "Ask" }, { value: "auto_edit", name: "Edit" }, { value: "yolo", name: "Full" }] },
+      { id: "model", type: "select", currentValue: "gemini", options: [] },
+    ] } } }));
+    const second = agy.sendAntigravityTurn(input);
+    const mode = await request("session/set_config_option");
+    expect(mode.params).toEqual({ sessionId: "S1", configId: "mode", value: "default" });
+    reply(mode.id, { configOptions: [{ id: "mode", type: "select", currentValue: "default", options: [] }] });
+    const p2 = await request("session/prompt");
+    reply(p2.id, { stopReason: "end_turn" });
+    await second;
+    expect(boundary.writes.filter((m) => m.method === "session/set_config_option")).toHaveLength(1);
+  });
+
+  // The context meter is fed by the runtime's backend usage logs on stderr.
+  it("maps runtime usage frames onto the context meter", async (): Promise<void> => {
+    const turn = agy.sendAntigravityTurn(input);
+    await openSession();
+    const prompt = await request("session/prompt");
+    boundary.stderr('I0906 06:19:02.153780 42176 local_connection.py:521] RAW WS MSG: {"usageUpdate":{"agents":[{"trajectoryId":"S1","usage":{"promptTokenCount":"11597","cachedContentTokenCount":"0","candidatesTokenCount":"1","thoughtsTokenCount":"25","totalTokenCount":"11623"}}]},"seqNum":"7"}');
+    await vi.waitFor((): void => {
+      expect(events.some((e) => e.type === "context" && (e as { used?: number }).used === 11623)).toBe(true);
+    });
+    reply(prompt.id, { stopReason: "end_turn" }); await turn;
+  });
+
+  // Regression (review #5): selecting a different binary must restart the
+  // shared runtime so Settings and execution agree.
+  it("restarts the shared runtime when the resolved binary changes", async (): Promise<void> => {
+    // acquire resolves only after initialize + authenticate, so each new
+    // runtime's handshake must be driven before its promise settles.
+    const first = host.acquireAntigravityRuntime(async (): Promise<{ path: string }> => ({ path: "/fake/agy_acp_server" }));
+    await hostHandshake();
+    const runtime1 = await first;
+    const second = host.acquireAntigravityRuntime(async (): Promise<{ path: string }> => ({ path: "/fake/agy_acp_server_v2" }));
+    const init = await request("initialize", 2);
+    reply(init.id, { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { resume: {} } } });
+    const auth = await request("authenticate");
+    reply(auth.id, {});
+    const restarted = await second;
+    expect(restarted).not.toBe(runtime1);
+    expect(restarted.executablePath).toBe("/fake/agy_acp_server_v2");
+    expect(boundary.spawn).toHaveBeenCalledTimes(2);
+    expect(boundary.spawn).toHaveBeenLastCalledWith(host.ANTIGRAVITY_RUNTIME_SESSION_ID, "/fake/agy_acp_server_v2", [], "/home/test");
+    expect(boundary.kill).toHaveBeenCalled();
+    await host.retireAntigravityRuntime();
+  });
 });

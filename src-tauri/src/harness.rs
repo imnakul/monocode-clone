@@ -2486,9 +2486,15 @@ fn resolve_antigravity() -> Option<PathBuf> {
 
     // PATH first so a manual ACP install resolves dynamically per user instead
     // of via a hardcoded username. `which_in_path` applies PATHEXT on Windows,
-    // so "agy_acp_server" finds `agy_acp_server.exe`.
+    // so "agy_acp_server" finds `agy_acp_server.exe`. Unix has no extension
+    // resolution: the supported file is literally `agy_acp_server.par`, and the
+    // validator rejects the extensionless name, so search for that exact name.
     #[cfg(windows)]
     if let Some(found) = which_in_path(&gui_search_path(), "agy_acp_server") {
+        candidates.push(found);
+    }
+    #[cfg(not(windows))]
+    if let Some(found) = which_in_path(&gui_search_path(), "agy_acp_server.par") {
         candidates.push(found);
     }
 
@@ -2502,6 +2508,11 @@ fn resolve_antigravity() -> Option<PathBuf> {
     candidates.push(PathBuf::from("/usr/local/bin/agy_acp_server.par"));
     candidates.push(PathBuf::from("/usr/bin/agy_acp_server.par"));
 
+    #[cfg(not(windows))]
+    if let Some(from_shell) = which_via_login_shell("agy_acp_server.par") {
+        candidates.push(from_shell);
+    }
+    #[cfg(windows)]
     if let Some(from_shell) = which_via_login_shell("agy_acp_server") {
         candidates.push(from_shell);
     }

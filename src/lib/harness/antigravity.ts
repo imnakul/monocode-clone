@@ -65,6 +65,8 @@ type Live = {
   runtime: AntigravitySharedRuntime;
   cwd: string;
   nativeId: string;
+  /** Which sendAntigravityTurn epoch this session object belongs to. */
+  turnEpoch: number;
   configOptions: AntigravityConfig[];
   promptCapabilities: Record<string, unknown>;
   onEvent: (event: HarnessEvent) => void;
@@ -81,7 +83,19 @@ type Live = {
 
 const sessions = new Map<string, Live>();
 const resumes = new Map<string, Resume>();
-const cancelledThreads = new Set<string>();
+/** Monotonic per-session turn ids. A cancellation is tagged with the turn it
+ * targets, so aborting a starting turn can never swallow the next message. */
+const turnEpochs = new Map<string, number>();
+const cancelledEpochs = new Map<string, number>();
+
+const ANTIGRAVITY_TURN_CANCELLED = "Antigravity turn cancelled.";
+
+/** True when this exact turn was cancelled; consumes the tag. */
+function turnCancelled(sessionId: string, epoch: number): boolean {
+  if (cancelledEpochs.get(sessionId) !== epoch) return false;
+  cancelledEpochs.delete(sessionId);
+  return true;
+}
 
 export async function sendAntigravityTurn(input: SendTurnInput): Promise<void> {
   const stored = resumes.get(input.sessionId);
@@ -95,10 +109,17 @@ export async function sendAntigravityTurn(input: SendTurnInput): Promise<void> {
     await stopAntigravitySession(input.sessionId);
     live = undefined;
   }
-  if (cancelledThreads.delete(input.sessionId)) return;
+  const epoch = (turnEpochs.get(input.sessionId) ?? 0) + 1;
+  turnEpochs.set(input.sessionId, epoch);
 
   if (!live) live = await createLive(input);
+  if (turnCancelled(input.sessionId, epoch)) {
+    // Cancelled while the runtime or session was starting; nothing was sent.
+    await stopAntigravitySession(input.sessionId);
+    throw new Error(ANTIGRAVITY_TURN_CANCELLED);
+  }
   live.onEvent = input.onEvent;
+  live.turnEpoch = epoch;
 
   const active = live;
   active.turns = active.turns
@@ -106,7 +127,15 @@ export async function sendAntigravityTurn(input: SendTurnInput): Promise<void> {
     .then(async (): Promise<void> => {
       active.cancelled = false;
       active.muteUpdates = false;
+      if (turnCancelled(input.sessionId, active.turnEpoch)) {
+        active.cancelled = true;
+        return;
+      }
       await applyModelSelection(active, input);
+      if (turnCancelled(input.sessionId, active.turnEpoch)) {
+        active.cancelled = true;
+        return;
+      }
       await applyRuntimeMode(active, input.runtimeMode);
       await prompt(active, input);
     });
@@ -176,10 +205,30 @@ export function respondAntigravityQuestion(
 
 export async function cancelAntigravityTurn(sessionId: string): Promise<void> {
   const live = sessions.get(sessionId);
-  if (!live || !live.activePrompt) {
-    cancelledThreads.add(sessionId);
+  if (!live) {
+    // A turn may be in its very first awaits (runtime acquisition) before the
+    // session object exists; tag that turn so it aborts. With nothing in
+    // flight this is a no-op - a cancel must never swallow a future message.
+    const epoch = turnEpochs.get(sessionId);
+    if (epoch != null) cancelledEpochs.set(sessionId, epoch);
     return;
   }
+  if (!live.activePrompt) {
+    // Startup or per-turn preparation is in flight. Tag the in-flight turn so
+    // it aborts before anything is sent — without leaking the cancellation
+    // into the next, independent user message.
+    cancelledEpochs.set(sessionId, live.turnEpoch);
+    live.cancelled = true;
+    live.muteUpdates = true;
+    return;
+  }
+  await cancelActivePrompt(live);
+}
+
+/** Cancels the live prompt natively and bounds the wait. A runtime that
+ * ignores `session/cancel` is retired — killing the process is what bounds
+ * this wait, and every attached session observes the exit. */
+async function cancelActivePrompt(live: Live): Promise<void> {
   live.cancelled = true;
   live.muteUpdates = true;
   // Release pending provider requests so the agent can wrap the turn up.
@@ -200,39 +249,38 @@ export async function cancelAntigravityTurn(sessionId: string): Promise<void> {
     settled.settled.then((): boolean => true),
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), CANCEL_GRACE_MS)),
   ]);
-  if (!finished) {
-    // The runtime ignored session/cancel; its process state is unknown, so
-    // retire the shared runtime instead of reusing a wedged transport. Every
-    // attached session reports the exit and resumes on its next turn.
-    await stopAntigravitySession(sessionId);
-    await retireAntigravityRuntime();
-  }
+  if (!finished) await retireAntigravityRuntime();
 }
 
 export async function stopAntigravitySession(sessionId: string): Promise<void> {
-  cancelledThreads.delete(sessionId);
   const live = sessions.get(sessionId);
   sessions.delete(sessionId);
-  if (live) {
-    live.muteUpdates = true;
-    live.activePrompt = null;
-    // Detach only: the shared runtime keeps serving the other sessions.
-    live.runtime.detach(live.nativeId);
-    for (const [, pending] of live.approvals) {
-      void live.runtime.rpc.respond(pending.nativeId, CANCELLED_OUTCOME).catch((): void => {});
-    }
-    live.approvals.clear();
-    for (const [, pending] of live.questions) {
-      void live.runtime.rpc.respond(pending.nativeId, CANCELLED_OUTCOME).catch((): void => {});
-    }
-    live.questions.clear();
-  }
   if (!live) {
     await killChild(sessionId).catch((): void => {});
+    return;
   }
+  // Disposal coordinates with cancellation: a still-running prompt is
+  // cancelled natively with the same bounded grace, so deleting a chat can
+  // never strand a working agent behind it.
+  if (live.activePrompt) await cancelActivePrompt(live);
+  live.activePrompt = null;
+  live.muteUpdates = true;
+  // Detach only: the shared runtime keeps serving the other sessions.
+  live.runtime.detach(live.nativeId);
+  for (const [, pending] of live.approvals) {
+    void live.runtime.rpc.respond(pending.nativeId, CANCELLED_OUTCOME).catch((): void => {});
+  }
+  live.approvals.clear();
+  for (const [, pending] of live.questions) {
+    void live.runtime.rpc.respond(pending.nativeId, CANCELLED_OUTCOME).catch((): void => {});
+  }
+  live.questions.clear();
 }
 
 export async function forgetAntigravitySession(sessionId: string): Promise<void> {
+  // Disposal self-contains cancellation: even if the caller never awaited its
+  // own cancel call, forgetting a running chat still bounds the agent.
+  await cancelAntigravityTurn(sessionId).catch((): void => {});
   resumes.delete(sessionId);
   await stopAntigravitySession(sessionId);
 }
@@ -308,6 +356,7 @@ async function createLive(input: SendTurnInput): Promise<Live> {
     runtime: host,
     cwd: input.cwd,
     nativeId: "",
+    turnEpoch: turnEpochs.get(input.sessionId) ?? 0,
     configOptions: [],
     promptCapabilities: {},
     onEvent: input.onEvent,
@@ -324,6 +373,11 @@ async function createLive(input: SendTurnInput): Promise<Live> {
 
   let attachedId: string | null = null;
   try {
+    if (turnCancelled(input.sessionId, live.turnEpoch)) {
+      // Stop was pressed while the runtime was starting; do not open a native
+      // session for a turn that is already abandoned.
+      throw new Error(ANTIGRAVITY_TURN_CANCELLED);
+    }
     live.promptCapabilities = host.promptCapabilities;
 
     let nativeId: string;
@@ -385,6 +439,17 @@ function handleNotification(live: Live, method: string, params: unknown): void {
   // One MonoCode conversation projects one native session; child sessions and
   // neighbors must never leak into this transcript.
   if (asRecord(params)?.sessionId !== live.nativeId) return;
+  const update = asRecord(asRecord(params)?.update);
+  if (update?.sessionUpdate === "config_option_update") {
+    // The agent can change its own mode or model (fallbacks, planning modes).
+    // Refresh the cached snapshot so the next turn reconciles against reality
+    // instead of trusting a stale selection.
+    const next = update.configOptions ?? update.config_options;
+    if (Array.isArray(next) && next.length > 0) {
+      live.configOptions = antigravityConfigs({ configOptions: next });
+    }
+    return;
+  }
   if (live.muteUpdates) return;
   for (const event of antigravityEvents(params)) live.onEvent(event);
 }
@@ -476,6 +541,11 @@ async function setConfigOption(live: Live, configId: string, value: string): Pro
 
 async function prompt(live: Live, input: SendTurnInput): Promise<void> {
   const blocks = await antigravityPrompt(input.text, input.attachments ?? [], live.promptCapabilities);
+  if (turnCancelled(input.sessionId, live.turnEpoch)) {
+    // Cancelled while attachments or configuration were being prepared.
+    live.cancelled = true;
+    throw new Error(ANTIGRAVITY_TURN_CANCELLED);
+  }
   let resolveSettled!: () => void;
   const settled = new Promise<void>((resolve) => {
     resolveSettled = resolve;
