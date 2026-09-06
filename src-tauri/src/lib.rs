@@ -1,5 +1,7 @@
 use tauri::Manager;
 
+pub mod antigravity_acp;
+
 mod checkpoint;
 mod cursor_store;
 mod fs;
