@@ -15,6 +15,7 @@
     "core:window:allow-destroy",
     "core:window:allow-hide",
     "opener:default",
+    "opener:allow-reveal-item-in-dir",
     "dialog:default",
     "updater:default",
     "process:default",

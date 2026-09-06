@@ -20,6 +20,41 @@ import {
   CREATE_SKILL_NAME,
 } from "./createSkill";
 
+const DISABLED_SKILL_PATHS_KEY = "monocode.disabledSkillPaths";
+
+/** Fired on `window` when a skill is enabled or disabled in Settings. */
+export const SKILLS_CHANGE_EVENT = "monocode:skills-change";
+
+export function loadDisabledSkillPaths(): string[] {
+  try {
+    const raw = localStorage.getItem(DISABLED_SKILL_PATHS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((path): path is string => typeof path === "string")
+      : [];
+  } catch {
+    // private mode / quota
+    return [];
+  }
+}
+
+export function saveDisabledSkillPaths(paths: string[]) {
+  try {
+    localStorage.setItem(DISABLED_SKILL_PATHS_KEY, JSON.stringify(paths));
+  } catch {
+    // private mode / quota
+  }
+  // The composer catalog caches per context; drop it so the next picker or
+  // prompt sees the change immediately.
+  invalidateSkills();
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(SKILLS_CHANGE_EVENT));
+}
+
+function disabledSkillPathSet(): Set<string> {
+  return new Set(loadDisabledSkillPaths());
+}
+
 export type SkillScope = "project" | "user" | "builtin";
 export type SkillSource =
   | "agents"
@@ -276,7 +311,13 @@ async function loadCatalog(context: SkillCatalogContext): Promise<Skill[]> {
       ...command,
     }));
   }
-  return mergeCatalog(await listSkills(context.cwd));
+  // Skills disabled in Settings drop out of every catalog here, so the
+  // composer, the picker, and prompt preparation all agree.
+  const disabled = disabledSkillPathSet();
+  const discovered = (await listSkills(context.cwd)).filter(
+    (skill) => !disabled.has(skill.path),
+  );
+  return mergeCatalog(discovered);
 }
 
 export function mergeCatalog(discovered: DiscoveredSkill[]): Skill[] {

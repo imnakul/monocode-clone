@@ -1,6 +1,8 @@
 import {
   ArrowDownCircle,
   Check,
+  Copy,
+  FolderOpen,
   Loader,
   RefreshCw,
   RotateCcw,
@@ -145,10 +147,16 @@ import {
 import { prettyCwd, projectName } from "../lib/paths";
 import {
   clearManagedWallpaper,
+  type DiscoveredSkill,
+  listSkills,
   persistWallpaper,
   pickFile,
   pickImage,
 } from "../lib/fs";
+import { createBlankSkill, loadDisabledSkillPaths, saveDisabledSkillPaths, SKILLS_CHANGE_EVENT } from "../lib/skills";
+import { CreateSkillForm } from "../chrome/SkillPicker";
+import { copyText } from "../lib/clipboard";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getCustomBinary, setCustomBinary } from "../lib/harness/customBinary";
 import { SharedHoverHighlight } from "../chrome/SharedHoverHighlight";
 import { IS_MAC, IS_WINDOWS } from "../lib/platform";
@@ -310,6 +318,7 @@ export function SettingsView({
           ) : null}
           {section === "keybindings" ? <KeybindingsPage /> : null}
           {section === "providers" ? <ProvidersPage /> : null}
+          {section === "skills" ? <SkillsPage cwd={cwd} /> : null}
           {section === "archive" ? (
             <ArchivePage
               cwd={cwd}
@@ -1278,6 +1287,255 @@ function KeybindingsPage() {
       <p className="pt-3 text-[12px] text-content/40">
         Bindings come from the app menu and the workspace key handler; they
         aren’t customizable yet.
+      </p>
+    </>
+  );
+}
+
+function SkillsPage({ cwd }: { cwd: string }) {
+  const [skills, setSkills] = useState<DiscoveredSkill[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+  const [disabledPaths, setDisabledPaths] = useState<string[]>(() =>
+    loadDisabledSkillPaths(),
+  );
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listSkills(cwd)
+      .then((next) => {
+        if (cancelled) return;
+        setSkills(next);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, reload]);
+
+  useEffect(() => {
+    const onChange = () => setDisabledPaths(loadDisabledSkillPaths());
+    window.addEventListener(SKILLS_CHANGE_EVENT, onChange);
+    return () => window.removeEventListener(SKILLS_CHANGE_EVENT, onChange);
+  }, []);
+
+  const needle = query.trim().toLowerCase();
+  const filtered = useMemo(
+    () =>
+      (skills ?? []).filter(
+        (skill) =>
+          !needle ||
+          skill.name.toLowerCase().includes(needle) ||
+          skill.description.toLowerCase().includes(needle) ||
+          skill.source.toLowerCase().includes(needle) ||
+          skill.path.toLowerCase().includes(needle),
+      ),
+    [needle, skills],
+  );
+
+  const onToggle = (path: string, enabled: boolean) => {
+    const next = enabled
+      ? disabledPaths.filter((item) => item !== path)
+      : [...disabledPaths, path];
+    saveDisabledSkillPaths(next);
+  };
+
+  const onReveal = (path: string) => {
+    setActionError(null);
+    void revealItemInDir(path).catch((err: unknown) => {
+      setActionError(
+        `Could not open the folder: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  };
+
+  const onCopyPath = (path: string) => {
+    setActionError(null);
+    void copyText(path).catch(() => {
+      setActionError("Could not copy the path to the clipboard.");
+    });
+  };
+
+  const onCreate = (name: string, scope: "project" | "user") => {
+    setBusy(true);
+    setCreateError(null);
+    void createBlankSkill({ cwd, name, scope })
+      .then(() => {
+        setAdding(false);
+        setReload((value) => value + 1);
+      })
+      .catch((err: unknown) => {
+        setCreateError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-3 pb-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="shrink-0 text-[12px] text-content/40 tabular-nums">
+            {skills == null
+              ? "…"
+              : `${filtered.length} ${filtered.length === 1 ? "skill" : "skills"}`}
+          </span>
+          <label className="flex h-7 w-52 min-w-0 items-center gap-2 rounded-md border border-content/10 px-2 text-content/45 focus-within:border-content/20">
+            <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Filter"
+              aria-label="Filter skills"
+              spellCheck={false}
+              autoComplete="off"
+              className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35"
+            />
+          </label>
+          <button
+            type="button"
+            aria-label="Refresh skills"
+            title="Rescan skill folders"
+            onClick={() => setReload((value) => value + 1)}
+            className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content"
+          >
+            <RefreshCw className="size-3.5" strokeWidth={1.75} />
+          </button>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <SecondaryButton
+            onClick={() => {
+              setAdding((value) => !value);
+              setCreateError(null);
+            }}
+            title="Create a starter SKILL.md you can edit"
+          >
+            {adding ? "Close" : "Add skill"}
+          </SecondaryButton>
+        </div>
+      </div>
+
+      {adding ? (
+        <div className="mb-4 overflow-hidden rounded-lg border border-content/10 bg-content/[0.03]">
+          <CreateSkillForm
+            query={query}
+            cwd={cwd}
+            error={createError}
+            busy={busy}
+            onCancel={() => {
+              setAdding(false);
+              setCreateError(null);
+            }}
+            onCreate={onCreate}
+          />
+        </div>
+      ) : null}
+
+      {actionError ? (
+        <p role="alert" className="pb-3 text-[12px] text-red-400">
+          {actionError}
+        </p>
+      ) : null}
+
+      {error ? (
+        <p className="text-[12px] text-red-400">{error}</p>
+      ) : skills == null ? (
+        <p className="text-[12px] text-content/45">Loading skills…</p>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-content/10">
+          {filtered.length === 0 ? (
+            <p className="px-3 py-3 text-[12px] text-content/45">
+              {skills.length === 0
+                ? "No skills yet — Add skill creates a starter SKILL.md, or import one."
+                : "No matching skills"}
+            </p>
+          ) : (
+            filtered.map((skill) => {
+              const disabled = disabledPaths.includes(skill.path);
+              return (
+                <div
+                  key={skill.path}
+                  className={`border-b border-content/5 px-3 py-2 last:border-b-0 ${
+                    disabled ? "opacity-50" : ""
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="min-w-0 flex-1 truncate font-mono text-[12px] text-content"
+                      title={skill.name}
+                    >
+                      {skill.name}
+                    </span>
+                    <span className="shrink-0 rounded-full bg-content/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-content/60">
+                      {skill.scope === "user"
+                        ? "Personal"
+                        : skill.scope === "builtin"
+                          ? "MonoCode"
+                          : "Project"}
+                    </span>
+                    <span className="w-20 shrink-0 truncate text-right font-mono text-[11px] text-content/40">
+                      {skill.source}
+                    </span>
+                    <Toggle
+                      label={`${disabled ? "Enable" : "Disable"} ${skill.name}`}
+                      on={!disabled}
+                      onChange={(on) => onToggle(skill.path, on)}
+                    />
+                  </div>
+                  {skill.description ? (
+                    <p
+                      className="mt-0.5 truncate text-[12px] text-content/55"
+                      title={skill.description}
+                    >
+                      {skill.description}
+                    </p>
+                  ) : null}
+                  <div className="mt-0.5 flex items-center gap-1">
+                    <p
+                      className="min-w-0 flex-1 truncate font-mono text-[11px] text-content/35"
+                      title={skill.path}
+                    >
+                      {skill.path}
+                    </p>
+                    <button
+                      type="button"
+                      aria-label={`Copy path of ${skill.name}`}
+                      title="Copy path"
+                      onClick={() => onCopyPath(skill.path)}
+                      className="grid size-5 shrink-0 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
+                    >
+                      <Copy className="size-3" strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Reveal ${skill.name} in file explorer`}
+                      title="Reveal in File Explorer"
+                      onClick={() => onReveal(skill.path)}
+                      className="grid size-5 shrink-0 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
+                    >
+                      <FolderOpen className="size-3" strokeWidth={1.75} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      <p className="pt-3 text-[12px] text-content/40">
+        Disabled skills stay on disk but are hidden from the composer and prompts.
+        Skills live in <span className="font-mono">.agents/skills</span> for this
+        project and <span className="font-mono">~/.agents/skills</span> for you
+        personally; harness folders are also picked up.
       </p>
     </>
   );

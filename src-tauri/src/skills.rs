@@ -668,6 +668,7 @@ mod tests {
         assert_eq!(skill.scope, "user");
         assert!(skill
             .path
+            .replace('\\', "/")
             .ends_with("workflow-kit/1.2.3/skills/quick-plan/SKILL.md"));
         assert!(skills.iter().any(|skill| skill.name == "quick-plan"));
     }

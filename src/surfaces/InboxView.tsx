@@ -85,6 +85,7 @@ import {
 } from "../lib/inboxSeen";
 import {
   LINEAR_CHANGE_EVENT,
+  linearConnected,
   linearIssueComment,
   linearIssueDetails,
   linearIssueThread,
@@ -92,6 +93,7 @@ import {
   peekLinearIssueDetails,
   peekLinearIssueThread,
   type LinearIssueThread,
+  type LinearStatus,
 } from "../lib/linear";
 import {
   loadTabGroupColors,
@@ -292,6 +294,9 @@ export function InboxView({
   const [linearHiddenTeamIds, setLinearHiddenTeamIds] = useState(
     loadHiddenLinearTeamIds,
   );
+  // Null until the first status check lands; the Linear tab stays visible in
+  // that window so connected users never see it flicker away.
+  const [linearStatus, setLinearStatus] = useState<LinearStatus | null>(null);
   const prevRefresh = useRef(refresh);
 
   const projects = useMemo(
@@ -355,6 +360,30 @@ export function InboxView({
     window.addEventListener(LINEAR_CHANGE_EVENT, onChange);
     return () => window.removeEventListener(LINEAR_CHANGE_EVENT, onChange);
   }, []);
+
+  // Re-check along with `refresh`: it bumps on LINEAR_CHANGE_EVENT, so the
+  // tab appears/disappears the moment Settings connects or disconnects.
+  useEffect(() => {
+    let cancelled = false;
+    void linearConnected()
+      .then((status) => {
+        if (!cancelled) setLinearStatus(status);
+      })
+      .catch(() => {
+        if (!cancelled) setLinearStatus(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refresh]);
+
+  // A persisted "linear" source must not strand the inbox on a hidden tab.
+  useEffect(() => {
+    if (linearStatus != null && !linearStatus.connected && source === "linear") {
+      setSource("github");
+      saveInboxSource("github");
+    }
+  }, [linearStatus, source]);
 
   useEffect(() => {
     const force = refresh !== prevRefresh.current;
@@ -479,11 +508,13 @@ export function InboxView({
           selected={source === "github"}
           onSelect={onSourceChange}
         />
-        <InboxSourceTab
-          source="linear"
-          selected={source === "linear"}
-          onSelect={onSourceChange}
-        />
+        {linearStatus == null || linearStatus.connected ? (
+          <InboxSourceTab
+            source="linear"
+            selected={source === "linear"}
+            onSelect={onSourceChange}
+          />
+        ) : null}
       </div>
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-content/10 px-2">
         <div className="relative flex h-7 min-w-0 flex-1 items-center">

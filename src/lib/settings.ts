@@ -7,6 +7,7 @@ export type SettingsSectionId =
   | "appearance"
   | "keybindings"
   | "providers"
+  | "skills"
   | "archive"
   | "migration";
 
@@ -36,6 +37,12 @@ export const SETTINGS_SECTIONS: {
     label: "Providers",
     description:
       "Agent CLIs MonoCode can drive, and the model new sessions start with.",
+  },
+  {
+    id: "skills",
+    label: "Skills",
+    description:
+      "Agent skills MonoCode loads from project, personal, and harness folders.",
   },
   {
     id: "archive",

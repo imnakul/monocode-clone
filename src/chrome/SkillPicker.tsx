@@ -186,7 +186,8 @@ function SkillList({
   );
 }
 
-function CreateSkillForm({
+/** Also rendered on the Settings → Skills page; keep it Settings-agnostic. */
+export function CreateSkillForm({
   query,
   cwd,
   error,
@@ -286,7 +287,8 @@ function CreateSkillForm({
   );
 }
 
-function ScopeButton({
+/** Also used by the Settings → Skills import form; keep it host-agnostic. */
+export function ScopeButton({
   label,
   hint,
   selected,
