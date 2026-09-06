@@ -15,9 +15,11 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactElement,
   type ReactNode,
 } from "react";
 import { HarnessIcon } from "../chrome/HarnessIcon";
+import { AntigravitySetupPanel } from "./AntigravitySetupPanel";
 import { InboxProviderMark } from "../chrome/InboxProviderMark";
 import { RemoveProjectDialog } from "../chrome/RemoveProjectDialog";
 import { SelectMenu } from "../chrome/SelectMenu";
@@ -130,6 +132,16 @@ import {
   subscribeHarnessAvailability,
 } from "../lib/harness/availability";
 import { refreshHarnessCatalogs } from "../lib/harness/registry";
+import {
+  getAntigravityCatalogSnapshot,
+  recheckAntigravityCatalog,
+  subscribeAntigravityCatalog,
+  type AntigravityCatalogSnapshot,
+} from "../lib/harness/antigravityCatalog";
+import {
+  cancelAntigravitySignIn,
+  signInAntigravity,
+} from "../lib/harness/antigravitySetup";
 import {
   defaultModelId,
   getModelSnapshot,
@@ -1613,6 +1625,7 @@ function ProviderRow({
 }) {
   const models = modelsFor(harness);
   const available = isHarnessAvailable(harness);
+  const catalog = useAntigravityCatalogSnapshot();
   const current =
     models.length > 0 ? resolveModel(harness, selectedModel) : null;
   const [inPicker, setInPicker] = useState(() =>
@@ -1656,21 +1669,34 @@ function ProviderRow({
 
   // Manual health check + model refresh for this row: re-probes every CLI
   // (fast `--version` checks, no quota) and refreshes this harness's model
-  // catalog. Auto-refresh on visit stays as the no-click path.
+  // catalog. Auto-refresh on visit stays as the no-click path. Antigravity
+  // must rerun real ACP discovery even when a previous catalog succeeded —
+  // a stale "ready" would hide sign-in and runtime errors.
   const handleRecheck = async () => {
     if (rechecking) return;
     setRechecking(true);
     try {
       await probeHarnessAvailability({ force: true });
-      await refreshHarnessCatalogs([harness]);
+      if (harness === "antigravity") {
+        await recheckAntigravityCatalog();
+      } else {
+        await refreshHarnessCatalogs([harness]);
+      }
     } finally {
       setRechecking(false);
     }
   };
 
+  const antigravitySetup =
+    harness === "antigravity" ? (
+      <AntigravityProviderSetup available={available} catalog={catalog} />
+    ) : null;
+
   return (
-    <Row
-      label={
+    <>
+      {antigravitySetup}
+      <Row
+        label={
         <div className="flex flex-col gap-1">
           <span className="flex items-center gap-2">
             <HarnessIcon harness={harness} className="size-4 shrink-0" />
@@ -1699,9 +1725,13 @@ function ProviderRow({
         </div>
       }
       description={
-        available
-          ? `${models.length} ${models.length === 1 ? "model" : "models"} available.`
-          : harnessUnavailableHint(harness)
+        harness === "antigravity" && catalog.phase === "error"
+          ? // The setup panel right above already carries the full alert;
+            // repeating it here doubles a long message for no new information.
+            "Antigravity setup needs attention — see the note above."
+          : available
+            ? `${models.length} ${models.length === 1 ? "model" : "models"} available.`
+            : harnessUnavailableHint(harness)
       }
     >
       <SecondaryButton
@@ -1755,6 +1785,81 @@ function ProviderRow({
         </div>
       ) : null}
     </Row>
+    </>
+  );
+}
+
+/** Live ACP catalog snapshot for the Antigravity provider row (no-op others). */
+function useAntigravityCatalogSnapshot(): AntigravityCatalogSnapshot {
+  const [snapshot, setSnapshot] = useState<AntigravityCatalogSnapshot>(
+    getAntigravityCatalogSnapshot,
+  );
+  useEffect(
+    () =>
+      subscribeAntigravityCatalog(() =>
+        setSnapshot(getAntigravityCatalogSnapshot()),
+      ),
+    [],
+  );
+  return snapshot;
+}
+
+/**
+ * Explicit Google sign-in for the separate Antigravity ACP runtime. Sign-in
+ * success is the account connection only; model readiness comes from real
+ * catalog discovery, never from the browser having opened.
+ */
+function AntigravityProviderSetup({
+  available,
+  catalog,
+}: {
+  available: boolean;
+  catalog: AntigravityCatalogSnapshot;
+}): ReactElement {
+  const [signingIn, setSigningIn] = useState(false);
+  const [message, setMessage] = useState<string | undefined>(undefined);
+  const [error, setError] = useState<string | undefined>(undefined);
+
+  const handleSignIn = async () => {
+    if (signingIn) return;
+    setError(undefined);
+    setMessage(undefined);
+    setSigningIn(true);
+    try {
+      await signInAntigravity();
+      setMessage("Google account connected. Loading models…");
+      await recheckAntigravityCatalog();
+      if (getAntigravityCatalogSnapshot().phase === "ready") {
+        setMessage("Google account connected and models loaded.");
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSigningIn(false);
+    }
+  };
+
+  // Sign-in-required is a pre-state, not a failure: the runtime is healthy and
+  // the sign-in button sits in this very panel, so show calm guidance instead
+  // of the chat-startup error text (which self-references Settings).
+  const catalogError = catalog.phase === "error" && !catalog.signInRequired ? catalog.error : undefined;
+  const signInHint = catalog.signInRequired
+    ? "Runtime connected. Sign in with Google to load your models."
+    : undefined;
+  const displayMessage =
+    catalog.phase === "loading"
+      ? "Loading Antigravity models…"
+      : (message ?? signInHint);
+
+  return (
+    <AntigravitySetupPanel
+      available={available}
+      signingIn={signingIn}
+      message={displayMessage}
+      error={error ?? catalogError}
+      onSignIn={() => void handleSignIn()}
+      onCancel={() => void cancelAntigravitySignIn().catch(() => undefined)}
+    />
   );
 }
 

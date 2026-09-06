@@ -1,42 +1,90 @@
 import { homeDir } from "../fs";
 import { setHarnessModels } from "../models";
-import { execChild, resolveAntigravityBinary } from "./child";
-import { modelsFromAntigravityOutput } from "./antigravityProtocol";
+import { antigravityConfigs, antigravityModels } from "./antigravityAcpProtocol";
+import { acquireAntigravityRuntime } from "./antigravityRuntimeHost";
 
+export type AntigravityCatalogPhase = "idle" | "loading" | "ready" | "error";
+
+export type AntigravityCatalogSnapshot = {
+  phase: AntigravityCatalogPhase;
+  error?: string;
+  /** True when the runtime is healthy but the Google account is not connected. */
+  signInRequired?: boolean;
+};
+
+let snapshot: AntigravityCatalogSnapshot = { phase: "idle" };
+const listeners = new Set<() => void>();
 let inflight: Promise<void> | null = null;
 
-export function refreshAntigravityCatalog(): Promise<void> {
+/** Real-time discovery state so Settings can show failures without devtools. */
+export function getAntigravityCatalogSnapshot(): AntigravityCatalogSnapshot {
+  return snapshot;
+}
+
+export function subscribeAntigravityCatalog(listener: () => void): () => void {
+  listeners.add(listener);
+  return (): void => {
+    listeners.delete(listener);
+  };
+}
+
+function setSnapshot(next: AntigravityCatalogSnapshot): void {
+  snapshot = next;
+  for (const listener of listeners) listener();
+}
+
+/**
+ * Discover models over the official ACP contract: session/new on the shared
+ * runtime (which handles initialize + authenticate once), then read the
+ * `model` select config option. Discovery needs a signed-in account; without
+ * one this reports the sign-in state instead of pretending the runtime has no
+ * models.
+ */
+export function refreshAntigravityCatalog(force = false): Promise<void> {
   if (inflight) return inflight;
-  inflight = discoverAntigravityModels()
-    .then((models) => {
-      if (models.length > 0) setHarnessModels("antigravity", models);
-    })
-    .catch((error: unknown) => {
-      console.debug("[monocode] antigravity catalog", error);
-    })
-    .finally(() => {
-      inflight = null;
-    });
+  if (!force && snapshot.phase === "loading") return Promise.resolve();
+  inflight = discover().finally((): void => {
+    inflight = null;
+  });
   return inflight;
 }
 
-async function discoverAntigravityModels() {
-  const { path } = await resolveAntigravityBinary();
-  const cwd = await homeDir();
-  // Mirror the HARI reference: try JSON envelopes first, fall back to text.
-  const attempts: string[][] = [
-    ["--output-format", "json", "models"],
-    ["models", "--output-format", "json"],
-    ["models"],
-  ];
-  for (const args of attempts) {
-    try {
-      const stdout = await execChild(path, args, cwd);
-      const models = modelsFromAntigravityOutput(stdout);
-      if (models.length > 0) return models;
-    } catch {
-      continue;
+async function discover(): Promise<void> {
+  setSnapshot({ phase: "loading" });
+  try {
+    const cwd = await homeDir();
+    // Discovery runs on the shared long-lived runtime; the throwaway session
+    // is abandoned inside it on purpose, since spawning a fresh onefile
+    // process per Recheck costs a ~500 MB self-extraction.
+    const host = await acquireAntigravityRuntime();
+    const setup = await host.rpc.request(
+      "session/new",
+      { cwd, mcpServers: [] },
+      45_000,
+    );
+    const models = antigravityModels(antigravityConfigs(setup));
+    if (models.length === 0) {
+      setSnapshot({
+        phase: "error",
+        error:
+          "The Antigravity runtime returned no models for this account. Sign in again, update the official ACP runtime, then Recheck.",
+      });
+      return;
     }
+    setHarnessModels("antigravity", models);
+    setSnapshot({ phase: "ready" });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setSnapshot({
+      phase: "error",
+      error: message,
+      signInRequired: /sign[- ]?in/i.test(message),
+    });
+    console.debug("[monocode] antigravity catalog", error);
   }
-  return [];
+}
+
+/** Settings Recheck must rerun discovery even when a previous catalog succeeded. */
+export async function recheckAntigravityCatalog(): Promise<void> {
+  await refreshAntigravityCatalog(true);
 }

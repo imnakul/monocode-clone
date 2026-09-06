@@ -47,4 +47,4 @@ tauri-plugin-window-state = "2.4.1"
 [target.'cfg(windows)'.dependencies]
 window-vibrancy = "0.6"
 winreg = "0.55"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Threading"] }
