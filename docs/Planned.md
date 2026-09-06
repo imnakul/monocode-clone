@@ -157,7 +157,22 @@ project/thread. Runs create real threads so results appear in the kanban, not in
 Hooks (pre/post turn, on-question, on-error) fall out of the same engine — and `Needs Input`
 can be one of the hook targets.
 
-### 10. Hari, phase 0 — kanban without AI (medium, and worth doing early)
+### 10. Mode switcher — Projects / Chat / Hari (small, frames everything)
+
+A tab switcher at the **top-left** of the app shell with three modes:
+
+- **Projects** — today's app, unchanged: project threads, file pane, git, notes.
+- **Chat** — where standalone chats (#6) live: projectless threads, still continuable.
+- **Hari** — the orchestrator surface: kanban board, Needs Input lane, briefing composer.
+
+Design rules: one app shell, three lenses over the **same session store** — switching modes
+never stops running threads. A thread that is working shows a presence badge in every mode
+(Munder Difflin's "watch the floor" idea, native to MonoCode's workbench instead of avatars).
+The switcher itself is dumb view routing over shared state, so it can ship early: Chat tab
+arrives with standalone chat, the Hari tab starts as the phase-0 kanban and grows into the
+orchestrator without any further shell changes.
+
+### 11. Hari, phase 0 — kanban without AI (medium, and worth doing early)
 
 The kanban does **not** need Hari's brain to be useful on day one:
 - `Needs Input` can be fed mechanically from events that already exist: `question.asked`,
@@ -167,7 +182,7 @@ The kanban does **not** need Hari's brain to be useful on day one:
 - Only *routing* (which thread next, spawn or continue, which provider) needs the model —
   and by then, the queue, usage meter, and review bridge give Hari cheap tools to work with.
 
-### 11. Later / big: codebase graph, UltraContext, full Hari
+### 12. Later / big: codebase graph, UltraContext, full Hari
 
 - **Code graph**: tree-sitter/ctags-style index built by the harness; expose "relevant files"
   to any provider as attachable context. Pairs with UltraContext (pack a thread's brain into a
