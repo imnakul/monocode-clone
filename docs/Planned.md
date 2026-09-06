@@ -90,9 +90,11 @@ format. (Verified live; counts match real turns.)
 
 ### 3. Image preview fix (small, frontend-only)
 
-Attachments already flow to Antigravity (image blocks). What's missing is local display:
-render thumbnails inline via the asset protocol, click to open full-size (lightbox or OS
-viewer). No provider work needed.
+Checked 2026-09-06: the upstream **image viewer already exists in our branch**
+(`src/lib/filePreview.ts` + `src/surfaces/BinaryFileView.tsx` with zoom controls, magic-byte
+detection, auto-reload) - it is wired into the **FilePane (file explorer)** only. Chat
+attachment bubbles never got it: no inline preview, no click-to-open. The fix is wiring the
+existing viewer into attachment rendering in the transcript/composer - no new viewer needed.
 
 ### 4. CodeRabbit bridge (small, zero AI cost — high value)
 
@@ -134,14 +136,28 @@ Pairs well with the rest: a branch optionally carries queued messages; on the ka
 is naturally a "try another approach" card; Hari can fan one task out to N branches and keep
 the winner.
 
-### 8. Scheduled tasks (medium)
+### 8. Sidechat — parallel research thread (plan later; likely excellent)
+
+"Ask in Sidechat" on any thread: open a side conversation powered by **any model** (not the
+thread's provider), which receives the main thread's context via **UltraContext** — what the
+agent is doing, decisions so far, relevant files. You research, compare approaches, ask
+"should we do X?" — all without touching the main implementation thread, which keeps working.
+Both sides share context; the side chat can promote an outcome back ("tell the main thread to
+do it this way") as a normal queued/steered message.
+
+Why it's good: it separates *thinking* from *doing* — research tokens stop polluting the
+implementation thread, and any cheap model can answer questions about a thread that a premium
+model is executing. Depends on UltraContext for the context bundle; a v0 can ship with a
+compacted-transcript seed (same primitive as Branch) before that exists.
+
+### 9. Scheduled tasks (medium)
 
 In-app scheduler (the app is already long-running): a task = cron/human schedule + prompt +
 project/thread. Runs create real threads so results appear in the kanban, not in a log.
 Hooks (pre/post turn, on-question, on-error) fall out of the same engine — and `Needs Input`
 can be one of the hook targets.
 
-### 9. Hari, phase 0 — kanban without AI (medium, and worth doing early)
+### 10. Hari, phase 0 — kanban without AI (medium, and worth doing early)
 
 The kanban does **not** need Hari's brain to be useful on day one:
 - `Needs Input` can be fed mechanically from events that already exist: `question.asked`,
@@ -151,7 +167,7 @@ The kanban does **not** need Hari's brain to be useful on day one:
 - Only *routing* (which thread next, spawn or continue, which provider) needs the model —
   and by then, the queue, usage meter, and review bridge give Hari cheap tools to work with.
 
-### 10. Later / big: codebase graph, UltraContext, full Hari
+### 11. Later / big: codebase graph, UltraContext, full Hari
 
 - **Code graph**: tree-sitter/ctags-style index built by the harness; expose "relevant files"
   to any provider as attachable context. Pairs with UltraContext (pack a thread's brain into a
@@ -171,3 +187,31 @@ The kanban does **not** need Hari's brain to be useful on day one:
 - From **MonoCode itself**: the differentiator is the integrated workbench — UI, git, file
   explorer, notes, multi-provider in one window. Everything on this ladder should deepen that,
   never require leaving the app.
+
+---
+
+## Appendix: harness landscape (2026-09-06)
+
+Three harnesses, three plumbing philosophies. All drive the same CLIs we already pay for.
+
+| | MonoCode | T3Code | Munder Difflin |
+|---|---|---|---|
+| Shell | Tauri (Rust + webview) | Electron + Effect-TS (server/web/mobile) | Electron + node-pty/tmux |
+| Provider connection | Each provider's own structured channel: Claude stream-JSON stdio, Codex app-server JSON-RPC, OpenCode HTTP/SSE, ACP for Cursor/Grok/Cline/Antigravity | ACP-first where possible + per-provider SDKs; long-lived managed runtimes | None for display - agents are real terminal processes streamed byte-for-byte; structured state via **CLI hook systems** posting to a local hook server |
+| Steering | Native in Claude (stdin message), Codex (`turn/steer`), OpenCode (`promptAsync`); Cursor yes; Grok/Cline/Pi/omp/Antigravity refuse | Handled inside its ACP runtime layer | You type into the terminal (`tmux send-keys`) |
+| Multi-agent | Threads per project, no cross-thread coordination yet | Not the focus | The killer feature: file-based inbox/outbox "hive" in a git repo + GOD orchestrator agent routes work |
+| Memory | Per-provider sessions + notes | Managed by its server | Markdown memory palace with semantic recall |
+| UI depth | Deep: tools, diffs, approvals, usage, git, file explorer, notes | Deep but bulky; multi-platform suite | Deliberately shallow: avatars + live terminal; you watch, you type |
+
+One-line summary: **MonoCode translates each agent; T3Code standardizes agents onto a
+protocol; Munder Difflin just watches the terminal and lets agents pass notes.**
+
+Steering status in our adapters (verified in code): Claude, Codex, OpenCode, Cursor have real
+steering; Antigravity, Grok, Cline, Pi, omp refuse mid-turn input - the harness-level queue
+(#1) makes that difference invisible to the user.
+
+Learnings we keep: from Munder Difflin - hook-based lifecycle events as a cheap fallback for
+protocol-less providers, file-based coordination, never lock agents to a directory/provider;
+from T3Code - long-lived runtimes and honest failure (ported), browser-helper preflight and
+multi-auth methods (pending). MonoCode's differentiator stays the integrated workbench:
+UI, git, file explorer, notes, multi-provider in one window.
