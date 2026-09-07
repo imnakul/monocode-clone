@@ -1,20 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { IS_WINDOWS } from "./platform";
 
 type DataPayload = { id: string; data: string };
 type ExitPayload = { id: string; code: number | null };
 
 /**
- * The Rust backend only implements PTYs on Unix (`pty_spawn` rejects
- * everything else), so on Windows there is no runtime to retry against.
+ * The Rust backend implements PTYs on Unix (`fork`/`openpty`) and on Windows
+ * (ConPTY via portable-pty), so spawns are attempted everywhere. The message
+ * below survives for unknown platforms whose backend still rejects.
  * Must stay identical to the backend rejection in `src-tauri/src/pty.rs`.
  */
 export const PTY_UNSUPPORTED_MESSAGE =
   "Terminals are supported on macOS and Linux.";
 
-/** False on Windows: no PTY runtime exists, do not attempt (or retry) spawns. */
-export const PTY_SUPPORTED = !IS_WINDOWS;
+/** True on every platform with a PTY runtime (Unix + Windows). */
+export const PTY_SUPPORTED = true;
 
 /**
  * Remount guard for the unsupported notice. Terminal views remount whenever

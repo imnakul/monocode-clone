@@ -5,7 +5,6 @@ import {
   PTY_UNSUPPORTED_MESSAGE,
   trimReplay,
 } from "./pty";
-import { IS_WINDOWS } from "./platform";
 
 const KB = 1024;
 
@@ -43,8 +42,10 @@ describe("trimReplay", () => {
 });
 
 describe("PTY platform support", () => {
-  it("derives support from the Windows flag", () => {
-    expect(PTY_SUPPORTED).toBe(!IS_WINDOWS);
+  it("is supported on every platform the Rust backend implements", () => {
+    // Unix (fork/openpty) + Windows (ConPTY). Flip this back only if a
+    // backend platform is ever dropped.
+    expect(PTY_SUPPORTED).toBe(true);
   });
 
   it("keeps the unsupported message identical to the Rust backend rejection", () => {

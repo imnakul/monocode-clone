@@ -48,3 +48,6 @@ tauri-plugin-window-state = "2.4.1"
 window-vibrancy = "0.6"
 winreg = "0.55"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Threading"] }
+# ConPTY backend for the integrated terminal (pty.rs, Windows only).
+# Pure Rust + OS FFI: no C toolchain, no DLLs (ConPTY is in-box since Win10 1809).
+portable-pty = "0.9"
