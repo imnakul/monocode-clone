@@ -1,7 +1,7 @@
 {
   "name": "monocode-desktop",
   "private": true,
-  "version": "0.1.35-local1-antigravity-acp",
+  "version": "0.1.35-local2-antigravity-acp",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -240,3 +240,119 @@ Six issues from the post-implementation review, all fixed with regression tests:
 Plus: **usage meter** — the runtime logs backend `usageUpdate` websocket frames on stderr
 (`trajectoryId` == our ACP session id); the host parses them and feeds `{type:"context",
 used: totalTokenCount}` like Codex/Claude. Best-effort: format changes degrade to no meter.
+
+## Windows installed-build discovery fix (2026-09-07)
+
+The first packaged NSIS build exposed an important difference between dev and installed
+WebViews. Development worked because the Vite/localhost WebView had a previously selected
+`agy_acp_server.exe` path stored in frontend `localStorage`. The installed Tauri WebView uses
+different origin/storage, so that value was absent. On the test machine the runtime was also
+not in Process/User/Machine `PATH`, causing the installed app to report the runtime as missing
+even though dev worked.
+
+`resolve_antigravity()` in `src-tauri/src/harness.rs` now adds Windows Downloads discovery:
+
+```
+~/Downloads/agy_acp_server.exe
+~/Downloads/agy-acp-server*/agy_acp_server.exe
+```
+
+Explicit runtime selection and normal `PATH` discovery remain higher-priority resolution
+mechanisms. The fallback exists so a packaged app can find the common official archive layout
+without depending on origin-specific browser storage.
+
+Packaged verification:
+
+```
+Version: 0.1.35-local2-antigravity-acp
+Installer: target/release/bundle/nsis/MonoCode_0.1.35-local2-antigravity-acp_x64-setup.exe
+Size: 9,324,699 bytes
+SHA256: C7C784EC8DE58CCE1A2070FCF17F9E7C0BFB4B4B2F2DA0F96FF0D224F028FF7D
+```
+
+The user installed this build and confirmed ACP works.
+
+## Stop/retry startup ownership fix (2026-09-07)
+
+A narrow race remained when Stop interrupted `session/new` while a retry started immediately.
+Both turns could await the same single-flight startup. The cancelled older turn could resume
+first while `live.turnEpoch` still matched it and dispose the session before the retry had a
+chance to update `live.turnEpoch`.
+
+Cancellation cleanup now requires all three ownership checks:
+
+```
+sessions.get(sessionId) === live
+live.turnEpoch === epoch
+turnEpochs.get(sessionId) === epoch
+```
+
+The final `turnEpochs` check means only the latest submitted turn may dispose that startup.
+The regression test `preserves retry streaming and approvals when Stop interrupts session
+creation` verifies that the retry reuses the same `session/new`, streams reasoning, routes an
+approval, and sends exactly one prompt.
+
+## Recovery runbook
+
+When ACP becomes unavailable or unstable on Windows, use this sequence before changing code:
+
+1. Confirm `agy_acp_server.exe` and `localharness_external.exe` are in the same directory.
+2. Recheck in Settings → Antigravity ACP.
+3. If discovery fails, choose the binary explicitly, put its directory on `PATH`, or keep the
+   extracted official archive under a `Downloads\agy-acp-server*` directory.
+4. If a crash is followed by repeated startup/sign-in failures, kill stray
+   `agy_acp_server` process trees and delete abandoned `_MEI*` directories under
+   `~/.monocode/providers/antigravity/tmp`, then restart MonoCode and Recheck.
+5. Check free disk space; keep roughly 10 GB available because the PyInstaller onefile runtime
+   extracts about 500 MB per cold launch.
+6. A stale sign-in card does not prove authentication was lost. Check the persisted token at
+   `~/.monocode/providers/antigravity/antigravity-acp/acp_token.json` before repeating OAuth.
+7. If a binary path changes, the shared host should retire the old runtime automatically. If
+   it does not, inspect binary-resolution/runtime-host invalidation before adding another
+   process lifecycle.
+8. For Stop/retry problems, inspect turn-epoch ownership and the startup race regression test.
+   Reintroducing spawn-per-session would recreate the disk/extraction congestion that the
+   long-lived host solved.
+
+Operational invariants to retain:
+
+- normal catalog/chat/resume traffic shares one long-lived runtime;
+- explicit Recheck and sign-in are separate processes;
+- cancellation is bounded by the 15-second native-cancel grace;
+- live PyInstaller extraction directories must never be swept;
+- ACP filesystem callbacks stay disabled until safe path-containment behavior is implemented;
+- usage parsing is best-effort and must never become a chat dependency.
+
+## Final verification before branch cleanup (2026-09-07)
+
+Frontend/web verification on `nakul/windows-support`:
+
+```
+npm run check:web
+129 test files passed
+1,353 tests passed
+TypeScript: clean
+```
+
+Rust Antigravity-specific verification:
+
+```
+cargo test -p monocode antigravity
+14 passed, 0 failed
+```
+
+Full Rust test suite on Windows:
+
+```
+cargo test
+205 passed, 11 failed, 4 ignored
+```
+
+All 11 failures are the already-known Windows CRLF fixture/assertion failures in
+`checkpoint.rs` and `fs.rs`; none are in Antigravity ACP code. The Windows support log has the
+failure list and rationale for leaving those unrelated tests unchanged.
+
+The repository's strict Rust check also currently stops at pre-existing Windows-only warnings
+because it runs Clippy with `-D warnings`. The warnings are in older `pty.rs`, `fs.rs`, and
+non-Antigravity `harness.rs` code paths (unused imports/dead code plus `needless_return`). This
+does not indicate an Antigravity regression; the Antigravity tests and packaged build both pass.

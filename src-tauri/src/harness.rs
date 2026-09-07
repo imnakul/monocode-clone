@@ -2171,7 +2171,7 @@ fn resolve_codex() -> Option<PathBuf> {
                     .join("codex.cmd"),
             );
         }
-        return candidates.into_iter().find(|path| is_executable_file(path));
+        candidates.into_iter().find(|path| is_executable_file(path))
     }
 
     #[cfg(not(windows))]
@@ -2502,7 +2502,32 @@ fn resolve_antigravity() -> Option<PathBuf> {
     if let Some(home) = &home {
         candidates.push(home.join(".local").join("bin").join("agy_acp_server.par"));
         #[cfg(windows)]
-        candidates.push(home.join(".local").join("bin").join("agy_acp_server.exe"));
+        {
+            candidates.push(home.join(".local").join("bin").join("agy_acp_server.exe"));
+
+            // The official Windows ACP archive is normally downloaded and
+            // extracted in Downloads. Dev builds can appear to work because
+            // their localhost WebView origin remembers a manually selected
+            // binary in localStorage, while an installed build has a separate
+            // packaged origin. Discover common extracted archive folders so
+            // the installed app can resolve the same runtime without relying
+            // on origin-specific frontend state.
+            let downloads = home.join("Downloads");
+            candidates.push(downloads.join("agy_acp_server.exe"));
+            if let Ok(entries) = std::fs::read_dir(&downloads) {
+                let mut extracted: Vec<PathBuf> = entries
+                    .filter_map(Result::ok)
+                    .filter_map(|entry| {
+                        let is_dir = entry.file_type().ok()?.is_dir();
+                        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+                        (is_dir && name.starts_with("agy-acp-server"))
+                            .then(|| entry.path().join("agy_acp_server.exe"))
+                    })
+                    .collect();
+                extracted.sort_by(|a, b| b.cmp(a));
+                candidates.extend(extracted);
+            }
+        }
     }
 
     candidates.push(PathBuf::from("/usr/local/bin/agy_acp_server.par"));
