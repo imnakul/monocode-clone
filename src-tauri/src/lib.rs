@@ -324,6 +324,7 @@ pub fn run() {
             harness::harness_exec,
             rate_limits::fetch_claude_usage,
             pty::pty_spawn,
+            pty::pty_replay,
             pty::pty_write,
             pty::pty_resize,
             pty::pty_status,

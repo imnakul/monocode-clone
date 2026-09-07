@@ -31,13 +31,17 @@ export function markUnsupportedNotified(id: string): boolean {
   return true;
 }
 
-type DataHandler = (data: Uint8Array) => void;
+type DataHandler = (data: Uint8Array, start: number) => void;
 type ExitHandler = (code: number | null) => void;
 
 const dataHandlers = new Map<string, DataHandler>();
 const exitHandlers = new Map<string, ExitHandler>();
 const dataBuffer = new Map<string, Uint8Array[]>();
+const dataBufferStarts = new Map<string, number[]>();
 const dataBufferBytes = new Map<string, number>();
+/** Total bytes delivered to this page per PTY id. The terminal view keeps its
+ * own synced offset against this to detect and recover stalled delivery. */
+const bytesSeen = new Map<string, number>();
 /** PTYs this window opened. Global `pty-data` still fires for every terminal
  * in the process; decoding those in a window that never mounted them was
  * megabytes of base64 work and a 256KB replay buffer per stranger id. */
@@ -84,20 +88,27 @@ export function trimReplay(
   return { drop, bytes: left };
 }
 
-function pushBuffered(id: string, chunk: Uint8Array) {
+function pushBuffered(id: string, chunk: Uint8Array, start: number) {
   const queued = dataBuffer.get(id) ?? [];
   queued.push(chunk);
+  const starts = dataBufferStarts.get(id) ?? [];
+  starts.push(start);
+  dataBufferStarts.set(id, starts);
   const trimmed = trimReplay(
     queued.map((entry) => entry.byteLength),
     (dataBufferBytes.get(id) ?? 0) + chunk.byteLength,
   );
-  if (trimmed.drop > 0) queued.splice(0, trimmed.drop);
+  if (trimmed.drop > 0) {
+    queued.splice(0, trimmed.drop);
+    starts.splice(0, trimmed.drop);
+  }
   dataBuffer.set(id, queued);
   dataBufferBytes.set(id, trimmed.bytes);
 }
 
 function clearBuffered(id: string) {
   dataBuffer.delete(id);
+  dataBufferStarts.delete(id);
   dataBufferBytes.delete(id);
 }
 
@@ -109,8 +120,10 @@ function ensureBridge() {
       const handler = dataHandlers.get(id);
       if (!handler && !openedPtys.has(id)) return;
       const chunk = decodeBase64(data);
-      if (handler) handler(chunk);
-      else pushBuffered(id, chunk);
+      const start = bytesSeen.get(id) ?? 0;
+      bytesSeen.set(id, start + chunk.byteLength);
+      if (handler) handler(chunk, start);
+      else pushBuffered(id, chunk, start);
     }),
     listen<ExitPayload>("pty-exit", (event) => {
       const { id, code } = event.payload;
@@ -171,6 +184,7 @@ export async function killPty(id: string): Promise<void> {
   dataHandlers.delete(id);
   exitHandlers.delete(id);
   openedPtys.delete(id);
+  bytesSeen.delete(id);
   clearBuffered(id);
   await invoke("pty_kill", { id }).catch(() => undefined);
 }
@@ -179,9 +193,35 @@ export async function killAllPtys(): Promise<void> {
   dataHandlers.clear();
   exitHandlers.clear();
   openedPtys.clear();
+  bytesSeen.clear();
   dataBuffer.clear();
+  dataBufferStarts.clear();
   dataBufferBytes.clear();
   await invoke("pty_kill_all").catch(() => undefined);
+}
+
+export type PtyReplayChunk = {
+  /** Absolute offset of `data` within the session's full output. */
+  start: number;
+  /** Total bytes the session has ever produced (backend side). */
+  total: number;
+  data: Uint8Array;
+};
+
+/**
+ * Everything the PTY produced past `offset`, for recovering output that was
+ * emitted while the webview was throttled and the live `pty-data` events were
+ * stalled or lost. Returns an empty `data` when the caller is current.
+ */
+export async function ptyReplayFrom(
+  id: string,
+  offset: number,
+): Promise<PtyReplayChunk> {
+  const res = await invoke<{ start: number; total: number; data: string }>(
+    "pty_replay",
+    { id, offset },
+  );
+  return { start: res.start, total: res.total, data: decodeBase64(res.data) };
 }
 
 export function subscribePty(
@@ -195,8 +235,9 @@ export function subscribePty(
   exitHandlers.set(id, onExit);
   const queued = dataBuffer.get(id);
   if (queued) {
+    const starts = dataBufferStarts.get(id) ?? [];
     clearBuffered(id);
-    for (const chunk of queued) onData(chunk);
+    queued.forEach((chunk, index) => onData(chunk, starts[index] ?? 0));
   }
   return () => {
     if (dataHandlers.get(id) === onData) dataHandlers.delete(id);

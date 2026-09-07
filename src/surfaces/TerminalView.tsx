@@ -4,6 +4,7 @@ import {
   getPtyStatus,
   killPty,
   markUnsupportedNotified,
+  ptyReplayFrom,
   PTY_SUPPORTED,
   PTY_UNSUPPORTED_MESSAGE,
   resizePty,
@@ -135,6 +136,8 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
   const onMetaChangeRef = useRef(onMetaChange);
   onMetaChangeRef.current = onMetaChange;
   const runningProcessRef = useRef<string | null>(null);
+  /** Absolute offset of the last byte written into this terminal view. */
+  const syncedRef = useRef(0);
 
   useEffect(() => {
     const outer = outerRef.current;
@@ -196,7 +199,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
 
     const unsubscribe = subscribePty(
       id,
-      (data) => {
+      (data, start) => {
         const onMeta = onMetaChangeRef.current;
         if (onMeta) {
           const text = new TextDecoder().decode(data);
@@ -210,6 +213,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
             onMeta(patch);
           }
         }
+        syncedRef.current = Math.max(syncedRef.current, start + data.length);
         term.write(data);
       },
       (code) => {
@@ -223,6 +227,35 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       if (dead.current) return;
       void writePty(id, data);
     });
+
+    // WebView2 can stall event delivery for a window sitting behind others
+    // (the PTY keeps running; `pty-data` resumes only on activation). Pull
+    // anything missed straight from the backend on focus/visibility.
+    let resyncInFlight = false;
+    const resyncOutput = () => {
+      if (closed || dead.current || !spawned.current || resyncInFlight) return;
+      resyncInFlight = true;
+      const from = syncedRef.current;
+      ptyReplayFrom(id, from)
+        .then(({ start, data }) => {
+          if (closed || data.length === 0) return;
+          const overlap = Math.max(0, syncedRef.current - start);
+          if (data.length <= overlap) return;
+          const fresh = data.slice(overlap);
+          term.write(fresh);
+          syncedRef.current = start + data.length;
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          resyncInFlight = false;
+        });
+    };
+    const onWindowFocus = () => resyncOutput();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") resyncOutput();
+    };
+    window.addEventListener("focus", onWindowFocus);
+    document.addEventListener("visibilitychange", onVisibility);
 
     const replyOsc = (code: 10 | 11 | 12, hex: string) => {
       const reply = oscColorReply(code, hex);
@@ -293,6 +326,9 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
           }
           term.writeln(`\x1b[31m${message}\x1b[0m`);
         });
+        // The shell greets while the spawn promise is still in flight; grab
+        // those first bytes in case their events stall on arrival.
+        setTimeout(resyncOutput, 250);
         return;
       }
       void resizePty(id, cols, rows);
@@ -334,6 +370,8 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       applySizeRef.current = () => {};
       host.removeEventListener("copy", onCopy);
       host.removeEventListener("paste", onPaste);
+      window.removeEventListener("focus", onWindowFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener(SCHEME_CHANGE_EVENT, onSchemeChange);
       window.removeEventListener(TYPOGRAPHY_CHANGE_EVENT, onTypographyChange);
       dataSub.dispose();
@@ -347,6 +385,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       term.dispose();
       termRef.current = null;
       spawned.current = false;
+      syncedRef.current = 0;
     };
   }, [id, cwd]);
 

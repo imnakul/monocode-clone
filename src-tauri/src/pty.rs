@@ -52,18 +52,56 @@ struct LivePty {
     pid: u32,
 }
 
+/// Tail of everything a PTY has produced, for catching a webview up after
+/// WebView2 stalls or drops event delivery (observed on Windows when the
+/// window sits behind others: the shell runs and the backend emits, but the
+/// page receives nothing until the window is activated again).
+/// `total` counts every byte ever emitted; `bytes` keeps only the last
+/// [`REPLAY_CAP`] so offsets stay stable while memory stays bounded.
+#[derive(Default)]
+struct ReplayBuf {
+    bytes: Vec<u8>,
+    total: u64,
+}
+
+const REPLAY_CAP: usize = 128 * 1024;
+
+impl ReplayBuf {
+    fn push(&mut self, chunk: &[u8]) {
+        self.bytes.extend_from_slice(chunk);
+        self.total += chunk.len() as u64;
+        if self.bytes.len() > REPLAY_CAP {
+            let drop = self.bytes.len() - REPLAY_CAP;
+            self.bytes.drain(..drop);
+        }
+    }
+
+    /// Bytes from `offset` (clamped to what the buffer still holds).
+    fn from(&self, offset: u64) -> (u64, &[u8]) {
+        let buffered_start = self.total - self.bytes.len() as u64;
+        let start = offset.max(buffered_start).min(self.total);
+        (start, &self.bytes[(start - buffered_start) as usize..])
+    }
+}
+
 pub struct PtyHost {
     sessions: Mutex<HashMap<String, Arc<LivePty>>>,
+    replay: Mutex<HashMap<String, ReplayBuf>>,
 }
 
 impl PtyHost {
     pub fn new() -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
+            replay: Mutex::new(HashMap::new()),
         }
     }
 
     fn insert(&self, id: String, live: Arc<LivePty>) -> Option<Arc<LivePty>> {
+        self.replay
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
         self.sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -79,6 +117,10 @@ impl PtyHost {
     }
 
     fn remove(&self, id: &str) -> Option<Arc<LivePty>> {
+        self.replay
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id);
         self.sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -90,10 +132,18 @@ impl PtyHost {
         if sessions.get(id).map(|live| live.pid) != Some(pid) {
             return None;
         }
+        self.replay
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id);
         sessions.remove(id)
     }
 
     pub(crate) fn kill_all(&self) {
+        self.replay
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         let kids: Vec<Arc<LivePty>> = {
             let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
             map.drain().map(|(_, live)| live).collect()
@@ -927,6 +977,14 @@ fn emit_pty_data(app: &AppHandle, id: &str, bytes: &[u8]) {
     if bytes.is_empty() {
         return;
     }
+    if let Some(host) = app.try_state::<PtyHost>() {
+        host.replay
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(id.to_string())
+            .or_default()
+            .push(bytes);
+    }
     let data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes);
     let _ = app.emit(
         DATA_EVENT,
@@ -935,6 +993,37 @@ fn emit_pty_data(app: &AppHandle, id: &str, bytes: &[u8]) {
             data,
         },
     );
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PtyReplay {
+    /// Absolute offset of `data` within the session's full output stream.
+    start: u64,
+    /// Total bytes the session has ever produced.
+    total: u64,
+    data: String,
+}
+
+/// Catch a webview up after stalled event delivery: everything the session
+/// produced past the caller's `offset`, base64-encoded. Empty when the caller
+/// is already current.
+#[tauri::command]
+pub fn pty_replay(host: State<PtyHost>, id: String, offset: u64) -> Result<PtyReplay, String> {
+    let replay = host.replay.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(buf) = replay.get(&id) else {
+        return Ok(PtyReplay {
+            start: offset,
+            total: offset,
+            data: String::new(),
+        });
+    };
+    let (start, bytes) = buf.from(offset);
+    Ok(PtyReplay {
+        start,
+        total: buf.total,
+        data: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes),
+    })
 }
 
 fn pty_should_flush(buffered: usize, since: Duration) -> bool {
@@ -1049,6 +1138,34 @@ mod label_tests {
     fn shell_names_are_ignored() {
         assert!(is_shell_name("zsh"));
         assert!(!is_shell_name("npm"));
+    }
+}
+
+#[cfg(test)]
+mod replay_tests {
+    use super::*;
+
+    #[test]
+    fn replay_returns_bytes_past_offset() {
+        let mut buf = ReplayBuf::default();
+        buf.push(b"hello ");
+        buf.push(b"world");
+        let (start, bytes) = buf.from(6);
+        assert_eq!(start, 6);
+        assert_eq!(bytes, b"world");
+        // Already-current and future offsets yield nothing.
+        assert_eq!(buf.from(11).1, b"");
+        assert_eq!(buf.from(99).1, b"");
+    }
+
+    #[test]
+    fn replay_clamps_to_what_the_buffer_still_holds() {
+        let mut buf = ReplayBuf::default();
+        buf.push(&b"x".repeat(REPLAY_CAP + 500));
+        // Front was truncated; the oldest still-buffered byte is 500.
+        let (start, bytes) = buf.from(0);
+        assert_eq!(start, 500);
+        assert_eq!(bytes.len(), REPLAY_CAP);
     }
 }
 
