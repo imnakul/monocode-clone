@@ -37,6 +37,7 @@ import { useDragResize } from "../hooks/useDragResize";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useTabGroupLogos } from "../hooks/useTabGroupLogos";
 import {
+  buildCodeReviewReport,
   githubPrDiff,
   githubReviewDecisionLabel,
   githubWorkItemComment,
@@ -54,6 +55,7 @@ import {
   peekInboxList,
   formatRelativeTime,
   inboxPersonAvatarUrl,
+  type CodeReviewReport,
   type GithubLabel,
   type GithubPrDiff,
   type GithubWorkItemDetails,
@@ -254,6 +256,7 @@ type Props = {
   onClose?: () => void;
   onToggleSidebar?: () => void;
   onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
+  onPullReview?: (item: InboxItem, report: CodeReviewReport) => void;
 };
 
 export function InboxView({
@@ -263,6 +266,7 @@ export function InboxView({
   onClose,
   onToggleSidebar,
   onStart,
+  onPullReview,
 }: Props) {
   const listLock = useLockOverscroll<HTMLDivElement>();
   const detailLock = useLockOverscroll<HTMLDivElement>();
@@ -688,6 +692,7 @@ export function InboxView({
             projects={projectOptions}
             revision={refresh}
             onStart={onStart}
+            onPullReview={onPullReview}
           />
         </div>
       </div>
@@ -702,12 +707,14 @@ function InboxDetailBody({
   projects,
   revision = 0,
   onStart,
+  onPullReview,
 }: {
   item: InboxItem | null;
   cwd: string;
   projects: InboxProjectOption[];
   revision?: number;
   onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
+  onPullReview?: (item: InboxItem, report: CodeReviewReport) => void;
 }) {
   if (!item) {
     return (
@@ -727,6 +734,7 @@ function InboxDetailBody({
       projects={projects}
       revision={revision}
       onStart={onStart}
+      onPullReview={onPullReview}
     />
   );
 }
@@ -873,12 +881,14 @@ function InboxDetail({
   projects,
   revision,
   onStart,
+  onPullReview,
 }: {
   item: InboxItem;
   cwd: string;
   projects: InboxProjectOption[];
   revision: number;
   onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
+  onPullReview?: (item: InboxItem, report: CodeReviewReport) => void;
 }) {
   const linear = item.provider === "linear";
   const isPr = !linear && item.kind === "pr";
@@ -949,6 +959,17 @@ function InboxDetail({
     details?.baseRefName?.trim() || thread?.baseRefName?.trim() || "";
   const headRef =
     details?.headRefName?.trim() || thread?.headRefName?.trim() || "";
+  const prThread =
+    !linear && githubKind === "pr"
+      ? (thread as GithubWorkItemThread | null)
+      : null;
+  const reviewReport = prThread
+    ? buildCodeReviewReport(
+        prThread,
+        item.repo || projectName(item.projectPath),
+        item.number,
+      )
+    : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -1278,6 +1299,36 @@ function InboxDetail({
                 ? "Open in Linear"
                 : "Open on GitHub"}
           </button>
+          {isPr && !linear && onPullReview ? (
+            reviewReport ? (
+              <button
+                type="button"
+                title="Copy the CodeRabbit review into a new chat with a fix button per issue"
+                aria-label={`Pull CodeRabbit review for PR #${item.number} into chat`}
+                onClick={() => {
+                  try {
+                    onPullReview(item, reviewReport);
+                  } catch (err: unknown) {
+                    setStartError(
+                      err instanceof Error ? err.message : String(err),
+                    );
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/70 hover:bg-content/10 hover:text-content"
+              >
+                Pull review
+              </button>
+            ) : thread && !threadLoading ? (
+              <button
+                type="button"
+                disabled
+                title="No CodeRabbit comments on this pull request"
+                className="inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/35 disabled:cursor-default"
+              >
+                Pull review
+              </button>
+            ) : null
+          ) : null}
         </div>
         {startError ? (
           <p className="text-[12px] text-red-400/90">{startError}</p>

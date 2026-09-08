@@ -133,7 +133,8 @@ export function tabCopy(tab: Tab): {
   return { headline, meta, tooltip: tooltipParts.join(" · ") };
 }
 
-/** Which tab-strip edges still have overflow to scroll toward. */
+/** Which tab-strip edges still have overflow to scroll toward. Drives the
+ * edge-fade affordance (a mask, not buttons — nothing clickable). */
 export function tabStripOverflow(
   scrollLeft: number,
   clientWidth: number,
@@ -145,6 +146,23 @@ export function tabStripOverflow(
     left: scrollLeft > 1,
     right: scrollLeft < maxScroll - 1,
   };
+}
+
+/** Fade-mask classes for the tab strip scrollport. A mask (not an overlay)
+ * fades the tab content itself, so it stays correct over any background
+ * (glass, wallpaper) and adds zero hitbox — it intercepts no pointer.
+ * Class strings are literal so the Tailwind scanner picks them up. */
+function tabStripFadeMask(overflow: { left: boolean; right: boolean }): string {
+  if (overflow.left && overflow.right) {
+    return " [mask-image:linear-gradient(to_right,transparent,black_24px,black_calc(100%-24px),transparent)] [-webkit-mask-image:linear-gradient(to_right,transparent,black_24px,black_calc(100%-24px),transparent)]";
+  }
+  if (overflow.left) {
+    return " [mask-image:linear-gradient(to_right,transparent,black_24px)] [-webkit-mask-image:linear-gradient(to_right,transparent,black_24px)]";
+  }
+  if (overflow.right) {
+    return " [mask-image:linear-gradient(to_right,black_calc(100%-24px),transparent)] [-webkit-mask-image:linear-gradient(to_right,black_calc(100%-24px),transparent)]";
+  }
+  return "";
 }
 
 export function titleTabClosable(tab: Tab, tabCount: number): boolean {
@@ -530,6 +548,18 @@ function TitleBarComponent({
     },
     [lockOverscroll],
   );
+  const activeTabRef = useRef<HTMLDivElement | null>(null);
+  const canDrag = tabs.length > 1;
+
+  useEffect(() => {
+    if (sortable.draggingId) return;
+    activeTabRef.current?.scrollIntoView({
+      inline: "nearest",
+      block: "nearest",
+    });
+  }, [activeId, sortable.draggingId]);
+
+  // Overflow state drives both the edge-fade mask and the scroll buttons.
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
   const syncTabOverflow = useCallback(() => {
     const el = tabStripRef.current;
@@ -546,16 +576,6 @@ function TitleBarComponent({
     const amount = Math.max(el.clientWidth * 0.6, 112);
     el.scrollBy({ left: direction * amount, behavior: "smooth" });
   }, []);
-  const activeTabRef = useRef<HTMLDivElement | null>(null);
-  const canDrag = tabs.length > 1;
-
-  useEffect(() => {
-    if (sortable.draggingId) return;
-    activeTabRef.current?.scrollIntoView({
-      inline: "nearest",
-      block: "nearest",
-    });
-  }, [activeId, sortable.draggingId]);
 
   useLayoutEffect(() => {
     const el = tabStripRef.current;
@@ -709,15 +729,9 @@ function TitleBarComponent({
             }
           }}
         >
-          {tabOverflow.left ? (
-            <TabStripChevron side="left" onClick={() => scrollTabsBy(-1)} />
-          ) : null}
-          {tabOverflow.right ? (
-            <TabStripChevron side="right" onClick={() => scrollTabsBy(1)} />
-          ) : null}
           <div
             ref={setTabStripRef}
-            className="scrollbar-none flex h-full min-w-0 cursor-default items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-none px-1.5"
+            className={`scrollbar-none flex h-full min-w-0 cursor-default items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-none px-1.5${tabStripFadeMask(tabOverflow)}`}
           >
             {tabs.map((tab, index) => (
               <div
@@ -745,6 +759,12 @@ function TitleBarComponent({
               </div>
             ))}
           </div>
+          {tabOverflow.left ? (
+            <TabStripChevron side="left" onClick={() => scrollTabsBy(-1)} />
+          ) : null}
+          {tabOverflow.right ? (
+            <TabStripChevron side="right" onClick={() => scrollTabsBy(1)} />
+          ) : null}
         </div>
 
         <div className="flex-1" />

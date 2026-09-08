@@ -1,6 +1,11 @@
+import { useEffect, useState } from "react";
 import { X } from "./icons";
-import { attachmentPreviewSrc } from "../lib/attachments";
+import {
+  attachmentPreviewSrc,
+  loadAttachmentPreviewUrl,
+} from "../lib/attachments";
 import type { Attachment } from "../lib/session";
+import { AttachmentLightbox } from "./AttachmentLightbox";
 import { FileTypeIcon } from "./FileTypeIcon";
 
 type Props = {
@@ -10,7 +15,29 @@ type Props = {
 
 export function AttachmentChip({ attachment, onRemove }: Props) {
   const preview = attachmentPreviewSrc(attachment);
-  const image = attachment.kind === "image" && preview;
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState(false);
+  // Reloaded sessions strip inline data, leaving image attachments with a
+  // disk path only — fetch those bytes on demand for the thumbnail.
+  const loadPath =
+    attachment.kind === "image" && !preview ? (attachment.path ?? null) : null;
+
+  useEffect(() => {
+    if (!loadPath) {
+      setLoadedUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void loadAttachmentPreviewUrl(loadPath).then((url) => {
+      if (!cancelled) setLoadedUrl(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadPath]);
+
+  const src = preview ?? loadedUrl ?? undefined;
+  const image = attachment.kind === "image" && src;
 
   return (
     <div
@@ -19,12 +46,20 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
       }`}
       title={attachment.path ?? attachment.name}
     >
-      {image ? (
-        <img
-          src={preview}
-          alt=""
-          className="size-9 shrink-0 rounded-lg object-cover"
-        />
+      {image && src ? (
+        <button
+          type="button"
+          aria-label={`Open image ${attachment.name}`}
+          title={`${attachment.name} — open full size`}
+          onClick={() => setLightbox(true)}
+          className="shrink-0 rounded-lg outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <img
+            src={src}
+            alt=""
+            className="size-9 rounded-lg object-cover"
+          />
+        </button>
       ) : (
         <>
           <span className="grid size-5 shrink-0 place-items-center">
@@ -52,6 +87,13 @@ export function AttachmentChip({ attachment, onRemove }: Props) {
         >
           <X className={image ? "size-3" : "size-3"} strokeWidth={2} />
         </button>
+      ) : null}
+      {lightbox && src ? (
+        <AttachmentLightbox
+          src={src}
+          name={attachment.name}
+          onClose={() => setLightbox(false)}
+        />
       ) : null}
     </div>
   );

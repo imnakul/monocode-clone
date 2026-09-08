@@ -1,4 +1,4 @@
-import { LoaderCircle, Plus, Search, File, Trash2 } from "../chrome/icons";
+import { ChevronDown, LoaderCircle, Plus, Search, File, StickyNote, Trash2 } from "../chrome/icons";
 import {
   Fragment,
   useCallback,
@@ -9,6 +9,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useMarkdownMode } from "../chrome/MarkdownModeToggle";
+import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
 import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
 import { ProjectMascot } from "../chrome/ProjectMascot";
 import { OverlayNav } from "../chrome/TitleBar";
@@ -22,14 +23,17 @@ import {
   deleteNote,
   loadNotes,
   notePreview,
+  noteProjectChoices,
   noteSourceProject,
   noteTitle,
   upsertNote,
   requestAddNoteToChat,
   type Note,
+  type NoteProjectChoice,
 } from "../lib/notes";
 import { IS_MAC } from "../lib/platform";
-import { looksLikeProject } from "../lib/recents";
+import { projectName } from "../lib/paths";
+import { loadRecents, looksLikeProject } from "../lib/recents";
 import {
   loadTabGroupColors,
   loadTabGroupCustomColors,
@@ -78,6 +82,10 @@ export function NotesView({
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(rememberedNoteId);
   const [creating, setCreating] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const menuRef = useRef(menu);
+  menuRef.current = menu;
+  const plusRef = useRef<HTMLButtonElement>(null);
   const logos = useTabGroupLogos();
   const [groupMascots] = useState(loadTabGroupMascots);
   const [groupColors] = useState(loadTabGroupColors);
@@ -113,6 +121,8 @@ export function NotesView({
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      // The create menu dismisses itself; don't close the whole view under it.
+      if (menuRef.current) return;
       event.preventDefault();
       event.stopPropagation();
       onCloseRef.current();
@@ -140,14 +150,36 @@ export function NotesView({
     notes.find((note) => note.id === selectedId) ??
     null;
 
-  const onCreate = async () => {
+  const createChoices = useMemo<NoteProjectChoice[]>(
+    () => (menu ? noteProjectChoices(cwd, loadRecents()) : []),
+    [cwd, menu],
+  );
+
+  const createMenuItems = useMemo<ExplorerMenuItem[]>(() => {
+    const items: ExplorerMenuItem[] = [];
+    for (const choice of createChoices) {
+      if (choice.kind === "personal") items.push({ kind: "sep" });
+      items.push({
+        kind: "item",
+        id: choice.id,
+        label:
+          choice.kind === "personal" ? "Personal" : projectName(choice.path),
+        checked: choice.current,
+      });
+    }
+    return items;
+  }, [createChoices]);
+
+  const onCreate = async (sourceCwd?: string) => {
     if (creating) return;
     setCreating(true);
     try {
       const note = await createNote({
         title: "Untitled",
         body: "",
-        ...(cwd && looksLikeProject(cwd) ? { sourceCwd: cwd } : {}),
+        ...(sourceCwd && looksLikeProject(sourceCwd)
+          ? { sourceCwd }
+          : {}),
       });
       setNotes(await loadNotes(true));
       setSelectedId(note.id);
@@ -157,6 +189,22 @@ export function NotesView({
     } finally {
       setCreating(false);
     }
+  };
+
+  const openCreateMenu = () => {
+    const rect = plusRef.current?.getBoundingClientRect();
+    if (!rect) {
+      void onCreate(cwd);
+      return;
+    }
+    setMenu({ x: rect.left, y: rect.bottom + 4 });
+  };
+
+  const onPickProject = (choices: NoteProjectChoice[], id: string) => {
+    setMenu(null);
+    const choice = choices.find((item) => item.id === id);
+    if (!choice) return;
+    void onCreate(choice.kind === "project" ? choice.path : undefined);
   };
 
   const onSaved = (note: Note) => {
@@ -207,11 +255,12 @@ export function NotesView({
           />
         </div>
         <button
+          ref={plusRef}
           type="button"
           title="New note"
           aria-label="New note"
           disabled={creating}
-          onClick={() => void onCreate()}
+          onClick={() => void onCreate(cwd)}
           className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:opacity-40"
         >
           {creating ? (
@@ -223,7 +272,33 @@ export function NotesView({
             <Plus className="size-3.5" strokeWidth={1.75} />
           )}
         </button>
+        <button
+          type="button"
+          title="Choose where the note is filed"
+          aria-label="Choose where the note is filed"
+          aria-expanded={menu !== null}
+          disabled={creating}
+          onClick={openCreateMenu}
+          className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:opacity-40"
+        >
+          <ChevronDown className="size-3.5" strokeWidth={1.75} />
+        </button>
       </div>
+      {menu ? (
+        <ExplorerMenu
+          x={menu.x}
+          y={menu.y}
+          ariaLabel="Choose where the note is filed"
+          header={
+            <p className="px-2 py-1 text-[11px] text-content/50">
+              File note under…
+            </p>
+          }
+          items={createMenuItems}
+          onPick={(id) => onPickProject(createChoices, id)}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
       <div
         ref={listLock}
         className="min-h-0 flex-1 overflow-y-auto overscroll-none"
@@ -319,8 +394,7 @@ type ProjectMarks = {
   customColors: Record<string, string>;
 };
 
-function NoteProjectMark({
-  project,
+function NoteProjectMark({  project,
   logos,
   mascots,
   colors,
@@ -351,6 +425,19 @@ function NoteProjectMark({
         />
       )}
       <span className="min-w-0 truncate">{project}</span>
+    </span>
+  );
+}
+
+/** Same visual weight as a project mark, so unbound notes don't read as blank. */
+function NotePersonalMark() {
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <StickyNote
+        className="size-3 shrink-0 text-content/50"
+        strokeWidth={1.75}
+      />
+      <span className="min-w-0 truncate">Personal</span>
     </span>
   );
 }
@@ -423,7 +510,9 @@ function NoteCard({
             />
           </span>
         ) : (
-          <span className="min-w-0 flex-1" />
+          <span className="min-w-0 flex-1 text-[11px] text-content/50">
+            <NotePersonalMark />
+          </span>
         )}
         {time ? (
           <span className="shrink-0 text-[11px] tabular-nums text-content/45">
@@ -596,7 +685,9 @@ function NoteEditor({
                 colors={colors}
                 customColors={customColors}
               />
-            ) : null}
+            ) : (
+              <NotePersonalMark />
+            )}
           </div>
           <input
             value={title}

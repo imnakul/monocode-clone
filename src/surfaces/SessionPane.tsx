@@ -15,6 +15,7 @@ import {
   type ApprovalDecision,
   type UserQuestionReply,
 } from "../lib/harness";
+import type { ReviewIssue } from "../lib/githubTasks";
 import { looksLikeProject, type RecentProject } from "../lib/recents";
 import {
   sessionDisplayTitle,
@@ -87,6 +88,7 @@ type Props = {
     requestId: number,
     decision: ApprovalDecision,
   ) => void;
+  onReviewFix?: (sessionId: string, issue: ReviewIssue) => void;
   onQuestionReply: (
     sessionId: string,
     requestId: number,
@@ -115,6 +117,9 @@ type Props = {
     turn: Block[],
     model: string,
   ) => void;
+  onBranch?: (sessionId: string, turn: Block[]) => void;
+  onSidechat?: (sessionId: string, turn: Block[]) => void;
+
   onNewTerminal: (sessionId: string) => void;
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
 };
@@ -148,6 +153,7 @@ export const SessionPane = memo(function SessionPane({
   onNoteCardDismiss,
   onHandoffCardDismiss,
   onApproval,
+  onReviewFix,
   onQuestionReply,
   onOpenFile,
   onOpenDiff,
@@ -155,6 +161,8 @@ export const SessionPane = memo(function SessionPane({
   onBuildPlan,
   onSecondOpinion,
   onHandoff,
+  onBranch,
+  onSidechat,
   onNewTerminal,
   onPaneDragStart,
 }: Props) {
@@ -163,6 +171,18 @@ export const SessionPane = memo(function SessionPane({
     (requestId: number, decision: ApprovalDecision) =>
       onApproval(session.id, requestId, decision),
     [onApproval, session.id],
+  );
+  const fixReviewIssue = useCallback(
+    (issue: ReviewIssue) => onReviewFix?.(session.id, issue),
+    [onReviewFix, session.id],
+  );
+  const branchTurn = useCallback(
+    (turn: Block[]) => onBranch?.(session.id, turn),
+    [onBranch, session.id],
+  );
+  const askSidechat = useCallback(
+    (turn: Block[]) => onSidechat?.(session.id, turn),
+    [onSidechat, session.id],
   );
   const replyQuestion = useCallback(
     (requestId: number, reply: UserQuestionReply) =>
@@ -384,6 +404,14 @@ export const SessionPane = memo(function SessionPane({
           <EmptySession
             cwd={session.cwd}
             composer={dockComposer ? undefined : composer}
+            notice={
+              session.ephemeral && session.sidechat
+                ? {
+                    title: "Side chat",
+                    body: "Side chats are temporary and disappear when you close the app.",
+                  }
+                : undefined
+            }
           />
         ) : (
           <>
@@ -396,6 +424,7 @@ export const SessionPane = memo(function SessionPane({
               model={session.model}
               pendingQuestion={!!session.pendingQuestion}
               onApproval={approve}
+              onReviewFix={onReviewFix ? fixReviewIssue : undefined}
               onAddToChat={addSelectionToChat}
               onSaveNote={notesEnabled ? saveNote : undefined}
               onOpenFile={onOpenFile}
@@ -414,6 +443,8 @@ export const SessionPane = memo(function SessionPane({
                       onHandoff(session.id, harness, turn, model)
                   : undefined
               }
+              onBranch={onBranch ? branchTurn : undefined}
+              onSidechat={onSidechat ? askSidechat : undefined}
               onJumpToBottomChange={setShowJumpToBottom}
               onJumpToBottomReady={onJumpToBottomReady}
             />

@@ -82,21 +82,20 @@ describe("tabCopy", () => {
     expect(copy.meta).toBe("");
   });
 });
-
 describe("tabStripOverflow", () => {
-  it("hides both chevrons when the strip fits", () => {
+  it("shows no overflow affordance when the strip fits", () => {
     expect(tabStripOverflow(0, 400, 400)).toEqual({ left: false, right: false });
   });
 
-  it("shows only the right chevron at the start", () => {
+  it("shows only the right affordance at the start", () => {
     expect(tabStripOverflow(0, 400, 800)).toEqual({ left: false, right: true });
   });
 
-  it("shows both chevrons in the middle", () => {
+  it("shows both affordances in the middle", () => {
     expect(tabStripOverflow(200, 400, 800)).toEqual({ left: true, right: true });
   });
 
-  it("shows only the left chevron at the end", () => {
+  it("shows only the left affordance at the end", () => {
     expect(tabStripOverflow(400, 400, 800)).toEqual({ left: true, right: false });
   });
 });

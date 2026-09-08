@@ -4,6 +4,8 @@ import {
   CircleDashed,
   Copy,
   FilePlusCorner,
+  GitBranch,
+  MessageSquarePlus,
   Minus,
   Bot,
   PenLine,
@@ -34,6 +36,7 @@ import { SecondOpinionCard } from "../chrome/SecondOpinionCard";
 import { NoteMiniCard } from "../chrome/NoteMiniCard";
 import { TerminalSpinner } from "../chrome/TerminalSpinner";
 import type { ApprovalDecision } from "../lib/harness";
+import type { ReviewIssue } from "../lib/githubTasks";
 import {
   isEditTool,
   isReadTool,
@@ -107,6 +110,9 @@ type Props = {
   onBuildPlan?: (blockId: string, target?: PlanBuildTarget) => void;
   onSecondOpinion?: (harness: HarnessId, turn: Block[], model: string) => void;
   onHandoff?: (harness: HarnessId, turn: Block[], model: string) => void;
+  onReviewFix?: (issue: ReviewIssue) => void;
+  onSidechat?: (turn: Block[]) => void;
+  onBranch?: (turn: Block[]) => void;
   onJumpToBottomChange?: (show: boolean) => void;
   onJumpToBottomReady?: (jump: () => void) => void;
   /** False while another tab is in front. Hidden tabs stay laid out. */
@@ -129,6 +135,9 @@ export function AgentTranscript({
   onBuildPlan,
   onSecondOpinion,
   onHandoff,
+  onReviewFix,
+  onSidechat,
+  onBranch,
   onJumpToBottomChange,
   onJumpToBottomReady,
   visible = true,
@@ -385,7 +394,13 @@ export function AgentTranscript({
                       items[itemIndex - 1]?.type === "activity" &&
                       isProseBlock(item.block)
                     }
+                    compactTop={
+                      foldedAt >= 0 &&
+                      itemIndex === foldedAt + 1 &&
+                      isProseBlock(item.block)
+                    }
                     onApproval={onApproval}
+                    onReviewFix={onReviewFix}
                     onOpenFile={onOpenFile}
                     onOpenDiff={onOpenDiff}
                     onOpenPlan={onOpenPlan}
@@ -419,6 +434,10 @@ export function AgentTranscript({
                       ? (target, model) => onHandoff(target, turn, model)
                       : undefined
                   }
+                  onSidechat={
+                    onSidechat ? () => onSidechat(turn) : undefined
+                  }
+                  onBranch={onBranch ? () => onBranch(turn) : undefined}
                 />
               ) : null}
               {busy && !preparingHandoff && isLastTurn ? (
@@ -501,6 +520,8 @@ function TurnDuration({
   fromHarness,
   onSecondOpinion,
   onHandoff,
+  onSidechat,
+  onBranch,
 }: {
   elapsedMs: number | null;
   live?: boolean;
@@ -516,6 +537,8 @@ function TurnDuration({
   fromHarness?: HarnessId;
   onSecondOpinion?: (harness: HarnessId, model: string) => void;
   onHandoff?: (harness: HarnessId, model: string) => void;
+  onSidechat?: () => void;
+  onBranch?: () => void;
 }) {
   const label = waiting
     ? (waitingLabel ?? "Waiting for approval")
@@ -562,6 +585,28 @@ function TurnDuration({
           ) : null}
           {fromHarness && onSecondOpinion ? (
             <SecondOpinionButton from={fromHarness} onPick={onSecondOpinion} />
+          ) : null}
+          {onSidechat ? (
+            <button
+              type="button"
+              title="Ask in sidechat — opens beside this chat, nothing is sent until you ask"
+              aria-label="Ask in sidechat"
+              onClick={onSidechat}
+              className="rounded-md p-1 text-content/40 hover:bg-content/8 hover:text-content/70"
+            >
+              <MessageSquarePlus className="size-3.5" strokeWidth={1.75} />
+            </button>
+          ) : null}
+          {onBranch ? (
+            <button
+              type="button"
+              title="Branch from here — open this thread up to this turn in a new chat"
+              aria-label="Branch from here"
+              onClick={onBranch}
+              className="rounded-md p-1 text-content/40 hover:bg-content/8 hover:text-content/70"
+            >
+              <GitBranch className="size-3.5" strokeWidth={1.75} />
+            </button>
           ) : null}
         </span>
       ) : (
@@ -688,8 +733,10 @@ const TranscriptBlock = memo(function TranscriptBlock({
   layout,
   stickyIndex,
   afterActivity = false,
+  compactTop = false,
   cwd,
   onApproval,
+  onReviewFix,
   onOpenFile,
   onOpenDiff,
   onOpenPlan,
@@ -702,8 +749,10 @@ const TranscriptBlock = memo(function TranscriptBlock({
   layout: TranscriptLayout;
   stickyIndex: number;
   afterActivity?: boolean;
+  compactTop?: boolean;
   cwd?: string;
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onReviewFix?: (issue: ReviewIssue) => void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
   onOpenPlan?: (blockId: string) => void;
@@ -803,12 +852,16 @@ const TranscriptBlock = memo(function TranscriptBlock({
     );
   }
 
+  if (block.review) {
+    return <ReviewReportBlock block={block} cwd={cwd} onReviewFix={onReviewFix} />;
+  }
+
   if (!block.text && block.streaming) return null;
 
   return (
     <div
       data-selectable-agent-response={block.streaming ? undefined : block.id}
-      className={`min-w-0 px-4 pb-1 text-content ${afterActivity ? "pt-1" : "pt-3"}`}
+      className={`min-w-0 px-4 pb-1 text-content ${afterActivity ? "pt-1" : compactTop ? "pt-2" : "pt-3"}`}
     >
       <AgentMarkdown
         text={block.text}
@@ -819,6 +872,44 @@ const TranscriptBlock = memo(function TranscriptBlock({
     </div>
   );
 });
+
+function ReviewReportBlock({
+  block,
+  cwd,
+  onReviewFix,
+}: {
+  block: Block;
+  cwd?: string;
+  onReviewFix?: (issue: ReviewIssue) => void;
+}) {
+  const report = block.review;
+  if (!report) return null;
+  return (
+    <div
+      data-selectable-agent-response={block.streaming ? undefined : block.id}
+      className="min-w-0 px-4 pb-1 pt-3 text-content"
+    >
+      <AgentMarkdown text={block.text} streaming={block.streaming} cwd={cwd} />
+      {report.issues.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5 pt-2">
+          {report.issues.map((issue, index) => (
+            <button
+              key={issue.id}
+              type="button"
+              title={issue.title || `Fix issue ${index + 1}`}
+              aria-label={`Fix issue ${index + 1}: ${issue.title || issue.path}`}
+              disabled={!onReviewFix}
+              onClick={() => onReviewFix?.(issue)}
+              className="inline-flex h-7 shrink-0 items-center rounded-md border border-content/15 px-2.5 text-[12px] text-content/80 hover:bg-content/10 hover:text-content disabled:cursor-default disabled:opacity-40"
+            >
+              Fix #{index + 1}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function UserMessageBlock({
   block,

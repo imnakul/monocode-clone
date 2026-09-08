@@ -98,10 +98,12 @@ export function displayPath(path: string, cwd?: string): string {
   return normalized;
 }
 
-/** Folder name for tab labels — `~` when the cwd is home. */
+/** Folder name for tab labels — `~` when the cwd is home. Splits on both
+ * `/` and `\` so Windows paths label as folder names (same convention as
+ * `joinPath` and `basename`). */
 export function projectName(cwd: string): string {
   if (!cwd || prettyCwd(cwd) === "~") return "~";
-  const trimmed = cwd.replace(/\/+$/, "") || "/";
-  const parts = trimmed.split("/").filter(Boolean);
+  const trimmed = cwd.replace(/[/\\]+$/, "") || "/";
+  const parts = trimmed.split(/[/\\]/).filter(Boolean);
   return parts[parts.length - 1] ?? trimmed;
 }

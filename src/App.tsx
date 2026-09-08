@@ -20,9 +20,12 @@ import { FilePicker } from "./chrome/FilePicker";
 import { UsageFooter } from "./chrome/UsageFooter";
 import { useProjectBranches } from "./hooks/useProjectBranches";
 import {
+  loadAppMode,
   loadProjectRailOpen,
   loadSidebarTabOrder,
+  saveAppMode,
   saveProjectRailOpen,
+  type AppMode,
   type SidebarTabId,
 } from "./lib/appearance";
 import { IS_MAC } from "./lib/platform";
@@ -30,6 +33,7 @@ import { runUpdateFlow } from "./lib/updater";
 import { displayAttachments, prepareAttachments } from "./lib/attachments";
 import {
   basename,
+  ensureScratchChat,
   notifyGitChanged,
   pickFolder,
   restoreSessionCheckout,
@@ -219,6 +223,7 @@ import {
   HARNESS_TITLE,
   canReplaceSessionTitle,
   formatSessionTitle,
+  isScratchCwd,
   sessionNeedsInput,
   newDefaultSession,
   newSession,
@@ -241,10 +246,17 @@ import {
   dequeueQueuedMessage,
   queuedMessageForSubmit,
 } from "./lib/messageQueue";
+import {
+  buildForkBundle,
+  forkThreadBlocks,
+  sidechatContextBlock,
+  sidechatTitle,
+} from "./lib/fork";
 import { dropContextWindow } from "./lib/contextUsage";
 import {
   deleteSession,
   getSession,
+  listScratchSessions,
   listSessionsByProject,
   persistFingerprint,
   replaceInFlightSessions,
@@ -302,7 +314,14 @@ import { SearchView } from "./surfaces/SearchView";
 import { SettingsView } from "./surfaces/SettingsView";
 import { InboxView } from "./surfaces/InboxView";
 import { NotesView } from "./surfaces/NotesView";
-import { inboxComposerCard, type InboxItem } from "./lib/githubTasks";
+import {
+  formatCodeReviewReport,
+  formatReviewFixMessage,
+  inboxComposerCard,
+  type CodeReviewReport,
+  type InboxItem,
+  type ReviewIssue,
+} from "./lib/githubTasks";
 import { linearIssueDetails, peekLinearIssueDetails } from "./lib/linear";
 import {
   loadLiveAgentsEnabled,
@@ -326,6 +345,7 @@ import {
   mergeProjectHistorySummary,
   replaceProjectHistory,
   historyWithLiveSessions,
+  scratchChatSummaries,
   summaryFromSession,
 } from "./lib/sessionHistory";
 import {
@@ -579,6 +599,9 @@ export default function App({
     [],
   );
   const [projectRailOpen, setProjectRailOpen] = useState(loadProjectRailOpen);
+  const [mode, setMode] = useState<AppMode>(loadAppMode);
+  const [creatingChat, setCreatingChat] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const tabCloseScope = "project" as const;
   const currentProjectDock = findProjectTerminal(projectTerminals, projectCwd);
   const dockVisible = !!currentProjectDock?.open;
@@ -619,6 +642,10 @@ export default function App({
     () => new Map(),
   );
   const [history, setHistory] = useState<SessionSummary[]>(() => bootHistory);
+  /** Persisted scratch chats. Project history never includes them (each
+   * lives in its own leaf directory no project query reaches), so they get
+   * their own listing, loaded once at boot and refreshed in Chat mode. */
+  const [scratchHistory, setScratchHistory] = useState<SessionSummary[]>([]);
   /**
    * Projects whose rows are already in `history`. This has to be state, not a
    * ref: `sidebarCwd` is derived during render, so the frame that first shows
@@ -1074,6 +1101,22 @@ export default function App({
     void refreshHistory(sidebarCwd);
   }, [sidebarCwd, refreshHistory]);
 
+  const refreshScratchHistory = useCallback(async () => {
+    try {
+      setScratchHistory(await listScratchSessions());
+    } catch {
+      // A failed revalidate keeps the cached cards.
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshScratchHistory();
+  }, [refreshScratchHistory]);
+
+  useEffect(() => {
+    if (mode === "chat") void refreshScratchHistory();
+  }, [mode, refreshScratchHistory]);
+
   useEffect(() => {
     prefetchProjectFiles(sidebarCwd);
   }, [sidebarCwd]);
@@ -1091,6 +1134,11 @@ export default function App({
         lastPersisted.current.set(session.id, fingerprint);
         if (summary.cwd === sidebarCwdRef.current) {
           setHistory((current) => mergeProjectHistorySummary(current, summary));
+        }
+        if (isScratchCwd(summary.cwd)) {
+          setScratchHistory((current) =>
+            mergeProjectHistorySummary(current, summary),
+          );
         }
       })
       .catch(() => undefined);
@@ -2117,6 +2165,16 @@ export default function App({
       // The project terminal is shared by every workspace tab in the project.
       // Keep the global close command scoped to workspace tabs and panes even
       // while the dock has focus; terminal tabs have their own close buttons.
+      if (sessionId === undefined && projectTerminalFocused) {
+        const dock = findProjectTerminal(
+          projectTerminalsRef.current,
+          projectCwdRef.current,
+        );
+        if (dock) {
+          onCloseProjectTerminal(dock.pane.activeFileId);
+          return;
+        }
+      }
       if (!activeTab) return;
       const focusedSurface = findSurfacePane(activeTab, activeTab.focusedId);
       if (sessionId === undefined && focusedSurface) {
@@ -2162,9 +2220,11 @@ export default function App({
     [
       activeTab,
       onCloseFile,
+      onCloseProjectTerminal,
       onCloseTab,
       onClearTabSession,
       persistSession,
+      projectTerminalFocused,
       refreshHistory,
       sidebarCwd,
       tabCloseScope,
@@ -3318,6 +3378,26 @@ export default function App({
           return;
         }
       }
+      // Sidechats carry no context of their own: attach the source thread's
+      // latest state to every send (or send plain if it closed meanwhile).
+      // Visible blocks keep the user's words; only the harness prompt
+      // carries the sidechat context bundle.
+      let sendText = text;
+      const sidechatSource =
+        current.ephemeral && current.sidechat
+          ? sessionsRef.current.find(
+              (s) => s.id === current.sidechat?.sourceSessionId,
+            )
+          : undefined;
+      if (current.ephemeral && current.sidechat) {
+        const context = sidechatSource
+          ? sidechatContextBlock(
+              sessionDisplayTitle(sidechatSource.title, sidechatSource.harness),
+              sidechatSource.blocks,
+            )
+          : null;
+        sendText = context ? `${context}\n\n---\n\n${text}` : text;
+      }
       const noteCard =
         options && "noteCard" in options ? options.noteCard : current.noteCard;
       const handoffCard =
@@ -3334,7 +3414,7 @@ export default function App({
       }
       if (isPreparingHandoff(current)) return;
       const workCwd = sessionWorkCwd(current);
-      const submittedText = intent === "build" ? "Build approved plan" : text;
+      const submittedText = intent === "build" ? "Build approved plan" : sendText;
       const rawCommand = isNativeCommandPrompt(submittedText, current.harness);
       const harnessText = rawCommand
         ? submittedText
@@ -4216,6 +4296,118 @@ export default function App({
     [flushHarnessEvents],
   );
 
+  const onReviewFix = useCallback(
+    (sessionId: string, issue: ReviewIssue) => {
+      const session = sessionsRef.current.find((s) => s.id === sessionId);
+      const report = session?.blocks
+        .map((block) => block.review)
+        .find((candidate) =>
+          candidate?.issues.some((item) => item.id === issue.id),
+        );
+      if (!session || !report) return;
+      onSubmit(sessionId, formatReviewFixMessage(report, issue), []);
+    },
+    [onSubmit],
+  );
+
+  const onPullReview = useCallback(
+    (item: InboxItem, report: CodeReviewReport) => {
+      const cwd = item.projectPath || projectCwd;
+      const session = {
+        ...newDefaultSession(cwd, sessionDefaults?.runtimeMode),
+        title: `#${item.number} ${item.title} — CodeRabbit review`,
+        blocks: [
+          {
+            id: crypto.randomUUID(),
+            role: "user" as const,
+            text: `Pull the CodeRabbit review for ${report.repo}#${report.prNumber}.`,
+          },
+          {
+            id: crypto.randomUUID(),
+            role: "assistant" as const,
+            text: formatCodeReviewReport(report),
+            review: report,
+          },
+        ],
+      };
+      setInboxViewOpen(false);
+      setNotesViewOpen(false);
+      setSidebarTab("sessions");
+      setSessions((prev) => [...prev, session]);
+      const tab = newTab(session.id);
+      appendTab(tab, cwd);
+      setActiveTabId(tab.id);
+      setComposerFocused(true);
+    },
+    [appendTab, projectCwd, sessionDefaults?.runtimeMode],
+  );
+
+  /**
+   * Branch a thread at one turn: the fork copies the visible history
+   * exactly and opens it as a new chat with a fresh native session whose
+   * composer carries the conversation-so-far bundle. History is copied,
+   * never shared — the original keeps running untouched.
+   */
+  const onBranch = useCallback(
+    (sessionId: string, turn: Block[]) => {
+      const session = sessionsRef.current.find((s) => s.id === sessionId);
+      const lastId = turn.length > 0 ? turn[turn.length - 1]?.id : undefined;
+      if (!session || !lastId) return;
+      const copied = forkThreadBlocks(session.blocks, lastId);
+      if (copied.length === 0) return;
+      const bundle = buildForkBundle(copied);
+      const forked = {
+        ...newSession(
+          session.harness,
+          session.cwd,
+          session.model,
+          session.runtimeMode,
+          session.modelSettings,
+        ),
+        title: `${session.title} (branch)`,
+        blocks: copied,
+        composerSeed: bundle.text,
+      };
+      setSessions((prev) => [...prev, forked]);
+      const tab = newTab(forked.id);
+      appendTab(tab, session.cwd);
+      setActiveTabId(tab.id);
+      setComposerFocused(true);
+    },
+    [appendTab],
+  );
+
+  /**
+   * Sidechat: a temporary session beside the thread, inheriting its
+   * provider and model (changeable in its own composer). The composer
+   * stays empty with a Codex-style notice; the source thread's latest
+   * context attaches to each send. Ephemeral: never persisted, never
+   * listed, gone on close or quit.
+   */
+  const onSidechat = useCallback(
+    (sourceId: string, turn: Block[]) => {
+      const source = sessionsRef.current.find((s) => s.id === sourceId);
+      const lastId = turn.length > 0 ? turn[turn.length - 1]?.id : undefined;
+      if (!source || !lastId) return;
+      const cwd = sessionWorkCwd(source);
+      const display = sessionDisplayTitle(source.title, source.harness);
+      const session = {
+        ...newSession(
+          source.harness,
+          cwd,
+          source.model,
+          source.runtimeMode,
+          source.modelSettings,
+        ),
+        title: formatSessionTitle(source.harness, sidechatTitle(display)),
+        ephemeral: true,
+        sidechat: { sourceSessionId: sourceId },
+      };
+      openSessionBeside(sourceId, session, cwd, true);
+    },
+    [openSessionBeside],
+  );
+
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
       const target = event.target instanceof Element ? event.target : null;
@@ -4344,6 +4536,54 @@ export default function App({
         ),
     [projectBranches, sessions, sidebarCwd],
   );
+
+  const onModeChange = useCallback((next: AppMode) => {
+    setMode(next);
+    saveAppMode(next);
+  }, []);
+
+  const chatSessions = useMemo(
+    () => scratchChatSummaries(scratchHistory, sessions),
+    [scratchHistory, sessions],
+  );
+
+  /** Live sidechats: presence, not history — open now, gone on close. */
+  const sidechatSessions = useMemo(
+    () =>
+      sessions
+        .filter((session) => session.ephemeral && session.sidechat)
+        .map((session) => summaryFromSession(session)),
+    [sessions],
+  );
+
+  const onSelectSidechat = useCallback(
+    (sessionId: string) => {
+      focusOpenSession(sessionId);
+    },
+    [focusOpenSession],
+  );
+
+  const onNewChat = useCallback(async () => {
+    if (creatingChat) return;
+    setCreatingChat(true);
+    setChatError(null);
+    try {
+      const draft = newDefaultSession("~", sessionDefaults?.runtimeMode);
+      const cwd = await ensureScratchChat(draft.id);
+      const session = { ...draft, cwd };
+      setSessions((prev) => [...prev, session]);
+      const tab = newTab(session.id);
+      appendTab(tab, cwd);
+      setActiveTabId(tab.id);
+      setComposerFocused(true);
+    } catch (error) {
+      setChatError(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      setCreatingChat(false);
+    }
+  }, [appendTab, creatingChat, sessionDefaults?.runtimeMode]);
 
   const onToggleSidebar = useCallback(() => {
     setProjectRailOpen((open) => {
@@ -4851,6 +5091,15 @@ export default function App({
         open
         tab={sidebarTab}
         onTabChange={setSidebarTab}
+        mode={mode}
+        onModeChange={onModeChange}
+        chatSessions={chatSessions}
+        sidechatSessions={sidechatSessions}
+        onSelectSidechat={onSelectSidechat}
+        onSelectChatSession={onSelectHistorySession}
+        onNewChat={() => void onNewChat()}
+        creatingChat={creatingChat}
+        chatError={chatError}
         filesSearchOpen={filesSearchOpen}
         onFilesSearchOpenChange={setFilesSearchOpen}
         onOpenFilesSearch={onFindInProject}
@@ -5091,6 +5340,7 @@ export default function App({
                           onNoteCardDismiss={onNoteCardDismiss}
                           onHandoffCardDismiss={onHandoffCardDismiss}
                           onApproval={onApproval}
+                          onReviewFix={onReviewFix}
                           onQuestionReply={onQuestionReply}
                           onOpenFile={onOpenFile}
                           editorNavigation={editorNavigation}
@@ -5100,6 +5350,8 @@ export default function App({
                           onBuildPlan={onBuildPlan}
                           onSecondOpinion={onSecondOpinion}
                           onHandoff={onHandoff}
+                          onBranch={onBranch}
+                          onSidechat={onSidechat}
                           onMovePane={onMovePane}
                           onNewTerminal={onNewTerminalInSession}
                           onTerminalMetaChange={onTerminalMetaChange}
@@ -5136,6 +5388,7 @@ export default function App({
             onClose={onLeaveInbox}
             onToggleSidebar={onToggleSidebar}
             onStart={onStartInboxItem}
+            onPullReview={onPullReview}
           />
         ) : null}
         {notesViewOpen ? (
@@ -5399,15 +5652,15 @@ function trackSessionEdits(
   event: HarnessEvent,
 ) {
   if (event.type !== "tool.started" && event.type !== "tool.updated") return;
+  const completed =
+    event.type === "tool.updated" &&
+    (event.status === "completed" || event.status === "success");
   if (!isEditTool(event.kind, event.title, event.preview)) return;
   const paths = [
     ...(event.paths ?? []),
     ...(event.preview?.path ? [event.preview.path] : []),
   ].filter((path, index, all) => all.indexOf(path) === index);
   if (paths.length === 0 || cwd === "~") return;
-  const completed =
-    event.type === "tool.updated" &&
-    (event.status === "completed" || event.status === "success");
   if (!completed) {
     void prepareSessionCheckpoint(sessionId, cwd, paths).catch(() => undefined);
     return;

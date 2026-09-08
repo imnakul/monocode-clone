@@ -27,6 +27,7 @@ import {
   PROJECT_RAIL_WIDTH_MAX,
   PROJECT_RAIL_WIDTH_MIN,
   saveProjectRailWidth,
+  type AppMode,
 } from "../lib/appearance";
 import { basename, revealPath, type GitDiffStats } from "../lib/fs";
 import { IS_MAC, MOD } from "../lib/platform";
@@ -131,7 +132,65 @@ type Props = {
   updateNotice?: InstalledUpdate | null;
   onOpenWhatsNew?: (version: string) => void;
   onDismissUpdate?: () => void;
+  mode?: AppMode;
+  onModeChange?: (mode: AppMode) => void;
 };
+
+/** Projects / Chat lens switcher. Hari enables when its surface lands.
+ * Speaks the workspace tab row's visual language (same heights, type and
+ * active fill) without its drag-reorder machinery — modes stay fixed. */
+function ModeSwitcher({
+  mode,
+  onChange,
+}: {
+  mode: AppMode;
+  onChange?: (mode: AppMode) => void;
+}) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Mode"
+      className="flex h-6 w-full min-w-0 flex-1 items-center gap-px"
+    >
+      {(
+        [
+          { id: "projects", label: "Projects", enabled: true },
+          { id: "chat", label: "Chat", enabled: true },
+          { id: "hari", label: "Hari", enabled: false },
+        ] as const
+      ).map((item) => {
+        const active = mode === item.id;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            disabled={!item.enabled}
+            title={
+              item.id === "chat"
+                ? "Projectless chats"
+                : item.id === "hari"
+                  ? "Hari — coming soon"
+                  : "Projects"
+            }
+            onClick={() => {
+              if (active || item.id === "hari") return;
+              onChange?.(item.id);
+            }}
+            className={`flex h-6 min-w-0 flex-1 items-center justify-center rounded-md px-2 text-[12px] leading-none disabled:cursor-default disabled:opacity-40 ${
+              active
+                ? "bg-content/10 text-content"
+                : "text-content/50 hover:bg-content/5 hover:text-content"
+            }`}
+          >
+            <span className="block truncate">{item.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export function ProjectRail({
   cwd,
@@ -164,6 +223,8 @@ export function ProjectRail({
   updateNotice = null,
   onOpenWhatsNew,
   onDismissUpdate,
+  mode = "projects",
+  onModeChange,
 }: Props) {
   const resize = useDragResize({
     min: PROJECT_RAIL_WIDTH_MIN,
@@ -419,47 +480,55 @@ export function ProjectRail({
             }}
             className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-none pb-2"
           >
-            {sections.pinned.length > 0 ? (
-              <ProjectSection
-                label="Pinned"
-                items={sections.pinned}
-                cwd={cwd}
-                busy={busy}
-                sortable={pinnedSortable}
-                pinned
-                searchActive={searchActive || inboxActive || notesActive}
-                onSelect={onSelectProject}
-                onTogglePin={onTogglePin}
-                onContextMenu={onProjectContextMenu}
-                onOpenMenu={openProjectMenu}
-                groupLabels={groupLabels}
-                groupColors={groupColors}
-                groupCustomColors={groupCustomColors}
-                groupLogos={groupLogos}
-                groupMascots={groupMascots}
-              />
-            ) : null}
+            {mode === "chat" ? (
+              <p className="px-3 py-2 text-[12px] text-content/50">
+                Chats live outside any project — pick one from the sidebar.
+              </p>
+            ) : (
+              <>
+                {sections.pinned.length > 0 ? (
+                  <ProjectSection
+                    label="Pinned"
+                    items={sections.pinned}
+                    cwd={cwd}
+                    busy={busy}
+                    sortable={pinnedSortable}
+                    pinned
+                    searchActive={searchActive || inboxActive || notesActive}
+                    onSelect={onSelectProject}
+                    onTogglePin={onTogglePin}
+                    onContextMenu={onProjectContextMenu}
+                    onOpenMenu={openProjectMenu}
+                    groupLabels={groupLabels}
+                    groupColors={groupColors}
+                    groupCustomColors={groupCustomColors}
+                    groupLogos={groupLogos}
+                    groupMascots={groupMascots}
+                  />
+                ) : null}
 
-            <ProjectSection
-              label="Projects"
-              items={sections.projects}
-              emptyLabel="No projects yet"
-              onAdd={onOpenProject}
-              cwd={cwd}
-              busy={busy}
-              sortable={projectSortable}
-              pinned={false}
-              searchActive={searchActive || inboxActive || notesActive}
-              onSelect={onSelectProject}
-              onTogglePin={onTogglePin}
-              onContextMenu={onProjectContextMenu}
-              onOpenMenu={openProjectMenu}
-              groupLabels={groupLabels}
-              groupColors={groupColors}
-              groupCustomColors={groupCustomColors}
-              groupLogos={groupLogos}
-              groupMascots={groupMascots}
-            />
+                <ProjectSection
+                  label="Projects"
+                  items={sections.projects}
+                  emptyLabel="No projects yet"
+                  onAdd={onOpenProject}
+                  cwd={cwd}
+                  busy={busy}
+                  sortable={projectSortable}
+                  pinned={false}
+                  searchActive={searchActive || inboxActive || notesActive}
+                  onSelect={onSelectProject}
+                  onTogglePin={onTogglePin}
+                  onContextMenu={onProjectContextMenu}
+                  onOpenMenu={openProjectMenu}
+                  groupLabels={groupLabels}
+                  groupColors={groupColors}
+                  groupCustomColors={groupCustomColors}
+                  groupLogos={groupLogos}
+                  groupMascots={groupMascots}
+                />
+              </>
+            )}
           </div>
           <LiveAgentsPreview
             agents={liveAgents}
@@ -470,6 +539,9 @@ export function ProjectRail({
             groupCustomColors={groupCustomColors}
             groupMascots={groupMascots}
           />
+          <div className="flex shrink-0 px-2 py-1">
+            <ModeSwitcher mode={mode} onChange={onModeChange} />
+          </div>
           <SidebarUpdateFooter
             update={updateNotice}
             onOpenWhatsNew={onOpenWhatsNew}

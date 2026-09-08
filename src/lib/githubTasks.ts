@@ -800,3 +800,149 @@ export function composeInboxMessage(
   if (!note) return prompt;
   return `${prompt}\n\n${note}`;
 }
+
+/** Bot login fragment identifying CodeRabbit-authored review content. */
+const CODERABBIT_LOGIN = "coderabbit";
+
+export function isCodeRabbitAuthor(login: string): boolean {
+  return login.trim().toLowerCase().includes(CODERABBIT_LOGIN);
+}
+
+export type ReviewIssue = {
+  id: string;
+  path: string;
+  line: number | null;
+  title: string;
+  body: string;
+  url: string;
+};
+
+export type CodeReviewReport = {
+  repo: string;
+  prNumber: number;
+  decision: string;
+  issues: ReviewIssue[];
+  /** Resolved threads seen but left out of `issues`. */
+  resolvedSkipped: number;
+  /** Latest non-empty CodeRabbit summary review, capped. Empty when none. */
+  summaryBody: string;
+  truncated: boolean;
+};
+
+const MAX_REVIEW_ISSUES = 20;
+const MAX_ISSUE_CHARS = 1500;
+const MAX_SUMMARY_CHARS = 2000;
+
+function capReportText(text: string, max: number): string {
+  const trimmed = text.trim().replace(/\r\n?/g, "\n");
+  if ([...trimmed].length <= max) return trimmed;
+  return `${[...trimmed].slice(0, max).join("")}… [truncated]`;
+}
+
+function issueTitle(comment: GithubWorkItemComment): string {
+  const first = comment.body.split("\n").find((line) => line.trim()) ?? "";
+  const cleaned = first.replace(/^#+\s*/, "").replace(/[*_`]+/g, "").trim();
+  return cleaned || "Review comment";
+}
+
+/**
+ * Pull the CodeRabbit review out of a PR thread: unresolved inline threads
+ * as fixable issues plus the latest summary review. Returns null when
+ * CodeRabbit said nothing — the caller hides "Pull review" instead of
+ * opening an empty report.
+ */
+export function buildCodeReviewReport(
+  thread: GithubWorkItemThread,
+  repo: string,
+  prNumber: number,
+): CodeReviewReport | null {
+  const issues: ReviewIssue[] = [];
+  let resolvedSkipped = 0;
+  let truncated = thread.truncated;
+  for (const comment of thread.comments) {
+    if (!isCodeRabbitAuthor(comment.author)) continue;
+    if (comment.resolved) {
+      resolvedSkipped += 1;
+      continue;
+    }
+    if (!comment.body.trim() || issues.length >= MAX_REVIEW_ISSUES) {
+      if (comment.body.trim()) truncated = true;
+      continue;
+    }
+    const where =
+      comment.path.trim() +
+      (comment.line != null && comment.line > 0 ? `:${comment.line}` : "");
+    issues.push({
+      id: comment.threadId || comment.id,
+      path: comment.path.trim(),
+      line: comment.line,
+      title: where ? `${where} — ${issueTitle(comment)}` : issueTitle(comment),
+      body: capReportText(comment.body, MAX_ISSUE_CHARS),
+      url: comment.url,
+    });
+  }
+  const summaries = thread.comments.filter(
+    (comment) =>
+      isCodeRabbitAuthor(comment.author) &&
+      !comment.path.trim() &&
+      comment.body.trim(),
+  );
+  const summaryBody = summaries.length
+    ? capReportText(summaries[summaries.length - 1]!.body, MAX_SUMMARY_CHARS)
+    : "";
+  if (issues.length === 0 && !summaryBody) return null;
+  return {
+    repo: repo.trim(),
+    prNumber,
+    decision: thread.reviewDecision.trim(),
+    issues,
+    resolvedSkipped,
+    summaryBody,
+    truncated,
+  };
+}
+
+/** Markdown body for the report block — readable even without the buttons. */
+export function formatCodeReviewReport(report: CodeReviewReport): string {
+  const head = `## CodeRabbit review — ${report.repo}#${report.prNumber}`;
+  const decision = report.decision
+    ? `Review decision: ${report.decision}.`
+    : "Review decision: unknown.";
+  const counts =
+    `${report.issues.length} unresolved ` +
+    `${report.issues.length === 1 ? "thread" : "threads"}` +
+    (report.resolvedSkipped > 0
+      ? ` (${report.resolvedSkipped} resolved skipped)`
+      : "") +
+    ".";
+  const lines = [head, "", `${decision} ${counts}`, ""];
+  report.issues.forEach((issue, index) => {
+    lines.push(`### ${index + 1}. ${issue.title}`, "", issue.body, "");
+  });
+  if (report.summaryBody) {
+    lines.push("### CodeRabbit summary", "", report.summaryBody, "");
+  }
+  if (report.truncated) {
+    lines.push("_Older review content was truncated by the fetch._", "");
+  }
+  lines.push("Pick an issue below and press **Fix this** to send it to the agent.");
+  return lines.join("\n").trimEnd();
+}
+
+/** The normal chat message a "Fix this" button sends for one issue. */
+export function formatReviewFixMessage(
+  report: CodeReviewReport,
+  issue: ReviewIssue,
+): string {
+  const where =
+    issue.path + (issue.line != null && issue.line > 0 ? `:${issue.line}` : "");
+  const lines = [
+    `Fix this CodeRabbit issue from ${report.repo}#${report.prNumber}:`,
+    "",
+    where || issue.title,
+    "",
+    issue.body,
+  ];
+  if (issue.url.trim()) lines.push("", issue.url.trim());
+  return lines.join("\n").trimEnd();
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyInboxFilters,
   DEFAULT_INBOX_FILTERS,
+  disambiguateProjectNames,
   filterInboxByKind,
   filterInboxByProject,
   filterInboxByProvider,
@@ -308,5 +309,35 @@ describe("pruneInboxFilters", () => {
       ["/tmp/web"],
     );
     expect(pruned.hiddenProjects).toEqual(["/tmp/web"]);
+  });
+});
+
+describe("disambiguateProjectNames", () => {
+  it("labels projects by folder name with the full path as title", () => {
+    expect(
+      disambiguateProjectNames([
+        { path: "/repo/web" },
+        { path: "E:\\work\\Teacher" },
+      ]),
+    ).toEqual([
+      { label: "web", title: "/repo/web" },
+      { label: "Teacher", title: "E:\\work\\Teacher" },
+    ]);
+  });
+
+  it("suffixes the parent folder when names collide", () => {
+    expect(
+      disambiguateProjectNames([
+        { path: "/a/Teacher" },
+        { path: "E:\\b\\Teacher" },
+      ]),
+    ).toEqual([
+      { label: "Teacher · a", title: "/a/Teacher" },
+      { label: "Teacher · b", title: "E:\\b\\Teacher" },
+    ]);
+  });
+
+  it("handles an empty list", () => {
+    expect(disambiguateProjectNames([])).toEqual([]);
   });
 });

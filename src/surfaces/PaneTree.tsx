@@ -9,6 +9,7 @@ import {
 import { setGrabbing, suppressTextSelection } from "../lib/drag";
 import { paneDropFromPoint, useExternalPaneDrop } from "../lib/paneDrop";
 import type { ApprovalDecision, UserQuestionReply } from "../lib/harness";
+import type { ReviewIssue } from "../lib/githubTasks";
 import type { EditorNavigationTarget } from "../lib/search";
 import {
   layoutLeaves,
@@ -86,6 +87,7 @@ type Shared = {
     requestId: number,
     decision: ApprovalDecision,
   ) => void;
+  onReviewFix?: (sessionId: string, issue: ReviewIssue) => void;
   onQuestionReply: (
     sessionId: string,
     requestId: number,
@@ -116,6 +118,8 @@ type Shared = {
     turn: Block[],
     model: string,
   ) => void;
+  onBranch?: (sessionId: string, turn: Block[]) => void;
+  onSidechat?: (sessionId: string, turn: Block[]) => void;
   onMovePane: (fromId: string, toId: string, edge: PaneEdge) => void;
   onNewTerminal: (sessionId: string) => void;
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
@@ -168,6 +172,7 @@ function PaneTreeComponent({
   onNoteCardDismiss,
   onHandoffCardDismiss,
   onApproval,
+  onReviewFix,
   onQuestionReply,
   onOpenFile,
   editorNavigation,
@@ -177,6 +182,8 @@ function PaneTreeComponent({
   onBuildPlan,
   onSecondOpinion,
   onHandoff,
+  onBranch,
+  onSidechat,
   onMovePane,
   onNewTerminal,
   onTerminalMetaChange,
@@ -373,6 +380,7 @@ function PaneTreeComponent({
                 onNoteCardDismiss={onNoteCardDismiss}
                 onHandoffCardDismiss={onHandoffCardDismiss}
                 onApproval={onApproval}
+                onReviewFix={onReviewFix}
                 onQuestionReply={onQuestionReply}
                 onOpenFile={onOpenFile}
                 onOpenDiff={onOpenDiff}
@@ -380,6 +388,8 @@ function PaneTreeComponent({
                 onBuildPlan={onBuildPlan}
                 onSecondOpinion={onSecondOpinion}
                 onHandoff={onHandoff}
+                onBranch={onBranch}
+                onSidechat={onSidechat}
                 onNewTerminal={onNewTerminal}
                 onPaneDragStart={onPaneDragStart}
               />

@@ -3595,6 +3595,34 @@ fn write_attachment_sync(name: &str, data: &str) -> Result<String, String> {
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// Projectless chats live under the user's MonoCode home, outside any
+/// project: `<home>/.monocode/scratch/<name>/`. Creates the directory on
+/// demand and returns its absolute path so the frontend can match scratch
+/// sessions by prefix without expanding `~` itself.
+#[tauri::command]
+pub async fn ensure_scratch_chat(name: String) -> Result<String, String> {
+    let dir = scratch_chat_dir(&name).ok_or("Invalid chat name")?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+fn scratch_chat_dir(name: &str) -> Option<std::path::PathBuf> {
+    let home = crate::dirs_home()?;
+    scratch_chat_dir_in(std::path::Path::new(&home), name)
+}
+
+fn scratch_chat_dir_in(home: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+    let clean: String = name
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_')
+        .take(64)
+        .collect();
+    if clean.is_empty() {
+        return None;
+    }
+    Some(home.join(".monocode").join("scratch").join(clean))
+}
+
 fn safe_attachment_name(name: &str) -> String {
     let leaf = Path::new(name)
         .file_name()
@@ -3946,14 +3974,19 @@ pub fn reveal_path(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        let status = Command::new("explorer")
+        // Explorer's exit code after `/select` dispatch is not a reliable
+        // result: it opens the right location yet still exits nonzero, which
+        // surfaced as a false "Could not reveal" error. Success here means
+        // Explorer was dispatched; only a spawn failure is an error.
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        Command::new("explorer")
             .arg(format!("/select,{path_str}"))
-            .status()
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map(|_| ())
             .map_err(|e| e.to_string())?;
-        if !status.success() {
-            return Err("Could not reveal in File Explorer.".into());
-        }
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -4055,6 +4088,17 @@ mod tests {
         assert_eq!(encoded, "aGVsbG8=");
         assert_eq!(safe_attachment_name("../../secret.png"), "secret.png");
         assert_eq!(safe_attachment_name(""), "attachment");
+    }
+
+    #[test]
+    fn scratch_chat_dir_sanitizes_names() {
+        let home = std::path::Path::new("/tmp/fake-home");
+        let dir = scratch_chat_dir_in(home, "chat-1_a").expect("valid name");
+        assert!(dir.ends_with(".monocode/scratch/chat-1_a"));
+        assert!(scratch_chat_dir_in(home, "").is_none());
+        let escaped = scratch_chat_dir_in(home, "../../etc").expect("sanitized");
+        assert!(!escaped.to_string_lossy().contains(".."));
+        assert!(escaped.ends_with(".monocode/scratch/etc"));
     }
 
     struct Tmp(PathBuf);
@@ -4253,6 +4297,7 @@ mod tests {
         git(dir, &["config", "user.name", "MonoCode"])
             && git(dir, &["config", "user.email", "monocode@test"])
             && git(dir, &["config", "commit.gpgsign", "false"])
+            && git(dir, &["config", "core.autocrlf", "false"])
     }
 
     #[test]
@@ -4293,6 +4338,8 @@ mod tests {
                 "user.email=monocode@test",
                 "-c",
                 "commit.gpgsign=false",
+                "-c",
+                "core.autocrlf=false",
             ])
             .args(args)
             .current_dir(dir)
@@ -4904,7 +4951,15 @@ mod tests {
             || !git(&a.0, &["push", "-u", "origin", "main"])
             || !git(&origin.0, &["symbolic-ref", "HEAD", "refs/heads/main"])
             || Command::new("git")
-                .args(["clone", "-b", "main", &origin_url, "."])
+                .args([
+                    "clone",
+                    "-c",
+                    "core.autocrlf=false",
+                    "-b",
+                    "main",
+                    &origin_url,
+                    ".",
+                ])
                 .current_dir(&b.0)
                 .status()
                 .map(|status| !status.success())
@@ -4912,6 +4967,7 @@ mod tests {
             || !git(&b.0, &["config", "user.name", "MonoCode"])
             || !git(&b.0, &["config", "user.email", "monocode@test"])
             || !git(&b.0, &["config", "commit.gpgsign", "false"])
+            || !git(&b.0, &["config", "core.autocrlf", "false"])
         {
             return;
         }
@@ -5450,5 +5506,28 @@ mod tests {
             "feature"
         );
         assert_eq!(git_head_branch(&repo.0).as_deref(), Some("feature"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn reveal_path_dispatches_existing_file_without_false_error() {
+        let dir = tmp("reveal-file");
+        let file = dir.0.join("notes.md");
+        std::fs::write(&file, "hi\n").unwrap();
+        reveal_path(file.to_string_lossy().into_owned()).expect("file reveals");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn reveal_path_dispatches_existing_directory_without_false_error() {
+        let dir = tmp("reveal-dir");
+        reveal_path(dir.0.to_string_lossy().into_owned()).expect("dir reveals");
+    }
+
+    #[test]
+    fn reveal_path_rejects_missing_path() {
+        let dir = tmp("reveal-missing");
+        let missing = dir.0.join("gone.md").to_string_lossy().into_owned();
+        assert!(reveal_path(missing).is_err());
     }
 }

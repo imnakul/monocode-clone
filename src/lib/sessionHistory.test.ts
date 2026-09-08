@@ -6,6 +6,7 @@ import {
   mergeHistorySummary,
   mergeProjectHistorySummary,
   replaceProjectHistory,
+  scratchChatSummaries,
 } from "./sessionHistory";
 import { newSession } from "./session";
 import type { SessionSummary } from "./sessionStore";
@@ -282,5 +283,51 @@ describe("pinned sessions", () => {
     ];
     const rows = historyWithLiveSessions(history, [], "/tmp/project-a");
     expect(rows.map((row) => row.id)).toEqual(["pin", "new"]);
+  });
+});
+
+describe("scratchChatSummaries", () => {
+  const scratch = (id: string, updatedAt = 1) =>
+    summary(id, `/home/u/.monocode/scratch/${id}`, updatedAt);
+
+  it("lists only scratch chats, newest first", () => {
+    const history = [
+      summary("p1", "/tmp/project-a", 5),
+      scratch("c1", 1),
+      scratch("c2", 9),
+    ];
+    expect(scratchChatSummaries(history, []).map((row) => row.id)).toEqual([
+      "c2",
+      "c1",
+    ]);
+  });
+
+  it("merges live scratch sessions and skips ephemeral ones", () => {
+    const live = newSession("cursor", "/home/u/.monocode/scratch/live");
+    live.blocks = [{ id: "u1", role: "user", text: "hello" }];
+    const ghost = newSession("cursor", "/home/u/.monocode/scratch/ghost");
+    ghost.ephemeral = true;
+    ghost.blocks = [{ id: "u1", role: "user", text: "boo" }];
+    const project = newSession("cursor", "/tmp/project-a");
+    project.blocks = [{ id: "u1", role: "user", text: "work" }];
+    const rows = scratchChatSummaries([], [live, ghost, project]);
+    expect(rows.map((row) => row.id)).toEqual([live.id]);
+  });
+
+  it("dedupes live sessions against their persisted rows", () => {
+    const live = newSession("cursor", "/home/u/.monocode/scratch/c1");
+    live.id = "c1";
+    live.blocks = [{ id: "u1", role: "user", text: "newer" }];
+    // Persisted rows stay fresh through history updates, so the live copy
+    // yields to the stored row instead of doubling it.
+    const rows = scratchChatSummaries([scratch("c1", 1)], [live]);
+    expect(rows.map((row) => row.id)).toEqual(["c1"]);
+  });
+
+  it("adds live sessions missing from history", () => {
+    const live = newSession("cursor", "/home/u/.monocode/scratch/live");
+    live.blocks = [{ id: "u1", role: "user", text: "hello" }];
+    const rows = scratchChatSummaries([], [live]);
+    expect(rows.map((row) => row.id)).toEqual([live.id]);
   });
 });

@@ -7,6 +7,7 @@ import {
   noteCardMeta,
   noteMentionLabel,
   notePreview,
+  noteProjectChoices,
   noteSourceProject,
   noteSlugsInText,
   notesAsProjectFiles,
@@ -55,10 +56,58 @@ describe("noteSourceProject", () => {
     );
   });
 
+  it("uses the folder name for Windows paths", () => {
+    expect(
+      noteSourceProject("E:\\Developing\\Knoarc\\rigorup-active\\Teacher"),
+    ).toBe("Teacher");
+  });
+
   it("returns null when there is no project", () => {
     expect(noteSourceProject(undefined)).toBeNull();
     expect(noteSourceProject("~")).toBeNull();
     expect(noteSourceProject("/")).toBeNull();
+  });
+});
+
+describe("noteProjectChoices", () => {
+  it("puts the current project first and Personal last", () => {
+    const choices = noteProjectChoices("/repo/web", [
+      { path: "/repo/api" },
+      { path: "/repo/web" },
+    ]);
+    expect(choices.map((choice) => choice.id)).toEqual([
+      "project:/repo/web",
+      "project:/repo/api",
+      "personal",
+    ]);
+    expect(choices[0]).toMatchObject({ kind: "project", current: true });
+    expect(choices[2]).toMatchObject({ kind: "personal", current: false });
+  });
+
+  it("dedupes across separators and caps the list", () => {
+    const recents = [
+      { path: "E:\\a\\one" },
+      { path: "E:/a/one" },
+      { path: "/b/two" },
+      { path: "/c/three" },
+      { path: "/d/four" },
+      { path: "/e/five" },
+      { path: "/f/six" },
+      { path: "/g/seven" },
+    ];
+    const choices = noteProjectChoices(undefined, recents);
+    const projects = choices.filter((choice) => choice.kind === "project");
+    // One separator-variant duplicate removed, then capped at six.
+    expect(projects).toHaveLength(6);
+    expect(choices[choices.length - 1]).toMatchObject({
+      id: "personal",
+      current: true,
+    });
+  });
+
+  it("marks Personal current when there is no project context", () => {
+    const choices = noteProjectChoices("~", []);
+    expect(choices).toEqual([{ id: "personal", kind: "personal", current: true }]);
   });
 });
 

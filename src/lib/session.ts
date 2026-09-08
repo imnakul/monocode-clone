@@ -1,7 +1,10 @@
 import type { ContextUsage } from "./contextUsage";
 import type { UserQuestionPrompt } from "./userQuestion";
 import type { HandoffComposerCard } from "./handoff";
-import type { InboxComposerCard } from "./githubTasks";
+import type {
+  CodeReviewReport,
+  InboxComposerCard,
+} from "./githubTasks";
 import type { NoteCardMeta, NoteComposerCard } from "./notes";
 import {
   defaultSessionChoice,
@@ -182,6 +185,8 @@ export type Block = {
   secondOpinion?: SecondOpinionMeta;
   /** Note chip shown on this user turn. Body is not stored; the harness already received it. */
   noteCard?: NoteCardMeta;
+  /** CodeRabbit review report with per-issue fix buttons. Survives reloads. */
+  review?: CodeReviewReport;
 };
 
 export type RuntimeMode =
@@ -246,6 +251,16 @@ export type Session = {
   worktreeCwd?: string;
   /** One-shot composer text when opening a session from Inbox. */
   composerSeed?: string;
+  /**
+   * Ephemeral sessions (sidechats) live in memory only: never persisted,
+   * never listed in history, gone on close or quit.
+   */
+  ephemeral?: boolean;
+  /**
+   * Sidechat source thread. Context is attached from this session at each
+   * send — never copied at open — so questions always use the latest state.
+   */
+  sidechat?: { sourceSessionId: string };
   /** Inbox issue/PR chip shown above the composer. In-memory, one-shot. */
   inboxCard?: InboxComposerCard;
   /** Note chip shown above the composer. In-memory, one-shot. */
@@ -258,6 +273,15 @@ export type Session = {
    */
   pendingQuestion?: UserQuestionPrompt;
 };
+
+/**
+ * Projectless chats live under `<home>/.monocode/scratch/<id>`, outside any
+ * project. Matched by path segment (either separator) so no backend
+ * round-trip is needed to tell them apart.
+ */
+export function isScratchCwd(cwd: string): boolean {
+  return cwd.replace(/\\/g, "/").includes("/.monocode/scratch/");
+}
 
 export type PendingHarnessSwitch = {
   from: HarnessId;

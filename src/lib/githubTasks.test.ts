@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCodeReviewReport,
   collectInboxResults,
   composeInboxMessage,
   dedupeInboxItems,
   filterInboxItems,
+  formatCodeReviewReport,
   formatGithubQuery,
   formatRelativeTime,
+  formatReviewFixMessage,
   githubAvatarUrl,
   githubReviewDecisionLabel,
   githubReviewStateLabel,
@@ -16,8 +19,10 @@ import {
   inboxPersonAvatarUrl,
   inboxProjectsForRail,
   inboxStartDraft,
+  isCodeRabbitAuthor,
   sortInboxItems,
   uniqueInboxProjects,
+  type GithubWorkItemThread,
   type InboxItem,
 } from "./githubTasks";
 
@@ -461,5 +466,117 @@ describe("composeInboxMessage", () => {
 
   it("returns the typed text when there is no card", () => {
     expect(composeInboxMessage(undefined, " hello ")).toBe("hello");
+  });
+});
+
+function reviewComment(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "c1",
+    kind: "review_comment",
+    author: "coderabbitai[bot]",
+    authorAvatarUrl: "",
+    body: "Consider a guard clause here.",
+    createdAt: "2026-09-01T10:00:00Z",
+    url: "https://github.com/acme/web/pull/7#discussion_r1",
+    state: "",
+    path: "src/app.ts",
+    line: 42,
+    resolved: false,
+    threadId: "thread-1",
+    replies: [],
+    ...overrides,
+  };
+}
+
+function reviewThread(): GithubWorkItemThread {
+  return {
+    comments: [
+      reviewComment(),
+      reviewComment({
+        id: "c2",
+        author: "teammate",
+        body: "Looks good to me.",
+        path: "",
+        line: null,
+        threadId: "",
+      }),
+      reviewComment({
+        id: "c3",
+        path: "src/old.ts",
+        line: 7,
+        resolved: true,
+        threadId: "thread-2",
+      }),
+    ],
+    truncated: false,
+    reviewDecision: "CHANGES_REQUESTED",
+    baseRefName: "main",
+    headRefName: "feature",
+  };
+}
+
+describe("isCodeRabbitAuthor", () => {
+  it("matches the bot login case-insensitively", () => {
+    expect(isCodeRabbitAuthor("coderabbitai[bot]")).toBe(true);
+    expect(isCodeRabbitAuthor("CoderabbitAI")).toBe(true);
+    expect(isCodeRabbitAuthor("teammate")).toBe(false);
+  });
+});
+
+describe("buildCodeReviewReport", () => {
+  it("keeps unresolved CodeRabbit threads and skips the rest", () => {
+    const report = buildCodeReviewReport(reviewThread(), "acme/web", 7);
+    expect(report?.issues.map((issue) => issue.id)).toEqual(["thread-1"]);
+    expect(report?.issues[0]).toMatchObject({
+      path: "src/app.ts",
+      line: 42,
+    });
+    expect(report?.issues[0]?.title).toContain("src/app.ts:42");
+    expect(report?.resolvedSkipped).toBe(1);
+    expect(report?.decision).toBe("CHANGES_REQUESTED");
+  });
+
+  it("returns null when CodeRabbit said nothing", () => {
+    const thread = reviewThread();
+    thread.comments = thread.comments.filter(
+      (comment) => !isCodeRabbitAuthor(comment.author),
+    );
+    expect(buildCodeReviewReport(thread, "acme/web", 7)).toBeNull();
+  });
+
+  it("picks up the summary review", () => {
+    const thread = reviewThread();
+    thread.comments.push(
+      reviewComment({
+        id: "r1",
+        kind: "review",
+        body: "Overall solid, two nits above.",
+        path: "",
+        line: null,
+        threadId: "",
+      }),
+    );
+    const report = buildCodeReviewReport(thread, "acme/web", 7);
+    expect(report?.summaryBody).toContain("Overall solid");
+  });
+});
+
+describe("formatCodeReviewReport", () => {
+  it("renders a readable report with numbered issues", () => {
+    const report = buildCodeReviewReport(reviewThread(), "acme/web", 7);
+    const text = formatCodeReviewReport(report!);
+    expect(text).toContain("## CodeRabbit review — acme/web#7");
+    expect(text).toContain("### 1. src/app.ts:42");
+    expect(text).toContain("Fix this");
+  });
+});
+
+describe("formatReviewFixMessage", () => {
+  it("sends the issue text as a normal message", () => {
+    const report = buildCodeReviewReport(reviewThread(), "acme/web", 7);
+    const text = formatReviewFixMessage(report!, report!.issues[0]!);
+    expect(text).toContain("Fix this CodeRabbit issue from acme/web#7");
+    expect(text).toContain("src/app.ts:42");
+    expect(text).toContain("Consider a guard clause here.");
   });
 });

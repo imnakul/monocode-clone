@@ -192,7 +192,7 @@ impl HarnessHost {
         (epoch, kill_all, prev)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn spawn_stamp_current(&self, session_id: &str, epoch: u64, kill_all: u64) -> bool {
         let inner = self.lock_inner();
         self.kill_all_gen.load(Ordering::SeqCst) == kill_all
@@ -1809,6 +1809,7 @@ fn tree_alive(pid: u32) -> bool {
     }
 }
 
+#[cfg(unix)]
 fn process_alive(pid: u32) -> bool {
     if pid == 0 {
         return false;
@@ -1828,6 +1829,7 @@ fn process_alive(pid: u32) -> bool {
     }
 }
 
+#[cfg(unix)]
 #[derive(Debug, Clone)]
 struct ProcessSnapshot {
     pid: u32,
@@ -1849,6 +1851,7 @@ pub(crate) fn reap_orphaned_harness_processes() {
     }
 }
 
+#[cfg(unix)]
 fn reap_snapshots(rows: &[ProcessSnapshot], our_pid: u32) {
     let pids: Vec<u32> = rows
         .iter()
@@ -1858,6 +1861,7 @@ fn reap_snapshots(rows: &[ProcessSnapshot], our_pid: u32) {
     terminate_all(&pids);
 }
 
+#[cfg(unix)]
 fn should_reap_process(
     proc: &ProcessSnapshot,
     our_pid: u32,
@@ -1873,6 +1877,7 @@ fn should_reap_process(
 }
 
 /// Pre-marker leftovers: `cursor-agent acp` reparented to launchd.
+#[cfg(unix)]
 fn is_legacy_orphaned_cursor_acp(args: &str) -> bool {
     if !args.contains("cursor-agent") {
         return false;
@@ -1883,6 +1888,7 @@ fn is_legacy_orphaned_cursor_acp(args: &str) -> bool {
 /// Argv of an agent CLI we spawned — not a shell, tmux, or `npm start`.
 /// Used to decide whose environment is worth opening; the marker still
 /// decides what actually dies.
+#[cfg(unix)]
 fn looks_like_harness_argv(args: &str) -> bool {
     if is_legacy_orphaned_cursor_acp(args) {
         return true;
@@ -1890,6 +1896,7 @@ fn looks_like_harness_argv(args: &str) -> bool {
     args.split_whitespace().any(is_harness_argv_token)
 }
 
+#[cfg(unix)]
 fn is_harness_argv_token(part: &str) -> bool {
     let name = Path::new(part)
         .file_name()
@@ -1911,7 +1918,7 @@ fn is_harness_argv_token(part: &str) -> bool {
     )
 }
 
-#[cfg(any(not(target_os = "linux"), test))]
+#[cfg(all(unix, any(not(target_os = "linux"), test)))]
 fn parse_ps_row(line: &str) -> Option<ProcessSnapshot> {
     let s = line.trim();
     let pid_end = s.find(char::is_whitespace)?;
@@ -1931,6 +1938,7 @@ fn parse_ps_row(line: &str) -> Option<ProcessSnapshot> {
     })
 }
 
+#[cfg(unix)]
 fn harness_parent_from_bytes(buf: &[u8]) -> Option<u32> {
     let mut needle = Vec::with_capacity(HARNESS_PARENT_ENV.len() + 1);
     needle.extend_from_slice(HARNESS_PARENT_ENV.as_bytes());
@@ -2070,7 +2078,7 @@ fn read_harness_parents(pids: &[u32]) -> HashMap<u32, u32> {
     found
 }
 
-#[cfg(any(not(target_os = "linux"), test))]
+#[cfg(all(unix, any(not(target_os = "linux"), test)))]
 fn parse_ps_pid_command(line: &str) -> Option<(u32, String)> {
     let s = line.trim();
     let pid_end = s.find(char::is_whitespace)?;
@@ -2100,6 +2108,7 @@ fn proc_ppid(dir: &Path) -> Option<u32> {
 /// Field 4 of `stat`, counted from the last closing paren: `comm` is unquoted
 /// and can hold spaces and parens of its own.
 #[cfg(any(target_os = "linux", test))]
+#[cfg(unix)]
 fn parse_proc_ppid(stat: &str) -> Option<u32> {
     stat.get(stat.rfind(')')? + 1..)?
         .split_whitespace()
@@ -3030,7 +3039,7 @@ pub(crate) fn resolve_gui_binary(name: &str) -> Option<PathBuf> {
 fn gui_search_path() -> String {
     #[cfg(windows)]
     {
-        return windows_gui_search_path();
+        windows_gui_search_path()
     }
     #[cfg(not(windows))]
     {
@@ -3373,6 +3382,7 @@ fn command_stem(command: &str) -> String {
         .to_ascii_lowercase()
 }
 
+#[cfg(all(unix, test))]
 fn command_basename(command: &str) -> &str {
     Path::new(command)
         .file_name()
@@ -3917,7 +3927,7 @@ mod exec_allowlist_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod reap_logic_tests {
     use super::*;
 

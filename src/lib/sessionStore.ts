@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { persistableAttachment } from "./attachments";
 import type { ContextUsage } from "./contextUsage";
+import type { CodeReviewReport, ReviewIssue } from "./githubTasks";
 import { normalizeProjectPath } from "./recents";
 import type {
   Block,
@@ -70,7 +71,9 @@ type SessionUpsertPayload = {
 /** Only real chats belong in project history — blank tabs stay ephemeral. */
 export function shouldPersistSession(session: Session): boolean {
   return (
-    session.cwd !== "~" && session.blocks.some((block) => block.role === "user")
+    !session.ephemeral &&
+    session.cwd !== "~" &&
+    session.blocks.some((block) => block.role === "user")
   );
 }
 
@@ -186,6 +189,12 @@ export async function listSessionsByProject(
   const rows = await invoke<SessionSummary[]>("session_list_by_project", {
     cwd: normalizeProjectPath(cwd),
   });
+  return rows.map(normalizeSummary);
+}
+
+/** Every persisted scratch chat, whatever its leaf directory. */
+export async function listScratchSessions(): Promise<SessionSummary[]> {
+  const rows = await invoke<SessionSummary[]>("session_list_scratch");
   return rows.map(normalizeSummary);
 }
 
@@ -362,6 +371,8 @@ function sanitizeBlock(block: Block): Block | null {
   if (secondOpinion) next.secondOpinion = secondOpinion;
   const noteCard = sanitizeNoteCard(block.noteCard);
   if (noteCard) next.noteCard = noteCard;
+  const review = sanitizeReview(block.review);
+  if (review) next.review = review;
   return next;
 }
 
@@ -428,6 +439,59 @@ function sanitizeTaskList(value: unknown): TaskListMeta | null {
     ...(key ? { key } : {}),
     ...(explanation ? { explanation } : {}),
     items,
+  };
+}
+
+function sanitizeReview(
+  value: Block["review"],
+): CodeReviewReport | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const repo = typeof value.repo === "string" ? value.repo.trim() : "";
+  const prNumber =
+    typeof value.prNumber === "number" && Number.isFinite(value.prNumber)
+      ? Math.max(0, Math.round(value.prNumber))
+      : 0;
+  if (!repo || prNumber <= 0) return undefined;
+  const issues: ReviewIssue[] = [];
+  if (Array.isArray(value.issues)) {
+    for (const item of value.issues) {
+      if (!item || typeof item !== "object") continue;
+      const record = item as Record<string, unknown>;
+      const id = typeof record.id === "string" ? record.id.trim() : "";
+      const body = typeof record.body === "string" ? record.body : "";
+      if (!id || !body.trim()) continue;
+      issues.push({
+        id,
+        path: typeof record.path === "string" ? record.path : "",
+        line:
+          typeof record.line === "number" && Number.isFinite(record.line)
+            ? record.line
+            : null,
+        title: typeof record.title === "string" ? record.title : "",
+        body,
+        url: typeof record.url === "string" ? record.url : "",
+      });
+      if (issues.length >= 40) break;
+    }
+  }
+  if (issues.length === 0) return undefined;
+  const decision =
+    typeof value.decision === "string" ? value.decision.trim() : "";
+  const summaryBody =
+    typeof value.summaryBody === "string" ? value.summaryBody : "";
+  const resolvedSkipped =
+    typeof value.resolvedSkipped === "number" &&
+    Number.isFinite(value.resolvedSkipped)
+      ? Math.max(0, Math.round(value.resolvedSkipped))
+      : 0;
+  return {
+    repo,
+    prNumber,
+    decision,
+    issues,
+    resolvedSkipped,
+    summaryBody,
+    truncated: value.truncated === true,
   };
 }
 

@@ -6,6 +6,7 @@ import {
   type InboxProvider,
 } from "./githubTasks";
 import { normalizeProjectPath } from "./recents";
+import { projectName } from "./paths";
 import {
   timeFilterStart,
   type SessionTimeFilter,
@@ -243,6 +244,33 @@ export function statusFilterForSource(
 
 function isGithubInboxKind(value: unknown): value is InboxKind {
   return value === "issue" || value === "pr";
+}
+
+/**
+ * Short folder-name labels for the filter menu, with the full path behind
+ * the tooltip. Folders that share a name across checkouts get a parent
+ * suffix (`Teacher · rigorup-active`) so shortening never creates ambiguity.
+ */
+export function disambiguateProjectNames(
+  projects: { path: string }[],
+): { label: string; title: string }[] {
+  const names = projects.map((project) => projectName(project.path));
+  const counts = new Map<string, number>();
+  for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return projects.map((project, index) => {
+    const name = names[index] ?? project.path;
+    if ((counts.get(name) ?? 0) < 2) return { label: name, title: project.path };
+    const parent = parentFolderName(project.path);
+    return {
+      label: parent ? `${name} · ${parent}` : name,
+      title: project.path,
+    };
+  });
+}
+
+function parentFolderName(path: string): string {
+  const parts = path.replace(/[/\\]+$/, "").split(/[/\\]/).filter(Boolean);
+  return parts.length >= 2 ? (parts[parts.length - 2] ?? "") : "";
 }
 
 function isTimeFilter(value: unknown): value is InboxTimeFilter {

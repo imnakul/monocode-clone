@@ -425,13 +425,22 @@ export async function readBinaryFile(path: string): Promise<Uint8Array> {
   return new Uint8Array(buffer);
 }
 
+/**
+ * Create (if needed) the scratch dir for a projectless chat. Returns its
+ * absolute path, stored as the session cwd.
+ */
+export function ensureScratchChat(name: string): Promise<string> {
+  return invoke<string>("ensure_scratch_chat", { name });
+}
+
 export function writeTextFile(path: string, content: string): Promise<void> {
   return invoke<void>("write_text_file", { path, content });
 }
 
-/** Last path segment, or `/` for the filesystem root. */
+/** Last path segment, or `/` for the filesystem root. Splits on both `/`
+ * and `\` so Windows paths label as folder names instead of full paths. */
 export function basename(path: string): string {
-  const trimmed = path.replace(/\/+$/, "") || "/";
-  const parts = trimmed.split("/").filter(Boolean);
+  const trimmed = path.replace(/[/\\]+$/, "") || "/";
+  const parts = trimmed.split(/[/\\]/).filter(Boolean);
   return parts[parts.length - 1] ?? trimmed;
 }

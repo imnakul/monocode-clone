@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCheckoutBlockedByChanges } from "./fs";
+import { basename, isCheckoutBlockedByChanges } from "./fs";
 
 describe("isCheckoutBlockedByChanges", () => {
   it("detects git's tracked-file checkout error", () => {
@@ -29,5 +29,22 @@ describe("isCheckoutBlockedByChanges", () => {
   it("ignores unrelated git errors", () => {
     expect(isCheckoutBlockedByChanges("Branch missing not found")).toBe(false);
     expect(isCheckoutBlockedByChanges("Not a git repository")).toBe(false);
+  });
+});
+
+describe("basename", () => {
+  it("returns the last segment for posix paths", () => {
+    expect(basename("/Users/me/code/agent-terminal")).toBe("agent-terminal");
+    expect(basename("/Users/me/code/agent-terminal/")).toBe("agent-terminal");
+    expect(basename("/")).toBe("/");
+  });
+
+  it("returns the folder name for Windows paths", () => {
+    expect(basename("E:\\Developing\\Knoarc\\rigorup-active\\Teacher")).toBe(
+      "Teacher",
+    );
+    expect(basename("E:\\Developing\\Teacher\\")).toBe("Teacher");
+    expect(basename("C:/mixed/separators\\proj")).toBe("proj");
+    expect(basename("E:\\")).toBe("E:");
   });
 });

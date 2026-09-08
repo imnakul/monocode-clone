@@ -6,6 +6,7 @@ const THEME_SATURATION_KEY = "monocode.themeSaturation";
 const OPACITY_KEY = "monocode.sidebarOpacity";
 const BLUR_KEY = "monocode.sidebarBlur";
 const PROJECT_RAIL_OPEN_KEY = "monocode.projectRailOpen";
+const APP_MODE_KEY = "monocode.appMode";
 const BODY_KEY = "monocode.bodyGlass";
 const SCHEME_KEY = "monocode.colorScheme";
 const SIDEBAR_TAB_ORDER_KEY = "monocode.sidebarTabOrder";
@@ -772,6 +773,24 @@ export function loadProjectRailOpen(): boolean {
 
 export function saveProjectRailOpen(value: boolean) {
   writeFlag(PROJECT_RAIL_OPEN_KEY, value);
+}
+
+export type AppMode = "projects" | "chat";
+
+export function loadAppMode(): AppMode {
+  try {
+    return localStorage.getItem(APP_MODE_KEY) === "chat" ? "chat" : "projects";
+  } catch {
+    return "projects";
+  }
+}
+
+export function saveAppMode(value: AppMode) {
+  try {
+    localStorage.setItem(APP_MODE_KEY, value);
+  } catch {
+    // private mode / quota
+  }
 }
 
 export function loadSidebarTabOrder(): SidebarTabId[] {

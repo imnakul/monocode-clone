@@ -180,6 +180,15 @@ pub fn session_list_by_project(
     list_by_project(&conn, &cwd).map_err(|e| e.to_string())
 }
 
+/// Projectless chats live one per directory, so no single project query can
+/// reach them. One prefix scan over both separators instead — the Chat panel
+/// needs every scratch session ever persisted, not one folder's.
+#[tauri::command(async)]
+pub fn session_list_scratch(store: State<'_, SessionStore>) -> Result<Vec<SessionSummary>, String> {
+    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    list_scratch(&conn).map_err(|e| e.to_string())
+}
+
 #[tauri::command(async)]
 pub fn session_get(
     store: State<'_, SessionStore>,
@@ -947,6 +956,40 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
     rows.collect()
 }
 
+/// Mirrors `list_by_project` for scratch chats. Stored cwds keep native
+/// separators, so both `/` and `\` spellings are matched.
+fn list_scratch(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
+    let mut statement = conn.prepare(
+        "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
+                created_at, updated_at, branch, archived, pinned
+         FROM sessions
+         WHERE has_user_message = 1
+           AND (cwd LIKE '%.monocode/scratch/%'
+             OR cwd LIKE '%.monocode\\scratch\\%')
+         ORDER BY updated_at DESC, id ASC",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok(SessionSummary {
+            id: row.get(0)?,
+            cwd: row.get(1)?,
+            harness: row.get(2)?,
+            model: row.get(3)?,
+            runtime_mode: row.get(4)?,
+            title: row.get(5)?,
+            provider_session_id: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
+            branch: nonempty(row.get(9)?),
+            repo: None,
+            additions: 0,
+            deletions: 0,
+            archived: row.get::<_, i64>(10)? != 0,
+            pinned: row.get::<_, i64>(11)? != 0,
+        })
+    })?;
+    rows.collect()
+}
+
 /// Mirrors the sidebar's notion of a listable session: a transcript that the
 /// user has actually said something in.
 fn has_user_block(blocks: &Value) -> bool {
@@ -1173,7 +1216,6 @@ mod tests {
             "sidebar listing fell back to table seeks: {plan}"
         );
     }
-
     #[test]
     fn upsert_tracks_whether_a_user_has_spoken() {
         let store = SessionStore::open_in_memory().unwrap();
@@ -1190,6 +1232,36 @@ mod tests {
         ]);
         upsert_session(&conn, &quiet).unwrap();
         assert_eq!(list_by_project(&conn, "/tmp/a").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn list_scratch_finds_both_separator_spellings() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        upsert_session(&conn, &sample("s1", "/tmp/a", "Project")).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        upsert_session(
+            &conn,
+            &sample("s2", "/home/u/.monocode/scratch/abc", "Scratch posix"),
+        )
+        .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        upsert_session(
+            &conn,
+            &sample("s3", "C:\\Users\\u\\.monocode\\scratch\\def", "Scratch win"),
+        )
+        .unwrap();
+        let mut quiet = sample("s4", "/home/u/.monocode/scratch/quiet", "Quiet");
+        quiet.blocks = json!([{ "id": "b1", "role": "assistant", "text": "hi" }]);
+        upsert_session(&conn, &quiet).unwrap();
+
+        let ids: Vec<String> = list_scratch(&conn)
+            .unwrap()
+            .into_iter()
+            .map(|summary| summary.id)
+            .collect();
+        // Newest first; the quiet scratch chat has no user message.
+        assert_eq!(ids, vec!["s3".to_string(), "s2".to_string()]);
     }
 
     #[test]

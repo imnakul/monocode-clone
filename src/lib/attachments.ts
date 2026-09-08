@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import { basename, pickFiles as pickFilePaths } from "./fs";
+import {
+  basename,
+  pickFiles as pickFilePaths,
+  readBinaryFile,
+} from "./fs";
 import type { Attachment, AttachmentKind } from "./session";
 
 export const MAX_ATTACHMENTS = 20;
@@ -140,6 +144,76 @@ export function attachmentPreviewSrc(file: Attachment): string | undefined {
 
 export function revokeAttachment(file: Attachment) {
   if (file.previewUrl) URL.revokeObjectURL(file.previewUrl);
+}
+
+function bytesAt(bytes: Uint8Array, offset: number, prefix: number[]): boolean {
+  if (bytes.length < offset + prefix.length) return false;
+  return prefix.every((byte, index) => bytes[offset + index] === byte);
+}
+
+/**
+ * Magic-byte sniff so a preview URL is only minted for real images — a file
+ * named `.png` holding markup must never become a document URL.
+ */
+export function sniffImageMime(bytes: Uint8Array): string | null {
+  if (bytesAt(bytes, 0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
+    return "image/png";
+  }
+  if (bytesAt(bytes, 0, [0xff, 0xd8, 0xff])) return "image/jpeg";
+  if (bytesAt(bytes, 0, [0x47, 0x49, 0x46, 0x38])) return "image/gif";
+  if (bytesAt(bytes, 0, [0x42, 0x4d])) return "image/bmp";
+  if (bytesAt(bytes, 0, [0x00, 0x00, 0x01, 0x00])) return "image/x-icon";
+  // RIFF....WEBP — the four size bytes at offset 4 are skipped.
+  if (
+    bytesAt(bytes, 0, [0x52, 0x49, 0x46, 0x46]) &&
+    bytesAt(bytes, 8, [0x57, 0x45, 0x42, 0x50])
+  ) {
+    return "image/webp";
+  }
+  // ....ftyp{avif,avis} — an ISO base media box, shared with HEIF and MP4.
+  if (bytesAt(bytes, 4, [0x66, 0x74, 0x79, 0x70])) {
+    const brand = String.fromCharCode(...bytes.subarray(8, 12));
+    if (brand === "avif" || brand === "avis") return "image/avif";
+  }
+  return null;
+}
+
+const PREVIEW_URL_CACHE = 50;
+const previewUrls = new Map<string, string>();
+
+function cachePreviewUrl(path: string, url: string): void {
+  if (previewUrls.has(path)) return;
+  previewUrls.set(path, url);
+  while (previewUrls.size > PREVIEW_URL_CACHE) {
+    const oldest = previewUrls.keys().next();
+    if (oldest.done) break;
+    const evicted = previewUrls.get(oldest.value);
+    previewUrls.delete(oldest.value);
+    if (evicted) URL.revokeObjectURL(evicted);
+  }
+}
+
+/**
+ * Object URL for an image attachment that only has a disk path (reloaded
+ * sessions strip inline data). Resolves null when the file is missing or not
+ * a real image — callers keep the file-icon chip. Cached per path so long
+ * threads don't re-read the same file on every render.
+ */
+export async function loadAttachmentPreviewUrl(
+  path: string,
+): Promise<string | null> {
+  const hit = previewUrls.get(path);
+  if (hit) return hit;
+  try {
+    const bytes = await readBinaryFile(path);
+    const mime = sniffImageMime(bytes);
+    if (!mime) return null;
+    const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    cachePreviewUrl(path, url);
+    return url;
+  } catch {
+    return null;
+  }
 }
 
 export function mergeAttachments(
@@ -337,6 +411,14 @@ async function attachmentFromBlob(file: File): Promise<Attachment | null> {
   const previewUrl = kind === "image" ? URL.createObjectURL(file) : undefined;
   const data = await readBlobBase64(file);
   if (kind === "image" && isVisionImage(mimeType) && data) {
+    // Persist a copy alongside the inline data: the session store strips
+    // data on save, and without a path the thumbnail could never reload.
+    let path: string | undefined;
+    try {
+      path = await invoke<string>("write_attachment", { name, data });
+    } catch {
+      path = undefined;
+    }
     return {
       id: crypto.randomUUID(),
       name,
@@ -345,6 +427,7 @@ async function attachmentFromBlob(file: File): Promise<Attachment | null> {
       size: file.size,
       data,
       previewUrl,
+      ...(path ? { path } : {}),
     };
   }
   if (!data) {

@@ -1092,6 +1092,7 @@ mod tests {
 
     fn git(dir: &Path, args: &[&str]) -> bool {
         Command::new("git")
+            .args(["-c", "core.autocrlf=false"])
             .args(args)
             .current_dir(dir)
             .env("GIT_AUTHOR_NAME", "monocode")
@@ -1109,6 +1110,7 @@ mod tests {
         }
         let _ = git(dir, &["config", "user.email", "monocode@test"]);
         let _ = git(dir, &["config", "user.name", "monocode"]);
+        let _ = git(dir, &["config", "core.autocrlf", "false"]);
         for (name, contents) in files {
             let path = dir.join(name);
             if let Some(parent) = path.parent() {

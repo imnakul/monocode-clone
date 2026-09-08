@@ -3,6 +3,7 @@ import { type ReactNode } from "react";
 import type { InboxKind } from "../lib/githubTasks";
 import {
   DEFAULT_INBOX_FILTERS,
+  disambiguateProjectNames,
   hasActiveInboxFilters,
   type InboxFilters,
   type InboxSource,
@@ -11,7 +12,7 @@ import {
 import { Popover } from "./Popover";
 import { ProjectLogoIcon } from "./ProjectLogoIcon";
 
-export const INBOX_FILTER_MENU_WIDTH = 228;
+export const INBOX_FILTER_MENU_WIDTH = 248;
 
 type ProjectOption = {
   path: string;
@@ -94,6 +95,8 @@ export function InboxFiltersMenu({
     });
   };
 
+  const projectLabels = disambiguateProjectNames(projects);
+
   return (
     <Popover
       anchor={{ x, y }}
@@ -112,64 +115,75 @@ export function InboxFiltersMenu({
         onClick={toggleAssigned}
       />
 
+      <SectionDivider />
       <SectionLabel>Status</SectionLabel>
-      <FilterItem
-        label="Open"
-        checked={filters.status.open}
-        onClick={() => toggleStatus("open")}
-      />
-      {source === "github" ? (
+      <div className="flex flex-col gap-1">
         <FilterItem
-          label="Draft"
-          checked={filters.status.draft}
-          onClick={() => toggleStatus("draft")}
+          label="Open"
+          checked={filters.status.open}
+          onClick={() => toggleStatus("open")}
         />
-      ) : null}
-      <FilterItem
-        label="Closed"
-        checked={filters.status.closed}
-        onClick={() => toggleStatus("closed")}
-      />
-      {source === "github" ? (
+        {source === "github" ? (
+          <FilterItem
+            label="Draft"
+            checked={filters.status.draft}
+            onClick={() => toggleStatus("draft")}
+          />
+        ) : null}
         <FilterItem
-          label="Merged"
-          checked={filters.status.merged}
-          onClick={() => toggleStatus("merged")}
+          label="Closed"
+          checked={filters.status.closed}
+          onClick={() => toggleStatus("closed")}
         />
-      ) : null}
+        {source === "github" ? (
+          <FilterItem
+            label="Merged"
+            checked={filters.status.merged}
+            onClick={() => toggleStatus("merged")}
+          />
+        ) : null}
+      </div>
 
+      <SectionDivider />
       <SectionLabel>Time</SectionLabel>
       {TIME_OPTIONS.map((option) => (
         <FilterItem
           key={option.id}
           label={option.label}
           checked={filters.time === option.id}
+          marker="dot"
           onClick={() => setTime(option.id)}
         />
       ))}
 
       {source === "github" ? (
         <>
+          <SectionDivider />
           <SectionLabel>Type</SectionLabel>
-          {KIND_OPTIONS.map((option) => (
-            <FilterItem
-              key={option.id}
-              label={option.label}
-              checked={!hiddenKinds.has(option.id)}
-              icon={option.icon}
-              onClick={() => toggleKind(option.id)}
-            />
-          ))}
+          <div className="flex flex-col gap-1">
+            {KIND_OPTIONS.map((option) => (
+              <FilterItem
+                key={option.id}
+                label={option.label}
+                checked={!hiddenKinds.has(option.id)}
+                icon={option.icon}
+                onClick={() => toggleKind(option.id)}
+              />
+            ))}
+          </div>
         </>
       ) : null}
 
       {source === "github" && projects.length > 0 ? (
         <>
+          <SectionDivider />
           <SectionLabel>Projects</SectionLabel>
-          {projects.map((project) => (
-            <FilterItem
-              key={project.path}
-              label={project.name}
+          <div className="flex flex-col gap-1">
+            {projects.map((project, index) => (
+              <FilterItem
+                key={project.path}
+                label={projectLabels[index]?.label ?? project.name}
+                title={project.path}
               checked={!hiddenProjects.has(project.path)}
               icon={
                 project.logoPath ? (
@@ -181,8 +195,9 @@ export function InboxFiltersMenu({
                 ) : undefined
               }
               onClick={() => toggleProject(project.path)}
-            />
-          ))}
+              />
+            ))}
+          </div>
         </>
       ) : null}
 
@@ -206,20 +221,31 @@ export function InboxFiltersMenu({
 
 function SectionLabel({ children }: { children: string }) {
   return (
-    <div className="px-2 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-content/40">
+    <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content/40">
       {children}
     </div>
   );
 }
 
+function SectionDivider() {
+  return (
+    <div role="separator" className="mx-2 my-1 h-px bg-content/10" />
+  );
+}
+
 function FilterItem({
   label,
+  title,
   checked,
+  marker = "check",
   icon,
   onClick,
 }: {
   label: string;
+  title?: string;
   checked: boolean;
+  /** Single-select rows read as radios (dot); multi-select rows keep checks. */
+  marker?: "check" | "dot";
   icon?: ReactNode;
   onClick: () => void;
 }) {
@@ -233,9 +259,18 @@ function FilterItem({
       className="flex h-7 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] leading-none text-content hover:bg-content/5"
     >
       {icon}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className="min-w-0 flex-1 truncate" title={title}>
+        {label}
+      </span>
       {checked ? (
-        <Check className="size-3.5 shrink-0" strokeWidth={2.25} />
+        marker === "dot" ? (
+          <span
+            aria-hidden
+            className="size-1.5 shrink-0 rounded-full bg-content/70"
+          />
+        ) : (
+          <Check className="size-3.5 shrink-0" strokeWidth={2.25} />
+        )
       ) : null}
     </button>
   );

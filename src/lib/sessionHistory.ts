@@ -1,7 +1,12 @@
 import { fuzzyMatch } from "./fuzzy";
 import { projectName } from "./paths";
 import { sameProjectPath } from "./recents";
-import { sessionDisplayTitle, sessionNeedsInput, type Session } from "./session";
+import {
+  isScratchCwd,
+  sessionDisplayTitle,
+  sessionNeedsInput,
+  type Session,
+} from "./session";
 import { shouldPersistSession, type SessionSummary } from "./sessionStore";
 
 export type SessionGitHint = {
@@ -138,6 +143,7 @@ export function historyWithLiveSessions(
   let rows = history.filter((entry) => sameProjectPath(entry.cwd, cwd));
   const hint = projectGitHint(rows, gitOverlayForCwd(cwd, git));
   for (const session of sessions) {
+    if (session.ephemeral) continue;
     if (!sameProjectPath(session.cwd, cwd)) continue;
     const live = session.busy || sessionNeedsInput(session);
     if (!shouldPersistSession(session) && !live) continue;
@@ -147,6 +153,24 @@ export function historyWithLiveSessions(
       ...(session.branch ? { branch: session.branch } : {}),
     };
     rows = mergeHistorySummary(rows, summaryFromSession(session, sessionHint));
+  }
+  return [...rows].sort(compareSessionSummaries);
+}
+
+/**
+ * Chat-mode list: persisted scratch chats merged with live ones, newest
+ * first. Ephemeral sidechats never qualify (project cwd, and excluded
+ * explicitly) — the Chat panel only ever shows continuable chats.
+ */
+export function scratchChatSummaries(
+  history: SessionSummary[],
+  sessions: Session[],
+): SessionSummary[] {
+  let rows = history.filter((entry) => isScratchCwd(entry.cwd));
+  for (const session of sessions) {
+    if (session.ephemeral || !isScratchCwd(session.cwd)) continue;
+    if (rows.some((row) => row.id === session.id)) continue;
+    rows = mergeHistorySummary(rows, summaryFromSession(session));
   }
   return [...rows].sort(compareSessionSummaries);
 }
