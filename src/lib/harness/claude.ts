@@ -2,6 +2,12 @@ import { nativeModelId } from "../models";
 import type { RuntimeMode } from "../session";
 import { loadClaudeHooks } from "../settings";
 import {
+  addProcessedUsage,
+  parseClaudeUsage,
+  sumProcessedUsage,
+  type ProcessedUsage,
+} from "../tokenAccounting";
+import {
   killChild,
   resolveClaudeBinary,
   spawnChild,
@@ -10,6 +16,7 @@ import {
   writeChild,
 } from "./child";
 import {
+  asRecord,
   askUserQuestionAllowInput,
   assistantTextBlocks,
   assistantToolUses,
@@ -132,6 +139,9 @@ type Live = {
   initialized: boolean;
   emittedAssistant: string;
   emittedReasoning: string;
+  requestsById: Map<string, ProcessedUsage>;
+  priorTurnsUsage?: ProcessedUsage;
+  turnUsage?: ProcessedUsage;
   manualCompaction: boolean;
   compactionConfirmed: boolean;
 };
@@ -383,6 +393,9 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     initialized: false,
     emittedAssistant: "",
     emittedReasoning: "",
+    requestsById: new Map(),
+    priorTurnsUsage: undefined,
+    turnUsage: undefined,
     manualCompaction: false,
     compactionConfirmed: false,
   };
@@ -456,6 +469,8 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   live.toolsById.clear();
   live.agentTasks.clear();
   live.turnResultSeen = false;
+  live.requestsById.clear();
+  live.turnUsage = undefined;
 
   const turnPromise = new Promise<void>((resolve, reject) => {
     live.turnDone = resolve;
@@ -649,6 +664,22 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
     return;
   }
 
+  const msg = asRecord(rec.message);
+  const messageId = stringField(msg, "id");
+  const usageRec = asRecord(msg?.usage);
+  const reqUsage = parseClaudeUsage(usageRec);
+  if (reqUsage && messageId) {
+    live.requestsById.set(messageId, reqUsage);
+    const turnUsage = sumProcessedUsage(Array.from(live.requestsById.values()));
+    live.turnUsage = turnUsage;
+    const sessionUsage = addProcessedUsage(live.priorTurnsUsage, turnUsage);
+    live.onEvent({
+      type: "usage",
+      turn: turnUsage,
+      session: sessionUsage,
+    });
+  }
+
   const used = contextUsedFromAssistant(rec);
   if (used !== undefined) live.onEvent({ type: "context", used });
 
@@ -712,6 +743,20 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
   if (!live.manualCompaction) {
     const context = contextFromResult(rec);
     if (context) live.onEvent({ type: "context", ...context });
+
+    const usageRec = asRecord(rec.usage);
+    const resultUsage = parseClaudeUsage(usageRec);
+    const finalTurnUsage = resultUsage ?? live.turnUsage;
+    if (finalTurnUsage) {
+      live.turnUsage = finalTurnUsage;
+      live.priorTurnsUsage = addProcessedUsage(live.priorTurnsUsage, finalTurnUsage);
+      live.requestsById.clear();
+      live.onEvent({
+        type: "usage",
+        turn: finalTurnUsage,
+        session: live.priorTurnsUsage,
+      });
+    }
   }
 
   const result = turnStatusFromResult(rec);
@@ -1119,6 +1164,11 @@ function maybeFinishTurn(live: Live): void {
 function finishActiveTurn(live: Live, extraEvents: HarnessEvent[] = []): void {
   live.turnEndPending = false;
   live.activeTurn = false;
+  if (live.turnUsage && live.requestsById.size > 0) {
+    live.priorTurnsUsage = addProcessedUsage(live.priorTurnsUsage, live.turnUsage);
+    live.turnUsage = undefined;
+    live.requestsById.clear();
+  }
   for (const event of extraEvents) live.onEvent(event);
   const done = live.turnDone;
   const failed = live.turnFailed;

@@ -274,6 +274,8 @@ export const SessionPane = memo(function SessionPane({
       recents={recents}
       hideProjectPicker={hideProjectPicker ? !showDeckProjectPicker : false}
       context={session.context}
+      blocks={session.blocks}
+      turnUsage={session.liveTurnUsage}
       quoteRequest={quoteRequest}
       initialDraft={
         draftRef.current ??

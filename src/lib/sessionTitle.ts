@@ -62,3 +62,57 @@ export function parseGeneratedThreadTitle(raw: string): string | null {
   if (words < 2 || words > 10) return null;
   return fallback;
 }
+
+const LOCAL_TITLE_LIMIT = 72;
+
+/**
+ * Derives a deterministic local title for a chat session from the first user message.
+ *
+ * Rules:
+ * - Selects the first non-empty line from multiline prompts.
+ * - Collapses consecutive and internal whitespace characters to a single space.
+ * - Safely handles Unicode code points and emojis without slicing surrogate pairs.
+ * - Falls back to attachment names (up to 3) when no usable text is provided.
+ * - Returns a neutral fallback when no usable text or attachments exist.
+ * - Formats with `${harnessLabel} · ${short}` when a title is derived, or `${harnessLabel}` for fallback.
+ */
+export function deriveLocalSessionTitle(
+  prompt: string,
+  harnessLabel: string,
+  attachments: Array<{ name?: string }> = [],
+): string {
+  const lines = prompt.split(/\r?\n/);
+  let firstLine = "";
+  for (const raw of lines) {
+    const trimmed = raw.trim();
+    if (trimmed) {
+      firstLine = trimmed;
+      break;
+    }
+  }
+
+  const cleanedLine = firstLine.replace(/\s+/g, " ");
+
+  const fromFiles =
+    !cleanedLine && attachments.length > 0
+      ? attachments
+          .map((file) => file.name?.trim())
+          .filter(Boolean)
+          .slice(0, 3)
+          .join(", ")
+      : "";
+
+  const seed = (cleanedLine || fromFiles).replace(/\s+/g, " ").trim();
+  if (!seed) {
+    return harnessLabel;
+  }
+
+  // Unicode-safe truncation using Array.from to segment code points without splitting surrogate pairs
+  const codePoints = Array.from(seed);
+  const short =
+    codePoints.length > LOCAL_TITLE_LIMIT
+      ? `${codePoints.slice(0, LOCAL_TITLE_LIMIT - 1).join("").trimEnd()}…`
+      : seed;
+
+  return `${harnessLabel} · ${short}`;
+}

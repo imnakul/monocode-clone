@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { persistableAttachment } from "./attachments";
 import type { ContextUsage } from "./contextUsage";
+import { sanitizeProcessedUsage } from "./tokenAccounting";
 import type { CodeReviewReport, ReviewIssue } from "./githubTasks";
 import { normalizeProjectPath } from "./recents";
 import type {
@@ -346,6 +347,10 @@ function sanitizeBlock(block: Block): Block | null {
   }
   if (block.startedAt != null) next.startedAt = block.startedAt;
   if (block.durationMs != null) next.durationMs = block.durationMs;
+  if (block.turnUsage) {
+    const usage = sanitizeProcessedUsage(block.turnUsage);
+    if (usage) next.turnUsage = usage;
+  }
   if (block.tool) next.tool = block.tool;
   if (block.approval?.decided) {
     next.approval = {

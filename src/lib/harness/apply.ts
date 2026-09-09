@@ -6,6 +6,7 @@ import type {
   ToolPreview,
 } from "../session";
 import { mergeContextUsage } from "../contextUsage";
+import type { ProcessedUsage } from "../tokenAccounting";
 import { displayPath } from "../paths";
 import {
   composeToolTitle,
@@ -85,6 +86,15 @@ export function applyHarnessEvent(
           window: event.window,
         }),
       };
+    case "usage": {
+      const turn = event.turn;
+      const blocks = turn ? stampTurnUsage(session.blocks, turn) : session.blocks;
+      return {
+        ...session,
+        blocks,
+        liveTurnUsage: turn ?? session.liveTurnUsage,
+      };
+    }
     case "tasks.updated":
       return upsertTaskList(session, event);
     case "plan":
@@ -298,7 +308,7 @@ export function appendUser(
   extra?: UserTurnExtra,
 ): Session {
   return appendBlock(
-    { ...session, busy: true },
+    { ...session, busy: true, liveTurnUsage: undefined },
     {
       id: crypto.randomUUID(),
       role: "user",
@@ -334,11 +344,16 @@ export function appendSteerUser(
 }
 
 export function stopStreaming(session: Session): Session {
+  let blocks = stampTurnDuration(session.blocks.map(stopBlockProgress));
+  if (session.liveTurnUsage) {
+    blocks = stampTurnUsage(blocks, session.liveTurnUsage);
+  }
   return {
     ...session,
     busy: false,
     pendingQuestion: undefined,
-    blocks: stampTurnDuration(session.blocks.map(stopBlockProgress)),
+    liveTurnUsage: undefined,
+    blocks,
   };
 }
 
@@ -422,6 +437,27 @@ function stopBlockProgress(block: Block): Block {
     text: taskListText(items),
     taskList: { ...current, items },
   };
+}
+
+function stampTurnUsage(
+  blocks: Block[],
+  turnUsage: ProcessedUsage,
+): Block[] {
+  let lastUser = -1;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (blocks[i].role === "user") {
+      lastUser = i;
+      break;
+    }
+  }
+  if (lastUser < 0) return blocks;
+  const user = blocks[lastUser];
+  const next = blocks.slice();
+  next[lastUser] = {
+    ...user,
+    turnUsage,
+  };
+  return next;
 }
 
 function stampTurnDuration(blocks: Block[]): Block[] {

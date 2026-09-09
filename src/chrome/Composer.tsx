@@ -86,6 +86,8 @@ import {
 import { AccessPicker } from "./AccessPicker";
 import { ComposerRunner } from "./ComposerRunner";
 import { ContextMeter } from "./ContextMeter";
+import type { ProcessedUsage } from "../lib/tokenAccounting";
+import type { Block } from "../lib/session";
 import { AttachmentChip } from "./AttachmentChip";
 import { BranchPicker } from "./BranchPicker";
 import { CwdPicker } from "./CwdPicker";
@@ -137,6 +139,9 @@ type Props = {
   recents?: RecentProject[];
   hideProjectPicker?: boolean;
   context?: ContextUsage;
+  turnUsage?: ProcessedUsage;
+  sessionUsage?: ProcessedUsage;
+  blocks?: Block[];
   compactSupported?: boolean;
   quoteRequest?: QuoteRequest;
   initialDraft?: string;
@@ -389,6 +394,9 @@ export function Composer({
   recents = [],
   hideProjectPicker = false,
   context,
+  turnUsage,
+  sessionUsage,
+  blocks = [],
   compactSupported = false,
   quoteRequest,
   initialDraft,
@@ -1173,6 +1181,13 @@ export function Composer({
             <div className="ml-auto flex shrink-0 items-center">
               <ContextMeter
                 usage={context}
+                turnUsage={turnUsage}
+                sessionUsage={sessionUsage}
+                harness={harness}
+                model={model}
+                cwd={executionCwd || cwd}
+                blocks={blocks}
+                busy={busy}
                 onCompact={compactSupported ? onCompactContext : undefined}
                 compactDisabled={busy}
               />

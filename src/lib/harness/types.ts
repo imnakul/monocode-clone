@@ -5,6 +5,7 @@ import type {
   ToolPreview,
   TurnIntent,
 } from "../session";
+import type { ProcessedUsage } from "../tokenAccounting";
 import type { UserQuestion } from "../userQuestion";
 
 export type HarnessEvent =
@@ -88,7 +89,13 @@ export type HarnessEvent =
       streaming?: boolean;
     }
   /** Context-window level after the harness's latest request. */
-  | { type: "context"; used?: number; window?: number };
+  | { type: "context"; used?: number; window?: number }
+  /** Processed token usage for this turn and/or session thread. */
+  | {
+      type: "usage";
+      turn?: ProcessedUsage;
+      session?: ProcessedUsage;
+    };
 
 export type ApprovalDecision = "allow" | "deny";
 
