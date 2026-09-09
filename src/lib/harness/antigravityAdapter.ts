@@ -14,6 +14,7 @@ import { registerHarness, type HarnessAdapter } from "./registry";
 export const antigravityAdapter: HarnessAdapter = {
   id: "antigravity",
   live: true,
+  canSteer: false,
   refreshCatalog: () => refreshAntigravityCatalog(),
   sendTurn: sendAntigravityTurn,
   steerTurn: steerAntigravityTurn,
