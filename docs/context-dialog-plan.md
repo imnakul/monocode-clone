@@ -102,7 +102,7 @@ Models have standard token rates per 1M tokens:
 - [x] Wire up `Composer.tsx` and `SessionPane.tsx` with model/harness/cwd/blocks context
 - [x] Add unit tests in `src/chrome/ContextMeter.test.ts`
 - [x] Verify test suite and TypeScript checking (`npm run check:web`)
-- [ ] Document in `LOCAL-CHANGELOG.md`
+- [x] Document in `LOCAL-CHANGELOG.md`
 
 ---
 

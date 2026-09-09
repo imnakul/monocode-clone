@@ -17,6 +17,14 @@ decisions to `upstream-merge-*.md`.
 - Learnings:
 -->
 
+## Unreleased - 9 Sept 2026 - Quota Remaining Left Percentage Display (Claude & Codex)
+
+- What / why (1–2 lines): For Claude and Codex plan quotas (5-hour and weekly limits), switch from displaying how much quota was used to showing how much quota is remaining left (e.g., `42% left`), giving users clear foresight on remaining capacity before rate limiting occurs.
+- Implementation: Added `formatRemainingPercent` in `src/lib/rateLimits.ts` (`100 - usedPercent`), updated `ContextMeter.tsx` ("Plan quota" rows displaying `XX% left` alongside reset timers), updated `UsageFooter.tsx` status bar provider chip to show `XX% left 5h · YY% left wk`, and updated `rateLimitWindowTooltip`.
+- Files touched: `src/lib/rateLimits.ts`, `src/lib/rateLimits.test.ts`, `src/chrome/ContextMeter.tsx`, `src/chrome/UsageFooter.tsx`, `docs/LOCAL-CHANGELOG.md`.
+- Verification (commands + results): `npm run check:web` passed cleanly (136 test files, 1,420 tests passed; `tsc --noEmit` 0 errors).
+- Advantages / tradeoffs: Showing remaining percentage matches user mental models ("how much do I have left?") far better than consumed percentage.
+
 ## Unreleased - 9 Sept 2026 - System & Tools Context Breakdown & Diagnostic Inspector
 
 - What / why (1–2 lines): Decompose the large "System & tools" context segment (which often takes 40–80K tokens due to MCP servers and tool declarations) into an expandable, itemized diagnosis list detailing base instructions, global rules, environment context, built-in tools, and active MCP servers/plugins.
