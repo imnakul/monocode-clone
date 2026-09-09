@@ -1,6 +1,14 @@
 import { nativeModelId } from "../models";
 import type { Attachment, RuntimeMode } from "../session";
 import {
+  codexUsageToProcessed,
+  diffCodexUsage,
+  emptyCodexUsage,
+  subtractCodexUsage,
+  type CodexRawUsageRecord,
+  type ProcessedUsage,
+} from "../tokenAccounting";
+import {
   killChild,
   resolveCodexBinary,
   spawnChild,
@@ -47,6 +55,12 @@ type Live = {
   turnEndPending: boolean;
   emittedAssistant: string;
   emittedReasoning: string;
+  /** Cumulative thread usage baseline established before the active turn started. */
+  threadBaseline?: CodexRawUsageRecord;
+  /** Cumulative thread usage snapshot last seen from Codex. */
+  lastThreadTotal?: CodexRawUsageRecord;
+  /** Processed usage for the active turn. */
+  turnUsage?: ProcessedUsage;
 };
 
 type Resume = {
@@ -363,6 +377,8 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
 
   live.emittedAssistant = "";
   live.emittedReasoning = "";
+  live.threadBaseline = live.lastThreadTotal;
+  live.turnUsage = undefined;
 
   const turnPromise = new Promise<void>((resolve, reject) => {
     live.turnDone = resolve;
@@ -418,6 +434,29 @@ function handleNotification(
   }
   if (mapped.activeTurnId !== undefined) {
     live.activeTurnId = mapped.activeTurnId;
+  }
+  if (mapped.tokenUsage?.total) {
+    const total = mapped.tokenUsage.total;
+    const last = mapped.tokenUsage.last;
+    if (live.threadBaseline === undefined) {
+      if (last && total.totalTokens >= last.totalTokens) {
+        live.threadBaseline = subtractCodexUsage(total, last);
+      } else {
+        live.threadBaseline = emptyCodexUsage();
+      }
+    } else if (total.totalTokens < live.threadBaseline.totalTokens) {
+      // Counter reset (e.g. compaction reset or thread reconnected)
+      live.threadBaseline = emptyCodexUsage();
+    }
+    const turnUsage = diffCodexUsage(total, live.threadBaseline);
+    live.turnUsage = turnUsage;
+    live.lastThreadTotal = total;
+    const sessionUsage = codexUsageToProcessed(total);
+    live.onEvent({
+      type: "usage",
+      turn: turnUsage,
+      session: sessionUsage,
+    });
   }
   if (mapped.turnCompleted) {
     finishActiveTurn(live);

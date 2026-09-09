@@ -1,4 +1,5 @@
 import type { RuntimeMode, ToolPreview } from "../session";
+import type { CodexRawUsageRecord } from "../tokenAccounting";
 import {
   composeToolTitle,
   extractToolPreview,
@@ -178,6 +179,14 @@ export function toCodexApprovalDecision(
   return "accept";
 }
 
+export type CodexTokenUsagePayload = {
+  threadId?: string;
+  turnId?: string;
+  last?: CodexRawUsageRecord;
+  total?: CodexRawUsageRecord;
+  modelContextWindow?: number;
+};
+
 export type MappedCodexNotification = {
   events: HarnessEvent[];
   /** When set, the active turn finished. */
@@ -186,6 +195,7 @@ export type MappedCodexNotification = {
     error?: string;
   };
   activeTurnId?: string | null;
+  tokenUsage?: CodexTokenUsagePayload;
 };
 
 /**
@@ -313,6 +323,21 @@ const SILENT_ITEM_TYPES = new Set([
   "enteredReviewMode",
 ]);
 
+export function parseCodexUsageRecord(
+  raw: unknown,
+): CodexRawUsageRecord | undefined {
+  const rec = asRecord(raw);
+  if (!rec) return undefined;
+  return {
+    totalTokens: numberField(rec, "totalTokens"),
+    inputTokens: numberField(rec, "inputTokens"),
+    cachedInputTokens: numberField(rec, "cachedInputTokens"),
+    cacheWriteInputTokens: numberField(rec, "cacheWriteInputTokens"),
+    outputTokens: numberField(rec, "outputTokens"),
+    reasoningOutputTokens: numberField(rec, "reasoningOutputTokens"),
+  };
+}
+
 /**
  * Codex reports both `last` (the most recent request) and `total` (cumulative
  * thread spend). Only `last` describes the context window — `total` keeps
@@ -320,19 +345,33 @@ const SILENT_ITEM_TYPES = new Set([
  */
 function mapTokenUsage(rec: Record<string, unknown>): MappedCodexNotification {
   const usage = asRecord(rec.tokenUsage);
-  const last = asRecord(usage?.last);
-  if (!last) return { events: [] };
-  const used = numberField(last, "totalTokens");
+  const lastRaw = asRecord(usage?.last);
+  const totalRaw = asRecord(usage?.total);
+  const last = lastRaw ? parseCodexUsageRecord(lastRaw) : undefined;
+  const total = totalRaw ? parseCodexUsageRecord(totalRaw) : undefined;
   const window = numberField(usage, "modelContextWindow");
-  if (!used && !window) return { events: [] };
+  const threadId = stringField(rec, "threadId");
+  const turnId = stringField(rec, "turnId");
+
+  const events: HarnessEvent[] = [];
+  const used = last?.totalTokens ?? 0;
+  if (used > 0 || window > 0) {
+    events.push({
+      type: "context",
+      ...(used > 0 ? { used } : {}),
+      ...(window > 0 ? { window } : {}),
+    });
+  }
+
   return {
-    events: [
-      {
-        type: "context",
-        ...(used > 0 ? { used } : {}),
-        ...(window > 0 ? { window } : {}),
-      },
-    ],
+    events,
+    tokenUsage: {
+      threadId,
+      turnId,
+      last,
+      total,
+      modelContextWindow: window > 0 ? window : undefined,
+    },
   };
 }
 

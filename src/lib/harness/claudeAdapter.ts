@@ -14,7 +14,6 @@ import {
   generateClaudeCommitMessage,
   generateClaudePrContent,
 } from "./claudeGit";
-import { generateClaudeSessionTitle } from "./claudeTitle";
 import { warmupClaudeText } from "./claudeText";
 import { registerHarness, type HarnessAdapter } from "./registry";
 
@@ -30,7 +29,6 @@ export const claudeAdapter: HarnessAdapter = {
   forgetSession: forgetClaudeSession,
   bindSession: bindClaudeSession,
   refreshCatalog: refreshClaudeCatalog,
-  generateTitle: generateClaudeSessionTitle,
   generateCommitMessage: generateClaudeCommitMessage,
   generatePrContent: generateClaudePrContent,
   generateBranchName: generateClaudeBranchName,

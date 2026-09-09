@@ -65,9 +65,7 @@ export {
   bindGrokSession,
 } from "./grok";
 export { generateCursorSessionTitle } from "./cursorTitle";
-export { generateCodexSessionTitle } from "./codexTitle";
 export { generateOpenCodeSessionTitle } from "./opencodeTitle";
-export { generateClaudeSessionTitle } from "./claudeTitle";
 export { generatePiSessionTitle, generateOmpSessionTitle } from "./piTitle";
 export { generateGrokSessionTitle } from "./grokTitle";
 export {

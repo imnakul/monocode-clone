@@ -111,7 +111,6 @@ import {
   cancelHarnessTurn,
   canSteerHarness,
   forgetHarnessSession,
-  generateHarnessTitle,
   isLiveHarness,
   probeHarnessAvailability,
   refreshHarnessCatalogs,
@@ -3130,27 +3129,6 @@ export default function App({
           );
         }),
       );
-
-      if (isFirstTurn && live && placeholderTitle) {
-        void generateHarnessTitle(current.harness, {
-          sessionId,
-          cwd: workCwd,
-          message: harnessText || attachments.map((file) => file.name).join(", "),
-        })
-          .then((title) => {
-            if (!title) return;
-            setSessions((prev) =>
-              prev.map((s) => {
-                if (s.id !== sessionId) return s;
-                if (!canReplaceSessionTitle(s.title, s.harness, titleSeed)) {
-                  return s;
-                }
-                return { ...s, title: formatSessionTitle(s.harness, title) };
-              }),
-            );
-          })
-          .catch(() => undefined);
-      }
 
       if (!live) {
         if (pendingSwitch) {

@@ -1,4 +1,6 @@
 import type { ContextUsage } from "./contextUsage";
+import type { ProcessedUsage } from "./tokenAccounting";
+import { deriveLocalSessionTitle } from "./sessionTitle";
 import type { UserQuestionPrompt } from "./userQuestion";
 import type { HandoffComposerCard } from "./handoff";
 import type { InboxComposerCard } from "./githubTasks";
@@ -103,6 +105,8 @@ export type Block = {
   startedAt?: number;
   /** How long the agent worked on this user turn, in ms. */
   durationMs?: number;
+  /** Processed token usage for this turn. */
+  turnUsage?: ProcessedUsage;
   tool?: {
     callId?: string;
     title?: string;
@@ -163,6 +167,8 @@ export type Session = {
   providerSessionId?: string;
   /** Context-window level reported by the harness. Absent until it reports. */
   context?: ContextUsage;
+  /** Live processed token usage for the active in-flight turn. */
+  liveTurnUsage?: ProcessedUsage;
   /**
    * Composer switched providers, but the previous child is still live.
    * Handoff runs on the next send, not on picker change.
@@ -259,20 +265,7 @@ export function titleFromPrompt(
   harness: HarnessId,
   attachments: Attachment[] = [],
 ): string {
-  const line = prompt.trim().split(/\r?\n/)[0]?.trim() ?? "";
-  const fromFiles =
-    !line && attachments.length > 0
-      ? attachments
-          .map((file) => file.name)
-          .filter(Boolean)
-          .slice(0, 3)
-          .join(", ")
-      : "";
-  const seed = line || fromFiles;
-  if (!seed) return HARNESS_LABEL[harness];
-  const max = 72;
-  const short = seed.length > max ? `${seed.slice(0, max - 1)}…` : seed;
-  return formatSessionTitle(harness, short);
+  return deriveLocalSessionTitle(prompt, HARNESS_LABEL[harness], attachments);
 }
 
 export function formatSessionTitle(harness: HarnessId, title: string): string {

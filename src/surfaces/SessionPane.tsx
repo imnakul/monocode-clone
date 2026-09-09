@@ -21,6 +21,7 @@ import {
   type RuntimeMode,
   type Session,
 } from "../lib/session";
+import { sessionProcessedUsage } from "../lib/tokenAccounting";
 import { AgentTranscript } from "./AgentTranscript";
 import { EmptySession } from "./EmptySession";
 import { MOD } from "../lib/platform";
@@ -181,6 +182,10 @@ export const SessionPane = memo(function SessionPane({
   const isEmpty = session.blocks.length === 0;
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
   const dockComposer = !isEmpty || inSplit;
+  const turnUsage =
+    session.liveTurnUsage ??
+    [...session.blocks].reverse().find((b) => b.role === "user" && b.turnUsage != null)?.turnUsage;
+  const sessionUsage = sessionProcessedUsage(session.blocks, session.liveTurnUsage);
   const composer = (
     <Composer
       enabled={visible}
@@ -196,6 +201,8 @@ export const SessionPane = memo(function SessionPane({
       recents={recents}
       hideProjectPicker={hideProjectPicker ? !showDeckProjectPicker : false}
       context={session.context}
+      turnUsage={turnUsage}
+      sessionUsage={sessionUsage}
       quoteRequest={quoteRequest}
       initialDraft={
         session.inboxCard || session.noteCard || session.handoffCard

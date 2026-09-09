@@ -58,6 +58,7 @@ import {
 import { AccessPicker } from "./AccessPicker";
 import { ComposerRunner } from "./ComposerRunner";
 import { ContextMeter } from "./ContextMeter";
+import type { ProcessedUsage } from "../lib/tokenAccounting";
 import { AttachmentChip } from "./AttachmentChip";
 import { BranchPicker } from "./BranchPicker";
 import { CwdPicker } from "./CwdPicker";
@@ -105,6 +106,8 @@ type Props = {
   recents?: RecentProject[];
   hideProjectPicker?: boolean;
   context?: ContextUsage;
+  turnUsage?: ProcessedUsage;
+  sessionUsage?: ProcessedUsage;
   quoteRequest?: QuoteRequest;
   initialDraft?: string;
   inboxCard?: InboxComposerCard;
@@ -177,6 +180,8 @@ export function Composer({
   recents = [],
   hideProjectPicker = false,
   context,
+  turnUsage,
+  sessionUsage,
   quoteRequest,
   initialDraft,
   inboxCard,
@@ -857,7 +862,12 @@ export function Composer({
               onClose={() => ref.current?.focus()}
             />
             <div className="ml-auto flex shrink-0 items-center">
-              <ContextMeter usage={context} />
+              <ContextMeter
+                usage={context}
+                turnUsage={turnUsage}
+                sessionUsage={sessionUsage}
+                busy={busy}
+              />
             </div>
           </div>
 

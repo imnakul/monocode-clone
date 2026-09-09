@@ -440,4 +440,52 @@ describe("mapCodexNotification thread/tokenUsage/updated", () => {
       }).events,
     ).toEqual([]);
   });
+
+  it("extracts structured tokenUsage payload for turn and session accounting", () => {
+    const mapped = mapCodexNotification("thread/tokenUsage/updated", {
+      threadId: "t-123",
+      turnId: "turn-456",
+      tokenUsage: {
+        last: {
+          totalTokens: 15_000,
+          inputTokens: 12_000,
+          cachedInputTokens: 8_000,
+          cacheWriteInputTokens: 500,
+          outputTokens: 3_000,
+          reasoningOutputTokens: 200,
+        },
+        total: {
+          totalTokens: 50_000,
+          inputTokens: 40_000,
+          cachedInputTokens: 25_000,
+          cacheWriteInputTokens: 1_000,
+          outputTokens: 10_000,
+          reasoningOutputTokens: 800,
+        },
+        modelContextWindow: 200_000,
+      },
+    });
+
+    expect(mapped.tokenUsage).toEqual({
+      threadId: "t-123",
+      turnId: "turn-456",
+      last: {
+        totalTokens: 15_000,
+        inputTokens: 12_000,
+        cachedInputTokens: 8_000,
+        cacheWriteInputTokens: 500,
+        outputTokens: 3_000,
+        reasoningOutputTokens: 200,
+      },
+      total: {
+        totalTokens: 50_000,
+        inputTokens: 40_000,
+        cachedInputTokens: 25_000,
+        cacheWriteInputTokens: 1_000,
+        outputTokens: 10_000,
+        reasoningOutputTokens: 800,
+      },
+      modelContextWindow: 200_000,
+    });
+  });
 });

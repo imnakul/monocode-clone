@@ -13,7 +13,6 @@ import {
   generateCodexPrContent,
 } from "./codexGit";
 import { refreshCodexCatalog } from "./codexCatalog";
-import { generateCodexSessionTitle } from "./codexTitle";
 import { warmupCodexText } from "./codexText";
 import { registerHarness, type HarnessAdapter } from "./registry";
 
@@ -28,7 +27,6 @@ export const codexAdapter: HarnessAdapter = {
   forgetSession: forgetCodexSession,
   bindSession: bindCodexSession,
   refreshCatalog: refreshCodexCatalog,
-  generateTitle: generateCodexSessionTitle,
   generateCommitMessage: generateCodexCommitMessage,
   generatePrContent: generateCodexPrContent,
   generateBranchName: generateCodexBranchName,

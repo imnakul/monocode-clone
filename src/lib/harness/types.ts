@@ -1,4 +1,5 @@
 import type { Attachment, RuntimeMode, ToolPreview } from "../session";
+import type { ProcessedUsage } from "../tokenAccounting";
 import type { UserQuestion } from "../userQuestion";
 
 export type HarnessEvent =
@@ -56,7 +57,13 @@ export type HarnessEvent =
     }
   | { type: "plan"; text: string }
   /** Context-window level after the harness's latest request. */
-  | { type: "context"; used?: number; window?: number };
+  | { type: "context"; used?: number; window?: number }
+  /** Processed token usage for this turn and/or session thread. */
+  | {
+      type: "usage";
+      turn?: ProcessedUsage;
+      session?: ProcessedUsage;
+    };
 
 export type ApprovalDecision = "allow" | "deny";
 
