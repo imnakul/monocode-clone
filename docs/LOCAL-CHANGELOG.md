@@ -17,6 +17,16 @@ decisions to `upstream-merge-*.md`.
 - Learnings:
 -->
 
+## Unreleased - 9 Sept 2026 - System & Tools Context Breakdown & Diagnostic Inspector
+
+- What / why (1–2 lines): Decompose the large "System & tools" context segment (which often takes 40–80K tokens due to MCP servers and tool declarations) into an expandable, itemized diagnosis list detailing base instructions, global rules, environment context, built-in tools, and active MCP servers/plugins.
+- Implementation: Created `src/lib/systemBreakdown.ts` and `src/lib/systemBreakdown.test.ts` to discover and parse `~/.claude.json` (global & project MCP servers), `~/.claude/CLAUDE.md`, `~/.codex/config.toml` (plugins & MCP servers), `~/.codex/AGENTS.md`. Integrated with `ContextMeter.tsx` to display an expandable accordion under "System & tools", itemizing Base prompt (Claude/Codex), Global rules, Environment context, Built-in tools (Bash, FileEdit, FileRead, Agent, etc.), and active MCP Servers (Playwright, Screenpipe, Tabularis, Notion, Penpot, etc.) with proportional token weights and commands/URLs.
+- Files touched: `src/lib/systemBreakdown.ts`, `src/lib/systemBreakdown.test.ts`, `src/chrome/ContextMeter.tsx`, `docs/LOCAL-CHANGELOG.md`.
+- Verification (commands + results): `npm run check:web` passed cleanly (136 test files, 1,419 tests passed; `tsc --noEmit` 0 errors).
+- Caveats / known issues: MCP tool weights are proportional estimations based on server tool density heuristics (e.g. Playwright ~3.5x vs basic ~1.0x) normalized against the wire telemetry context usage.
+- Advantages / tradeoffs: Users can instantly identify which MCP servers or global rules consume large percentages of their context window and take corrective action (e.g., disabling unused browser or database MCP servers).
+- Learnings: MCP tool declarations with JSON schemas constitute the vast majority of initial context token usage when multiple integrations are enabled.
+
 ## Unreleased - 9 Sept 2026 - Context Window & Costing Inspector Dialog (Claude & Codex)
 
 - What / why (1–2 lines): Unified context window and costing inspector popover for Claude Code and Codex harness sessions, detailing token occupancy (system & tools, memory files, skills, messages, autocompact buffer, free space) and live turn / session financial costs.

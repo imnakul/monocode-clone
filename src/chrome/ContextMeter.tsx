@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   contextPercent,
   contextRatio,
@@ -18,6 +18,11 @@ import {
   resolveModelPricing,
   type ContextBreakdownItem,
 } from "../lib/tokenCosting";
+import {
+  computeSystemAndToolsBreakdown,
+  loadSystemAndToolsConfig,
+  type LoadedSystemConfig,
+} from "../lib/systemBreakdown";
 import {
   formatResetCountdown,
   formatUsagePercent,
@@ -121,11 +126,16 @@ export function ContextMeter({
 }: ContextMeterProps) {
   const [hovered, setHovered] = useState(false);
   const [pinned, setPinned] = useState(false);
+  const [systemExpanded, setSystemExpanded] = useState(false);
+  const [builtinToolsExpanded, setBuiltinToolsExpanded] = useState(false);
+  const [mcpServersExpanded, setMcpServersExpanded] = useState(true);
+  const [pluginsExpanded, setPluginsExpanded] = useState(true);
   const [memoryFilesExpanded, setMemoryFilesExpanded] = useState(false);
   const [skillsExpanded, setSkillsExpanded] = useState(false);
   const [turnExpanded, setTurnExpanded] = useState(false);
   const [sessionExpanded, setSessionExpanded] = useState(false);
 
+  const [systemConfig, setSystemConfig] = useState<LoadedSystemConfig | null>(null);
   const [memoryFiles, setMemoryFiles] = useState<ContextBreakdownItem[]>([]);
   const [skills, setSkills] = useState<ContextBreakdownItem[]>([]);
   const [rateLimits, setRateLimits] = useState<ProviderRateLimits | null>(null);
@@ -143,12 +153,24 @@ export function ContextMeter({
 
   const isOpen = hovered || pinned;
 
-  // Inspect memory files and skills for Claude and Codex
+  // Inspect system prompt, tools, memory files and skills for Claude and Codex
   useEffect(() => {
     let active = true;
-    if (!isOpen || !cwd) return;
+    if (!isOpen) return;
 
     async function inspect() {
+      // 1. Load system & tools configuration (MCP servers, plugins, global rules)
+      try {
+        const sysCfg = await loadSystemAndToolsConfig({ harness, cwd });
+        if (active) {
+          setSystemConfig(sysCfg);
+        }
+      } catch {
+        // Ignore system config load errors
+      }
+
+      if (!cwd) return;
+
       const candidates =
         harness === "codex"
           ? ["AGENTS.md", ".codex/instructions.md"]
@@ -238,6 +260,16 @@ export function ContextMeter({
     messagesTokens,
     harness,
   });
+
+  const systemBreakdown = useMemo(() => {
+    return computeSystemAndToolsBreakdown({
+      totalTokens: breakdown.systemAndTools,
+      harness,
+      globalRules: systemConfig?.globalRules,
+      mcpServers: systemConfig?.mcpServers,
+      plugins: systemConfig?.plugins,
+    });
+  }, [breakdown.systemAndTools, harness, systemConfig]);
 
   const pricing = resolveModelPricing(model, harness);
   const turnCost = calculateUsageCost(turnUsage, pricing);
@@ -371,16 +403,28 @@ export function ContextMeter({
             <div className="space-y-1 text-[11px]">
               {breakdown.segments.map((seg) => {
                 if (seg.tokens <= 0 && seg.id !== "free") return null;
+                const isSystem = seg.id === "system";
                 return (
                   <div
                     key={seg.id}
-                    className="flex items-center justify-between text-content/70"
+                    onClick={isSystem ? () => setSystemExpanded((e) => !e) : undefined}
+                    className={`flex items-center justify-between text-content/70 ${
+                      isSystem ? "cursor-pointer hover:text-content group" : ""
+                    }`}
+                    title={isSystem ? "Click to toggle System & tools breakdown" : undefined}
                   >
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span
                         className={`size-2 shrink-0 rounded-full ${seg.colorClass}`}
                       />
-                      <span className="truncate">{seg.label}</span>
+                      <span className="truncate">
+                        {seg.label}
+                        {isSystem ? (
+                          <span className="ml-1 text-[10px] text-content/40 group-hover:text-content/70">
+                            {systemExpanded ? "▴" : "▾"}
+                          </span>
+                        ) : null}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2 tabular-nums shrink-0">
                       <span>{formatTokens(seg.tokens)}</span>
@@ -392,6 +436,230 @@ export function ContextMeter({
                 );
               })}
             </div>
+
+            {/* Collapsible System & Tools Breakdown */}
+            {breakdown.systemAndTools > 0 ? (
+              <div className="border-t border-content/10 pt-2 space-y-1">
+                <button
+                  type="button"
+                  onClick={() => setSystemExpanded((e) => !e)}
+                  className="flex w-full items-center justify-between text-left text-[11px] text-content/80 hover:text-content"
+                >
+                  <span className="flex items-center gap-1">
+                    {systemExpanded ? (
+                      <ChevronDown
+                        className="size-3 shrink-0"
+                        strokeWidth={1.75}
+                      />
+                    ) : (
+                      <ChevronRight
+                        className="size-3 shrink-0"
+                        strokeWidth={1.75}
+                      />
+                    )}
+                    <span>System & tools</span>
+                  </span>
+                  <span className="tabular-nums text-content/50">
+                    {formatTokens(systemBreakdown.totalTokens)}
+                  </span>
+                </button>
+                {systemExpanded ? (
+                  <div className="space-y-1.5 pl-4 text-[11px] text-content/70">
+                    {/* Base system instructions */}
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-content/60">
+                        Base prompt ({harness === "codex" ? "Codex" : "Claude"})
+                      </span>
+                      <span className="tabular-nums shrink-0">
+                        {formatTokens(systemBreakdown.baseInstructions)}
+                      </span>
+                    </div>
+
+                    {/* Global rules (e.g. ~/.claude/CLAUDE.md or ~/.codex/AGENTS.md) */}
+                    {systemBreakdown.globalRules.length > 0 ? (
+                      <div className="space-y-0.5">
+                        {systemBreakdown.globalRules.map((rule) => (
+                          <div
+                            key={rule.name}
+                            className="flex items-center justify-between gap-1"
+                            title={rule.path}
+                          >
+                            <span className="text-content/60 truncate">
+                              {rule.name}
+                            </span>
+                            <span className="tabular-nums shrink-0">
+                              {formatTokens(rule.tokens)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {/* Environment / workspace context */}
+                    {systemBreakdown.environment > 0 ? (
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-content/60">
+                          Environment & git context
+                        </span>
+                        <span className="tabular-nums shrink-0">
+                          {formatTokens(systemBreakdown.environment)}
+                        </span>
+                      </div>
+                    ) : null}
+
+                    {/* Built-in tools */}
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => setBuiltinToolsExpanded((e) => !e)}
+                        className="flex w-full items-center justify-between text-left text-content/70 hover:text-content"
+                      >
+                        <span className="flex items-center gap-1">
+                          {builtinToolsExpanded ? (
+                            <ChevronDown
+                              className="size-2.5 shrink-0"
+                              strokeWidth={1.75}
+                            />
+                          ) : (
+                            <ChevronRight
+                              className="size-2.5 shrink-0"
+                              strokeWidth={1.75}
+                            />
+                          )}
+                          <span>
+                            Built-in tools ({systemBreakdown.builtinTools.length})
+                          </span>
+                        </span>
+                        <span className="tabular-nums text-content/50 shrink-0">
+                          {formatTokens(systemBreakdown.builtinToolsTotal)}
+                        </span>
+                      </button>
+                      {builtinToolsExpanded ? (
+                        <div className="space-y-0.5 pl-3 text-[10.5px] text-content/60">
+                          {systemBreakdown.builtinTools.map((t) => (
+                            <div
+                              key={t.name}
+                              className="flex items-center justify-between gap-1"
+                              title={t.description}
+                            >
+                              <span className="truncate">{t.name}</span>
+                              <span className="tabular-nums shrink-0">
+                                {formatTokens(t.tokens)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {/* MCP Servers */}
+                    {systemBreakdown.mcpServers.length > 0 ? (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => setMcpServersExpanded((e) => !e)}
+                          className="flex w-full items-center justify-between text-left text-content/70 hover:text-content"
+                        >
+                          <span className="flex items-center gap-1">
+                            {mcpServersExpanded ? (
+                              <ChevronDown
+                                className="size-2.5 shrink-0"
+                                strokeWidth={1.75}
+                              />
+                            ) : (
+                              <ChevronRight
+                                className="size-2.5 shrink-0"
+                                strokeWidth={1.75}
+                              />
+                            )}
+                            <span>
+                              MCP Servers ({systemBreakdown.mcpServers.length})
+                            </span>
+                          </span>
+                          <span className="tabular-nums text-content/50 shrink-0">
+                            {formatTokens(systemBreakdown.mcpServersTotal)}
+                          </span>
+                        </button>
+                        {mcpServersExpanded ? (
+                          <div className="space-y-0.5 pl-3 text-[10.5px] text-content/60">
+                            {systemBreakdown.mcpServers.map((s) => (
+                              <div
+                                key={s.name}
+                                className="flex items-center justify-between gap-1"
+                                title={s.command || s.url}
+                              >
+                                <span className="truncate">{s.name}</span>
+                                <span className="tabular-nums shrink-0">
+                                  {formatTokens(s.tokens)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {/* Plugins (Codex) */}
+                    {systemBreakdown.plugins.length > 0 ? (
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => setPluginsExpanded((e) => !e)}
+                          className="flex w-full items-center justify-between text-left text-content/70 hover:text-content"
+                        >
+                          <span className="flex items-center gap-1">
+                            {pluginsExpanded ? (
+                              <ChevronDown
+                                className="size-2.5 shrink-0"
+                                strokeWidth={1.75}
+                              />
+                            ) : (
+                              <ChevronRight
+                                className="size-2.5 shrink-0"
+                                strokeWidth={1.75}
+                              />
+                            )}
+                            <span>
+                              Plugins ({systemBreakdown.plugins.length})
+                            </span>
+                          </span>
+                          <span className="tabular-nums text-content/50 shrink-0">
+                            {formatTokens(systemBreakdown.pluginsTotal)}
+                          </span>
+                        </button>
+                        {pluginsExpanded ? (
+                          <div className="space-y-0.5 pl-3 text-[10.5px] text-content/60">
+                            {systemBreakdown.plugins.map((p) => (
+                              <div
+                                key={p.name}
+                                className="flex items-center justify-between gap-1"
+                              >
+                                <span className="truncate">{p.name}</span>
+                                <span className="tabular-nums shrink-0">
+                                  {formatTokens(p.tokens)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {/* Dynamic runtime overhead */}
+                    {systemBreakdown.overhead > 0 ? (
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-content/50">
+                          Dynamic runtime context
+                        </span>
+                        <span className="tabular-nums text-content/40 shrink-0">
+                          {formatTokens(systemBreakdown.overhead)}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {/* Collapsible Memory Files */}
             {breakdown.memoryFiles.length > 0 ? (
