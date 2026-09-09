@@ -1,7 +1,7 @@
 {
   "name": "monocode-desktop",
   "private": true,
-  "version": "0.1.35-local3-reveal-tabs",
+  "version": "0.1.35-local4-token-usage",
   "type": "module",
   "scripts": {
     "dev": "vite",
