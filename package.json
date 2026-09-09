@@ -18,7 +18,7 @@
     "tauri:stable": "tauri dev --no-watch --config src-tauri/tauri.stable.conf.json",
     "setup:linux:deb": "bash scripts/install-linux-deps-debian.sh",
     "build:linux": "tauri build --bundles deb,appimage",
-    "build:windows": "tauri build && node scripts/archive-installer.mjs",
+    "build:windows": "tauri build --bundles nsis && node scripts/archive-installer.mjs",
     "archive:installer": "node scripts/archive-installer.mjs"
   },
   "dependencies": {
