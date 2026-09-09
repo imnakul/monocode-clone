@@ -143,6 +143,11 @@ export function formatUsagePercent(usedPercent: number): string {
   return `${Math.round(clampUsedPercent(usedPercent))}%`;
 }
 
+export function formatRemainingPercent(usedPercent: number): string {
+  const remaining = Math.max(0, Math.min(100, 100 - clampUsedPercent(usedPercent)));
+  return `${Math.round(remaining)}%`;
+}
+
 /**
  * Compact window-size label. 10080 minutes stays "wk" to match the
  * original status-bar copy.
@@ -203,11 +208,11 @@ export function rateLimitWindowTooltip(
   window: RateLimitWindow,
   now = Date.now(),
 ): string {
-  const used = `${formatUsagePercent(window.usedPercent)} used`;
+  const left = `${formatRemainingPercent(window.usedPercent)} left`;
   if (window.resetsAt == null) {
-    return `${used} · ${formatWindowLabel(window.windowMinutes)} window`;
+    return `${left} · ${formatWindowLabel(window.windowMinutes)} window`;
   }
-  return `${used} · ${formatResetCountdown(window.resetsAt - now)}`;
+  return `${left} · ${formatResetCountdown(window.resetsAt - now)}`;
 }
 
 export function parseResetTimestamp(value: unknown): number | null {

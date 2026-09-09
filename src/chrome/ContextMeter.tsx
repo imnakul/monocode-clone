@@ -24,8 +24,8 @@ import {
   type LoadedSystemConfig,
 } from "../lib/systemBreakdown";
 import {
+  formatRemainingPercent,
   formatResetCountdown,
-  formatUsagePercent,
   type ProviderRateLimits,
 } from "../lib/rateLimits";
 import {
@@ -752,16 +752,16 @@ export function ContextMeter({
               </div>
             ) : null}
 
-            {/* Plan Usage Limits (if known) */}
+            {/* Plan Quota Limits (if known) */}
             {rateLimits &&
             (rateLimits.session != null || rateLimits.weekly != null) ? (
               <div className="border-t border-content/10 pt-2 space-y-1.5 text-[11px]">
                 <div className="font-medium text-content/90">
-                  Plan usage limits
+                  Plan quota
                 </div>
                 {rateLimits.session ? (
                   <div className="flex items-center justify-between text-content/70">
-                    <span>5-hour limit</span>
+                    <span>5-hour quota</span>
                     <div className="flex items-center gap-2 tabular-nums">
                       {rateLimits.session.resetsAt ? (
                         <span className="text-content/50 text-[10px]">
@@ -770,15 +770,15 @@ export function ContextMeter({
                           )}
                         </span>
                       ) : null}
-                      <span>
-                        {formatUsagePercent(rateLimits.session.usedPercent)}
+                      <span className="font-medium text-content/90">
+                        {formatRemainingPercent(rateLimits.session.usedPercent)} left
                       </span>
                     </div>
                   </div>
                 ) : null}
                 {rateLimits.weekly ? (
                   <div className="flex items-center justify-between text-content/70">
-                    <span>Weekly limit</span>
+                    <span>Weekly quota</span>
                     <div className="flex items-center gap-2 tabular-nums">
                       {rateLimits.weekly.resetsAt ? (
                         <span className="text-content/50 text-[10px]">
@@ -787,8 +787,8 @@ export function ContextMeter({
                           )}
                         </span>
                       ) : null}
-                      <span>
-                        {formatUsagePercent(rateLimits.weekly.usedPercent)}
+                      <span className="font-medium text-content/90">
+                        {formatRemainingPercent(rateLimits.weekly.usedPercent)} left
                       </span>
                     </div>
                   </div>

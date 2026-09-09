@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   clampUsedPercent,
   formatRateLimitWindowChipLabel,
+  formatRemainingPercent,
   formatResetCountdown,
   formatResetDuration,
   formatUsagePercent,
@@ -89,6 +90,16 @@ describe("formatUsagePercent", () => {
     expect(formatUsagePercent(58.4)).toBe("58%");
     expect(formatUsagePercent(58.6)).toBe("59%");
     expect(clampUsedPercent(140)).toBe(100);
+  });
+});
+
+describe("formatRemainingPercent", () => {
+  it("computes and rounds remaining quota percent left", () => {
+    expect(formatRemainingPercent(58.4)).toBe("42%");
+    expect(formatRemainingPercent(20)).toBe("80%");
+    expect(formatRemainingPercent(0)).toBe("100%");
+    expect(formatRemainingPercent(100)).toBe("0%");
+    expect(formatRemainingPercent(140)).toBe("0%");
   });
 });
 
@@ -192,7 +203,7 @@ describe("rateLimitWindowTooltip", () => {
         },
         now,
       ),
-    ).toBe("42% used · Resets in 2h 33m");
+    ).toBe("58% left · Resets in 2h 33m");
   });
 });
 

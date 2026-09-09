@@ -10,7 +10,7 @@ import {
   clampUsedPercent,
   fetchingRateLimits,
   formatRateLimitWindowChipLabel,
-  formatUsagePercent,
+  formatRemainingPercent,
   idleRateLimits,
   RATE_LIMIT_POLL_MS,
   rateLimitWindowTooltip,
@@ -335,7 +335,7 @@ function ProviderChip({
               <span key={entry.key} className="inline-flex items-center gap-1">
                 {index > 0 ? <span className="text-content/25">·</span> : null}
                 <span>
-                  {formatUsagePercent(entry.window.usedPercent)}{" "}
+                  {formatRemainingPercent(entry.window.usedPercent)} left{" "}
                   {formatRateLimitWindowChipLabel(entry.window, now)}
                 </span>
               </span>
