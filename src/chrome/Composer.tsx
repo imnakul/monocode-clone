@@ -231,7 +231,7 @@ function ToolButton({
   );
 }
 
-function MessageQueue({
+export function MessageQueue({
   messages,
   status,
   onDelete,
@@ -247,7 +247,7 @@ function MessageQueue({
   onEditingChange?: (messageId?: string) => void;
   onSteer?: (messageId: string) => void;
   onResume?: () => void;
-}) {
+}): ReactNode {
   const [editingId, setEditingId] = useState<string>();
   const [editDraft, setEditDraft] = useState("");
   const onEditingChangeRef = useRef(onEditingChange);
@@ -256,27 +256,40 @@ function MessageQueue({
   editingIdRef.current = editingId;
   useEffect(() => {
     return () => {
-      if (editingIdRef.current) onEditingChangeRef.current?.();
+      if (editingIdRef.current) onEditingChangeRef.current?.(undefined);
     };
   }, []);
+  useEffect(() => {
+    if (status === "steering" && editingIdRef.current) {
+      setEditingId(undefined);
+      setEditDraft("");
+      onEditingChangeRef.current?.(undefined);
+    }
+  }, [status]);
   if (messages.length === 0) return null;
   const paused = status === "paused";
+  const held = status === "held";
+  const steering = status === "steering";
 
-  const startEdit = (message: QueuedMessage) => {
+  const startEdit = (message: QueuedMessage): void => {
+    if (steering) return;
     setEditingId(message.id);
     setEditDraft(message.text);
     onEditingChange?.(message.id);
   };
-  const cancelEdit = () => {
+  const cancelEdit = (): void => {
+    if (steering) return;
     setEditingId(undefined);
     setEditDraft("");
     onEditingChange?.();
   };
-  const saveEdit = (message: QueuedMessage) => {
+  const saveEdit = (message: QueuedMessage): void => {
+    if (steering) return;
     if (!editDraft.trim() && message.attachments.length === 0) return;
     onEdit?.(message.id, editDraft);
     setEditingId(undefined);
     setEditDraft("");
+    onEditingChange?.();
   };
 
   return (
@@ -285,6 +298,35 @@ function MessageQueue({
         className="relative z-0 rounded-t-[10px] border border-b-0 border-content/10 bg-content/3 px-2 py-1"
         data-message-queue-card
       >
+        {steering ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex h-7 items-center gap-2 border-b border-content/10 text-[12px]"
+          >
+            <Pause className="size-3.5" />
+            <span className="min-w-0 flex-1 truncate">
+              Stopping the current turn before steering
+            </span>
+          </div>
+        ) : null}
+        {held ? (
+          <div className="flex h-7 items-center gap-2 border-b border-content/10 text-[12px]">
+            <Pause className="size-3.5" />
+            <span className="min-w-0 flex-1 truncate">
+              Queue held because the last turn failed
+            </span>
+            <button
+              type="button"
+              onClick={onResume}
+              aria-label="Resume held message queue"
+              className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content"
+            >
+              <Play className="size-3.5" />
+              Resume
+            </button>
+          </div>
+        ) : null}
         {paused ? (
           <div className="flex h-7 items-center gap-2 border-b border-content/10 text-[12px]">
             <Pause className="size-3.5" />
@@ -292,6 +334,7 @@ function MessageQueue({
               Queue paused because you interrupted
             </span>
             <button
+              aria-label="Resume paused message queue"
               type="button"
               onClick={onResume}
               className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content"
@@ -302,7 +345,7 @@ function MessageQueue({
           </div>
         ) : null}
         {messages.map((message, index) => {
-          const editing = editingId === message.id;
+          const editing = !steering && editingId === message.id;
           const label =
             message.text.trim() ||
             `${message.attachments.length} attachment${message.attachments.length === 1 ? "" : "s"}`;
@@ -338,10 +381,11 @@ function MessageQueue({
                     title="Save queued message"
                     aria-label="Save queued message"
                     disabled={
-                      !editDraft.trim() && message.attachments.length === 0
+                      steering ||
+                      (!editDraft.trim() && message.attachments.length === 0)
                     }
-                    onClick={() => saveEdit(message)}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content disabled:opacity-30"
+                    onClick={() => !steering && saveEdit(message)}
+                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content disabled:opacity-30 disabled:pointer-events-none"
                   >
                     <Check className="size-3.5" />
                   </button>
@@ -349,8 +393,9 @@ function MessageQueue({
                     type="button"
                     title="Cancel queued message edit"
                     aria-label="Cancel queued message edit"
-                    onClick={cancelEdit}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content"
+                    disabled={steering}
+                    onClick={() => !steering && cancelEdit()}
+                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content disabled:opacity-30 disabled:pointer-events-none"
                   >
                     <X className="size-3.5" />
                   </button>
@@ -362,8 +407,10 @@ function MessageQueue({
                   </span>
                   <button
                     type="button"
-                    onClick={() => onSteer?.(message.id)}
-                    className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content"
+                    aria-label={`Steer with queued message: ${label}`}
+                    disabled={steering}
+                    onClick={() => !steering && onSteer?.(message.id)}
+                    className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content disabled:pointer-events-none disabled:opacity-40"
                   >
                     <CornerDownRight className="size-3.5" />
                     Steer
@@ -372,8 +419,9 @@ function MessageQueue({
                     type="button"
                     title="Edit queued message"
                     aria-label="Edit queued message"
-                    onClick={() => startEdit(message)}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content"
+                    disabled={steering}
+                    onClick={() => !steering && startEdit(message)}
+                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content disabled:pointer-events-none disabled:opacity-40"
                   >
                     <Pencil className="size-3.5" />
                   </button>
@@ -381,8 +429,9 @@ function MessageQueue({
                     type="button"
                     title="Remove queued message"
                     aria-label="Remove queued message"
-                    onClick={() => onDelete?.(message.id)}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content"
+                    disabled={steering}
+                    onClick={() => !steering && onDelete?.(message.id)}
+                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content disabled:pointer-events-none disabled:opacity-40"
                   >
                     <Trash2 className="size-3.5" />
                   </button>

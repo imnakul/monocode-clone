@@ -136,7 +136,6 @@ import {
   probeHarnessAvailability,
   refreshHarnessCatalogs,
   registerBuiltinHarnesses,
-  promoteLastAssistantToPlan,
   respondHarnessApproval,
   respondHarnessQuestion,
   sendHarnessTurn,
@@ -188,7 +187,6 @@ import {
 } from "./lib/models";
 import {
   buildPlanPrompt,
-  isProviderFailureText,
   planTitle,
   planTurnPrompt,
 } from "./lib/plan";
@@ -237,17 +235,21 @@ import {
   type HarnessId,
   type PlanBuildTarget,
   type RuntimeMode,
-  type PlanStatus,
   type SecondOpinionMeta,
   type Session,
   type TurnIntent,
 } from "./lib/session";
 
 import {
+  beginQueuedSteerCancellation,
   canDispatchQueuedHead,
   dequeueQueuedMessage,
+  finishQueuedSteerCancellation,
+  orchestrateTurnCompletion,
   queuedMessageForSubmit,
+  settleQueuedSteerCancellations,
 } from "./lib/messageQueue";
+import { QueueDurabilityScheduler } from "./lib/queueDurability";
 import {
   buildForkBundle,
   forkThreadBlocks,
@@ -261,7 +263,9 @@ import {
   listScratchSessions,
   listSessionsByProject,
   persistFingerprint,
+  queuePersistFingerprint,
   replaceInFlightSessions,
+  shouldScheduleSessionPersist,
   saveWorkspaceSnapshot,
   setSessionArchived,
   setSessionPinned,
@@ -374,33 +378,6 @@ import {
   setQuitWorkspace,
   type ResumedWorkspace,
 } from "./lib/appLifecycle";
-
-function withPlanStatus(
-  session: Session,
-  blockId: string,
-  status: PlanStatus,
-): Session {
-  return {
-    ...session,
-    blocks: session.blocks.map((block) =>
-      block.id === blockId && block.role === "plan"
-        ? {
-            ...block,
-            plan: { ...(block.plan ?? { status: "ready" }), status },
-          }
-        : block,
-    ),
-  };
-}
-
-function lastAssistantTextInTurn(session: Session): string {
-  for (let index = session.blocks.length - 1; index >= 0; index -= 1) {
-    const block = session.blocks[index];
-    if (block.role === "user") return "";
-    if (block.role === "assistant" && block.text.trim()) return block.text;
-  }
-  return "";
-}
 
 function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
   if (a.size !== b.size) return false;
@@ -559,6 +536,18 @@ export function isSessionDiffOptions(
     "sessionId" in options &&
     typeof options.sessionId === "string"
   );
+}
+
+interface QueueSchedulerFactoryOptions {
+  getSession: (id: string) => Session | undefined;
+  writeSession: (session: Session) => Promise<SessionSummary | null>;
+  onPersisted: (session: Session, summary: SessionSummary) => void;
+}
+
+function createQueueScheduler(
+  options: QueueSchedulerFactoryOptions,
+): QueueDurabilityScheduler {
+  return new QueueDurabilityScheduler(options);
 }
 
 // Register capabilities before composer hooks choose their discovery strategy.
@@ -729,6 +718,58 @@ export default function App({
   });
   const turnGen = useRef(new Map<string, number>());
   const lastPersisted = useRef(new Map<string, string>());
+  const queueSchedulerRef = useRef<QueueDurabilityScheduler | null>(null);
+
+  const createScheduler = useCallback((): QueueDurabilityScheduler => {
+    return createQueueScheduler({
+      getSession: (id: string): Session | undefined =>
+        sessionsRef.current.find((s) => s.id === id),
+      writeSession: upsertSession,
+      onPersisted: (session: Session, summary: SessionSummary): void => {
+        lastPersisted.current.set(session.id, persistFingerprint(session));
+        if (summary.cwd === sidebarCwdRef.current) {
+          setHistory((current) =>
+            mergeProjectHistorySummary(current, summary),
+          );
+        }
+        if (isScratchCwd(summary.cwd)) {
+          setScratchHistory((current) =>
+            mergeProjectHistorySummary(current, summary),
+          );
+        }
+      },
+    });
+  }, []);
+
+  const getOrCreateScheduler = useCallback((): QueueDurabilityScheduler => {
+    const current = queueSchedulerRef.current;
+    if (current && !current.isDisposed()) {
+      return current;
+    }
+    const previousKeys = current?.getPersistedKeys();
+    const next = createScheduler();
+    if (previousKeys) {
+      for (const [id, key] of previousKeys) {
+        next.initSession(id, key);
+      }
+    }
+    for (const session of sessionsRef.current) {
+      next.observeSession(session);
+    }
+    queueSchedulerRef.current = next;
+    return next;
+  }, [createScheduler]);
+
+  if (!queueSchedulerRef.current || queueSchedulerRef.current.isDisposed()) {
+    getOrCreateScheduler();
+  }
+
+  useEffect(() => {
+    const scheduler = getOrCreateScheduler();
+    return () => {
+      scheduler.dispose();
+    };
+  }, [getOrCreateScheduler]);
   const lastBoundProvider = useRef(new Map<string, string>());
   const lastPersistedUserBlock = useRef(new Map<string, string>());
   const inFlightSyncKey = useRef<string | null>(null);
@@ -752,6 +793,8 @@ export default function App({
     for (const session of imported) {
       observedSessions.current.set(session.id, session);
       lastPersisted.current.set(session.id, persistFingerprint(session));
+      const queueKey = queuePersistFingerprint(session);
+      queueSchedulerRef.current?.initSession(session.id, queueKey);
       const userId = lastUserBlockId(session);
       if (userId) lastPersistedUserBlock.current.set(session.id, userId);
       if (session.providerSessionId) {
@@ -1154,10 +1197,12 @@ export default function App({
       removingSessionIds.current.has(session.id)
     ) return;
     const fingerprint = persistFingerprint(session);
+    const queueKeyWritten = queuePersistFingerprint(session);
     void upsertSession(session)
       .then((summary) => {
         if (!summary) return;
         lastPersisted.current.set(session.id, fingerprint);
+        queueSchedulerRef.current?.setPersistedKey(session.id, queueKeyWritten);
         if (summary.cwd === sidebarCwdRef.current) {
           setHistory((current) => mergeProjectHistorySummary(current, summary));
         }
@@ -1173,8 +1218,12 @@ export default function App({
   useEffect(() => {
     const liveIds = new Set(sessions.map((session) => session.id));
     const visibleIds = openSessionIds(tabsRef.current);
+    const queueScheduler = queueSchedulerRef.current;
+
     for (const session of sessions) {
       if (removingSessionIds.current.has(session.id)) continue;
+      queueScheduler?.observeSession(session);
+
       if (observedSessions.current.get(session.id) === session) continue;
       observedSessions.current.set(session.id, session);
       const parked = !visibleIds.has(session.id);
@@ -1195,12 +1244,13 @@ export default function App({
         persistSession(session);
       }
       if (
-        shouldPersistSession(session) &&
-        (!session.busy ||
-          parked ||
-          newlyBound ||
-          newUserTurn ||
-          !lastPersisted.current.has(session.id))
+        shouldScheduleSessionPersist({
+          session,
+          isParked: parked,
+          isNewlyBound: newlyBound,
+          isNewUserTurn: newUserTurn,
+          hasPersistedBefore: lastPersisted.current.has(session.id),
+        })
       ) {
         pendingPersist.current.set(session.id, session);
       }
@@ -1209,6 +1259,7 @@ export default function App({
       if (liveIds.has(sessionId)) continue;
       observedSessions.current.delete(sessionId);
       pendingPersist.current.delete(sessionId);
+      queueScheduler?.removeSession(sessionId);
     }
     if (pendingPersist.current.size === 0) return;
 
@@ -1219,10 +1270,17 @@ export default function App({
         dirty.map(async (session) => {
           if (removingSessionIds.current.has(session.id)) return;
           const fingerprint = persistFingerprint(session);
-          if (lastPersisted.current.get(session.id) === fingerprint) return;
+          const transcriptDirty =
+            lastPersisted.current.get(session.id) !== fingerprint;
+
+          if (session.busy) return;
+          if (!transcriptDirty) return;
+
           const summary = await upsertSession(session).catch(() => null);
           if (!summary) return;
           lastPersisted.current.set(session.id, fingerprint);
+          const queueKeyWritten = queuePersistFingerprint(session);
+          queueScheduler?.setPersistedKey(session.id, queueKeyWritten);
           if (summary.cwd === sidebarCwdRef.current) {
             setHistory((current) =>
               mergeProjectHistorySummary(current, summary),
@@ -1652,6 +1710,7 @@ export default function App({
         occupying && isBlankSession(occupying) ? occupying.id : undefined;
       if (occupyPaneId && occupying) {
         lastPersisted.current.delete(occupyPaneId);
+        queueSchedulerRef.current?.removeSession(occupyPaneId);
         void forgetHarnessSession(occupying.harness, occupyPaneId);
         setSessions((prev) =>
           prev.filter((session) => session.id !== occupyPaneId),
@@ -2525,6 +2584,7 @@ export default function App({
     if (!paneId || paneId === session.id) return false;
 
     lastPersisted.current.delete(paneId);
+    queueSchedulerRef.current?.removeSession(paneId);
     {
       const blank = sessionsRef.current.find((entry) => entry.id === paneId);
       if (blank) void forgetHarnessSession(blank.harness, paneId);
@@ -2573,6 +2633,8 @@ export default function App({
         );
       }
       lastPersisted.current.set(restored.id, persistFingerprint(restored));
+      const queueKey = queuePersistFingerprint(restored);
+      queueSchedulerRef.current?.initSession(restored.id, queueKey);
       if (!sessionsRef.current.some((session) => session.id === restored.id)) {
         const next = [...sessionsRef.current, restored];
         sessionsRef.current = next;
@@ -2627,6 +2689,7 @@ export default function App({
 
       if (replaceTarget) {
         lastPersisted.current.delete(targetId);
+        queueSchedulerRef.current?.removeSession(targetId);
         const blank = sessionsRef.current.find(
           (entry) => entry.id === targetId,
         );
@@ -2687,6 +2750,8 @@ export default function App({
         };
         await upsertSession(updated).catch(() => undefined);
         lastPersisted.current.set(sessionId, persistFingerprint(updated));
+        const queueKey = queuePersistFingerprint(updated);
+        queueSchedulerRef.current?.initSession(sessionId, queueKey);
       }
       void refreshHistory(sidebarCwd);
     },
@@ -2780,6 +2845,7 @@ export default function App({
               void forgetHarnessSession(harness, sessionId);
             }
             lastPersisted.current.delete(sessionId);
+            queueSchedulerRef.current?.removeSession(sessionId);
             pendingPersist.current.delete(sessionId);
             const closingFiles = filesInWorkspaceTabs(removal.closedTabs);
             setDirtyFiles((current) => {
@@ -2870,7 +2936,15 @@ export default function App({
         (session) => session.id === sessionId,
       );
       if (open && shouldPersistSession(open)) {
-        await upsertSession(open).catch(() => undefined);
+        const queueKeyWritten = queuePersistFingerprint(open);
+        await upsertSession(open)
+          .then((summary) => {
+            if (summary) {
+              lastPersisted.current.set(open.id, persistFingerprint(open));
+              queueSchedulerRef.current?.setPersistedKey(open.id, queueKeyWritten);
+            }
+          })
+          .catch(() => undefined);
       }
       await setSessionPinned(sessionId, pinned).catch(() => undefined);
       setHistory((current) => {
@@ -3108,6 +3182,7 @@ export default function App({
             void forgetHarnessSession(id, session.id);
           }
           lastPersisted.current.delete(session.id);
+          queueSchedulerRef.current?.removeSession(session.id);
         }
         void removeProjectData(normalized);
       } else {
@@ -3499,7 +3574,9 @@ export default function App({
                       },
                     ],
                     queueStatus:
-                      s.queueStatus === "paused" ? "paused" : "active",
+                      s.queueStatus === "paused" || s.queueStatus === "held"
+                        ? s.queueStatus
+                        : "active",
                   }
                 : s,
             ),
@@ -3839,6 +3916,7 @@ export default function App({
         } catch (error: unknown) {
           if (turnGen.current.get(sessionId) !== gen) return;
           if (wrap) revealHandoff(wrap.text);
+          providerFailureSeen = true;
           const message =
             error instanceof Error
               ? error.message
@@ -3850,27 +3928,22 @@ export default function App({
         } finally {
           if (turnGen.current.get(sessionId) !== gen) return;
           flushHarnessEvents();
-          await flushSessionCheckpoint(sessionId);
-          setSessions((prev) =>
-            prev.map((s) => {
-              if (s.id !== sessionId) return s;
-              const stopped = stopStreaming(s);
-              const providerFailed =
-                providerFailureSeen ||
-                isProviderFailureText(lastAssistantTextInTurn(stopped));
-              const finalized =
-                intent === "plan" && !nativePlanSeen && !providerFailed
-                  ? promoteLastAssistantToPlan(stopped, planEventKey)
-                  : stopped;
-              return approvedPlan && intent === "build"
-                ? withPlanStatus(
-                    finalized,
-                    approvedPlan.id,
-                    buildSucceeded && !providerFailed ? "built" : "ready",
-                  )
-                : finalized;
-            }),
-          );
+          await orchestrateTurnCompletion({
+            sessionId,
+            getSessions: () => sessionsRef.current,
+            setSessions: (next) => {
+              sessionsRef.current = next;
+              setSessions(next);
+            },
+            syncDockBadge,
+            flushCheckpoint: flushSessionCheckpoint,
+            providerFailureSeen,
+            intent,
+            approvedPlanId: approvedPlan?.id,
+            buildSucceeded,
+            nativePlanSeen,
+            planEventKey,
+          });
           playCue("turnFinished");
           notifyReviewChanged(sessionId);
           notifyGitChanged();
@@ -4009,11 +4082,11 @@ export default function App({
   const onDeleteQueuedMessage = useCallback(
     (sessionId: string, messageId: string) => {
       setSessions((prev) =>
-        prev.map((session) =>
-          session.id === sessionId
-            ? dequeueQueuedMessage(session, messageId)
-            : session,
-        ),
+        prev.map((session) => {
+          if (session.id !== sessionId) return session;
+          if (session.queueStatus === "steering") return session;
+          return dequeueQueuedMessage(session, messageId);
+        }),
       );
     },
     [],
@@ -4022,11 +4095,11 @@ export default function App({
   const onQueuedMessageEditingChange = useCallback(
     (sessionId: string, messageId?: string) => {
       setSessions((prev) =>
-        prev.map((session) =>
-          session.id === sessionId
-            ? { ...session, editingQueuedMessageId: messageId }
-            : session,
-        ),
+        prev.map((session) => {
+          if (session.id !== sessionId) return session;
+          if (session.queueStatus === "steering") return session;
+          return { ...session, editingQueuedMessageId: messageId };
+        }),
       );
     },
     [],
@@ -4035,17 +4108,17 @@ export default function App({
   const onEditQueuedMessage = useCallback(
     (sessionId: string, messageId: string, text: string) => {
       setSessions((prev) =>
-        prev.map((session) =>
-          session.id === sessionId
-            ? {
-                ...session,
-                queuedMessages: session.queuedMessages?.map((message) =>
-                  message.id === messageId ? { ...message, text } : message,
-                ),
-                editingQueuedMessageId: undefined,
-              }
-            : session,
-        ),
+        prev.map((session) => {
+          if (session.id !== sessionId) return session;
+          if (session.queueStatus === "steering") return session;
+          return {
+            ...session,
+            queuedMessages: session.queuedMessages?.map((message) =>
+              message.id === messageId ? { ...message, text } : message,
+            ),
+            editingQueuedMessageId: undefined,
+          };
+        }),
       );
     },
     [],
@@ -4060,14 +4133,69 @@ export default function App({
         ? queuedMessageForSubmit(session, messageId, "steer")
         : undefined;
       if (!session || !message) return;
+      if (session.queueStatus === "steering") return;
+      // Providers without native steer (Antigravity, Grok, Cline, Pi, omp,
+      // fx) cannot take a whisper mid-turn. Plan mode also needs a distinct
+      // next turn. In both cases, cancellation must settle before auto-flush.
+      if (
+        session.busy &&
+        (!canSteerHarness(session.harness) || message.intent === "plan")
+      ) {
+        const gen = (turnGen.current.get(sessionId) ?? 0) + 1;
+        turnGen.current.set(sessionId, gen);
+        flushHarnessEvents();
+        const cancelling = sessionsRef.current.map((entry) =>
+          entry.id === sessionId
+            ? beginQueuedSteerCancellation(entry, message.id)
+            : entry,
+        );
+        sessionsRef.current = cancelling;
+        setSessions(cancelling);
+        enqueueHarnessEvent(sessionId, {
+          type: "status",
+          text: `Stopping this turn to steer — "${message.text.trim().slice(0, 80) || "queued follow-up"}" will send next.`,
+        });
+        flushHarnessEvents();
+        void (async () => {
+          const succeeded = await settleQueuedSteerCancellations(
+            sessionChildHarnesses(session).map((id) =>
+              cancelHarnessTurn(id, sessionId),
+            ),
+          );
+          if (turnGen.current.get(sessionId) !== gen) return;
+          const finished = sessionsRef.current.map((entry) =>
+            entry.id === sessionId
+              ? finishQueuedSteerCancellation(entry, succeeded)
+              : entry,
+          );
+          sessionsRef.current = finished;
+          syncDockBadge(finished);
+          setSessions(finished);
+          if (!succeeded) {
+            enqueueHarnessEvent(sessionId, {
+              type: "session.error",
+              message:
+                "Could not stop the active turn before steering. The queue remains held.",
+            });
+            flushHarnessEvents();
+          }
+          notifyReviewChanged(sessionId);
+          nudgeWorkspace(sessionWorkCwd(session));
+          notifyGitChanged();
+          nudgeWatchedFiles();
+          window.setTimeout(() => nudgeWatchedFiles(), 150);
+        })();
+        return;
+      }
       onSubmit(sessionId, message.text, message.attachments, {
         followUpBehavior: "steer",
         queuedMessageId: message.id,
         noteCard: message.noteCard,
         handoffCard: message.handoffCard,
+        intent: message.intent,
       });
     },
-    [onSubmit],
+    [enqueueHarnessEvent, flushHarnessEvents, onSubmit],
   );
 
   const onResumeQueue = useCallback(
@@ -4078,9 +4206,22 @@ export default function App({
       if (
         !session ||
         session.busy ||
-        session.queueStatus !== "paused" ||
+        (session.queueStatus !== "paused" && session.queueStatus !== "held") ||
         !session.queuedMessages?.length
       ) {
+        return;
+      }
+      // A held queue (failed turn) just releases the hold: the auto-flush
+      // effect dispatches the head as the next turn. A paused queue (user
+      // stopped mid-turn) resumes the interrupted turn first.
+      if (session.queueStatus === "held") {
+        setSessions((prev) =>
+          prev.map((entry) =>
+            entry.id === sessionId
+              ? { ...entry, queueStatus: "active" }
+              : entry,
+          ),
+        );
         return;
       }
       setSessions((prev) =>
@@ -4312,6 +4453,7 @@ export default function App({
   const onStop = useCallback(
     (sessionId: string) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
+      if (session?.queueStatus === "steering") return;
       turnGen.current.set(sessionId, (turnGen.current.get(sessionId) ?? 0) + 1);
       flushHarnessEvents();
       if (session) {
