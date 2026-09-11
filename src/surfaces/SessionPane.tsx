@@ -17,6 +17,7 @@ import {
 } from "../lib/tokenAccounting";
 import {
   canCompactHarnessContext,
+  canSteerHarness,
   type ApprovalDecision,
   type UserQuestionReply,
 } from "../lib/harness";
@@ -284,6 +285,7 @@ export const SessionPane = memo(function SessionPane({
       executionCwd={workCwd}
       sessionId={session.id}
       compactSupported={canCompactHarnessContext(session.harness)}
+      canSteer={canSteerHarness(session.harness)}
       recents={recents}
       hideProjectPicker={hideProjectPicker ? !showDeckProjectPicker : false}
       context={session.context}

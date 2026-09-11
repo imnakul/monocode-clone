@@ -105,9 +105,13 @@ import { consumeQuoteRequest, type QuoteRequest } from "../lib/quoteDraft";
 import { useTabGroupLogos } from "../hooks/useTabGroupLogos";
 import {
   COMPOSER_RUNNER_CHANGE_EVENT,
+  FOLLOW_UP_BEHAVIOR_DEFAULT,
   loadComposerRunner,
+  loadFollowUpBehavior,
   loadNotesEnabled,
+  subscribeFollowUpBehavior,
   subscribeNotesEnabled,
+  type FollowUpBehavior,
 } from "../lib/settings";
 import {
   isNoteMentionPath,
@@ -123,6 +127,16 @@ import { useComposerSkills } from "./useComposerSkills";
 import { Popover } from "./Popover";
 import { consumePlanCommand, PLAN_COMMAND } from "../lib/plan";
 import { COMPACT_COMMAND, isCompactCommand } from "../lib/compact";
+import { IS_MAC } from "../lib/platform";
+import { canSteerHarness } from "../lib/harness";
+import {
+  resolveComposerActionAriaLabel,
+  resolveComposerActionTooltip,
+  resolveComposerButtonAction,
+  resolveComposerKeyAction,
+  resolveEffectiveSuggestionAction,
+  type ActionResolutionContext,
+} from "./composerAction";
 
 type Props = {
   enabled?: boolean;
@@ -150,6 +164,7 @@ type Props = {
   handoffCard?: HandoffComposerCard;
   question?: UserQuestionPrompt;
   busy?: boolean;
+  canSteer?: boolean;
   queuedMessages?: QueuedMessage[];
   queueStatus?: MessageQueueStatus;
   hotkeys?: boolean;
@@ -168,7 +183,10 @@ type Props = {
   onSubmit: (
     text: string,
     attachments: Attachment[],
-    options?: { intent?: TurnIntent },
+    options?: {
+      intent?: TurnIntent;
+      followUpBehavior?: FollowUpBehavior;
+    },
   ) => void;
   onStop?: () => void;
   onCompactContext?: () => boolean;
@@ -405,6 +423,7 @@ export function Composer({
   handoffCard,
   question,
   busy = false,
+  canSteer,
   queuedMessages = [],
   queueStatus,
   onFocus,
@@ -900,7 +919,38 @@ export function Composer({
     };
   }, [addAttachments, attachmentsSupported, enabled]);
 
-  const submit = (value: string) => {
+  const followUpBehavior = useSyncExternalStore(
+    subscribeFollowUpBehavior,
+    loadFollowUpBehavior,
+    () => FOLLOW_UP_BEHAVIOR_DEFAULT,
+  );
+  const effectiveCanSteer = canSteer ?? canSteerHarness(harness);
+
+  const actionContext: ActionResolutionContext = useMemo(
+    () => ({
+      busy: Boolean(busy),
+      followUpBehavior,
+      canSteer: effectiveCanSteer,
+      planMode: planSelected,
+      isMac: IS_MAC,
+    }),
+    [busy, followUpBehavior, effectiveCanSteer, planSelected],
+  );
+
+  const actionTooltip = useMemo(
+    () => resolveComposerActionTooltip(actionContext),
+    [actionContext],
+  );
+
+  const actionAriaLabel = useMemo(
+    () => resolveComposerActionAriaLabel(actionContext),
+    [actionContext],
+  );
+
+  const submit = (
+    value: string,
+    options?: { followUpBehavior?: FollowUpBehavior },
+  ): void => {
     if (isCompactCommand(value)) {
       if (!onCompactContext?.()) return;
       if (!ref.current) return;
@@ -925,6 +975,7 @@ export function Composer({
     if (!text && files.length === 0 && !noteCard && !handoffCard) return;
     onSubmit(text, files, {
       intent: planSelected || command.planning ? "plan" : "default",
+      followUpBehavior: options?.followUpBehavior,
     });
     if (!ref.current) return;
     ref.current.value = "";
@@ -941,8 +992,30 @@ export function Composer({
     syncHasValue("", []);
   };
 
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+  const executeComposerAction = (
+    action: "send" | "queue" | "steer",
+    text: string,
+  ): void => {
+    if (action === "send") {
+      submit(text);
+    } else if (action === "queue") {
+      submit(text, { followUpBehavior: "queue" });
+    } else if (action === "steer") {
+      submit(text, { followUpBehavior: "steer" });
+    }
+  };
+
+  const handleActionClick = (): void => {
+    const action = resolveComposerButtonAction(actionContext);
+    executeComposerAction(action, ref.current?.value ?? "");
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (creatingSkill) return;
+
+    if (e.nativeEvent.isComposing) {
+      return;
+    }
 
     if (mentionOpen) {
       if (e.key === "ArrowDown") {
@@ -970,25 +1043,38 @@ export function Composer({
         if (file) pickMention(file);
         return;
       }
-      if (e.key === "Enter" && !e.shiftKey) {
-        const file = rankedFiles[mentionActive];
-        if (file) {
-          e.preventDefault();
-          pickMention(file);
+      if (e.key === "Enter") {
+        const result = resolveEffectiveSuggestionAction(
+          e.key,
+          {
+            shiftKey: e.shiftKey,
+            ctrlKey: e.ctrlKey,
+            metaKey: e.metaKey,
+            isComposing: e.nativeEvent.isComposing,
+          },
+          Boolean(rankedFiles[mentionActive]),
+          actionContext,
+        );
+
+        if (result.type === "ignore" || result.type === "newline") {
           return;
         }
-        setMention(null);
+        if (result.type === "pick") {
+          const file = rankedFiles[mentionActive];
+          if (file) {
+            e.preventDefault();
+            pickMention(file);
+            return;
+          }
+        }
+        if (result.type === "action") {
+          setMention(null);
+          e.preventDefault();
+          executeComposerAction(result.action, e.currentTarget.value);
+          return;
+        }
+        return;
       }
-    }
-
-    if (
-      e.key === "Enter" &&
-      !e.shiftKey &&
-      isCompactCommand(e.currentTarget.value)
-    ) {
-      e.preventDefault();
-      submit(e.currentTarget.value);
-      return;
     }
 
     if (slash) {
@@ -1017,28 +1103,84 @@ export function Composer({
         if (skill) pickSkill(skill);
         return;
       }
-      if (e.key === "Enter" && !e.shiftKey) {
-        const skill = rankedSkills[skillActive];
-        if (skill) {
-          e.preventDefault();
-          pickSkill(skill);
+      if (e.key === "Enter") {
+        const result = resolveEffectiveSuggestionAction(
+          e.key,
+          {
+            shiftKey: e.shiftKey,
+            ctrlKey: e.ctrlKey,
+            metaKey: e.metaKey,
+            isComposing: e.nativeEvent.isComposing,
+          },
+          Boolean(rankedSkills[skillActive]),
+          actionContext,
+          { keepOpenOnUnmatched: !slash.query },
+        );
+
+        if (result.type === "ignore" || result.type === "newline") {
           return;
         }
-        if (!slash.query) {
+        if (result.type === "keep_open") {
           e.preventDefault();
           return;
         }
-        setSlash(null);
+        if (result.type === "pick") {
+          const skill = rankedSkills[skillActive];
+          if (skill) {
+            e.preventDefault();
+            pickSkill(skill);
+            return;
+          }
+        }
+        if (result.type === "action") {
+          setSlash(null);
+          e.preventDefault();
+          executeComposerAction(result.action, e.currentTarget.value);
+          return;
+        }
+        return;
       }
     }
 
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      isCompactCommand(e.currentTarget.value)
+    ) {
       e.preventDefault();
       submit(e.currentTarget.value);
+      return;
+    }
+
+    // Explicit early newline path for Shift+Enter (including Ctrl+Shift+Enter / Cmd+Shift+Enter)
+    if (e.key === "Enter" && e.shiftKey) {
+      return;
+    }
+
+    if (e.key === "Enter") {
+      const action = resolveComposerKeyAction(
+        e.key,
+        {
+          shiftKey: e.shiftKey,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          isComposing: e.nativeEvent.isComposing,
+        },
+        actionContext,
+      );
+
+      if (action === "newline" || action === "ignore") {
+        return;
+      }
+
+      e.preventDefault();
+      executeComposerAction(action, e.currentTarget.value);
     }
   };
 
-  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>): void => {
     const files = filesFromClipboard(e.clipboardData);
     if (files.length === 0) return;
     e.preventDefault();
@@ -1046,7 +1188,7 @@ export function Composer({
     void attachmentsFromFiles(files).then(addAttachments);
   };
 
-  const attachFromPicker = () => {
+  const attachFromPicker = (): void => {
     if (!attachmentsSupported) return;
     void pickAttachments().then((files) => {
       addAttachments(files);
@@ -1402,7 +1544,9 @@ export function Composer({
               <ComposerAction
                 busy={busy}
                 hasValue={hasValue}
-                onSend={() => submit(ref.current?.value ?? "")}
+                actionTooltip={actionTooltip}
+                actionAriaLabel={actionAriaLabel}
+                onSend={handleActionClick}
                 onStop={() => onStop?.()}
               />
             </div>
@@ -1492,11 +1636,15 @@ function MentionRuns({
 function ComposerAction({
   busy,
   hasValue,
+  actionTooltip,
+  actionAriaLabel,
   onSend,
   onStop,
 }: {
   busy: boolean;
   hasValue: boolean;
+  actionTooltip: string;
+  actionAriaLabel: string;
   onSend: () => void;
   onStop: () => void;
 }) {
@@ -1506,8 +1654,8 @@ function ComposerAction({
         {hasValue ? (
           <button
             type="button"
-            title="Send"
-            aria-label="Send"
+            title={actionTooltip}
+            aria-label={actionAriaLabel}
             onClick={onSend}
             className="grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
           >
