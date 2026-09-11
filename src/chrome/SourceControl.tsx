@@ -8,7 +8,10 @@ type Props = {
   textHarness?: HarnessId;
   selectedPath?: string;
   selectedSha?: string;
-  onOpenFile: (path: string) => void;
+  onOpenFile: (
+    path: string,
+    options?: { kind?: "staged" | "unstaged"; status?: string },
+  ) => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
 };
 

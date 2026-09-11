@@ -8,6 +8,7 @@ import { SurfaceTabs } from "../chrome/SurfaceTabs";
 import {
   isChangesTab,
   isCommitTab,
+  isDiffTab,
   isPlanTab,
   isReleaseNotesTab,
   isReviewTab,
@@ -23,11 +24,15 @@ import { editorPathsEqual } from "../lib/search";
 import type { PlanBuildTarget, Session } from "../lib/session";
 import { Play } from "../chrome/icons";
 import { BuildTargetButton } from "../chrome/SecondOpinionButton";
-import { loadDiffViewer, subscribeDiffViewer } from "../lib/settings";
+import {
+  loadDiffViewer,
+  subscribeDiffViewer,
+} from "../lib/settings";
 import { MarkdownPreview } from "./AgentMarkdown";
 import { BinaryFileView } from "./BinaryFileView";
 import { CommitDiff } from "./CommitDiff";
 import { FileEditor } from "./FileEditor";
+import { GitFileDiffView } from "./GitFileDiffView";
 import { ReleaseNotesSurface } from "./ReleaseNotesSurface";
 import { SessionChangesDiff } from "./SessionChangesDiff";
 import { TerminalView } from "./TerminalView";
@@ -57,6 +62,13 @@ type Props = {
   onTerminalMetaChange?: (fileId: string, patch: TerminalMetaPatch) => void;
 };
 
+import {
+  selectPaneSurface,
+  type PaneSurfaceSelection,
+} from "./filePaneSelection";
+
+export { selectPaneSurface, type PaneSurfaceSelection };
+
 function FilePaneComponent({
   pane,
   focused,
@@ -82,14 +94,7 @@ function FilePaneComponent({
     loadDiffViewer,
   );
   const activeFile = pane.files.find((file) => file.id === pane.activeFileId);
-  const sessionReview =
-    activeFile && isSessionChangesTab(activeFile) ? activeFile : undefined;
-  const unifiedReview =
-    !!activeFile &&
-    !sessionReview &&
-    (isChangesTab(activeFile) ||
-      (diffViewer === "unified" && isReviewTab(activeFile)));
-  const commitReview = !!activeFile && isCommitTab(activeFile);
+  const surface = selectPaneSurface(activeFile, diffViewer);
 
   return (
     <div
@@ -107,21 +112,33 @@ function FilePaneComponent({
         onPaneDragStart={onPaneDragStart}
       />
       <div className="relative min-h-0 flex-1">
-        {sessionReview ? (
+        {surface.kind === "session-changes" ? (
           <div className="absolute inset-0 h-full">
             <SessionChangesDiff
-              cwd={sessionReview.cwd}
-              sessionId={sessionReview.sessionChanges.sessionId}
-              focusPath={sessionReview.path}
+              cwd={surface.file.cwd}
+              sessionId={surface.file.sessionChanges.sessionId}
+              focusPath={surface.file.path}
             />
           </div>
-        ) : commitReview && activeFile?.commit ? (
+        ) : surface.kind === "commit" ? (
           <div className="absolute inset-0 h-full">
-            <CommitDiff cwd={activeFile.cwd} sha={activeFile.commit.sha} />
+            <CommitDiff cwd={surface.file.cwd} sha={surface.file.commit.sha} />
           </div>
-        ) : unifiedReview && activeFile ? (
+        ) : surface.kind === "git-diff" ? (
           <div className="absolute inset-0 h-full">
-            <WorkingTreeDiff cwd={activeFile.cwd} focusPath={activeFile.path} />
+            <GitFileDiffView
+              cwd={surface.file.cwd}
+              path={surface.file.diff.path}
+              kind={surface.file.diff.kind}
+            />
+          </div>
+        ) : surface.kind === "working-tree-diff" ? (
+          <div className="absolute inset-0 h-full">
+            <WorkingTreeDiff
+              cwd={surface.file.cwd}
+              focusPath={surface.file.path}
+              focusKind={surface.file.focusKind}
+            />
           </div>
         ) : null}
         {pane.files.map((file) => {
@@ -129,7 +146,8 @@ function FilePaneComponent({
             isCommitTab(file) ||
             isChangesTab(file) ||
             isSessionChangesTab(file) ||
-            (unifiedReview && isReviewTab(file))
+            isDiffTab(file) ||
+            (diffViewer === "unified" && isReviewTab(file))
           )
             return null;
           return (

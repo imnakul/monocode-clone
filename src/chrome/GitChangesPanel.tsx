@@ -83,7 +83,10 @@ type Props = {
   textHarness?: HarnessId;
   selectedPath?: string;
   selectedSha?: string;
-  onOpenFile: (path: string) => void;
+  onOpenFile: (
+    path: string,
+    options?: { kind?: "staged" | "unstaged"; status?: string },
+  ) => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
 };
 
@@ -891,7 +894,7 @@ function FileSection({
   );
 }
 
-function ChangeRow({
+export function ChangeRow({
   file,
   active,
   busy,
@@ -903,7 +906,10 @@ function ChangeRow({
   active: boolean;
   busy: boolean;
   kind: "staged" | "unstaged";
-  onOpenFile: (path: string) => void;
+  onOpenFile: (
+    path: string,
+    options?: { kind?: "staged" | "unstaged"; status?: string },
+  ) => void;
   onAction: (
     file: GitChangedFile,
     action: "stage" | "unstage" | "discard",
@@ -911,13 +917,12 @@ function ChangeRow({
 }) {
   const name = basename(file.relative);
   const dir = dirname(file.relative);
-  const canOpen = file.status !== "deleted";
   return (
     <li>
       <div
         data-shared-hover-item
         data-shared-hover-preserve={active ? "" : undefined}
-        className={`group flex h-7 w-full items-center gap-1 px-2 leading-none ${
+        className={`group relative flex h-7 w-full items-center leading-none ${
           active
             ? "bg-content/10 text-content"
             : "text-content hover:bg-content/5"
@@ -926,21 +931,36 @@ function ChangeRow({
         <button
           type="button"
           title={file.relative}
-          onClick={() => {
-            if (canOpen) onOpenFile(file.path);
-          }}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          onClick={() => onOpenFile(file.path, { kind, status: file.status })}
+          className="flex h-full w-full min-w-0 items-center gap-1.5 px-2 text-left rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
         >
           <FileTypeIcon name={name} isDir={false} size={16} />
-          <span className="min-w-0 flex-1 truncate">
+          <span
+            className={`min-w-0 flex-1 truncate ${
+              active
+                ? kind === "unstaged"
+                  ? "pr-12"
+                  : "pr-6"
+                : kind === "unstaged"
+                  ? "pr-1 group-hover:pr-12 group-focus-within:pr-12"
+                  : "pr-1 group-hover:pr-6 group-focus-within:pr-6"
+            }`}
+          >
             <span className="text-[13px] font-medium">{name}</span>
             {dir ? (
               <span className="ml-1.5 text-[11px] text-content/40">{dir}</span>
             ) : null}
           </span>
+          <span
+            className={`w-3.5 shrink-0 text-right font-mono text-[11px] font-semibold ${statusColor(
+              file.status,
+            )}`}
+          >
+            {statusLetter(file.status)}
+          </span>
         </button>
         <div
-          className={` shrink-0 items-center ${
+          className={`absolute right-7 top-1/2 -translate-y-1/2 z-10 shrink-0 items-center ${
             active ? "flex" : "hidden group-focus-within:flex group-hover:flex"
           }`}
         >
@@ -971,11 +991,6 @@ function ChangeRow({
             </IconAction>
           )}
         </div>
-        <span
-          className={`w-3.5 shrink-0 text-right font-mono text-[11px] font-semibold ${statusColor(file.status)}`}
-        >
-          {statusLetter(file.status)}
-        </span>
       </div>
     </li>
   );
@@ -998,7 +1013,10 @@ function IconAction({
       title={title}
       aria-label={title}
       disabled={disabled}
-      onClick={onClick}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
       className="grid size-5 place-items-center rounded text-content/55 hover:bg-content/10 hover:text-content disabled:opacity-40"
     >
       {children}

@@ -5,6 +5,7 @@ import { basename } from "../lib/fs";
 import {
   isChangesTab,
   isCommitTab,
+  isDiffTab,
   isPlanTab,
   isReleaseNotesTab,
   isReviewTab,
@@ -76,6 +77,18 @@ export function surfaceTabPresentation(
       label: name,
       iconName: "CHANGES",
       tooltip: `${file.commit.shortSha} — ${file.commit.subject}`,
+    };
+  }
+
+  if (isDiffTab(file)) {
+    const name = basename(file.diff.path);
+    const suffix = file.diff.kind === "staged" ? "(Staged)" : "(Working Tree)";
+    const label = `${name} ${suffix}`;
+    return {
+      name,
+      label,
+      iconName: name,
+      tooltip: `${file.diff.path} ${suffix}`,
     };
   }
 

@@ -4,6 +4,7 @@ import {
   editorTabKey,
   isChangesTab,
   isCommitTab,
+  isDiffTab,
   isFilesystemTab,
   isReleaseNotesTab,
   isReviewTab,
@@ -15,6 +16,7 @@ import {
   newChangesTab,
   newCommitTab,
   newFileTab,
+  newGitDiffTab,
   newPlanTab,
   newReleaseNotesWorkspaceTab,
   newSessionChangesTab,
@@ -494,5 +496,59 @@ describe("placePane", () => {
     const tree = leaf("a");
     expect(placePane(tree, "b", "missing", "right")).toBe(tree);
     expect(placePane(tree, "a", "a", "right")).toBe(tree);
+  });
+});
+
+describe("git diff tab handling", () => {
+  it("creates a git diff tab and identifies it as a diff tab", () => {
+    const tab = newGitDiffTab("/repo/deleted.ts", "/repo", "unstaged", true);
+    expect(tab.review).toBe(true);
+    expect(tab.diff).toEqual({
+      path: "/repo/deleted.ts",
+      kind: "unstaged",
+      deleted: true,
+    });
+    expect(isDiffTab(tab)).toBe(true);
+    expect(isChangesTab(tab)).toBe(false);
+  });
+
+  it("produces distinct editorTabKeys for staged vs unstaged diff tabs", () => {
+    const unstaged = newGitDiffTab("/repo/file.ts", "/repo", "unstaged");
+    const staged = newGitDiffTab("/repo/file.ts", "/repo", "staged");
+    expect(editorTabKey(unstaged)).toBe("diff:/repo:unstaged:/repo/file.ts");
+    expect(editorTabKey(staged)).toBe("diff:/repo:staged:/repo/file.ts");
+    expect(editorTabKey(unstaged)).not.toBe(editorTabKey(staged));
+  });
+
+  it("preserves focusKind in openChangesTab without setting diff", () => {
+    const initial = newTab("sess-1", "/repo");
+    const withChanges = openChangesTab(
+      initial,
+      "/repo",
+      "/repo/deleted.ts",
+      "staged",
+    );
+    const activeFile = withChanges.editorPanes[0]?.files.find(isChangesTab);
+    expect(activeFile?.diff).toBeUndefined();
+    expect(activeFile?.focusKind).toBe("staged");
+    expect(activeFile?.path).toBe("/repo/deleted.ts");
+    expect(isChangesTab(activeFile!)).toBe(true);
+    expect(isDiffTab(activeFile!)).toBe(false);
+  });
+
+  it("ensures isChangesTab and isDiffTab are mutually exclusive", () => {
+    const changesTab = newChangesTab("/repo", "/repo/deleted.ts", "staged");
+    expect(isChangesTab(changesTab)).toBe(true);
+    expect(isDiffTab(changesTab)).toBe(false);
+
+    const diffTab = newGitDiffTab("/repo/deleted.ts", "/repo", "unstaged", true);
+    expect(isDiffTab(diffTab)).toBe(true);
+    expect(isChangesTab(diffTab)).toBe(false);
+    expect(isFilesystemTab(diffTab)).toBe(false);
+
+    const regularFile = newFileTab("/repo/regular.ts", "/repo");
+    expect(isChangesTab(regularFile)).toBe(false);
+    expect(isDiffTab(regularFile)).toBe(false);
+    expect(isFilesystemTab(regularFile)).toBe(true);
   });
 });

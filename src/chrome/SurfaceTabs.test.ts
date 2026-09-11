@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   newChangesTab,
   newCommitTab,
+  newGitDiffTab,
   newReleaseNotesWorkspaceTab,
   newSessionChangesTab,
 } from "../lib/layout";
@@ -58,6 +59,30 @@ describe("surfaceTabPresentation", () => {
       label: "Fix the graph",
       iconName: "CHANGES",
       tooltip: "abc1234 — Fix the graph",
+    });
+  });
+
+  it("labels a git diff tab with staged or working tree suffix", () => {
+    expect(
+      surfaceTabPresentation(
+        newGitDiffTab("/repo/deleted.ts", "/repo", "unstaged", true),
+      ),
+    ).toEqual({
+      name: "deleted.ts",
+      label: "deleted.ts (Working Tree)",
+      iconName: "deleted.ts",
+      tooltip: "/repo/deleted.ts (Working Tree)",
+    });
+
+    expect(
+      surfaceTabPresentation(
+        newGitDiffTab("/repo/deleted.ts", "/repo", "staged", true),
+      ),
+    ).toEqual({
+      name: "deleted.ts",
+      label: "deleted.ts (Staged)",
+      iconName: "deleted.ts",
+      tooltip: "/repo/deleted.ts (Staged)",
     });
   });
 });

@@ -45,6 +45,12 @@ export type SessionChangesSource = {
   sessionId: string;
 };
 
+export type GitDiffTabSource = {
+  path: string;
+  kind: "staged" | "unstaged";
+  deleted?: boolean;
+};
+
 export type FilePaneTab = {
   id: string;
   path: string;
@@ -58,6 +64,8 @@ export type FilePaneTab = {
   sessionChanges?: SessionChangesSource;
   /** Historical commit review (unified diff, read-only). */
   commit?: CommitTabSource;
+  diff?: GitDiffTabSource;
+  focusKind?: "staged" | "unstaged";
   terminal?: boolean;
   /** Foreground command when it isn't the shell. Live only — not persisted. */
   foreground?: string;
@@ -114,13 +122,33 @@ export function newFileTab(
   };
 }
 
-export function newChangesTab(cwd: string, focusPath?: string): FilePaneTab {
+export function newChangesTab(
+  cwd: string,
+  focusPath?: string,
+  focusKind?: "staged" | "unstaged",
+): FilePaneTab {
   return {
     id: crypto.randomUUID(),
     path: focusPath || cwd,
     cwd,
     review: true,
     changes: true,
+    ...(focusKind ? { focusKind } : {}),
+  };
+}
+
+export function newGitDiffTab(
+  path: string,
+  cwd: string,
+  kind: "staged" | "unstaged" = "unstaged",
+  deleted = false,
+): FilePaneTab {
+  return {
+    id: crypto.randomUUID(),
+    path,
+    cwd,
+    review: true,
+    diff: { path, kind, deleted },
   };
 }
 
@@ -301,7 +329,8 @@ export function isFilesystemTab(file: FilePaneTab): boolean {
   return (
     !isTerminalTab(file) &&
     !isVirtualDocumentTab(file) &&
-    !file.sessionChanges
+    !file.sessionChanges &&
+    !file.diff
   );
 }
 
@@ -362,13 +391,19 @@ export function isReviewTab(file: FilePaneTab): boolean {
 }
 
 export function isChangesTab(file: FilePaneTab): boolean {
-  return !!file.changes && isReviewTab(file);
+  return !file.diff && !!file.changes && isReviewTab(file);
 }
 
 export function isSessionChangesTab(
   file: FilePaneTab,
 ): file is FilePaneTab & { sessionChanges: SessionChangesSource } {
   return !!file.sessionChanges && isReviewTab(file);
+}
+
+export function isDiffTab(
+  file: FilePaneTab,
+): file is FilePaneTab & { diff: GitDiffTabSource } {
+  return !file.changes && !!file.diff && isReviewTab(file);
 }
 
 export function editorTabKey(file: FilePaneTab): string {
@@ -379,6 +414,7 @@ export function editorTabKey(file: FilePaneTab): string {
   if (file.sessionChanges)
     return `session-changes:${file.cwd}:${file.sessionChanges.sessionId}`;
   if (file.changes) return `changes:${file.cwd}`;
+  if (file.diff) return `diff:${file.cwd}:${file.diff.kind}:${file.diff.path}`;
   return file.review ? `review:${file.path}` : `file:${file.path}`;
 }
 
@@ -452,16 +488,21 @@ export function openChangesTab(
   tab: WorkspaceTab,
   cwd: string,
   focusPath?: string,
+  focusKind?: "staged" | "unstaged",
 ): WorkspaceTab {
   tab = isolateTerminalPanes(tab);
-  const next = newChangesTab(cwd, focusPath);
+  const next = newChangesTab(cwd, focusPath, focusKind);
   const existingPane = tab.editorPanes.find((pane) =>
     pane.files.some(isChangesTab),
   );
   const existingFile = existingPane?.files.find(isChangesTab);
 
   if (existingPane && existingFile) {
-    const updated = focusPath ? { ...existingFile, path: focusPath } : existingFile;
+    const updated: FilePaneTab = {
+      ...existingFile,
+      ...(focusPath ? { path: focusPath } : {}),
+      ...(focusKind ? { focusKind } : {}),
+    };
     return {
       ...tab,
       focusedId: existingPane.id,

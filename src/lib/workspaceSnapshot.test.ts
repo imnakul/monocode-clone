@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import { INTERRUPT_MESSAGE } from "./inFlight";
 import {
   leaf,
+  isDiffTab,
   newChangesTab,
   newCommitTab,
   newFileTab,
+  newGitDiffTab,
   newReleaseNotesWorkspaceTab,
   newSessionChangesTab,
   newTab,
@@ -64,6 +66,42 @@ describe("collectWorkspaceSnapshot", () => {
     const restored = workspace?.tabs[0]?.editorPanes[0]?.files[0];
     expect(restored?.changes).toBe(true);
     expect(restored?.review).toBe(true);
+    expect(restored?.path).toBe("/tmp/a/src/lib.rs");
+  });
+
+  it("round-trips a standalone Git diff tab for deleted files", () => {
+    const file = newGitDiffTab("/tmp/a/deleted.rs", "/tmp/a", "staged", true);
+    const tab = {
+      ...newTab("s1"),
+      id: "t1",
+      editorPanes: [{ id: "e1", files: [file], activeFileId: file.id }],
+    };
+    const snapshot = collectWorkspaceSnapshot([tab], [], "t1", "/tmp/a");
+    const workspace = hydrateWorkspaceSnapshot(snapshot, new Map());
+    const restored = workspace?.tabs[0]?.editorPanes[0]?.files[0];
+    expect(restored).toBeDefined();
+    expect(restored?.diff).toEqual({
+      path: "/tmp/a/deleted.rs",
+      kind: "staged",
+      deleted: true,
+    });
+    expect(restored?.review).toBe(true);
+    expect(isDiffTab(restored!)).toBe(true);
+  });
+
+  it("round-trips aggregate Changes tab with focusKind", () => {
+    const file = newChangesTab("/tmp/a", "/tmp/a/src/lib.rs", "unstaged");
+    const tab = {
+      ...newTab("s1"),
+      id: "t1",
+      editorPanes: [{ id: "e1", files: [file], activeFileId: file.id }],
+    };
+    const snapshot = collectWorkspaceSnapshot([tab], [], "t1", "/tmp/a");
+    const workspace = hydrateWorkspaceSnapshot(snapshot, new Map());
+    const restored = workspace?.tabs[0]?.editorPanes[0]?.files[0];
+    expect(restored?.changes).toBe(true);
+    expect(restored?.review).toBe(true);
+    expect(restored?.focusKind).toBe("unstaged");
     expect(restored?.path).toBe("/tmp/a/src/lib.rs");
   });
 
@@ -218,6 +256,57 @@ describe("parseWorkspaceSnapshot", () => {
     expect(
       workspace?.sessions.some((session) => session.id === invalidPaneId),
     ).toBe(false);
+  });
+
+  it.each([
+    { diff: { path: "", kind: "staged" } },
+    { diff: { path: "/tmp/a", kind: "invalid" } },
+    { diff: { kind: "staged" } },
+    { diff: { path: "/tmp/a", kind: "staged" }, terminal: true },
+    {
+      diff: { path: "/tmp/a", kind: "staged" },
+      plan: { sessionId: "s", blockId: "b", title: "Plan" },
+    },
+    {
+      diff: { path: "/tmp/a", kind: "staged" },
+      commit: { sha: "abc", shortSha: "abc", subject: "x" },
+    },
+    { diff: { path: "/tmp/a", kind: "staged" }, changes: true },
+    { diff: { path: "/tmp/a", kind: "staged" }, focusKind: "staged" },
+    { focusKind: "invalid" },
+    { focusKind: "staged" },
+  ])("rejects invalid diff or focus metadata: %j", (descriptor) => {
+    const valid = { ...newTab("session-a"), id: "valid-tab" };
+    const invalidPaneId = "invalid-pane";
+    const invalid = {
+      kind: "session",
+      id: "invalid-tab",
+      layout: leaf(invalidPaneId),
+      focusedId: invalidPaneId,
+      editorPanes: [
+        {
+          id: invalidPaneId,
+          activeFileId: "test-file",
+          files: [
+            {
+              id: "test-file",
+              path: "/tmp/a/file.ts",
+              cwd: "/tmp/a",
+              ...descriptor,
+            },
+          ],
+        },
+      ],
+      terminalPanes: [],
+    };
+
+    const parsed = parseWorkspaceSnapshot({
+      tabs: [valid, invalid],
+      sessions: [],
+      activeTabId: "valid-tab",
+      projectCwd: "/tmp/a",
+    });
+    expect(parsed?.tabs.map((tab) => tab.id)).toEqual(["valid-tab"]);
   });
 });
 

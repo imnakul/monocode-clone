@@ -53,12 +53,14 @@ import {
   isolateTerminalPanes,
   isFilesystemTab,
   isCommitTab,
+  isDiffTab,
   isTerminalTab,
   leaf,
   leafIds,
   movePane,
   neighborLeafId,
   newFileTab,
+  newGitDiffTab,
   newPlanTab,
   newTab,
   newTerminalFile,
@@ -533,6 +535,30 @@ function titleTabsEqual(a: TitleTab[], b: TitleTab[]): boolean {
       tab.groupId === other.groupId
     );
   });
+}
+
+export type OpenSessionDiffOptions = {
+  sessionId: string;
+  cwd: string;
+};
+
+export type OpenFileDiffOptions = {
+  kind?: "staged" | "unstaged";
+  status?: string;
+  cwd?: string;
+};
+
+export type OpenDiffOptions = OpenSessionDiffOptions | OpenFileDiffOptions;
+
+export function isSessionDiffOptions(
+  options?: OpenDiffOptions,
+): options is OpenSessionDiffOptions {
+  return (
+    typeof options === "object" &&
+    options !== null &&
+    "sessionId" in options &&
+    typeof options.sessionId === "string"
+  );
 }
 
 // Register capabilities before composer hooks choose their discovery strategy.
@@ -2330,9 +2356,13 @@ export default function App({
   );
 
   const onOpenDiff = useCallback(
-    (path?: string, session?: { sessionId: string; cwd: string }) => {
+    (path?: string, options?: OpenDiffOptions) => {
       void (async () => {
-        const diffCwd = session?.cwd ?? gitCwdRef.current;
+        const session = isSessionDiffOptions(options) ? options : undefined;
+        const fileOpts =
+          options && !isSessionDiffOptions(options) ? options : undefined;
+
+        const diffCwd = session?.cwd ?? fileOpts?.cwd ?? gitCwdRef.current;
         const resolved = path
           ? ((await resolveOpenablePath(diffCwd, path)) ?? path)
           : undefined;
@@ -2348,10 +2378,28 @@ export default function App({
                 resolved,
               );
             }
+            const isDeleted = fileOpts?.status === "deleted";
+            const diffKind = fileOpts?.kind;
             if (loadDiffViewer() === "unified") {
-              return openChangesTab(tab, sidebarCwdRef.current, resolved);
+              return openChangesTab(
+                tab,
+                sidebarCwdRef.current,
+                resolved,
+                diffKind,
+              );
             }
             if (!resolved) return tab;
+            if (isDeleted) {
+              return openEditorTab(
+                tab,
+                newGitDiffTab(
+                  resolved,
+                  sidebarCwdRef.current,
+                  diffKind ?? "unstaged",
+                  true,
+                ),
+              );
+            }
             return openEditorTab(
               tab,
               newFileTab(resolved, sidebarCwdRef.current, true),
@@ -5478,7 +5526,11 @@ function selectedChangePath(
   gitCwd?: string,
 ): string | undefined {
   const file = focusedFileTab(tab);
-  if (!file || !isFilesystemTab(file) || !file.review) return undefined;
+  if (!file) return undefined;
+  if (isDiffTab(file)) {
+    return displayPath(file.diff.path, gitCwd || file.cwd);
+  }
+  if (!isFilesystemTab(file) || !file.review) return undefined;
   return displayPath(file.path, gitCwd || file.cwd);
 }
 

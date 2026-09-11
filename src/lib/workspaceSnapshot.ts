@@ -6,6 +6,7 @@ import {
   type CommitTabSource,
   type EditorPane,
   type FilePaneTab,
+  type GitDiffTabSource,
   type LayoutNode,
   type PlanTabSource,
   type SessionChangesSource,
@@ -376,14 +377,23 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
   const commit = sanitizeCommit(value.commit);
   const hasSessionChanges = "sessionChanges" in value;
   const sessionChanges = sanitizeSessionChanges(value.sessionChanges);
+  const hasDiff = "diff" in value;
+  const diff = sanitizeGitDiff(value.diff);
+  const hasFocusKind = "focusKind" in value;
+  const focusKind = sanitizeFocusKind(value.focusKind);
+
   if (hasReleaseNotes && !releaseNotes) return null;
   if (hasCommit && !commit) return null;
   if (hasSessionChanges && !sessionChanges) return null;
+  if (hasDiff && !diff) return null;
+  if (hasFocusKind && !focusKind) return null;
+
   if (
     sessionChanges &&
     (value.plan != null ||
       releaseNotes != null ||
       commit != null ||
+      diff != null ||
       value.changes === true ||
       value.terminal === true)
   ) {
@@ -395,6 +405,7 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
       value.review === true ||
       value.changes === true ||
       sessionChanges != null ||
+      diff != null ||
       value.terminal === true ||
       commit != null)
   ) {
@@ -406,8 +417,24 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
       value.review === true ||
       value.changes === true ||
       sessionChanges != null ||
+      diff != null ||
       value.terminal === true)
   ) {
+    return null;
+  }
+  if (
+    diff &&
+    (value.plan != null ||
+      releaseNotes != null ||
+      commit != null ||
+      sessionChanges != null ||
+      value.changes === true ||
+      focusKind != null ||
+      value.terminal === true)
+  ) {
+    return null;
+  }
+  if (focusKind && (value.changes !== true || diff != null)) {
     return null;
   }
   return {
@@ -418,10 +445,33 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     ...(releaseNotes ? { releaseNotes } : {}),
     ...(commit ? { commit } : {}),
     ...(sessionChanges ? { sessionChanges, review: true } : {}),
-    ...(value.review === true ? { review: true } : {}),
-    ...(value.changes === true ? { changes: true, review: true } : {}),
+    ...(diff ? { diff, review: true } : {}),
+    ...(value.changes === true
+      ? { changes: true, review: true, ...(focusKind ? { focusKind } : {}) }
+      : {}),
+    ...(!diff && !value.changes && value.review === true ? { review: true } : {}),
     ...(value.terminal === true ? { terminal: true } : {}),
   };
+}
+
+function sanitizeGitDiff(raw: unknown): GitDiffTabSource | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const value = raw as Record<string, unknown>;
+  if (typeof value.path !== "string" || !value.path.trim()) return undefined;
+  if (value.kind !== "staged" && value.kind !== "unstaged") return undefined;
+  if (value.deleted !== undefined && typeof value.deleted !== "boolean") {
+    return undefined;
+  }
+  return {
+    path: value.path.trim(),
+    kind: value.kind,
+    ...(typeof value.deleted === "boolean" ? { deleted: value.deleted } : {}),
+  };
+}
+
+function sanitizeFocusKind(raw: unknown): ("staged" | "unstaged") | undefined {
+  if (raw === "staged" || raw === "unstaged") return raw;
+  return undefined;
 }
 
 function sanitizeSessionChanges(
