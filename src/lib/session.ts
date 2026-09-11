@@ -157,7 +157,12 @@ export type QueuedMessage = {
   intent?: TurnIntent;
 };
 
-export type MessageQueueStatus = "active" | "paused" | "resuming";
+export type MessageQueueStatus =
+  | "active"
+  | "paused"
+  | "resuming"
+  | "steering"
+  | "held";
 
 export type Block = {
   id: string;
@@ -231,9 +236,9 @@ export type Session = {
   blocks: Block[];
   /** True while a harness turn is in flight. */
   busy?: boolean;
-  /** Follow-ups waiting for current turn. In-memory only. */
+  /** Persisted follow-ups waiting for the current turn. */
   queuedMessages?: QueuedMessage[];
-  /** Paused after user stops current turn; resuming waits for continued turn. */
+  /** Queue dispatch lifecycle, including pause/failure/cancellation holds. */
   queueStatus?: MessageQueueStatus;
   /** Prevent auto-dispatch while this queued row is being edited. In-memory only. */
   editingQueuedMessageId?: string;

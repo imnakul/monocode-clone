@@ -91,6 +91,11 @@ pub struct SessionUpsert {
     pub branch: Option<String>,
     #[serde(default)]
     pub worktree_cwd: Option<String>,
+    /// Queued follow-ups not yet sent. JSON array; absent when the queue is empty.
+    #[serde(default)]
+    pub queued_messages: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,6 +144,10 @@ pub struct SessionRecord {
     pub branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree_cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queued_messages: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_status: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -490,6 +499,8 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         ("worktree_cwd", "TEXT"),
         ("has_user_message", "INTEGER NOT NULL DEFAULT 0"),
         ("pinned", "INTEGER NOT NULL DEFAULT 0"),
+        ("queued_messages_json", "TEXT"),
+        ("queue_status", "TEXT"),
     ] {
         ensure_session_column(conn, column, decl)?;
     }
@@ -543,6 +554,17 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             params![now_millis()],
         )?;
     }
+    if current < 12 {
+        // Queued follow-ups ride with the session so a restart cannot lose
+        // them. Deliberately outside the covering index: only `session_get`
+        // reads it, never the sidebar listing.
+        ensure_column(conn, "queued_messages_json", "TEXT")?;
+        ensure_column(conn, "queue_status", "TEXT")?;
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (12, ?1)",
+            params![now_millis()],
+        )?;
+    }
     // Create even when a version row already exists (another build may have
     // used the same numbers, or a previous run recorded the version without
     // the table). Restore writes into these; missing tables look like a
@@ -587,6 +609,17 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
+    let queued_messages_json = session
+        .queued_messages
+        .as_ref()
+        .filter(|value| value.as_array().is_some_and(|items| !items.is_empty()))
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+
+    let queue_status = session.queue_status.as_deref().filter(|status| {
+        queued_messages_json.is_some() && matches!(*status, "paused" | "held" | "active")
+    });
     let has_user_message = has_user_block(&session.blocks);
 
     let existing: Option<(i64, i64, String, i64, i64)> = conn
@@ -619,8 +652,9 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         "INSERT INTO sessions (
            id, cwd, harness, model, model_settings, runtime_mode, title,
            provider_session_id, blocks_json, created_at, updated_at, branch,
-           context_used, context_window, worktree_cwd, has_user_message
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+           context_used, context_window, worktree_cwd, has_user_message,
+           queued_messages_json, queue_status
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            harness = excluded.harness,
@@ -635,7 +669,9 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
            context_used = excluded.context_used,
            context_window = excluded.context_window,
            worktree_cwd = excluded.worktree_cwd,
-           has_user_message = excluded.has_user_message",
+           has_user_message = excluded.has_user_message,
+           queued_messages_json = excluded.queued_messages_json,
+           queue_status = excluded.queue_status",
         params![
             session.id,
             session.cwd,
@@ -653,6 +689,8 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
             session.context_window,
             worktree_cwd,
             i64::from(has_user_message),
+            queued_messages_json,
+            queue_status,
         ],
     )?;
 
@@ -1036,7 +1074,8 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
     conn.query_row(
         "SELECT id, cwd, harness, model, model_settings, runtime_mode, title,
                 provider_session_id, blocks_json, created_at, updated_at,
-                context_used, context_window, branch, worktree_cwd
+                context_used, context_window, branch, worktree_cwd,
+                queued_messages_json, queue_status
          FROM sessions
          WHERE id = ?1",
         params![session_id],
@@ -1057,6 +1096,15 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
                     Box::new(e),
                 )
             })?;
+            let queued_raw: Option<String> = row.get(15)?;
+            let queued_messages: Option<serde_json::Value> =
+                queued_raw.and_then(|raw| serde_json::from_str(&raw).ok());
+            let raw_queue_status: Option<String> = row.get(16)?;
+            let queue_status = if queued_messages.is_some() {
+                raw_queue_status
+            } else {
+                None
+            };
             Ok(SessionRecord {
                 id: row.get(0)?,
                 cwd: row.get(1)?,
@@ -1071,6 +1119,8 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
                 context_window: row.get(12)?,
                 branch: row.get(13)?,
                 worktree_cwd: row.get(14)?,
+                queued_messages,
+                queue_status,
                 created_at: row.get(9)?,
                 updated_at: row.get(10)?,
             })
@@ -1186,6 +1236,8 @@ mod tests {
             context_window: None,
             branch: None,
             worktree_cwd: None,
+            queued_messages: None,
+            queue_status: None,
         }
     }
 
@@ -1885,5 +1937,104 @@ mod tests {
         .unwrap();
         assert!(result.hits.is_empty());
         assert!(!result.truncated);
+    }
+
+    #[test]
+    fn migration_v12_adds_queued_messages_column() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = 12",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        let column: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'queued_messages_json'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(column, 1);
+        let status_column: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'queue_status'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(status_column, 1);
+    }
+
+    #[test]
+    fn queued_messages_round_trip_and_clear() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        let mut row = sample("s1", "/tmp/a", "First");
+        row.queue_status = Some("held".into());
+        row.queued_messages = Some(json!([
+            { "id": "q1", "text": "follow up", "attachments": [] },
+            { "id": "q2", "text": "another", "attachments": [] },
+        ]));
+        upsert_session(&conn, &row).unwrap();
+        let stored = get_session(&conn, "s1").unwrap().unwrap();
+        assert_eq!(
+            stored.queued_messages,
+            Some(json!([
+                { "id": "q1", "text": "follow up", "attachments": [] },
+                { "id": "q2", "text": "another", "attachments": [] },
+            ]))
+        );
+        assert_eq!(stored.queue_status.as_deref(), Some("held"));
+        // An empty queue clears the column instead of storing `[]`.
+        let mut cleared = sample("s1", "/tmp/a", "First");
+        cleared.blocks = row.blocks.clone();
+        upsert_session(&conn, &cleared).unwrap();
+        let stored = get_session(&conn, "s1").unwrap().unwrap();
+        assert_eq!(stored.queued_messages, None);
+        assert_eq!(stored.queue_status, None);
+    }
+
+    #[test]
+    fn queued_messages_corrupt_json_degrades_gracefully() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        let mut row = sample("s1", "/tmp/a", "First");
+        row.queue_status = Some("held".into());
+        row.queued_messages = Some(json!([
+            { "id": "q1", "text": "follow up", "attachments": [] },
+        ]));
+        upsert_session(&conn, &row).unwrap();
+
+        conn.execute(
+            "UPDATE sessions SET queued_messages_json = 'not-valid-json{{{' WHERE id = 's1'",
+            [],
+        )
+        .unwrap();
+
+        let stored = get_session(&conn, "s1").unwrap().unwrap();
+        assert_eq!(stored.title, "First");
+        assert_eq!(stored.blocks, row.blocks);
+        assert_eq!(stored.queued_messages, None);
+        assert_eq!(stored.queue_status, None);
+    }
+
+    #[test]
+    fn queued_messages_reject_unknown_status() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        let mut row = sample("s1", "/tmp/a", "First");
+        row.queue_status = Some("steering".into());
+        row.queued_messages = Some(json!([
+            { "id": "q1", "text": "follow up", "attachments": [] },
+        ]));
+
+        upsert_session(&conn, &row).unwrap();
+
+        let stored = get_session(&conn, "s1").unwrap().unwrap();
+        assert_eq!(stored.queue_status, None);
     }
 }

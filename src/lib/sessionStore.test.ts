@@ -186,6 +186,53 @@ describe("sanitizeSessionForPersist", () => {
       session.blocks[1],
     );
   });
+
+  it("persists queued follow-ups with persistable attachments", () => {
+    const session = newSession("codex", "/tmp/project");
+    session.blocks = [{ id: "u1", role: "user", text: "hi" }];
+    session.queuedMessages = [
+      {
+        id: "q1",
+        text: "follow up",
+        attachments: [
+          {
+            id: "a1",
+            name: "shot.png",
+            mimeType: "image/png",
+            kind: "image",
+            size: 12,
+            path: "/tmp/shot.png",
+            data: "base64payload",
+            previewUrl: "blob:preview",
+          },
+        ],
+      },
+    ];
+    const persisted = sanitizeSessionForPersist(session);
+    expect(persisted.queuedMessages).toEqual([
+      {
+        id: "q1",
+        text: "follow up",
+        attachments: [
+          {
+            id: "a1",
+            name: "shot.png",
+            mimeType: "image/png",
+            kind: "image",
+            size: 12,
+            path: "/tmp/shot.png",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("omits the queue when empty", () => {
+    const session = newSession("codex", "/tmp/project");
+    session.blocks = [{ id: "u1", role: "user", text: "hi" }];
+    session.queuedMessages = [];
+    expect(sanitizeSessionForPersist(session).queuedMessages).toBeUndefined();
+  });
 });
 
 describe("persistFingerprint", () => {

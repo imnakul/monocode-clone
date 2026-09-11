@@ -14,6 +14,8 @@ import type {
   Session,
   TaskListMeta,
   PlanBlockMeta,
+  QueuedMessage,
+  MessageQueueStatus,
 } from "./session";
 import { HARNESSES, RUNTIME_MODES } from "./session";
 
@@ -49,6 +51,8 @@ type SessionRecord = {
   contextWindow?: number | null;
   branch?: string | null;
   worktreeCwd?: string | null;
+  queuedMessages?: unknown;
+  queueStatus?: unknown;
   createdAt: number;
   updatedAt: number;
 };
@@ -67,6 +71,8 @@ type SessionUpsertPayload = {
   contextWindow?: number;
   branch?: string;
   worktreeCwd?: string;
+  queuedMessages?: QueuedMessage[];
+  queueStatus?: MessageQueueStatus;
 };
 
 /** Only real chats belong in project history — blank tabs stay ephemeral. */
@@ -86,6 +92,10 @@ export function isPersistableId(value: string): boolean {
 function persistableMeta(
   session: Session,
 ): Omit<SessionUpsertPayload, "blocks"> {
+  const queueStatus =
+    session.queueStatus === "resuming" || session.queueStatus === "steering"
+      ? "paused"
+      : session.queueStatus;
   return {
     id: session.id,
     cwd: normalizeProjectPath(session.cwd),
@@ -103,6 +113,13 @@ function persistableMeta(
       : {}),
     ...(session.branch ? { branch: session.branch } : {}),
     ...(session.worktreeCwd ? { worktreeCwd: session.worktreeCwd } : {}),
+    // Queued follow-ups ride with the session so a restart cannot lose them.
+    ...(session.queuedMessages?.length
+      ? {
+          queuedMessages: persistableQueuedMessages(session.queuedMessages),
+          queueStatus,
+        }
+      : {}),
   };
 }
 
@@ -523,6 +540,7 @@ function recordToSession(record: SessionRecord): Session {
         .map(sanitizeBlock)
         .filter((block): block is Block => block != null)
     : [];
+  const restoredQueue = restoreQueuedMessages(record.queuedMessages);
   return {
     id: record.id,
     cwd: record.cwd,
@@ -538,6 +556,11 @@ function recordToSession(record: SessionRecord): Session {
     busy: false,
     ...(record.providerSessionId
       ? { providerSessionId: record.providerSessionId }
+      : {}),
+    ...(restoredQueue ?? {}),
+    ...(restoredQueue &&
+    (record.queueStatus === "held" || record.queueStatus === "paused")
+      ? { queueStatus: record.queueStatus }
       : {}),
     ...(record.branch ? { branch: record.branch } : {}),
     ...(record.worktreeCwd ? { worktreeCwd: record.worktreeCwd } : {}),
@@ -628,4 +651,171 @@ function asRuntimeMode(value: string): RuntimeMode {
   return (RUNTIME_MODES as string[]).includes(value)
     ? (value as RuntimeMode)
     : "supervised";
+}
+
+/** Focus fingerprint derived only from durable queue state. */
+export function queuePersistFingerprint(
+  session: Pick<Session, "queuedMessages" | "queueStatus">,
+): string {
+  const queuedMessages = persistableQueuedMessages(session.queuedMessages ?? []);
+  if (!queuedMessages || queuedMessages.length === 0) return "";
+  const queueStatus =
+    session.queueStatus === "resuming" || session.queueStatus === "steering"
+      ? "paused"
+      : session.queueStatus ?? "active";
+  return JSON.stringify({ queuedMessages, queueStatus });
+}
+
+export function shouldScheduleSessionPersist(params: {
+  session: Session;
+  isParked?: boolean;
+  isNewlyBound?: boolean;
+  isNewUserTurn?: boolean;
+  hasPersistedBefore: boolean;
+}): boolean {
+  if (!shouldPersistSession(params.session)) return false;
+  if (!params.hasPersistedBefore) return true;
+  if (params.isNewlyBound || params.isNewUserTurn || params.isParked) return true;
+  return !params.session.busy;
+}
+
+/** Strip ephemeral attachment payloads so the queue survives a restart. */
+export function persistableQueuedMessages(messages: QueuedMessage[]): QueuedMessage[] {
+  return messages
+    .filter((message) => message && typeof message.id === "string")
+    .map((message) => ({
+      ...message,
+      attachments: (message.attachments ?? []).map((file) => ({
+        ...persistableAttachment(file),
+        ...(!file.path && file.data ? { data: file.data } : {}),
+      })),
+    }));
+}
+
+/** Validate queue rows coming back from disk; drop anything malformed. */
+export function restoreQueuedMessages(
+  value: unknown,
+): { queuedMessages: QueuedMessage[] } | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const messages = value.flatMap((entry): QueuedMessage[] => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const row: Record<string, unknown> = entry;
+    if (typeof row.id !== "string" || !row.id) return [];
+    if (typeof row.text !== "string") return [];
+    const attachments = Array.isArray(row.attachments)
+      ? row.attachments.flatMap((file): QueuedMessage["attachments"] => {
+          if (!file || typeof file !== "object" || Array.isArray(file)) {
+            return [];
+          }
+          const item: Record<string, unknown> = file;
+          if (
+            typeof item.id !== "string" ||
+            typeof item.name !== "string" ||
+            typeof item.mimeType !== "string" ||
+            (item.kind !== "image" &&
+              item.kind !== "audio" &&
+              item.kind !== "file") ||
+            typeof item.size !== "number" ||
+            !Number.isFinite(item.size) ||
+            item.size < 0
+          ) {
+            return [];
+          }
+          const path =
+            typeof item.path === "string" && item.path.trim().length > 0
+              ? item.path
+              : undefined;
+          const data =
+            typeof item.data === "string" && item.data.trim().length > 0
+              ? item.data
+              : undefined;
+          if (!path && !data) return [];
+          return [
+            {
+              id: item.id,
+              name: item.name,
+              mimeType: item.mimeType,
+              kind: item.kind,
+              size: item.size,
+              ...(path ? { path } : {}),
+              ...(data ? { data } : {}),
+            },
+          ];
+        })
+      : [];
+    const noteCard = restoreQueueNote(row.noteCard);
+    const handoffCard = restoreQueueHandoff(row.handoffCard);
+    const hasText = row.text.trim().length > 0;
+    if (!hasText && attachments.length === 0 && !noteCard && !handoffCard) {
+      return [];
+    }
+    return [
+      {
+        id: row.id,
+        text: row.text,
+        attachments,
+        ...(noteCard ? { noteCard } : {}),
+        ...(handoffCard ? { handoffCard } : {}),
+        ...(row.intent === "plan" || row.intent === "build"
+          ? { intent: row.intent }
+          : {}),
+      },
+    ];
+  });
+  return messages.length > 0 ? { queuedMessages: messages } : undefined;
+}
+
+/** Validate disk metadata before it can enter prompt composition. */
+function restoreQueueNote(value: unknown): QueuedMessage["noteCard"] {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !("id" in value) ||
+    !("slug" in value) ||
+    !("title" in value) ||
+    !("body" in value) ||
+    typeof value.id !== "string" ||
+    typeof value.slug !== "string" ||
+    typeof value.title !== "string" ||
+    typeof value.body !== "string"
+  )
+    return undefined;
+  return {
+    id: value.id,
+    slug: value.slug,
+    title: value.title,
+    body: value.body,
+    ...("sourceCwd" in value && typeof value.sourceCwd === "string"
+      ? { sourceCwd: value.sourceCwd }
+      : {}),
+  };
+}
+
+function restoreQueueHandoff(value: unknown): QueuedMessage["handoffCard"] {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !("from" in value) ||
+    !("to" in value) ||
+    !("brief" in value) ||
+    typeof value.brief !== "string"
+  )
+    return undefined;
+  const from = HARNESSES.find((id) => id === value.from);
+  const to = HARNESSES.find((id) => id === value.to);
+  if (!from || !to) return undefined;
+  return {
+    from,
+    to,
+    brief: value.brief,
+    ...("request" in value && typeof value.request === "string"
+      ? { request: value.request }
+      : {}),
+    ...("files" in value &&
+    typeof value.files === "number" &&
+    Number.isFinite(value.files) &&
+    value.files >= 0
+      ? { files: value.files }
+      : {}),
+  };
 }
