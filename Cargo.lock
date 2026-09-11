@@ -2200,7 +2200,7 @@ dependencies = [
 
 [[package]]
 name = "monocode"
-version = "0.1.35-local4-token-usage"
+version = "0.1.35-local5-queue-durability"
 dependencies = [
  "base64 0.22.1",
  "block2",
