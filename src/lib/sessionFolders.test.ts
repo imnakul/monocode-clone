@@ -22,7 +22,9 @@ import {
   reorderSessionFolders,
   ungroupedSessions,
   uniqueFolderName,
+  groupSessionListEntries,
   type SessionFolder,
+  type SessionListEntry,
 } from "./sessionFolders";
 
 function summary(
@@ -424,5 +426,111 @@ describe("session folder persistence", () => {
     saveSessionFolders("/tmp/project", [folder("g", ["a"])]);
     saveSessionFolders("/tmp/project", []);
     expect(localStorage.getItem("monocode.sessionFolders")).toBe("{}");
+  });
+});
+
+describe("groupSessionListEntries", () => {
+  it("returns an empty array for empty input", () => {
+    expect(groupSessionListEntries([])).toEqual([]);
+  });
+
+  it("groups contiguous sessions into one group preserving order", () => {
+    const s1 = summary("s1");
+    const s2 = summary("s2");
+    const s3 = summary("s3");
+    const groups = groupSessionListEntries([
+      { kind: "session", session: s1 },
+      { kind: "session", session: s2 },
+      { kind: "session", session: s3 },
+    ]);
+    expect(groups).toEqual([
+      {
+        kind: "sessions",
+        key: "sessions-s1",
+        sessions: [
+          { kind: "session", session: s1 },
+          { kind: "session", session: s2 },
+          { kind: "session", session: s3 },
+        ],
+      },
+    ]);
+  });
+
+  it("splits session runs when encountering a divider", () => {
+    const s1 = summary("s1");
+    const s2 = summary("s2");
+    const groups = groupSessionListEntries([
+      { kind: "session", session: s1 },
+      { kind: "divider" },
+      { kind: "session", session: s2 },
+    ]);
+    expect(groups).toEqual([
+      {
+        kind: "sessions",
+        key: "sessions-s1",
+        sessions: [{ kind: "session", session: s1 }],
+      },
+      {
+        kind: "divider",
+        key: "divider-1",
+      },
+      {
+        kind: "sessions",
+        key: "sessions-s2",
+        sessions: [{ kind: "session", session: s2 }],
+      },
+    ]);
+  });
+
+  it("splits session runs when encountering a folder and preserves original index and order", () => {
+    const s1 = summary("s1");
+    const s2 = summary("s2");
+    const f1 = folder("f1", ["f_s1"]);
+    const f1Entry: SessionListEntry = {
+      kind: "folder",
+      folder: f1,
+      sessions: [summary("f_s1")],
+    };
+    const groups = groupSessionListEntries([
+      { kind: "session", session: s1 },
+      f1Entry,
+      { kind: "session", session: s2 },
+    ]);
+    expect(groups).toEqual([
+      {
+        kind: "sessions",
+        key: "sessions-s1",
+        sessions: [{ kind: "session", session: s1 }],
+      },
+      {
+        kind: "folder",
+        entry: f1Entry,
+        index: 1,
+      },
+      {
+        kind: "sessions",
+        key: "sessions-s2",
+        sessions: [{ kind: "session", session: s2 }],
+      },
+    ]);
+  });
+
+  it("handles back-to-back dividers and folders without inventing empty session groups", () => {
+    const f1 = folder("f1", ["f_s1"]);
+    const f1Entry: SessionListEntry = {
+      kind: "folder",
+      folder: f1,
+      sessions: [summary("f_s1")],
+    };
+    const groups = groupSessionListEntries([
+      { kind: "divider" },
+      f1Entry,
+      { kind: "divider" },
+    ]);
+    expect(groups).toEqual([
+      { kind: "divider", key: "divider-0" },
+      { kind: "folder", entry: f1Entry, index: 1 },
+      { kind: "divider", key: "divider-2" },
+    ]);
   });
 });

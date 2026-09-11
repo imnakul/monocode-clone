@@ -13,6 +13,7 @@ import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
 import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
 import { ProjectMascot } from "../chrome/ProjectMascot";
 import { OverlayNav } from "../chrome/TitleBar";
+import { SharedHoverHighlight } from "../chrome/SharedHoverHighlight";
 import { WindowControls } from "../chrome/WindowControls";
 import { useDragResize } from "../hooks/useDragResize";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
@@ -26,6 +27,7 @@ import {
   noteProjectChoices,
   noteSourceProject,
   noteTitle,
+  peekNotes,
   upsertNote,
   requestAddNoteToChat,
   type Note,
@@ -76,11 +78,13 @@ export function NotesView({
       rememberedWidth = width;
     },
   });
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [notes, setNotes] = useState<Note[]>(() => peekNotes() ?? []);
+  const [loading, setLoading] = useState(() => peekNotes() == null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(rememberedNoteId);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => rememberedNoteId ?? peekNotes()?.[0]?.id ?? null,
+  );
   const [creating, setCreating] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef(menu);
@@ -301,8 +305,9 @@ export function NotesView({
       ) : null}
       <div
         ref={listLock}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-none"
+        className="relative min-h-0 flex-1 overflow-y-auto overscroll-none"
       >
+        <SharedHoverHighlight />
         {error && notes.length === 0 ? (
           <p className="px-3 py-2 text-[12px] text-content/50">{error}</p>
         ) : loading && notes.length === 0 ? (
@@ -316,7 +321,7 @@ export function NotesView({
               : "No notes yet. Save a turn from the transcript, or create one here."}
           </p>
         ) : (
-          <ul className="flex flex-col gap-0.5 p-1.5">
+          <ul data-shared-hover-continuity className="flex flex-col gap-0.5 p-1.5">
             {visible.map((note) => (
               <li key={note.id}>
                 <NoteCard
@@ -489,6 +494,8 @@ function NoteCard({
   return (
     <button
       type="button"
+      data-shared-hover-item
+      data-shared-hover-preserve={active ? "" : undefined}
       title={hint}
       aria-current={active ? "true" : undefined}
       onClick={onSelect}

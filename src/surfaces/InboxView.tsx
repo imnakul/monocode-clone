@@ -28,6 +28,7 @@ import {
   InboxFiltersMenu,
   INBOX_FILTER_MENU_WIDTH,
 } from "../chrome/InboxFiltersMenu";
+import { SharedHoverHighlight } from "../chrome/SharedHoverHighlight";
 import { InboxProviderMark } from "../chrome/InboxProviderMark";
 import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
 import { ProjectMascot } from "../chrome/ProjectMascot";
@@ -574,8 +575,9 @@ export function InboxView({
       </div>
       <div
         ref={listLock}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-none"
+        className="relative min-h-0 flex-1 overflow-y-auto overscroll-none"
       >
+        <SharedHoverHighlight />
         {sourceError && visibleItems.length === 0 ? (
           <p className="px-3 py-2 text-[12px] text-content/50">{sourceError}</p>
         ) : loading && items.length === 0 ? (
@@ -599,7 +601,7 @@ export function InboxView({
                   : "No matching issues or pull requests"}
           </p>
         ) : (
-          <ul className="flex flex-col gap-0.5 p-1.5">
+          <ul data-shared-hover-continuity className="flex flex-col gap-0.5 p-1.5">
             {visibleItems.map((item) => {
               const key = inboxItemKey(item);
               const projectKey = projectName(item.projectPath);
@@ -803,6 +805,8 @@ function InboxCard({
   return (
     <button
       type="button"
+      data-shared-hover-item
+      data-shared-hover-preserve={active ? "" : undefined}
       title={item.title}
       aria-current={active ? "true" : undefined}
       aria-label={`${status.label} ${kindLabel.toLowerCase()} ${inboxItemRef(

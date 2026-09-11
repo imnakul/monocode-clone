@@ -1,17 +1,95 @@
 import { useEffect, useRef } from "react";
 
-const DEFAULT_SELECTOR = [
+export const SHARED_HOVER_CONTINUITY_ATTR = "data-shared-hover-continuity";
+
+export const DEFAULT_SELECTOR = [
   "[data-shared-hover-item]",
-  '[role="menuitem"]:not(:disabled)',
-  '[role="menuitemcheckbox"]:not(:disabled)',
-  '[role="option"]:not(:disabled)',
+  '[role="menuitem"]',
+  '[role="menuitemcheckbox"]',
+  '[role="option"]',
 ].join(",");
+
+export type SharedHoverAction =
+  | { type: "activate"; target: HTMLElement }
+  | { type: "retain" }
+  | { type: "hide" };
+
+export function isTargetDisabled(element: HTMLElement | null): boolean {
+  if (!element) return false;
+  return (
+    element.hasAttribute("disabled") ||
+    element.hasAttribute("data-shared-hover-disabled") ||
+    element.getAttribute("aria-disabled") === "true"
+  );
+}
+
+export function findHoverTarget(
+  node: EventTarget | null,
+  root: HTMLElement,
+  selector: string = DEFAULT_SELECTOR,
+): HTMLElement | null {
+  const element = node instanceof Element ? node : null;
+  const explicit = element?.closest(
+    "[data-shared-hover-item]",
+  ) as HTMLElement | null;
+  const hit = explicit ?? (element?.closest(selector) as HTMLElement | null);
+  return hit && root.contains(hit) ? hit : null;
+}
+
+export function isPointerInContinuityGap(
+  node: EventTarget | null,
+  currentTarget: HTMLElement | null,
+  root: HTMLElement,
+): boolean {
+  if (!currentTarget) return false;
+  const element = node instanceof Element ? node : null;
+  if (!element) return false;
+  const region = element.closest(
+    `[${SHARED_HOVER_CONTINUITY_ATTR}]`,
+  ) as HTMLElement | null;
+  return Boolean(
+    region && root.contains(region) && region.contains(currentTarget),
+  );
+}
+
+export function resolveSharedHoverAction({
+  currentTarget,
+  isCurrentlyVisible,
+  hitTarget,
+  isHitDisabled = isTargetDisabled(hitTarget),
+  inContinuityGap = false,
+}: {
+  currentTarget: HTMLElement | null;
+  isCurrentlyVisible: boolean;
+  hitTarget: HTMLElement | null;
+  isHitDisabled?: boolean;
+  inContinuityGap?: boolean;
+}): SharedHoverAction {
+  if (hitTarget) {
+    if (isHitDisabled) {
+      return { type: "hide" };
+    }
+    if (currentTarget === hitTarget && isCurrentlyVisible) {
+      return { type: "retain" };
+    }
+    return {
+      type: "activate",
+      target: hitTarget,
+    };
+  }
+
+  if (currentTarget && isCurrentlyVisible && inContinuityGap) {
+    return { type: "retain" };
+  }
+
+  return { type: "hide" };
+}
 
 export function SharedHoverHighlight({
   selector = DEFAULT_SELECTOR,
 }: {
   selector?: string;
-}) {
+}): React.JSX.Element {
   const markerRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
@@ -22,16 +100,7 @@ export function SharedHoverHighlight({
     let target: HTMLElement | null = null;
     let frame = 0;
 
-    const findTarget = (node: EventTarget | null) => {
-      const element = node instanceof Element ? node : null;
-      const explicit = element?.closest(
-        "[data-shared-hover-item]",
-      ) as HTMLElement | null;
-      const hit = explicit ?? (element?.closest(selector) as HTMLElement | null);
-      return hit && root.contains(hit) ? hit : null;
-    };
-
-    const position = (next: HTMLElement) => {
+    const position = (next: HTMLElement): void => {
       const rootRect = root.getBoundingClientRect();
       const rect = next.getBoundingClientRect();
       const first = marker.dataset.visible !== "true";
@@ -62,31 +131,34 @@ export function SharedHoverHighlight({
       marker.style.opacity = "1";
     };
 
-    const hide = () => {
+    const hide = (): void => {
       target?.removeAttribute("data-shared-hover-active");
       target = null;
       marker.dataset.visible = "false";
       marker.style.opacity = "0";
     };
 
-    const show = (next: HTMLElement | null) => {
-      if (
-        !next ||
-        next.hasAttribute("disabled") ||
-        next.hasAttribute("data-shared-hover-disabled") ||
-        next.getAttribute("aria-disabled") === "true"
-      ) {
+    const show = (next: HTMLElement | null): void => {
+      const action = resolveSharedHoverAction({
+        currentTarget: target,
+        isCurrentlyVisible: marker.dataset.visible === "true",
+        hitTarget: next,
+        isHitDisabled: isTargetDisabled(next),
+        inContinuityGap: false,
+      });
+
+      if (action.type === "activate") {
+        if (target === action.target) return;
+        target?.removeAttribute("data-shared-hover-active");
+        target = action.target;
+        target.setAttribute("data-shared-hover-active", "true");
+        position(target);
+      } else if (action.type === "hide") {
         hide();
-        return;
       }
-      if (target === next) return;
-      target?.removeAttribute("data-shared-hover-active");
-      target = next;
-      target.setAttribute("data-shared-hover-active", "true");
-      position(target);
     };
 
-    const refresh = () => {
+    const refresh = (): void => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         if (target?.isConnected) position(target);
@@ -94,10 +166,32 @@ export function SharedHoverHighlight({
       });
     };
 
-    const onPointerMove = (event: PointerEvent) => show(findTarget(event.target));
-    const onPointerLeave = () => hide();
-    const onFocusIn = (event: FocusEvent) => show(findTarget(event.target));
-    const onFocusOut = (event: FocusEvent) => {
+    const onPointerMove = (event: PointerEvent): void => {
+      const hit = findHoverTarget(event.target, root, selector);
+      const inContinuity = isPointerInContinuityGap(event.target, target, root);
+      const action = resolveSharedHoverAction({
+        currentTarget: target,
+        isCurrentlyVisible: marker.dataset.visible === "true",
+        hitTarget: hit,
+        isHitDisabled: isTargetDisabled(hit),
+        inContinuityGap: inContinuity,
+      });
+
+      if (action.type === "activate") {
+        if (target === action.target) return;
+        target?.removeAttribute("data-shared-hover-active");
+        target = action.target;
+        target.setAttribute("data-shared-hover-active", "true");
+        position(target);
+      } else if (action.type === "hide") {
+        hide();
+      }
+    };
+
+    const onPointerLeave = (): void => hide();
+    const onFocusIn = (event: FocusEvent): void =>
+      show(findHoverTarget(event.target, root, selector));
+    const onFocusOut = (event: FocusEvent): void => {
       if (!root.contains(event.relatedTarget as Node | null)) hide();
     };
 

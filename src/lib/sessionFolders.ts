@@ -31,6 +31,53 @@ export type SessionListEntry =
   | { kind: "session"; session: SessionSummary }
   | { kind: "divider" };
 
+export type SessionListGroup =
+  | {
+      kind: "folder";
+      entry: Extract<SessionListEntry, { kind: "folder" }>;
+      index: number;
+    }
+  | { kind: "divider"; key: string }
+  | {
+      kind: "sessions";
+      key: string;
+      sessions: Extract<SessionListEntry, { kind: "session" }>[];
+    };
+
+export function groupSessionListEntries(
+  entries: readonly SessionListEntry[],
+): SessionListGroup[] {
+  const groups: SessionListGroup[] = [];
+  let currentSessions: Extract<SessionListEntry, { kind: "session" }>[] = [];
+
+  const flushSessions = (): void => {
+    if (currentSessions.length > 0) {
+      groups.push({
+        kind: "sessions",
+        key: `sessions-${currentSessions[0].session.id}`,
+        sessions: currentSessions,
+      });
+      currentSessions = [];
+    }
+  };
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (entry.kind === "session") {
+      currentSessions.push(entry);
+    } else {
+      flushSessions();
+      if (entry.kind === "divider") {
+        groups.push({ kind: "divider", key: `divider-${index}` });
+      } else if (entry.kind === "folder") {
+        groups.push({ kind: "folder", entry, index });
+      }
+    }
+  }
+  flushSessions();
+  return groups;
+}
+
 type StoredFolder = {
   id?: unknown;
   name?: unknown;

@@ -117,7 +117,7 @@ export function InboxFiltersMenu({
 
       <SectionDivider />
       <SectionLabel>Status</SectionLabel>
-      <div className="flex flex-col gap-1">
+      <div data-shared-hover-continuity className="flex flex-col gap-1">
         <FilterItem
           label="Open"
           checked={filters.status.open}
@@ -160,7 +160,7 @@ export function InboxFiltersMenu({
         <>
           <SectionDivider />
           <SectionLabel>Type</SectionLabel>
-          <div className="flex flex-col gap-1">
+          <div data-shared-hover-continuity className="flex flex-col gap-1">
             {KIND_OPTIONS.map((option) => (
               <FilterItem
                 key={option.id}
@@ -178,7 +178,7 @@ export function InboxFiltersMenu({
         <>
           <SectionDivider />
           <SectionLabel>Projects</SectionLabel>
-          <div className="flex flex-col gap-1">
+          <div data-shared-hover-continuity className="flex flex-col gap-1">
             {projects.map((project, index) => (
               <FilterItem
                 key={project.path}

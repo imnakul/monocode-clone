@@ -14,6 +14,7 @@ import {
 import {
   memo,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -57,6 +58,7 @@ import {
   setFolderColor,
   setFolderCustomColor,
   ungroupedSessions,
+  groupSessionListEntries,
   type SessionFolder,
   type SessionListDropTarget,
 } from "../lib/sessionFolders";
@@ -186,7 +188,10 @@ type Props = {
   canGoForward?: boolean;
   onGoBack?: () => void;
   onGoForward?: () => void;
-  onOpenDiff?: (path: string) => void;
+  onOpenDiff?: (
+    path: string,
+    options?: { kind?: "staged" | "unstaged"; status?: string },
+  ) => void;
   onOpenCommit?: (commit: GitHistoryCommit) => void;
   selectedDiffPath?: string;
   selectedCommitSha?: string;
@@ -426,6 +431,10 @@ function SidebarComponent({
     visibleSessions,
     sessionFolders,
     shownUngrouped,
+  );
+  const groupedSessionListEntries = useMemo(
+    () => groupSessionListEntries(sessionListEntries),
+    [sessionListEntries],
   );
   const sessionNavigationIds = sessionListNavigationIds(
     fullSessionListEntries,
@@ -1125,11 +1134,11 @@ function SidebarComponent({
                 )
               ) : (
                 <ul className="flex flex-col gap-0.5 p-1.5">
-                  {sessionListEntries.map((entry, index) => {
-                    if (entry.kind === "divider") {
+                  {groupedSessionListEntries.map((group) => {
+                    if (group.kind === "divider") {
                       return (
                         <li
-                          key={`divider-${index}`}
+                          key={group.key}
                           aria-hidden
                           className="mx-1 my-1 list-none"
                         >
@@ -1137,7 +1146,8 @@ function SidebarComponent({
                         </li>
                       );
                     }
-                    if (entry.kind === "folder") {
+                    if (group.kind === "folder") {
+                      const entry = group.entry;
                       const expanded =
                         searchNarrowed || !entry.folder.collapsed;
                       const shellFill = folderShellFill(
@@ -1148,7 +1158,7 @@ function SidebarComponent({
                         entry.folder.id,
                       );
                       const beforeUngrouped =
-                        sessionListEntries[index + 1]?.kind === "session";
+                        sessionListEntries[group.index + 1]?.kind === "session";
                       const draggingFolder =
                         folderSortable.draggingId === entry.folder.id;
                       const showFolderDropStart =
@@ -1252,7 +1262,10 @@ function SidebarComponent({
                             )}
                             {expanded ? (
                               <>
-                                <ul className="flex flex-col gap-px p-1">
+                                <ul
+                                  data-shared-hover-continuity
+                                  className="flex flex-col gap-px p-1"
+                                >
                                   {entry.sessions.map((session) => (
                                     <li key={session.id}>
                                       {renderSessionCard(session, true)}
@@ -1290,8 +1303,17 @@ function SidebarComponent({
                       );
                     }
                     return (
-                      <li key={entry.session.id}>
-                        {renderSessionCard(entry.session)}
+                      <li key={group.key} className="list-none">
+                        <ul
+                          data-shared-hover-continuity
+                          className="flex flex-col gap-0.5"
+                        >
+                          {group.sessions.map((item) => (
+                            <li key={item.session.id}>
+                              {renderSessionCard(item.session)}
+                            </li>
+                          ))}
+                        </ul>
                       </li>
                     );
                   })}

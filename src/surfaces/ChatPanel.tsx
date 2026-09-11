@@ -17,6 +17,7 @@ import {
   createFolderWithSessions,
   dissolveFolder,
   folderContaining,
+  groupSessionListEntries,
   loadSessionFolders,
   removeSessionFromFolder,
   renameFolder,
@@ -117,6 +118,10 @@ export function ChatPanel({
   const entries = useMemo(
     () => buildSessionList(chats, folders, ungrouped),
     [chats, folders, ungrouped],
+  );
+  const groupedEntries = useMemo(
+    () => groupSessionListEntries(entries),
+    [entries],
   );
 
   const menuChat = menu
@@ -311,7 +316,7 @@ export function ChatPanel({
             <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content/40">
               Sidechats
             </p>
-            <ul className="flex flex-col gap-0.5">
+            <ul data-shared-hover-continuity className="flex flex-col gap-0.5">
               {sidechats.map((chat) => (
                 <li key={chat.id}>
                   <SessionCard
@@ -346,11 +351,11 @@ export function ChatPanel({
           </p>
         ) : (
           <ul className="flex flex-col gap-0.5">
-            {entries.map((entry, index) => {
-              if (entry.kind === "divider") {
+            {groupedEntries.map((group) => {
+              if (group.kind === "divider") {
                 return (
                   <li
-                    key={`divider-${index}`}
+                    key={group.key}
                     aria-hidden
                     className="mx-1 my-1 list-none"
                   >
@@ -358,30 +363,30 @@ export function ChatPanel({
                   </li>
                 );
               }
-              if (entry.kind === "folder") {
+              if (group.kind === "folder") {
                 return (
-                  <li key={entry.folder.id}>
+                  <li key={group.entry.folder.id}>
                     <ChatFolderGroup
-                      folder={entry.folder}
-                      sessions={entry.sessions}
-                      dropTarget={isSessionDrop("folder", entry.folder.id)}
-                      renaming={renamingFolderId === entry.folder.id}
+                      folder={group.entry.folder}
+                      sessions={group.entry.sessions}
+                      dropTarget={isSessionDrop("folder", group.entry.folder.id)}
+                      renaming={renamingFolderId === group.entry.folder.id}
                       onToggle={() =>
                         commitFolders(
                           folders.map((folder) =>
-                            folder.id === entry.folder.id
+                            folder.id === group.entry.folder.id
                               ? { ...folder, collapsed: !folder.collapsed }
                               : folder,
                           ),
                         )
                       }
                       onContextMenu={(event) =>
-                        onFolderContextMenu(entry.folder.id, event)
+                        onFolderContextMenu(group.entry.folder.id, event)
                       }
-                      onRename={() => setRenamingFolderId(entry.folder.id)}
+                      onRename={() => setRenamingFolderId(group.entry.folder.id)}
                       onCommitRename={(name) => {
                         commitFolders(
-                          renameFolder(folders, entry.folder.id, name),
+                          renameFolder(folders, group.entry.folder.id, name),
                         );
                         setRenamingFolderId(null);
                       }}
@@ -391,7 +396,18 @@ export function ChatPanel({
                   </li>
                 );
               }
-              return <li key={entry.session.id}>{renderCard(entry.session)}</li>;
+              return (
+                <li key={group.key} className="list-none">
+                  <ul
+                    data-shared-hover-continuity
+                    className="flex flex-col gap-0.5"
+                  >
+                    {group.sessions.map((item) => (
+                      <li key={item.session.id}>{renderCard(item.session)}</li>
+                    ))}
+                  </ul>
+                </li>
+              );
             })}
           </ul>
         )}
@@ -492,7 +508,10 @@ function ChatFolderGroup({
         )}
       </div>
       {folder.collapsed ? null : (
-        <ul className="mt-0.5 flex flex-col gap-0.5 pl-2">
+        <ul
+          data-shared-hover-continuity
+          className="mt-0.5 flex flex-col gap-0.5 pl-2"
+        >
           {sessions.map((session) => (
             <li key={session.id}>{renderCard(session)}</li>
           ))}
