@@ -114,20 +114,21 @@ Models have standard token rates per 1M tokens:
 ---
 
 ## 7. Issues in Installed (+ fixes)
-*(To be tested in dev/installed mode)*
+- **Detailed context information density**: Raw inspector was too prominent by default on every session. Moved under Settings → Experimentation with `Detailed context` toggle (default OFF). When OFF, ContextMeter renders a compact two-line summary (`Tokens used / limit` + percentage); when ON, renders full segmented bar, memory files, skills, and model costing inspector.
+- **Quota percentage clarity**: Switching between quota consumed vs quota remaining left (`42% left`) needed user configuration. Added `Remaining quota` toggle under Settings → Experimentation (default OFF) and synchronized across ContextMeter and UsageFooter.
+- **Skills color contrast**: Added distinct emerald/green bar representation for Skills tokens to separate from memory files and tool schemas.
+- **Installed runtime verdict**: Manually tested in installed NSIS build `MonoCode_0.1.35-local4-token-usage_x64-setup.exe`; verified working with live Claude and Codex sessions, reactive settings toggling, and clean popover layout.
 
 ---
 
 ## 8. Learnings
 - Claude CLI and Codex app-server wire protocols provide turn and thread token accounting (`input`, `cachedInput`, `cacheWrite`, `output`, `reasoning`), while memory files and skills are discovered directly in the local workspace, allowing a complete hybrid model that mirrors Claude Desktop's inspector dialog without requiring internal provider telemetry changes.
+- Setting toggles (Experimentation) must be reactive via window custom events (`monocode:detailed-context-change`, `monocode:remaining-quota-change`) to immediately update pinned popovers and footer status bars across windows without requiring app reloads.
 
 ---
 
 ## 9. Done
-Context Window & Costing Inspector dialog implemented for Claude and Codex.
+- Context Window & Costing Inspector dialog implemented and hardened for Claude and Codex.
+- Fully verified in dev mode and installed NSIS runtime (`0.1.35-local4-token-usage`).
+- Status: **Done**.
 
-
----
-
-## 9. Done
-*(To be recorded)*
