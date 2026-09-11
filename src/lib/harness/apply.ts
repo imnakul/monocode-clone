@@ -344,10 +344,11 @@ export function appendSteerUser(
 }
 
 export function stopStreaming(session: Session): Session {
-  let blocks = stampTurnDuration(session.blocks.map(stopBlockProgress));
+  let blocks = session.blocks.map(stopBlockProgress);
   if (session.liveTurnUsage) {
     blocks = stampTurnUsage(blocks, session.liveTurnUsage);
   }
+  blocks = stampTurnDuration(blocks);
   return {
     ...session,
     busy: false,
@@ -439,21 +440,46 @@ function stopBlockProgress(block: Block): Block {
   };
 }
 
+/**
+ * Resolves the block index of the user turn that owns provider telemetry and duration:
+ * 1. The most recent user block with startedAt present and no completed duration (active turn owner).
+ * 2. Fallback for settled or late events: the most recent user block with startedAt present.
+ * 3. Fallback for legacy blocks or test mocks without startedAt: the most recent user block.
+ */
+function findTurnOwnerIndex(blocks: Block[]): number {
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const block = blocks[i];
+    if (
+      block.role === "user" &&
+      block.startedAt != null &&
+      block.durationMs == null
+    ) {
+      return i;
+    }
+  }
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const block = blocks[i];
+    if (block.role === "user" && block.startedAt != null) {
+      return i;
+    }
+  }
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (blocks[i].role === "user") {
+      return i;
+    }
+  }
+  return -1;
+}
+
 function stampTurnUsage(
   blocks: Block[],
   turnUsage: ProcessedUsage,
 ): Block[] {
-  let lastUser = -1;
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    if (blocks[i].role === "user") {
-      lastUser = i;
-      break;
-    }
-  }
-  if (lastUser < 0) return blocks;
-  const user = blocks[lastUser];
+  const targetIndex = findTurnOwnerIndex(blocks);
+  if (targetIndex < 0) return blocks;
+  const user = blocks[targetIndex];
   const next = blocks.slice();
-  next[lastUser] = {
+  next[targetIndex] = {
     ...user,
     turnUsage,
   };
@@ -461,18 +487,12 @@ function stampTurnUsage(
 }
 
 function stampTurnDuration(blocks: Block[]): Block[] {
-  let lastUser = -1;
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    if (blocks[i].role === "user") {
-      lastUser = i;
-      break;
-    }
-  }
-  if (lastUser < 0) return blocks;
-  const user = blocks[lastUser];
+  const targetIndex = findTurnOwnerIndex(blocks);
+  if (targetIndex < 0) return blocks;
+  const user = blocks[targetIndex];
   if (user.durationMs != null || user.startedAt == null) return blocks;
   const next = blocks.slice();
-  next[lastUser] = {
+  next[targetIndex] = {
     ...user,
     durationMs: Math.max(0, Date.now() - user.startedAt),
   };

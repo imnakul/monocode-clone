@@ -54,6 +54,26 @@ describe("turn duration", () => {
     expect(session.busy).toBe(false);
     expect(session.blocks[0]?.durationMs).toBe(7_000);
   });
+
+  it("stamps duration on the original turn owner even when followed by steering messages", () => {
+    now = 1_000;
+    let session = appendUser(newSession("cursor", "/tmp"), "build it");
+    now = 3_000;
+    session = appendSteerUser(session, "also add tests");
+    now = 5_000;
+    session = appendSteerUser(session, "and check lints");
+
+    expect(session.blocks[0]?.startedAt).toBe(1_000);
+    expect(session.blocks[1]?.startedAt).toBeUndefined();
+    expect(session.blocks[2]?.startedAt).toBeUndefined();
+
+    now = 11_000;
+    session = stopStreaming(session);
+
+    expect(session.blocks[0]?.durationMs).toBe(10_000);
+    expect(session.blocks[1]?.durationMs).toBeUndefined();
+    expect(session.blocks[2]?.durationMs).toBeUndefined();
+  });
 });
 
 describe("streamed markdown", () => {

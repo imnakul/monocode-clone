@@ -5,6 +5,7 @@ import {
   diffCodexUsage,
   emptyCodexUsage,
   emptyProcessedUsage,
+  latestTurnProcessedUsage,
   parseClaudeUsage,
   sanitizeProcessedUsage,
   sessionProcessedUsage,
@@ -188,18 +189,12 @@ describe("tokenAccounting - Session aggregation & persistence", () => {
       },
     ];
 
-    const liveTurn: ProcessedUsage = {
-      total: 500,
-      input: 400,
-      output: 100,
-    };
-
-    const sessionTotal = sessionProcessedUsage(blocks, liveTurn);
+    const sessionTotal = sessionProcessedUsage(blocks);
     expect(sessionTotal).toBeDefined();
-    expect(sessionTotal?.total).toBe(3000);
-    expect(sessionTotal?.input).toBe(2400);
+    expect(sessionTotal?.total).toBe(2500);
+    expect(sessionTotal?.input).toBe(2000);
     expect(sessionTotal?.cachedInput).toBe(1000);
-    expect(sessionTotal?.output).toBe(600);
+    expect(sessionTotal?.output).toBe(500);
   });
 
   it("returns undefined when no usage exists in session (avoids invented 0 or estimate)", () => {
@@ -207,8 +202,47 @@ describe("tokenAccounting - Session aggregation & persistence", () => {
       { id: "1", role: "user", text: "hello" },
       { id: "2", role: "assistant", text: "world" },
     ];
-    expect(sessionProcessedUsage(blocks, undefined)).toBeUndefined();
-    expect(sessionProcessedUsage([], undefined)).toBeUndefined();
+    expect(sessionProcessedUsage(blocks)).toBeUndefined();
+    expect(sessionProcessedUsage([])).toBeUndefined();
+  });
+
+  it("resolves latest-turn usage from live turn when active, then falls back to completed user block", () => {
+    const blocks: Block[] = [
+      {
+        id: "1",
+        role: "user",
+        text: "first turn",
+        turnUsage: { total: 1000, input: 800, output: 200 },
+      },
+      { id: "2", role: "assistant", text: "done" },
+      {
+        id: "3",
+        role: "user",
+        text: "second turn",
+        turnUsage: { total: 2000, input: 1500, output: 500 },
+      },
+      { id: "4", role: "assistant", text: "in progress" },
+    ];
+
+    const liveTurn: ProcessedUsage = { total: 2500, input: 1800, output: 700 };
+
+    // Active streaming: liveTurnUsage takes priority
+    expect(latestTurnProcessedUsage(blocks, liveTurn)).toEqual(liveTurn);
+
+    // Completed / idle: falls back to the most recent user block with turnUsage
+    expect(latestTurnProcessedUsage(blocks, undefined)).toEqual({
+      total: 2000,
+      input: 1500,
+      output: 500,
+    });
+
+    // Session without usage: returns undefined instead of inventing values
+    const emptyBlocks: Block[] = [
+      { id: "1", role: "user", text: "hello" },
+      { id: "2", role: "assistant", text: "hi" },
+    ];
+    expect(latestTurnProcessedUsage(emptyBlocks, undefined)).toBeUndefined();
+    expect(latestTurnProcessedUsage([], undefined)).toBeUndefined();
   });
 
   it("sanitizes persisted usage and rejects invalid structures", () => {

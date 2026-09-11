@@ -232,12 +232,38 @@ export function sumProcessedUsage(
 }
 
 /**
- * Aggregates all completed turn usages in a session plus any active turn usage.
+ * Resolves the effective usage for the latest turn:
+ * 1. liveTurnUsage when an active turn is currently streaming.
+ * 2. Otherwise the most recent user block with valid turnUsage.
+ * 3. undefined when neither exists (e.g. fresh/legacy session).
+ */
+export function latestTurnProcessedUsage(
+  blocks: Block[],
+  liveTurnUsage?: ProcessedUsage,
+): ProcessedUsage | undefined {
+  if (liveTurnUsage) {
+    return liveTurnUsage;
+  }
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const block = blocks[i];
+    if (block.role === "user" && block.turnUsage) {
+      return block.turnUsage;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Aggregates all recorded turn usages stored on user blocks in a session.
+ *
+ * Each turn's usage is stamped onto its corresponding user block by the reducer,
+ * including active streaming turns. Summing the user blocks includes every turn
+ * exactly once without double-counting active turns.
+ *
  * Returns undefined if no blocks in the session have usage data (legacy/unsupported session).
  */
 export function sessionProcessedUsage(
   blocks: Block[],
-  liveTurnUsage?: ProcessedUsage,
 ): ProcessedUsage | undefined {
   let hasAny = false;
   let accumulated: ProcessedUsage | undefined;
@@ -247,11 +273,6 @@ export function sessionProcessedUsage(
       hasAny = true;
       accumulated = addProcessedUsage(accumulated, block.turnUsage);
     }
-  }
-
-  if (liveTurnUsage) {
-    hasAny = true;
-    accumulated = addProcessedUsage(accumulated, liveTurnUsage);
   }
 
   return hasAny ? accumulated ?? { total: 0, input: 0, output: 0 } : undefined;

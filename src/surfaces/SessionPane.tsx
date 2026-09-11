@@ -3,6 +3,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -10,6 +11,10 @@ import {
 } from "react";
 import { Composer } from "../chrome/Composer";
 import { SessionReview } from "../chrome/SessionReview";
+import {
+  latestTurnProcessedUsage,
+  sessionProcessedUsage,
+} from "../lib/tokenAccounting";
 import {
   canCompactHarnessContext,
   type ApprovalDecision,
@@ -257,6 +262,14 @@ export const SessionPane = memo(function SessionPane({
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
   const dockComposer = !isEmpty || inSplit;
   const draftRef = useRef<string | undefined>(undefined);
+  const turnUsage = useMemo(
+    () => latestTurnProcessedUsage(session.blocks, session.liveTurnUsage),
+    [session.blocks, session.liveTurnUsage],
+  );
+  const sessionUsage = useMemo(
+    () => sessionProcessedUsage(session.blocks),
+    [session.blocks],
+  );
   const composer = (
     <Composer
       enabled={visible}
@@ -275,7 +288,8 @@ export const SessionPane = memo(function SessionPane({
       hideProjectPicker={hideProjectPicker ? !showDeckProjectPicker : false}
       context={session.context}
       blocks={session.blocks}
-      turnUsage={session.liveTurnUsage}
+      turnUsage={turnUsage}
+      sessionUsage={sessionUsage}
       quoteRequest={quoteRequest}
       initialDraft={
         draftRef.current ??
