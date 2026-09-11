@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   clampUsedPercent,
+  formatQuotaPercent,
   formatRateLimitWindowChipLabel,
   formatRemainingPercent,
   formatResetCountdown,
@@ -103,6 +104,26 @@ describe("formatRemainingPercent", () => {
   });
 });
 
+describe("formatQuotaPercent", () => {
+  it("formats as percent used when remainingQuota is false (default/OFF)", () => {
+    expect(formatQuotaPercent(58.4)).toBe("58% used");
+    expect(formatQuotaPercent(58.4, false)).toBe("58% used");
+    expect(formatQuotaPercent(0, false)).toBe("0% used");
+    expect(formatQuotaPercent(100, false)).toBe("100% used");
+    expect(formatQuotaPercent(140, false)).toBe("100% used");
+    expect(formatQuotaPercent(-10, false)).toBe("0% used");
+  });
+
+  it("formats as clamped inverse percent left when remainingQuota is true (ON)", () => {
+    expect(formatQuotaPercent(58.4, true)).toBe("42% left");
+    expect(formatQuotaPercent(20, true)).toBe("80% left");
+    expect(formatQuotaPercent(0, true)).toBe("100% left");
+    expect(formatQuotaPercent(100, true)).toBe("0% left");
+    expect(formatQuotaPercent(140, true)).toBe("0% left");
+    expect(formatQuotaPercent(-10, true)).toBe("100% left");
+  });
+});
+
 describe("parseResetTimestamp", () => {
   it("treats small numbers as unix seconds", () => {
     expect(parseResetTimestamp(1_738_425_600)).toBe(1_738_425_600_000);
@@ -192,18 +213,37 @@ describe("parseCodexRateLimits", () => {
 });
 
 describe("rateLimitWindowTooltip", () => {
-  it("includes used percent and remaining time", () => {
-    const now = Date.parse("2026-08-27T08:00:00Z");
-    expect(
-      rateLimitWindowTooltip(
-        {
-          usedPercent: 42.4,
-          windowMinutes: 300,
-          resetsAt: now + 2 * 3_600_000 + 33 * 60_000,
-        },
-        now,
-      ),
-    ).toBe("58% left · Resets in 2h 33m");
+  const now = Date.parse("2026-08-27T08:00:00Z");
+  const windowWithReset = {
+    usedPercent: 42.4,
+    windowMinutes: 300,
+    resetsAt: now + 2 * 3_600_000 + 33 * 60_000,
+  };
+  const windowWithoutReset = {
+    usedPercent: 42.4,
+    windowMinutes: 300,
+    resetsAt: null,
+  };
+
+  it("includes used percent and remaining time when remainingQuota is false (default)", () => {
+    expect(rateLimitWindowTooltip(windowWithReset, now)).toBe(
+      "42% used · Resets in 2h 33m",
+    );
+    expect(rateLimitWindowTooltip(windowWithReset, now, false)).toBe(
+      "42% used · Resets in 2h 33m",
+    );
+    expect(rateLimitWindowTooltip(windowWithoutReset, now, false)).toBe(
+      "42% used · 5h window",
+    );
+  });
+
+  it("includes remaining percent and identical countdown when remainingQuota is true", () => {
+    expect(rateLimitWindowTooltip(windowWithReset, now, true)).toBe(
+      "58% left · Resets in 2h 33m",
+    );
+    expect(rateLimitWindowTooltip(windowWithoutReset, now, true)).toBe(
+      "58% left · 5h window",
+    );
   });
 });
 

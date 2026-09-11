@@ -272,7 +272,7 @@ export function computeContextBreakdown(params: {
       label: "Skills",
       tokens: skillsTotal,
       percent: (skillsTotal / safeWindow) * 100,
-      colorClass: "bg-purple-400",
+      colorClass: "bg-emerald-400",
     },
     {
       id: "messages",

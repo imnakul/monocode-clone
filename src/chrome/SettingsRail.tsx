@@ -7,6 +7,7 @@ import {
   Palette,
   SlidersHorizontal,
   Sparkles,
+  Wrench,
   type IconComponent,
 } from "./icons";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
@@ -23,6 +24,7 @@ const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
   skills: Sparkles,
   archive: Archive,
   migration: Inbox,
+  experimentation: Wrench,
 };
 
 type Props = {

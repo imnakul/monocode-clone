@@ -1,7 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   contextPercent,
   contextRatio,
+  contextTooltip,
   formatTokens,
   type ContextUsage,
 } from "../lib/contextUsage";
@@ -24,14 +32,21 @@ import {
   type LoadedSystemConfig,
 } from "../lib/systemBreakdown";
 import {
-  formatRemainingPercent,
+  formatQuotaPercent,
   formatResetCountdown,
+  rateLimitWindowTooltip,
   type ProviderRateLimits,
 } from "../lib/rateLimits";
 import {
   fetchClaudeRateLimits,
   fetchCodexRateLimits,
 } from "../lib/rateLimitsFetch";
+import {
+  loadDetailedContext,
+  loadRemainingQuota,
+  subscribeDetailedContext,
+  subscribeRemainingQuota,
+} from "../lib/settings";
 import { ChevronDown, ChevronRight } from "./icons";
 import { Popover } from "./Popover";
 
@@ -70,7 +85,11 @@ export type ContextMeterProps = {
   compactDisabled?: boolean;
 };
 
-function UsageBreakdownRows({ usage }: { usage: ProcessedUsage }) {
+function UsageBreakdownRows({
+  usage,
+}: {
+  usage: ProcessedUsage;
+}): React.JSX.Element {
   return (
     <div className="space-y-0.5 text-[11px] text-content/70">
       <div className="flex justify-between">
@@ -109,6 +128,29 @@ function UsageBreakdownRows({ usage }: { usage: ProcessedUsage }) {
   );
 }
 
+export type CompactContextSummaryProps = {
+  headline: string;
+  detail: string;
+};
+
+export function CompactContextSummary({
+  headline,
+  detail,
+}: CompactContextSummaryProps): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-0.5 text-left whitespace-nowrap">
+      <span className="font-medium text-content">{headline}</span>
+      <span className="tabular-nums text-content/60 text-[11px]">{detail}</span>
+    </div>
+  );
+}
+
+export const COMPACT_CONTEXT_METER_POPOVER_CLASS: string =
+  "w-max max-w-[calc(100vw-2rem)] px-3 py-2 text-xs text-content select-none shadow-xl border border-content/10 bg-surface rounded-lg";
+
+export const DETAILED_CONTEXT_METER_POPOVER_CLASS: string =
+  "w-[320px] max-w-[calc(100vw-2rem)] max-h-[82vh] overflow-y-auto p-3.5 text-xs text-content select-none shadow-xl border border-content/10 bg-surface rounded-xl";
+
 /**
  * Circular gauge and comprehensive inspection popover for context window and costing.
  */
@@ -123,7 +165,7 @@ export function ContextMeter({
   blocks,
   onCompact,
   compactDisabled,
-}: ContextMeterProps) {
+}: ContextMeterProps): React.JSX.Element | null {
   const [hovered, setHovered] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [systemExpanded, setSystemExpanded] = useState(false);
@@ -139,6 +181,17 @@ export function ContextMeter({
   const [memoryFiles, setMemoryFiles] = useState<ContextBreakdownItem[]>([]);
   const [skills, setSkills] = useState<ContextBreakdownItem[]>([]);
   const [rateLimits, setRateLimits] = useState<ProviderRateLimits | null>(null);
+
+  const detailedContext = useSyncExternalStore(
+    subscribeDetailedContext,
+    loadDetailedContext,
+    () => false,
+  );
+  const remainingQuota = useSyncExternalStore(
+    subscribeRemainingQuota,
+    loadRemainingQuota,
+    () => false,
+  );
 
   const root = useRef<HTMLButtonElement>(null);
   const ratio = contextRatio(usage);
@@ -156,7 +209,7 @@ export function ContextMeter({
   // Inspect system prompt, tools, memory files and skills for Claude and Codex
   useEffect(() => {
     let active = true;
-    if (!isOpen) return;
+    if (!isOpen || !detailedContext) return;
 
     async function inspect() {
       // 1. Load system & tools configuration (MCP servers, plugins, global rules)
@@ -224,12 +277,12 @@ export function ContextMeter({
     return () => {
       active = false;
     };
-  }, [isOpen, cwd, harness]);
+  }, [isOpen, detailedContext, cwd, harness]);
 
   // Fetch plan rate limits (5-hour and weekly) when popover is open
   useEffect(() => {
     let active = true;
-    if (!isOpen || (harness !== "claude" && harness !== "codex")) return;
+    if (!isOpen || !detailedContext || (harness !== "claude" && harness !== "codex")) return;
 
     async function fetchLimits() {
       try {
@@ -249,7 +302,7 @@ export function ContextMeter({
     return () => {
       active = false;
     };
-  }, [isOpen, harness]);
+  }, [isOpen, detailedContext, harness]);
 
   const messagesTokens = blocks ? estimateBlocksTokens(blocks) : 0;
   const breakdown = computeContextBreakdown({
@@ -275,19 +328,19 @@ export function ContextMeter({
   const turnCost = calculateUsageCost(turnUsage, pricing);
   const sessionCost = calculateUsageCost(sessionUsage, pricing);
 
-  const handlePointerEnter = useCallback(() => {
+  const handlePointerEnter = useCallback((): void => {
     setHovered(true);
   }, []);
 
-  const handlePointerLeave = useCallback(() => {
+  const handlePointerLeave = useCallback((): void => {
     setHovered(false);
   }, []);
 
-  const handleClick = useCallback(() => {
+  const handleClick = useCallback((): void => {
     setPinned((p) => !p);
   }, []);
 
-  const handleDismiss = useCallback(() => {
+  const handleDismiss = useCallback((): void => {
     setPinned(false);
     setHovered(false);
   }, []);
@@ -296,6 +349,23 @@ export function ContextMeter({
     usage?.window != null && usage?.used != null
       ? `Context window: ${usage.used.toLocaleString()} / ${usage.window.toLocaleString()} tokens (${percent}%)`
       : "Context window & token usage";
+
+  const compactSummary = usage
+    ? contextTooltip(usage)
+    : turnUsage
+      ? {
+          headline: "Latest turn",
+          detail: `${formatTokens(turnUsage.total)} tokens`,
+        }
+      : sessionUsage
+        ? {
+            headline: "Session tokens",
+            detail: `${formatTokens(sessionUsage.total)} tokens`,
+          }
+        : {
+            headline: "Context window",
+            detail: "Usage unavailable",
+          };
 
   return (
     <div
@@ -352,9 +422,14 @@ export function ContextMeter({
           gap={6}
           onDismiss={handleDismiss}
           dismissOnEscape
-          className="w-[320px] max-w-[calc(100vw-2rem)] max-h-[82vh] overflow-y-auto p-3.5 text-xs text-content select-none shadow-xl border border-content/10 bg-surface rounded-xl"
+          className={
+            detailedContext
+              ? DETAILED_CONTEXT_METER_POPOVER_CLASS
+              : COMPACT_CONTEXT_METER_POPOVER_CLASS
+          }
         >
-          <div className="space-y-3">
+          {detailedContext ? (
+            <div className="space-y-3">
             {/* Header */}
             <div>
               <div className="flex items-baseline justify-between gap-2">
@@ -403,7 +478,7 @@ export function ContextMeter({
             <div className="space-y-1 text-[11px]">
               {breakdown.segments.map((seg) => {
                 if (seg.tokens <= 0 && seg.id !== "free") return null;
-                const isSystem = seg.id === "system";
+                const isSystem = seg.id === "system" && detailedContext;
                 return (
                   <div
                     key={seg.id}
@@ -438,7 +513,7 @@ export function ContextMeter({
             </div>
 
             {/* Collapsible System & Tools Breakdown */}
-            {breakdown.systemAndTools > 0 ? (
+            {breakdown.systemAndTools > 0 && detailedContext ? (
               <div className="border-t border-content/10 pt-2 space-y-1">
                 <button
                   type="button"
@@ -760,7 +835,14 @@ export function ContextMeter({
                   Plan quota
                 </div>
                 {rateLimits.session ? (
-                  <div className="flex items-center justify-between text-content/70">
+                  <div
+                    className="flex items-center justify-between text-content/70"
+                    title={rateLimitWindowTooltip(
+                      rateLimits.session,
+                      undefined,
+                      remainingQuota,
+                    )}
+                  >
                     <span>5-hour quota</span>
                     <div className="flex items-center gap-2 tabular-nums">
                       {rateLimits.session.resetsAt ? (
@@ -771,13 +853,23 @@ export function ContextMeter({
                         </span>
                       ) : null}
                       <span className="font-medium text-content/90">
-                        {formatRemainingPercent(rateLimits.session.usedPercent)} left
+                        {formatQuotaPercent(
+                          rateLimits.session.usedPercent,
+                          remainingQuota,
+                        )}
                       </span>
                     </div>
                   </div>
                 ) : null}
                 {rateLimits.weekly ? (
-                  <div className="flex items-center justify-between text-content/70">
+                  <div
+                    className="flex items-center justify-between text-content/70"
+                    title={rateLimitWindowTooltip(
+                      rateLimits.weekly,
+                      undefined,
+                      remainingQuota,
+                    )}
+                  >
                     <span>Weekly quota</span>
                     <div className="flex items-center gap-2 tabular-nums">
                       {rateLimits.weekly.resetsAt ? (
@@ -788,7 +880,10 @@ export function ContextMeter({
                         </span>
                       ) : null}
                       <span className="font-medium text-content/90">
-                        {formatRemainingPercent(rateLimits.weekly.usedPercent)} left
+                        {formatQuotaPercent(
+                          rateLimits.weekly.usedPercent,
+                          remainingQuota,
+                        )}
                       </span>
                     </div>
                   </div>
@@ -898,6 +993,12 @@ export function ContextMeter({
               </span>
             </div>
           </div>
+        ) : (
+          <CompactContextSummary
+            headline={compactSummary.headline}
+            detail={compactSummary.detail}
+          />
+        )}
         </Popover>
       ) : null}
     </div>

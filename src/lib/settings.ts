@@ -9,7 +9,8 @@ export type SettingsSectionId =
   | "providers"
   | "skills"
   | "archive"
-  | "migration";
+  | "migration"
+  | "experimentation";
 
 export const SETTINGS_SECTIONS: {
   id: SettingsSectionId;
@@ -54,6 +55,11 @@ export const SETTINGS_SECTIONS: {
     label: "Migration",
     description:
       "Import past Claude and Codex sessions — resume natively or replay as history.",
+  },
+  {
+    id: "experimentation",
+    label: "Experimentation",
+    description: "Preview features that may change or use estimated data.",
   },
 ];
 
@@ -102,6 +108,10 @@ export type FollowUpBehavior = "steer" | "queue";
 
 export const FOLLOW_UP_BEHAVIOR_DEFAULT: FollowUpBehavior = "steer";
 
+/** Fired on `window` when the follow-up behavior setting flips. */
+export const FOLLOW_UP_BEHAVIOR_CHANGE_EVENT =
+  "monocode:follow-up-behavior-change";
+
 export function loadFollowUpBehavior(): FollowUpBehavior {
   try {
     const raw = localStorage.getItem(FOLLOW_UP_BEHAVIOR_KEY);
@@ -119,6 +129,21 @@ export function saveFollowUpBehavior(value: FollowUpBehavior) {
   } catch {
     // private mode / quota
   }
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<FollowUpBehavior>(FOLLOW_UP_BEHAVIOR_CHANGE_EVENT, {
+      detail: value,
+    }),
+  );
+}
+
+export function subscribeFollowUpBehavior(
+  onStoreChange: () => void,
+): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(FOLLOW_UP_BEHAVIOR_CHANGE_EVENT, onStoreChange);
+  return () =>
+    window.removeEventListener(FOLLOW_UP_BEHAVIOR_CHANGE_EVENT, onStoreChange);
 }
 
 export const COMPOSER_RUNNER_DEFAULT = true;
@@ -324,6 +349,80 @@ export function saveClaudeHooks(value: boolean) {
   } catch {
     // private mode / quota
   }
+}
+
+const DETAILED_CONTEXT_KEY = "monocode.detailedContext";
+
+export const DETAILED_CONTEXT_DEFAULT = false;
+
+/** Fired on `window` when the detailed-context setting flips. */
+export const DETAILED_CONTEXT_CHANGE_EVENT =
+  "monocode:detailed-context-change";
+
+export function loadDetailedContext(): boolean {
+  try {
+    const raw = localStorage.getItem(DETAILED_CONTEXT_KEY);
+    if (raw == null) return DETAILED_CONTEXT_DEFAULT;
+    return raw === "1" || raw === "true";
+  } catch {
+    return DETAILED_CONTEXT_DEFAULT;
+  }
+}
+
+export function saveDetailedContext(value: boolean): void {
+  try {
+    localStorage.setItem(DETAILED_CONTEXT_KEY, value ? "1" : "0");
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<boolean>(DETAILED_CONTEXT_CHANGE_EVENT, { detail: value }),
+  );
+}
+
+export function subscribeDetailedContext(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(DETAILED_CONTEXT_CHANGE_EVENT, onStoreChange);
+  return () =>
+    window.removeEventListener(DETAILED_CONTEXT_CHANGE_EVENT, onStoreChange);
+}
+
+const REMAINING_QUOTA_KEY = "monocode.remainingQuota";
+
+export const REMAINING_QUOTA_DEFAULT = false;
+
+/** Fired on `window` when the remaining-quota presentation setting flips. */
+export const REMAINING_QUOTA_CHANGE_EVENT =
+  "monocode:remaining-quota-change";
+
+export function loadRemainingQuota(): boolean {
+  try {
+    const raw = localStorage.getItem(REMAINING_QUOTA_KEY);
+    if (raw == null) return REMAINING_QUOTA_DEFAULT;
+    return raw === "1" || raw === "true";
+  } catch {
+    return REMAINING_QUOTA_DEFAULT;
+  }
+}
+
+export function saveRemainingQuota(value: boolean): void {
+  try {
+    localStorage.setItem(REMAINING_QUOTA_KEY, value ? "1" : "0");
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<boolean>(REMAINING_QUOTA_CHANGE_EVENT, { detail: value }),
+  );
+}
+
+export function subscribeRemainingQuota(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(REMAINING_QUOTA_CHANGE_EVENT, onStoreChange);
+  return () =>
+    window.removeEventListener(REMAINING_QUOTA_CHANGE_EVENT, onStoreChange);
 }
 
 const CTRL = IS_MAC ? "⌃" : "Ctrl+";

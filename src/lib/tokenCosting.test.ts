@@ -98,5 +98,8 @@ describe("tokenCosting", () => {
       200_000 - 72_300 - 33_000,
     );
     expect(breakdown.segments.length).toBe(6);
+    expect(
+      breakdown.segments.find((s) => s.id === "skills")?.colorClass,
+    ).toBe("bg-emerald-400");
   });
 });

@@ -207,18 +207,22 @@ import {
   KEYBINDINGS,
   loadClaudeHooks,
   loadComposerRunner,
+  loadDetailedContext,
   loadDiffViewer,
   loadFollowUpBehavior,
   loadGridArcadeEnabled,
   loadLiveAgentsEnabled,
   loadNotesEnabled,
+  loadRemainingQuota,
   saveClaudeHooks,
   saveComposerRunner,
+  saveDetailedContext,
   saveDiffViewer,
   saveFollowUpBehavior,
   saveGridArcadeEnabled,
   saveLiveAgentsEnabled,
   saveNotesEnabled,
+  saveRemainingQuota,
   settingsSectionDescription,
   settingsSectionLabel,
   type DiffViewer,
@@ -345,9 +349,50 @@ export function SettingsView({
           {section === "migration" ? (
             <MigrationView onImportSessions={onImportSessions} />
           ) : null}
+          {section === "experimentation" ? <ExperimentationPage /> : null}
         </div>
       </div>
     </div>
+  );
+}
+
+function ExperimentationPage(): ReactElement {
+  const [detailedContext, setDetailedContext] = useState(loadDetailedContext);
+  const [remainingQuota, setRemainingQuota] = useState(loadRemainingQuota);
+
+  const onDetailedContext = (next: boolean): void => {
+    saveDetailedContext(next);
+    setDetailedContext(next);
+  };
+
+  const onRemainingQuota = (next: boolean): void => {
+    saveRemainingQuota(next);
+    setRemainingQuota(next);
+  };
+
+  return (
+    <>
+      <Row
+        label="Detailed context"
+        description="Show the full context inspector with usage breakdowns, quota, costing, skills, and System & Tools details. Values are estimated and might not be fully accurate yet."
+      >
+        <Toggle
+          label="Detailed context"
+          on={detailedContext}
+          onChange={onDetailedContext}
+        />
+      </Row>
+      <Row
+        label="Remaining quota"
+        description="Show plan limits as quota remaining—for example, 42% left—instead of quota already used."
+      >
+        <Toggle
+          label="Remaining quota"
+          on={remainingQuota}
+          onChange={onRemainingQuota}
+        />
+      </Row>
+    </>
   );
 }
 

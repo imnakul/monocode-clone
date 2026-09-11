@@ -1,24 +1,37 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   COMPOSER_RUNNER_DEFAULT,
+  DETAILED_CONTEXT_DEFAULT,
   DIFF_VIEWER_DEFAULT,
   FOLLOW_UP_BEHAVIOR_DEFAULT,
   GRID_ARCADE_ENABLED_DEFAULT,
+  isSettingsSectionId,
   KEYBINDINGS,
   LIVE_AGENTS_ENABLED_DEFAULT,
   loadComposerRunner,
+  loadDetailedContext,
   loadDiffViewer,
   loadFollowUpBehavior,
   loadGridArcadeEnabled,
   loadLiveAgentsEnabled,
   loadNotesEnabled,
+  loadRemainingQuota,
   NOTES_ENABLED_DEFAULT,
+  REMAINING_QUOTA_DEFAULT,
   saveComposerRunner,
+  saveDetailedContext,
   saveDiffViewer,
   saveFollowUpBehavior,
   saveGridArcadeEnabled,
   saveLiveAgentsEnabled,
   saveNotesEnabled,
+  saveRemainingQuota,
+  SETTINGS_SECTIONS,
+  settingsSectionDescription,
+  settingsSectionLabel,
+  subscribeDetailedContext,
+  subscribeFollowUpBehavior,
+  subscribeRemainingQuota,
 } from "./settings";
 
 const KEY = "monocode.composerRunner";
@@ -27,6 +40,8 @@ const LIVE_AGENTS_KEY = "monocode.liveAgentsEnabled";
 const GRID_ARCADE_KEY = "monocode.gridArcadeEnabled";
 const DIFF_VIEWER_KEY = "monocode.diffViewer";
 const FOLLOW_UP_BEHAVIOR_KEY = "monocode.followUpBehavior";
+const DETAILED_CONTEXT_KEY = "monocode.detailedContext";
+const REMAINING_QUOTA_KEY = "monocode.remainingQuota";
 
 describe("follow-up behavior setting", () => {
   beforeEach(mockLocalStorage);
@@ -47,6 +62,46 @@ describe("follow-up behavior setting", () => {
   it("ignores unknown stored values", () => {
     localStorage.setItem(FOLLOW_UP_BEHAVIOR_KEY, "interrupt");
     expect(loadFollowUpBehavior()).toBe("steer");
+  });
+
+  it("safely falls back when storage throws", () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      value: {
+        getItem: () => {
+          throw new Error("storage quota exceeded");
+        },
+        setItem: () => {
+          throw new Error("storage quota exceeded");
+        },
+        removeItem: () => {},
+      },
+      configurable: true,
+    });
+    expect(loadFollowUpBehavior()).toBe("steer");
+    expect(() => saveFollowUpBehavior("queue")).not.toThrow();
+  });
+
+  it("notifies subscribers when setting changes and cleans up", () => {
+    const target = new EventTarget();
+    vi.stubGlobal("window", target);
+    try {
+      let callCount = 0;
+      const unsubscribe = subscribeFollowUpBehavior(() => {
+        callCount++;
+      });
+
+      saveFollowUpBehavior("queue");
+      expect(callCount).toBe(1);
+
+      saveFollowUpBehavior("steer");
+      expect(callCount).toBe(2);
+
+      unsubscribe();
+      saveFollowUpBehavior("queue");
+      expect(callCount).toBe(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -197,5 +252,158 @@ describe("diff viewer setting", () => {
   it("ignores unknown stored values", () => {
     localStorage.setItem(DIFF_VIEWER_KEY, "split");
     expect(loadDiffViewer()).toBe("editor");
+  });
+});
+
+describe("experimentation section metadata", () => {
+  it("registers experimentation as a valid settings section", () => {
+    expect(isSettingsSectionId("experimentation")).toBe(true);
+    expect(
+      SETTINGS_SECTIONS.some((section) => section.id === "experimentation"),
+    ).toBe(true);
+    expect(settingsSectionLabel("experimentation")).toBe("Experimentation");
+    expect(settingsSectionDescription("experimentation")).toBe(
+      "Preview features that may change or use estimated data.",
+    );
+  });
+});
+
+describe("detailed context setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem(DETAILED_CONTEXT_KEY);
+  });
+
+  it("defaults to off", () => {
+    expect(DETAILED_CONTEXT_DEFAULT).toBe(false);
+    expect(loadDetailedContext()).toBe(false);
+  });
+
+  it("persists on and off switches", () => {
+    saveDetailedContext(true);
+    expect(localStorage.getItem(DETAILED_CONTEXT_KEY)).toBe("1");
+    expect(loadDetailedContext()).toBe(true);
+
+    saveDetailedContext(false);
+    expect(localStorage.getItem(DETAILED_CONTEXT_KEY)).toBe("0");
+    expect(loadDetailedContext()).toBe(false);
+  });
+
+  it("safely falls back to false for invalid stored values", () => {
+    localStorage.setItem(DETAILED_CONTEXT_KEY, "invalid");
+    expect(loadDetailedContext()).toBe(false);
+
+    localStorage.setItem(DETAILED_CONTEXT_KEY, "");
+    expect(loadDetailedContext()).toBe(false);
+  });
+
+  it("safely falls back to false when storage throws", () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      value: {
+        getItem: () => {
+          throw new Error("storage quota exceeded");
+        },
+        setItem: () => {
+          throw new Error("storage quota exceeded");
+        },
+        removeItem: () => {},
+      },
+      configurable: true,
+    });
+    expect(loadDetailedContext()).toBe(false);
+    expect(() => saveDetailedContext(true)).not.toThrow();
+  });
+
+  it("notifies subscribers when the setting changes", () => {
+    const target = new EventTarget();
+    vi.stubGlobal("window", target);
+    try {
+      let callCount = 0;
+      const unsubscribe = subscribeDetailedContext(() => {
+        callCount++;
+      });
+
+      saveDetailedContext(true);
+      expect(callCount).toBe(1);
+
+      saveDetailedContext(false);
+      expect(callCount).toBe(2);
+
+      unsubscribe();
+      saveDetailedContext(true);
+      expect(callCount).toBe(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("remaining quota setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem(REMAINING_QUOTA_KEY);
+  });
+
+  it("defaults to off", () => {
+    expect(REMAINING_QUOTA_DEFAULT).toBe(false);
+    expect(loadRemainingQuota()).toBe(false);
+  });
+
+  it("persists on and off switches", () => {
+    saveRemainingQuota(true);
+    expect(localStorage.getItem(REMAINING_QUOTA_KEY)).toBe("1");
+    expect(loadRemainingQuota()).toBe(true);
+
+    saveRemainingQuota(false);
+    expect(localStorage.getItem(REMAINING_QUOTA_KEY)).toBe("0");
+    expect(loadRemainingQuota()).toBe(false);
+  });
+
+  it("safely falls back to false for invalid stored values", () => {
+    localStorage.setItem(REMAINING_QUOTA_KEY, "invalid");
+    expect(loadRemainingQuota()).toBe(false);
+
+    localStorage.setItem(REMAINING_QUOTA_KEY, "");
+    expect(loadRemainingQuota()).toBe(false);
+  });
+
+  it("safely falls back to false when storage throws", () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      value: {
+        getItem: () => {
+          throw new Error("storage access denied");
+        },
+        setItem: () => {
+          throw new Error("storage access denied");
+        },
+        removeItem: () => {},
+      },
+      configurable: true,
+    });
+    expect(loadRemainingQuota()).toBe(false);
+    expect(() => saveRemainingQuota(true)).not.toThrow();
+  });
+
+  it("notifies subscribers when the setting changes", () => {
+    const target = new EventTarget();
+    vi.stubGlobal("window", target);
+    try {
+      let callCount = 0;
+      const unsubscribe = subscribeRemainingQuota(() => {
+        callCount++;
+      });
+
+      saveRemainingQuota(true);
+      expect(callCount).toBe(1);
+
+      saveRemainingQuota(false);
+      expect(callCount).toBe(2);
+
+      unsubscribe();
+      saveRemainingQuota(true);
+      expect(callCount).toBe(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

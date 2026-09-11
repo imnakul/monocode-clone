@@ -148,6 +148,16 @@ export function formatRemainingPercent(usedPercent: number): string {
   return `${Math.round(remaining)}%`;
 }
 
+export function formatQuotaPercent(
+  usedPercent: number,
+  remainingQuota = false,
+): string {
+  if (remainingQuota) {
+    return `${formatRemainingPercent(usedPercent)} left`;
+  }
+  return `${formatUsagePercent(usedPercent)} used`;
+}
+
 /**
  * Compact window-size label. 10080 minutes stays "wk" to match the
  * original status-bar copy.
@@ -207,12 +217,13 @@ export function formatRateLimitWindowChipLabel(
 export function rateLimitWindowTooltip(
   window: RateLimitWindow,
   now = Date.now(),
+  remainingQuota = false,
 ): string {
-  const left = `${formatRemainingPercent(window.usedPercent)} left`;
+  const quota = formatQuotaPercent(window.usedPercent, remainingQuota);
   if (window.resetsAt == null) {
-    return `${left} · ${formatWindowLabel(window.windowMinutes)} window`;
+    return `${quota} · ${formatWindowLabel(window.windowMinutes)} window`;
   }
-  return `${left} · ${formatResetCountdown(window.resetsAt - now)}`;
+  return `${quota} · ${formatResetCountdown(window.resetsAt - now)}`;
 }
 
 export function parseResetTimestamp(value: unknown): number | null {

@@ -1,5 +1,5 @@
 import { RefreshCw } from "./icons";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { HarnessIcon } from "./HarnessIcon";
 import { Popover } from "./Popover";
 import {
@@ -9,8 +9,8 @@ import {
 import {
   clampUsedPercent,
   fetchingRateLimits,
+  formatQuotaPercent,
   formatRateLimitWindowChipLabel,
-  formatRemainingPercent,
   idleRateLimits,
   RATE_LIMIT_POLL_MS,
   rateLimitWindowTooltip,
@@ -19,6 +19,7 @@ import {
   type RateLimitProvider,
   type RateLimitWindow,
 } from "../lib/rateLimits";
+import { loadRemainingQuota, subscribeRemainingQuota } from "../lib/settings";
 import { HARNESS_LABEL, HARNESS_TITLE, type HarnessId } from "../lib/session";
 import {
   runningTerminalChipLabel,
@@ -116,6 +117,12 @@ export function UsageFooter({
     return () => window.clearInterval(timer);
   }, []);
 
+  const remainingQuota = useSyncExternalStore(
+    subscribeRemainingQuota,
+    loadRemainingQuota,
+    () => false,
+  );
+
   const showUsage = wantClaude || wantCodex;
   const showTerminals = terminals.length > 0;
   const showRight = showUsage || showTerminals;
@@ -134,8 +141,20 @@ export function UsageFooter({
     >
       {showUsage ? (
         <>
-          {wantClaude ? <ProviderChip limits={claude} now={now} /> : null}
-          {wantCodex ? <ProviderChip limits={codex} now={now} /> : null}
+          {wantClaude ? (
+            <ProviderChip
+              limits={claude}
+              now={now}
+              remainingQuota={remainingQuota}
+            />
+          ) : null}
+          {wantCodex ? (
+            <ProviderChip
+              limits={codex}
+              now={now}
+              remainingQuota={remainingQuota}
+            />
+          ) : null}
         </>
       ) : session ? (
         <SessionChip session={session} />
@@ -283,9 +302,11 @@ function RunningTerminalChip({
 function ProviderChip({
   limits,
   now,
+  remainingQuota = false,
 }: {
   limits: ProviderRateLimits;
   now: number;
+  remainingQuota?: boolean;
 }) {
   const loading =
     limits.status === "idle" ||
@@ -304,7 +325,7 @@ function ProviderChip({
     return best;
   }, null);
   const tooltip = windows
-    .map((entry) => rateLimitWindowTooltip(entry.window, now))
+    .map((entry) => rateLimitWindowTooltip(entry.window, now, remainingQuota))
     .join(" · ");
 
   return (
@@ -335,7 +356,7 @@ function ProviderChip({
               <span key={entry.key} className="inline-flex items-center gap-1">
                 {index > 0 ? <span className="text-content/25">·</span> : null}
                 <span>
-                  {formatRemainingPercent(entry.window.usedPercent)} left{" "}
+                  {formatQuotaPercent(entry.window.usedPercent, remainingQuota)}{" "}
                   {formatRateLimitWindowChipLabel(entry.window, now)}
                 </span>
               </span>
