@@ -1,6 +1,11 @@
 import { diff } from "@codemirror/merge";
-import type { Annotation, ChangeSpec } from "@codemirror/state";
+import type { Annotation, ChangeSpec, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import {
+  decodeLineEndings,
+  encodeLineEndings,
+  type LineEnding,
+} from "../lib/lineEndings";
 
 const DOC_DIFF = { scanLimit: 5_000, timeout: 100 };
 
@@ -67,4 +72,38 @@ export function preserveEditorViewport(view: EditorView, mutate: () => void) {
     read: () => true,
     write: restore,
   });
+}
+
+export type EditorDiskSession = {
+  applyDiskContent(rawContent: string): { text: string; lineEnding: LineEnding };
+  serializeForSave(canonicalText: string): string;
+  serializeForStage(canonicalText: string): string;
+};
+
+/**
+ * Encapsulate the external line-ending lifecycle for an open editor session.
+ * Decodes raw disk text to canonical LF on load, remembers the external
+ * convention, and serializes save/stage payloads back to that convention.
+ */
+export function createEditorDiskSession(
+  initialLineEnding: LineEnding = "\n",
+): EditorDiskSession {
+  let currentEnding: LineEnding = initialLineEnding;
+  return {
+    applyDiskContent(rawContent: string): { text: string; lineEnding: LineEnding } {
+      const decoded = decodeLineEndings(rawContent);
+      currentEnding = decoded.lineEnding;
+      return decoded;
+    },
+    serializeForSave(canonicalText: string): string {
+      return encodeLineEndings(canonicalText, currentEnding);
+    },
+    serializeForStage(canonicalText: string): string {
+      return encodeLineEndings(canonicalText, currentEnding);
+    },
+  };
+}
+
+export function isDocDirty(current: Text, saved: Text | null): boolean {
+  return saved ? !current.eq(saved) : false;
 }

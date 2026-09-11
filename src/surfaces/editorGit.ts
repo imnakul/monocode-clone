@@ -21,6 +21,11 @@ import {
   type ViewUpdate,
 } from "@codemirror/view";
 import type { UnifiedLine } from "../lib/unifiedDiff";
+import {
+  decodeLineEndings,
+  detectLineEnding,
+  encodeLineEndings,
+} from "../lib/lineEndings";
 
 const DIFF_CONFIG = { scanLimit: 5_000, timeout: 100 };
 
@@ -318,10 +323,14 @@ export function revertChunkText(
   selection?: GitTextRange | null,
 ): string | null {
   const orig = textFromString(original);
-  const doc = textFromString(current);
+  const decodedCurrent = decodeLineEndings(current);
+  const doc = textFromString(decodedCurrent.text);
   const changes = revertChunkChanges(orig, doc, pos, selection, "\n");
   if (!changes) return null;
-  return doc.replace(changes.from, changes.to, changes.insert).toString();
+  return encodeLineEndings(
+    doc.replace(changes.from, changes.to, changes.insert).toString(),
+    decodedCurrent.lineEnding,
+  );
 }
 
 export function stageChunkText(
@@ -330,11 +339,16 @@ export function stageChunkText(
   pos: number,
   selection?: GitTextRange | null,
 ): string | null {
+  const origEnding = detectLineEnding(original);
+  const lineEnding = origEnding ?? detectLineEnding(current) ?? "\n";
   const orig = textFromString(original);
   const doc = textFromString(current);
   const changes = stageChunkChanges(orig, doc, pos, selection, "\n");
   if (!changes) return null;
-  return orig.replace(changes.from, changes.to, changes.insert).toString();
+  return encodeLineEndings(
+    orig.replace(changes.from, changes.to, changes.insert).toString(),
+    lineEnding,
+  );
 }
 
 export async function stageChunkAt(
@@ -680,7 +694,7 @@ function widgetPos(doc: Text, chunk: Chunk): number {
 }
 
 function textFromString(value: string): Text {
-  return Text.of(value.split("\n"));
+  return Text.of(decodeLineEndings(value).text.split("\n"));
 }
 
 function sameText(a: Text | null, b: Text | null): boolean {

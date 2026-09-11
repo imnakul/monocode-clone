@@ -98,8 +98,18 @@ export type GitFileDiff = {
   tooLarge: boolean;
 };
 
-export function gitFileDiff(cwd: string, relative: string): Promise<GitFileDiff> {
-  return invoke<GitFileDiff>("git_file_diff", { cwd, relative });
+export type GitFileDiffKind = "staged" | "unstaged";
+
+export function gitFileDiff(
+  cwd: string,
+  relative: string,
+  kind: GitFileDiffKind = "unstaged",
+): Promise<GitFileDiff> {
+  return invoke<GitFileDiff>("git_file_diff", {
+    cwd,
+    relative,
+    staged: kind === "staged",
+  });
 }
 
 export type GitHistoryRef = {

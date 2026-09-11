@@ -42,6 +42,49 @@ describe("stageChunkText", () => {
     const pos = Text.of(current.split("\n")).line(2).from;
     expect(stageChunkText(original, current, pos)).toBe(current);
   });
+
+  it("preserves the index convention when staging CRLF content", () => {
+    expect(
+      stageChunkText(
+        "alpha\r\nbeta\r\ngamma\r\n",
+        "alpha\r\nBETA\r\ngamma\r\n",
+        6,
+      ),
+    ).toBe("alpha\r\nBETA\r\ngamma\r\n");
+  });
+
+  it("stages a wholly untracked CRLF file using current convention", () => {
+    const original = "";
+    const current = "line1\r\nline2\r\n";
+    expect(stageChunkText(original, current, 0)).toBe(current);
+  });
+
+  it("stages when original is empty and current is CR-only using current convention", () => {
+    const original = "";
+    const current = "line1\rline2\r";
+    expect(stageChunkText(original, current, 0)).toBe(current);
+  });
+
+  it("falls back to current convention when original has no separator", () => {
+    const original = "singleline";
+    const current = "singleline\r\nsecondline\r\n";
+    const result = stageChunkText(original, current, 12);
+    expect(result).toBe("singleline\r\nsecondline\r\n");
+  });
+
+  it("does not introduce CRCRLF when staging already encoded CRLF boundaries", () => {
+    const original = "alpha\r\nbeta\r\n";
+    const current = "alpha\r\nBETA\r\n";
+    const staged = stageChunkText(original, current, 6);
+    expect(staged).toBe("alpha\r\nBETA\r\n");
+    expect(staged).not.toContain("\r\r\n");
+  });
+
+  it("leaves existing LF staging unchanged", () => {
+    const original = "alpha\nbeta\ngamma\n";
+    const current = "alpha\nBETA\ngamma\n";
+    expect(stageChunkText(original, current, 6)).toBe("alpha\nBETA\ngamma\n");
+  });
 });
 
 describe("revertChunkText", () => {
@@ -83,6 +126,12 @@ describe("revertChunkText", () => {
         to: beta.to,
       }),
     ).toBe("alpha\ndelta\ngamma\n");
+  });
+
+  it("preserves the working-tree convention when reverting CR-only content", () => {
+    expect(
+      revertChunkText("alpha\rbeta\rgamma\r", "alpha\rBETA\rgamma\r", 6),
+    ).toBe("alpha\rbeta\rgamma\r");
   });
 });
 
@@ -214,6 +263,28 @@ describe("stateWithGitOriginal", () => {
     expect(diffLineStatsFromState(restored)).toEqual({
       additions: 0,
       deletions: 0,
+    });
+  });
+
+  it("shows no inline changes for an LF index and CRLF working tree", () => {
+    const state = stateWithGitOriginal(
+      "alpha\r\nbeta\r\n",
+      "alpha\nbeta\n",
+    );
+    expect(diffLineStatsFromState(state)).toEqual({
+      additions: 0,
+      deletions: 0,
+    });
+  });
+
+  it("shows only one inline edit when the line endings differ", () => {
+    const state = stateWithGitOriginal(
+      "alpha\r\nBETA\r\ngamma\r\n",
+      "alpha\nbeta\ngamma\n",
+    );
+    expect(diffLineStatsFromState(state)).toEqual({
+      additions: 1,
+      deletions: 1,
     });
   });
 });

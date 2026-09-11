@@ -71,6 +71,28 @@ describe("buildUnifiedFile", () => {
     expect(diff.deletions).toBe(0);
     expect(diff.lines.every((line) => line.kind === "context")).toBe(true);
   });
+
+  it("ignores line-ending-only differences", () => {
+    const diff = buildUnifiedFile("alpha\nbeta\n", "alpha\r\nbeta\r\n");
+    expect(diff.additions).toBe(0);
+    expect(diff.deletions).toBe(0);
+    expect(diff.lines.map((line) => line.text)).toEqual(["alpha", "beta"]);
+  });
+
+  it("reports only a real edit when line endings also differ", () => {
+    const diff = buildUnifiedFile(
+      "alpha\nbeta\ngamma\n",
+      "alpha\r\nBETA\r\ngamma\r\n",
+    );
+    expect(diff.additions).toBe(1);
+    expect(diff.deletions).toBe(1);
+    expect(diff.lines.filter((line) => line.kind === "del")).toEqual([
+      expect.objectContaining({ text: "beta", oldNumber: 2 }),
+    ]);
+    expect(diff.lines.filter((line) => line.kind === "add")).toEqual([
+      expect.objectContaining({ text: "BETA", newNumber: 2 }),
+    ]);
+  });
 });
 
 describe("foldUnifiedLines", () => {

@@ -1,5 +1,6 @@
 import { Chunk } from "@codemirror/merge";
 import { Text } from "@codemirror/state";
+import { decodeLineEndings } from "./lineEndings";
 
 const DIFF_CONFIG = { scanLimit: 5_000, timeout: 100 };
 
@@ -232,5 +233,5 @@ function visibleContext(
 }
 
 function textFromString(value: string): Text {
-  return Text.of(value.split("\n"));
+  return Text.of(decodeLineEndings(value).text.split("\n"));
 }

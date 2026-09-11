@@ -52,6 +52,7 @@ import {
   subscribeGitChanged,
   writeTextFile,
 } from "../lib/fs";
+import { hasSameLogicalText } from "../lib/lineEndings";
 import { syncWatchedMtime, watchFile } from "../lib/fileWatch";
 import { displayPath } from "../lib/paths";
 import type { EditorNavigation } from "../lib/search";
@@ -62,7 +63,12 @@ import {
 } from "./DiffCommentComposer";
 import { editorAutocomplete } from "./editorAutocomplete";
 import { languageForPath, schemeExtensions } from "./editorChrome";
-import { preserveEditorViewport, replaceEditorDoc } from "./editorDoc";
+import {
+  createEditorDiskSession,
+  isDocDirty,
+  preserveEditorViewport,
+  replaceEditorDoc,
+} from "./editorDoc";
 import { editorMatching, editorTyping, tryExpandEmmet } from "./editorEditing";
 import {
   diffActiveChunkIndex,
@@ -126,10 +132,12 @@ export function FileEditor({
   const loadGeneration = useRef(0);
   const dirtyRef = useRef(false);
   const pendingDiskRef = useRef(false);
+  const diskSessionRef = useRef(createEditorDiskSession());
   const onDirtyChangeRef = useRef(onDirtyChange);
   onDirtyChangeRef.current = onDirtyChange;
 
-  const applyDiskContent = useCallback((content: string) => {
+  const applyDiskContent = useCallback((rawContent: string) => {
+    const { text: content } = diskSessionRef.current.applyDiskContent(rawContent);
     setLoadState((current) => {
       if (current.status === "ready" && current.content === content) {
         return current;
@@ -173,15 +181,15 @@ export function FileEditor({
   useEffect(() => {
     dirtyRef.current = false;
     pendingDiskRef.current = false;
+    diskSessionRef.current = createEditorDiskSession();
     let cancelled = false;
     setLoadState({ status: "loading" });
     setSaveState({ status: "idle" });
     const generation = ++loadGeneration.current;
     void readTextFile(path)
-      .then((content) => {
+      .then((rawContent) => {
         if (cancelled || generation !== loadGeneration.current) return;
-        setLoadState({ status: "ready", content });
-        setDraft(content);
+        applyDiskContent(rawContent);
       })
       .catch((error: unknown) => {
         if (cancelled || generation !== loadGeneration.current) return;
@@ -193,7 +201,7 @@ export function FileEditor({
     return () => {
       cancelled = true;
     };
-  }, [path, reloadKey]);
+  }, [applyDiskContent, path, reloadKey]);
 
   useEffect(() => {
     if (!showDiff) {
@@ -209,7 +217,19 @@ export function FileEditor({
     setGitBase({ path, original: null });
 
     const load = () => {
-      void gitFileDiff(cwd, relative)
+      void (async () => {
+        let diff = await gitFileDiff(cwd, relative, "unstaged");
+        // A staged-only file has no logical index-to-disk delta. Compare
+        // normalized text so Windows checkout EOL conversion cannot hide it.
+        if (
+          !diff.binary &&
+          !diff.tooLarge &&
+          hasSameLogicalText(diff.original, diff.current)
+        ) {
+          diff = await gitFileDiff(cwd, relative, "staged");
+        }
+        return diff;
+      })()
         .then((diff) => {
           if (cancelled) return;
           if (diff.binary || diff.tooLarge) {
@@ -277,8 +297,9 @@ export function FileEditor({
     async (content: string) => {
       const generation = ++saveGeneration.current;
       setSaveState({ status: "saving" });
+      const diskContent = diskSessionRef.current.serializeForSave(content);
       const operation = saveQueue.current.then(() =>
-        writeTextFile(path, content),
+        writeTextFile(path, diskContent),
       );
       saveQueue.current = operation.catch(() => {});
       try {
@@ -306,7 +327,8 @@ export function FileEditor({
         throw new Error("Can't stage this file");
       }
       try {
-        await gitStageContents(cwd, relative, contents);
+        const diskContent = diskSessionRef.current.serializeForStage(contents);
+        await gitStageContents(cwd, relative, diskContent);
         notifyGitChanged();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -584,8 +606,7 @@ function CodeMirrorEditor({
     let view: EditorView;
 
     const markDirty = () => {
-      const saved = savedDocumentRef.current;
-      setDirty(saved ? !view.state.doc.eq(saved) : false);
+      setDirty(isDocDirty(view.state.doc, savedDocumentRef.current));
     };
 
     const save = () => {

@@ -28,6 +28,7 @@ export async function formatText(
       plugins: await pluginsFor(parser),
       cursorOffset,
       filepath: path,
+      endOfLine: "lf",
     });
   } catch {
     return null;
