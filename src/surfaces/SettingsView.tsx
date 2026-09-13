@@ -1,8 +1,8 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowDownCircle,
   Check,
-  Copy,
-  FolderOpen,
+  ImagePlus,
   Loader,
   RefreshCw,
   RotateCcw,
@@ -27,7 +27,11 @@ import { TerminalSpinner } from "../chrome/TerminalSpinner";
 import { MigrationView } from "./MigrationView";
 import { WindowControls } from "../chrome/WindowControls";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
+import { useColorScheme } from "../hooks/useColorScheme";
 import {
+  applyChatBackground,
+  applyChatBackgroundOpacity,
+  applyChatBackgroundScope,
   applyBodyGlass,
   applyPopoverBlur,
   applyPopoverHighlight,
@@ -44,6 +48,10 @@ import {
   applySidebarOpacity,
   applyThemeTint,
   BODY_GLASS_DEFAULT,
+  CHAT_BACKGROUND_OPACITY_DEFAULT,
+  CHAT_BACKGROUND_OPACITY_MAX,
+  CHAT_BACKGROUND_OPACITY_MIN,
+  CHAT_BACKGROUND_SCOPE_DEFAULT,
   POPOVER_BLUR_DEFAULT,
   POPOVER_BLUR_MAX,
   POPOVER_BLUR_MIN,
@@ -70,7 +78,11 @@ import {
   UI_FONT_SIZE_MAX,
   UI_FONT_SIZE_MIN,
   THEME_PREFERENCE_DEFAULT,
+  chatBackgroundSrc,
   loadBodyGlass,
+  loadChatBackgroundOpacity,
+  loadChatBackgroundPath,
+  loadChatBackgroundScope,
   loadPopoverBlur,
   loadPopoverHighlight,
   loadWallpaperOpacity,
@@ -89,6 +101,9 @@ import {
   loadTranscriptLayout,
   loadTranscriptAnchor,
   saveBodyGlass,
+  saveChatBackgroundOpacity,
+  saveChatBackgroundPath,
+  saveChatBackgroundScope,
   savePopoverBlur,
   savePopoverHighlight,
   saveWallpaperOpacity,
@@ -121,9 +136,23 @@ import {
   THEME_SATURATION_MIN,
   type TerminalFontId,
   type ThemePreference,
+  type ChatBackgroundScope,
   type UiFontId,
   type TranscriptLayout,
 } from "../lib/appearance";
+import {
+  pickAndSaveChatBackground,
+  removeChatBackground,
+} from "../lib/chatBackground";
+import {
+  applyUiScale,
+  loadUiScale,
+  saveUiScale,
+  subscribeUiScale,
+  UI_SCALE_DEFAULT,
+  UI_SCALE_MAX,
+  UI_SCALE_MIN,
+} from "../lib/uiScale";
 import {
   getHarnessAvailabilitySnapshot,
   harnessUnavailableHint,
@@ -156,19 +185,13 @@ import {
   savePickerProviderVisible,
   subscribeModels,
 } from "../lib/models";
-import { prettyCwd, projectName } from "../lib/paths";
+import { prettyCwd, projectKey, projectName } from "../lib/paths";
 import {
   clearManagedWallpaper,
-  type DiscoveredSkill,
-  listSkills,
   persistWallpaper,
   pickFile,
   pickImage,
 } from "../lib/fs";
-import { createBlankSkill, loadDisabledSkillPaths, saveDisabledSkillPaths, SKILLS_CHANGE_EVENT } from "../lib/skills";
-import { CreateSkillForm } from "../chrome/SkillPicker";
-import { copyText } from "../lib/clipboard";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getCustomBinary, setCustomBinary } from "../lib/harness/customBinary";
 import { SharedHoverHighlight } from "../chrome/SharedHoverHighlight";
 import { IS_MAC, IS_WINDOWS } from "../lib/platform";
@@ -190,9 +213,19 @@ import {
   saveSessionSidebarFilters,
 } from "../lib/sessionFilters";
 import type { SessionSummary } from "../lib/sessionStore";
-import { clearInboxCache } from "../lib/githubTasks";
+import {
+  clearInboxCache,
+  githubStatus,
+  type GithubStatus,
+} from "../lib/githubTasks";
+import {
+  disconnectGitlab,
+  gitlabConnected,
+  saveGitlabConfig,
+} from "../lib/gitlab";
 import {
   disconnectLinear,
+  LINEAR_CHANGE_EVENT,
   linearConnected,
   listLinearTeams,
   loadHiddenLinearTeamIds,
@@ -231,14 +264,35 @@ import {
 } from "../lib/settings";
 import { loadSoundsEnabled, playCue, saveSoundsEnabled } from "../lib/sounds";
 import {
+  cachedNotificationPermission,
+  loadNotificationsEnabled,
+  openNotificationSettings,
+  probeNotificationPermission,
+  requestNotificationPermission,
+  saveNotificationsEnabled,
+  type NotificationPermission,
+} from "../lib/notifications";
+import {
   installPendingUpdate,
   readAppVersion,
   runUpdateFlow,
   type UpdaterSnapshot,
 } from "../lib/updater";
 
+import { SkillsPage } from "./SkillsPage";
+
+export type SettingsAnchor = "github" | "gitlab" | "linear";
+
+const ANCHOR_IDS: Record<SettingsAnchor, string> = {
+  github: "settings-github",
+  gitlab: "settings-gitlab",
+  linear: "settings-linear",
+};
+
 type Props = {
   section: SettingsSectionId;
+  /** Card to scroll to; the General page is too long to land at the top. */
+  anchor?: SettingsAnchor | null;
   cwd: string;
   sessions: SessionSummary[];
   besideRail?: boolean;
@@ -254,6 +308,7 @@ type Props = {
 
 export function SettingsView({
   section,
+  anchor = null,
   cwd,
   sessions,
   besideRail = false,
@@ -267,6 +322,12 @@ export function SettingsView({
   onImportSessions,
 }: Props) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
+  useEffect(() => {
+    if (!anchor) return;
+    document.getElementById(ANCHOR_IDS[anchor])?.scrollIntoView({
+      block: "start",
+    });
+  }, [anchor]);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const appearance = useAppearanceSettings();
@@ -334,7 +395,8 @@ export function SettingsView({
           ) : null}
           {section === "keybindings" ? <KeybindingsPage /> : null}
           {section === "providers" ? <ProvidersPage /> : null}
-          {section === "skills" ? <SkillsPage cwd={cwd} /> : null}
+          {section === "inbox" ? <InboxPage /> : null}
+          {section === "skills" ? <SkillsPage key={cwd} cwd={cwd} /> : null}
           {section === "archive" ? (
             <ArchivePage
               cwd={cwd}
@@ -417,7 +479,24 @@ function GeneralPage({
     loadLiveAgentsEnabled,
   );
   const [soundsEnabled, setSoundsEnabled] = useState(loadSoundsEnabled);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(
+    loadNotificationsEnabled,
+  );
+  const [notificationPermission, setNotificationPermission] =
+    useState<NotificationPermission>(cachedNotificationPermission);
   const [claudeHooks, setClaudeHooks] = useState(loadClaudeHooks);
+
+  // The user may flip the switch in System Settings and come back: re-read
+  // the OS state whenever the window regains focus while the toggle is on.
+  useEffect(() => {
+    if (!notificationsEnabled) return;
+    const refresh = () => {
+      void probeNotificationPermission().then(setNotificationPermission);
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [notificationsEnabled]);
 
   useEffect(() => {
     const onAnchor = (event: Event) => {
@@ -472,6 +551,13 @@ function GeneralPage({
   const onSoundsEnabled = (next: boolean) => {
     saveSoundsEnabled(next);
     setSoundsEnabled(next);
+  };
+
+  const onNotificationsEnabled = (next: boolean) => {
+    saveNotificationsEnabled(next);
+    setNotificationsEnabled(next);
+    if (!next) return;
+    void requestNotificationPermission().then(setNotificationPermission);
   };
 
   const onClaudeHooks = (next: boolean) => {
@@ -576,6 +662,24 @@ function GeneralPage({
         <Toggle label="Sounds" on={soundsEnabled} onChange={onSoundsEnabled} />
       </Row>
       <Row
+        label="Notifications"
+        description="Notify when a reminder is due, or when an agent finishes or needs input in another session or while MonoCode is in the background. Click the notification to open that session."
+      >
+        {notificationsEnabled && notificationPermission === "denied" ? (
+          <NotificationsBlocked />
+        ) : null}
+        {notificationsEnabled && notificationPermission === "unsupported" ? (
+          <span className="text-[12px] text-content/45">
+            Not available on this platform
+          </span>
+        ) : null}
+        <Toggle
+          label="Notifications"
+          on={notificationsEnabled}
+          onChange={onNotificationsEnabled}
+        />
+      </Row>
+      <Row
         label="Claude Code hooks"
         description="Run the hooks configured in your settings.json files — PreToolUse command rewrites, blocks, notifications, and the rest — just as the Claude Code CLI would. Turn this off if a hook is misbehaving and you need the session back. Takes effect on the next turn."
       >
@@ -586,11 +690,223 @@ function GeneralPage({
         />
       </Row>
 
-      <Heading title="Linear" />
-      <LinearSettings />
-
       <Heading title="About" />
       <UpdateRow onOpenWhatsNew={onOpenWhatsNew} />
+    </>
+  );
+}
+
+function InboxPage() {
+  return (
+    <>
+      <Heading title="GitHub" id={ANCHOR_IDS.github} first />
+      <GithubSettings />
+
+      <Heading title="GitLab" id={ANCHOR_IDS.gitlab} />
+      <GitlabSettings />
+
+      <Heading title="Linear" id={ANCHOR_IDS.linear} />
+      <LinearSettings />
+    </>
+  );
+}
+
+function GithubSettings() {
+  const [status, setStatus] = useState<GithubStatus | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const request = useRef(0);
+
+  const checkStatus = useCallback(async () => {
+    const generation = ++request.current;
+    setChecking(true);
+    setError(null);
+    try {
+      const next = await githubStatus();
+      if (generation === request.current) setStatus(next);
+    } catch (err: unknown) {
+      if (generation === request.current) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      if (generation === request.current) setChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void checkStatus();
+    return () => {
+      request.current += 1;
+    };
+  }, [checkStatus]);
+
+  const description = status?.connected
+    ? "GitHub CLI is installed and authenticated. MonoCode uses it for GitHub inbox items."
+    : status?.installed
+      ? "Run gh auth login in a terminal, complete the sign-in flow, then check again."
+      : "Install GitHub CLI from cli.github.com, run gh auth login in a terminal, then check again.";
+  const label = checking
+    ? "Checking"
+    : status?.connected
+      ? "Connected"
+      : status?.installed
+        ? "Sign in required"
+        : "Not installed";
+
+  return (
+    <>
+      <Row
+        label={
+          <span className="flex items-center gap-2">
+            <InboxProviderMark provider="github" className="size-4 shrink-0" />
+            Connection
+          </span>
+        }
+        description={description}
+      >
+        <span className="text-[12px] text-content/50">{label}</span>
+        {!checking && !status?.installed ? (
+          <SecondaryButton
+            onClick={() => {
+              void openUrl("https://cli.github.com/").catch(() => {});
+            }}
+          >
+            Installation guide
+          </SecondaryButton>
+        ) : null}
+        <SecondaryButton onClick={() => void checkStatus()} disabled={checking}>
+          {checking ? "Checking" : "Check again"}
+        </SecondaryButton>
+      </Row>
+      {error ? (
+        <p className="pb-2 text-[12px] text-red-400/90">{error}</p>
+      ) : null}
+    </>
+  );
+}
+
+function GitlabSettings() {
+  const [url, setUrl] = useState("https://gitlab.com");
+  const [token, setToken] = useState("");
+  const [connected, setConnected] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void gitlabConnected()
+      .then((status) => {
+        if (cancelled) return;
+        setConnected(status.connected);
+        setUrl(status.url);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onSave = async () => {
+    if (!token.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const status = await saveGitlabConfig(url, token);
+      setUrl(status.url);
+      setToken("");
+      setConnected(status.connected);
+      clearInboxCache();
+    } catch (err: unknown) {
+      setConnected(false);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDisconnect = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const status = await disconnectGitlab(url);
+      setConnected(false);
+      setUrl(status.url);
+      clearInboxCache();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <Row
+        label={
+          <span className="flex items-center gap-2">
+            <InboxProviderMark provider="gitlab" className="size-4 shrink-0" />
+            Connection
+          </span>
+        }
+        description="Connect GitLab.com or a self-managed GitLab instance. Use a personal access token with API access; the token is stored locally and Disconnect deletes it."
+      >
+        {connected ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="max-w-56 truncate text-[12px] text-content/50">
+              {url}
+            </span>
+            <SecondaryButton
+              onClick={() => void onDisconnect()}
+              disabled={busy}
+            >
+              Disconnect
+            </SecondaryButton>
+          </div>
+        ) : (
+          <div className="flex min-w-0 items-center gap-2">
+            <label className="flex h-7 w-52 shrink-0 items-center rounded-md border border-content/10 px-2 focus-within:border-content/20">
+              <input
+                type="url"
+                value={url}
+                onChange={(event) => setUrl(event.target.value)}
+                placeholder="https://gitlab.com"
+                aria-label="GitLab URL"
+                autoComplete="url"
+                spellCheck={false}
+                className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35"
+              />
+            </label>
+            <label className="flex h-7 w-52 shrink-0 items-center rounded-md border border-content/10 px-2 focus-within:border-content/20">
+              <input
+                type="password"
+                value={token}
+                onChange={(event) => setToken(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void onSave();
+                }}
+                placeholder="glpat-…"
+                aria-label="GitLab access token"
+                autoComplete="off"
+                spellCheck={false}
+                className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35"
+              />
+            </label>
+            <SecondaryButton
+              onClick={() => void onSave()}
+              disabled={busy || !token.trim()}
+            >
+              {busy ? "Saving" : "Connect"}
+            </SecondaryButton>
+          </div>
+        )}
+      </Row>
+      {error ? (
+        <p className="pb-2 text-[12px] text-red-400/90">{error}</p>
+      ) : null}
     </>
   );
 }
@@ -623,6 +939,13 @@ function LinearSettings() {
       cancelled = true;
     };
   }, [loadTeams]);
+
+  // The inbox filter menu writes the same list, so follow it while both are mounted.
+  useEffect(() => {
+    const onChange = () => setHiddenTeamIds(loadHiddenLinearTeamIds());
+    window.addEventListener(LINEAR_CHANGE_EVENT, onChange);
+    return () => window.removeEventListener(LINEAR_CHANGE_EVENT, onChange);
+  }, []);
 
   const onSave = async () => {
     if (!token.trim() || busy) return;
@@ -860,6 +1183,21 @@ function useAppearanceSettings() {
     useState<TerminalFontId>(loadTerminalFont);
   const [terminalFontSize, setTerminalFontSize] =
     useState(loadTerminalFontSize);
+  const [chatBackgroundPath, setChatBackgroundPath] = useState(
+    loadChatBackgroundPath,
+  );
+  const [chatBackgroundOpacity, setChatBackgroundOpacity] = useState(
+    loadChatBackgroundOpacity,
+  );
+  const [chatBackgroundScope, setChatBackgroundScope] =
+    useState<ChatBackgroundScope>(loadChatBackgroundScope);
+  const [chatBackgroundBusy, setChatBackgroundBusy] = useState(false);
+  const [chatBackgroundError, setChatBackgroundError] = useState<string | null>(
+    null,
+  );
+  const [uiScale, setUiScale] = useState(loadUiScale);
+
+  useEffect(() => subscribeUiScale(() => setUiScale(loadUiScale())), []);
 
   const onThemePreference = useCallback((next: ThemePreference) => {
     applyThemePreference(next);
@@ -968,6 +1306,59 @@ function useAppearanceSettings() {
       console.debug("[monocode] wallpaper cleanup", error);
     });
   }, []);
+
+  const onChooseChatBackground = useCallback(async () => {
+    setChatBackgroundBusy(true);
+    setChatBackgroundError(null);
+    try {
+      const path = await pickAndSaveChatBackground();
+      if (!path) return;
+      saveChatBackgroundPath(path);
+      applyChatBackground(path);
+      setChatBackgroundPath(path);
+    } catch (error) {
+      setChatBackgroundError(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      setChatBackgroundBusy(false);
+    }
+  }, []);
+
+  const onClearChatBackground = useCallback(async () => {
+    setChatBackgroundBusy(true);
+    setChatBackgroundError(null);
+    try {
+      await removeChatBackground();
+      saveChatBackgroundPath(null);
+      applyChatBackground(null);
+      setChatBackgroundPath(null);
+    } catch (error) {
+      setChatBackgroundError(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      setChatBackgroundBusy(false);
+    }
+  }, []);
+
+  const onChatBackgroundOpacity = useCallback((percent: number) => {
+    const next = applyChatBackgroundOpacity(percent / 100);
+    saveChatBackgroundOpacity(next);
+    setChatBackgroundOpacity(next);
+  }, []);
+
+  const onChatBackgroundScope = useCallback((next: ChatBackgroundScope) => {
+    applyChatBackgroundScope(next);
+    saveChatBackgroundScope(next);
+    setChatBackgroundScope(next);
+  }, []);
+
+  const onUiScale = useCallback((percent: number) => {
+    const next = saveUiScale(percent / 100);
+    setUiScale(next);
+    void applyUiScale(next);
+  }, []);
   const restoreDefaults = useCallback(() => {
     onThemePreference(THEME_PREFERENCE_DEFAULT);
     onUiFont(UI_FONT_DEFAULT);
@@ -984,9 +1375,17 @@ function useAppearanceSettings() {
     onWallpaperOpacity(WALLPAPER_OPACITY_DEFAULT);
     onWindowGlassStrength(WINDOW_GLASS_STRENGTH_DEFAULT);
     onRemoveWallpaper();
+    onChatBackgroundOpacity(Math.round(CHAT_BACKGROUND_OPACITY_DEFAULT * 100));
+    onChatBackgroundScope(CHAT_BACKGROUND_SCOPE_DEFAULT);
+    if (chatBackgroundPath) void onClearChatBackground();
+    onUiScale(Math.round(UI_SCALE_DEFAULT * 100));
   }, [
+    chatBackgroundPath,
     onBlur,
     onBodyGlass,
+    onChatBackgroundOpacity,
+    onChatBackgroundScope,
+    onClearChatBackground,
     onOpacity,
     onPopoverBlur,
     onPopoverHighlight,
@@ -1000,6 +1399,7 @@ function useAppearanceSettings() {
     onTint,
     onUiFont,
     onUiFontSize,
+    onUiScale,
   ]);
 
   return {
@@ -1019,6 +1419,12 @@ function useAppearanceSettings() {
     wallpaperPath,
     wallpaperOpacity,
     windowGlassStrength,
+    chatBackgroundPath,
+    chatBackgroundOpacity,
+    chatBackgroundScope,
+    chatBackgroundBusy,
+    chatBackgroundError,
+    uiScale,
     onThemePreference,
     onUiFont,
     onUiFontSize,
@@ -1035,12 +1441,18 @@ function useAppearanceSettings() {
     onWindowGlassStrength,
     onChooseWallpaper,
     onRemoveWallpaper,
+    onChooseChatBackground,
+    onClearChatBackground,
+    onChatBackgroundOpacity,
+    onChatBackgroundScope,
+    onUiScale,
     restoreDefaults,
   };
 }
 
 function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
   const percent = Math.round(appearance.opacity * 100);
+  const glassDisabled = useColorScheme() === "light";
 
   return (
     <>
@@ -1116,6 +1528,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
           onChange={appearance.onThemePreference}
         />
       </Row>
+
       <Row label="Hue" description="Base hue for accents and tinted surfaces.">
         <Slider
           label="Hue"
@@ -1277,15 +1690,154 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
       </Row>
       <Row
         label="Main pane glass"
-        description="Extend the translucent window treatment to the main pane behind sessions and editors."
+        description={
+          glassDisabled
+            ? "Main pane glass is unavailable while light mode uses an opaque window."
+            : "Extend the translucent treatment to the main pane behind sessions and editors."
+        }
       >
         <Toggle
           label="Main pane glass"
           on={appearance.bodyGlass}
           onChange={appearance.onBodyGlass}
+          disabled={glassDisabled}
+        />
+      </Row>
+      <ChatBackgroundCard appearance={appearance} />
+      <Row
+        label="Interface scale"
+        description="Zoom the whole interface. You can also use Ctrl+=, Ctrl+-, and Ctrl+0 (Cmd on macOS)."
+      >
+        <Slider
+          label="Interface scale"
+          value={Math.round(appearance.uiScale * 100)}
+          display={`${Math.round(appearance.uiScale * 100)}%`}
+          min={Math.round(UI_SCALE_MIN * 100)}
+          max={Math.round(UI_SCALE_MAX * 100)}
+          step={10}
+          onChange={appearance.onUiScale}
         />
       </Row>
     </>
+  );
+}
+
+function ChatBackgroundCard({
+  appearance,
+}: {
+  appearance: AppearanceSettings;
+}) {
+  const src = chatBackgroundSrc(appearance.chatBackgroundPath);
+  const hasImage = Boolean(appearance.chatBackgroundPath && src);
+  const visibility = Math.round(appearance.chatBackgroundOpacity * 100);
+  const busy = appearance.chatBackgroundBusy;
+
+  return (
+    <div className="border-b border-content/5 py-4 last:border-b-0">
+      <div className="flex items-start gap-6">
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-medium text-content">
+            Chat background
+          </div>
+          <p className="mt-1 text-[12px] leading-relaxed text-content/45">
+            An image behind your chat panes. It stays on this device.
+          </p>
+        </div>
+        {hasImage ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <SecondaryButton
+              onClick={() => void appearance.onChooseChatBackground()}
+              disabled={busy}
+            >
+              {busy ? (
+                <Loader className="size-3.5 animate-spin" aria-hidden />
+              ) : null}
+              Change
+            </SecondaryButton>
+            <SecondaryButton
+              onClick={() => void appearance.onClearChatBackground()}
+              disabled={busy}
+              danger
+            >
+              Remove
+            </SecondaryButton>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-3 overflow-hidden rounded-xl border border-content/10">
+        {hasImage ? (
+          <div className="relative h-36">
+            <img
+              src={src ?? undefined}
+              alt=""
+              draggable={false}
+              className="size-full object-cover"
+              style={{ opacity: appearance.chatBackgroundOpacity }}
+            />
+            <span className="pointer-events-none absolute bottom-2 left-2 text-[11px] text-content/40">
+              Preview at {visibility}%
+            </span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void appearance.onChooseChatBackground()}
+            disabled={busy}
+            className="flex h-36 w-full flex-col items-center justify-center gap-2 text-content/40 hover:bg-content/5 hover:text-content/70 disabled:cursor-default disabled:opacity-40"
+          >
+            {busy ? (
+              <Loader className="size-5 animate-spin" aria-hidden />
+            ) : (
+              <ImagePlus className="size-5" aria-hidden />
+            )}
+            <span className="text-[12px]">Choose an image</span>
+          </button>
+        )}
+        {hasImage ? (
+          <div className="border-t border-content/8">
+            <div className="flex items-center justify-between gap-4 px-3 py-2.5">
+              <div className="min-w-0">
+                <div className="text-[12px] text-content">Show on</div>
+                <p className="text-[11px] text-content/40">
+                  Empty sessions only, or every conversation.
+                </p>
+              </div>
+              <Segmented
+                label="Show background on"
+                value={appearance.chatBackgroundScope}
+                options={[
+                  { value: "empty", label: "Empty only" },
+                  { value: "all", label: "All sessions" },
+                ]}
+                onChange={appearance.onChatBackgroundScope}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4 border-t border-content/5 px-3 py-2.5">
+              <div className="min-w-0">
+                <div className="text-[12px] text-content">Visibility</div>
+                <p className="text-[11px] text-content/40">
+                  Keep it subtle so long conversations stay readable.
+                </p>
+              </div>
+              <Slider
+                label="Background visibility"
+                value={visibility}
+                display={`${visibility}%`}
+                min={Math.round(CHAT_BACKGROUND_OPACITY_MIN * 100)}
+                max={Math.round(CHAT_BACKGROUND_OPACITY_MAX * 100)}
+                onChange={appearance.onChatBackgroundOpacity}
+              />
+            </div>
+          </div>
+        ) : null}
+      </div>
+      {appearance.chatBackgroundError ? (
+        <p className="mt-2 text-[12px] text-red-400">
+          {appearance.chatBackgroundError}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -1344,255 +1896,6 @@ function KeybindingsPage() {
       <p className="pt-3 text-[12px] text-content/40">
         Bindings come from the app menu and the workspace key handler; they
         aren’t customizable yet.
-      </p>
-    </>
-  );
-}
-
-function SkillsPage({ cwd }: { cwd: string }) {
-  const [skills, setSkills] = useState<DiscoveredSkill[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [reload, setReload] = useState(0);
-  const [disabledPaths, setDisabledPaths] = useState<string[]>(() =>
-    loadDisabledSkillPaths(),
-  );
-  const [actionError, setActionError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    listSkills(cwd)
-      .then((next) => {
-        if (cancelled) return;
-        setSkills(next);
-        setError(null);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : String(err));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [cwd, reload]);
-
-  useEffect(() => {
-    const onChange = () => setDisabledPaths(loadDisabledSkillPaths());
-    window.addEventListener(SKILLS_CHANGE_EVENT, onChange);
-    return () => window.removeEventListener(SKILLS_CHANGE_EVENT, onChange);
-  }, []);
-
-  const needle = query.trim().toLowerCase();
-  const filtered = useMemo(
-    () =>
-      (skills ?? []).filter(
-        (skill) =>
-          !needle ||
-          skill.name.toLowerCase().includes(needle) ||
-          skill.description.toLowerCase().includes(needle) ||
-          skill.source.toLowerCase().includes(needle) ||
-          skill.path.toLowerCase().includes(needle),
-      ),
-    [needle, skills],
-  );
-
-  const onToggle = (path: string, enabled: boolean) => {
-    const next = enabled
-      ? disabledPaths.filter((item) => item !== path)
-      : [...disabledPaths, path];
-    saveDisabledSkillPaths(next);
-  };
-
-  const onReveal = (path: string) => {
-    setActionError(null);
-    void revealItemInDir(path).catch((err: unknown) => {
-      setActionError(
-        `Could not open the folder: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    });
-  };
-
-  const onCopyPath = (path: string) => {
-    setActionError(null);
-    void copyText(path).catch(() => {
-      setActionError("Could not copy the path to the clipboard.");
-    });
-  };
-
-  const onCreate = (name: string, scope: "project" | "user") => {
-    setBusy(true);
-    setCreateError(null);
-    void createBlankSkill({ cwd, name, scope })
-      .then(() => {
-        setAdding(false);
-        setReload((value) => value + 1);
-      })
-      .catch((err: unknown) => {
-        setCreateError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => setBusy(false));
-  };
-
-  return (
-    <>
-      <div className="flex items-center justify-between gap-3 pb-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="shrink-0 text-[12px] text-content/40 tabular-nums">
-            {skills == null
-              ? "…"
-              : `${filtered.length} ${filtered.length === 1 ? "skill" : "skills"}`}
-          </span>
-          <label className="flex h-7 w-52 min-w-0 items-center gap-2 rounded-md border border-content/10 px-2 text-content/45 focus-within:border-content/20">
-            <Search className="size-3.5 shrink-0" strokeWidth={1.75} />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Filter"
-              aria-label="Filter skills"
-              spellCheck={false}
-              autoComplete="off"
-              className="min-w-0 flex-1 bg-transparent text-[12px] text-content outline-none placeholder:text-content/35"
-            />
-          </label>
-          <button
-            type="button"
-            aria-label="Refresh skills"
-            title="Rescan skill folders"
-            onClick={() => setReload((value) => value + 1)}
-            className="grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content"
-          >
-            <RefreshCw className="size-3.5" strokeWidth={1.75} />
-          </button>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <SecondaryButton
-            onClick={() => {
-              setAdding((value) => !value);
-              setCreateError(null);
-            }}
-            title="Create a starter SKILL.md you can edit"
-          >
-            {adding ? "Close" : "Add skill"}
-          </SecondaryButton>
-        </div>
-      </div>
-
-      {adding ? (
-        <div className="mb-4 overflow-hidden rounded-lg border border-content/10 bg-content/[0.03]">
-          <CreateSkillForm
-            query={query}
-            cwd={cwd}
-            error={createError}
-            busy={busy}
-            onCancel={() => {
-              setAdding(false);
-              setCreateError(null);
-            }}
-            onCreate={onCreate}
-          />
-        </div>
-      ) : null}
-
-      {actionError ? (
-        <p role="alert" className="pb-3 text-[12px] text-red-400">
-          {actionError}
-        </p>
-      ) : null}
-
-      {error ? (
-        <p className="text-[12px] text-red-400">{error}</p>
-      ) : skills == null ? (
-        <p className="text-[12px] text-content/45">Loading skills…</p>
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-content/10">
-          {filtered.length === 0 ? (
-            <p className="px-3 py-3 text-[12px] text-content/45">
-              {skills.length === 0
-                ? "No skills yet — Add skill creates a starter SKILL.md, or import one."
-                : "No matching skills"}
-            </p>
-          ) : (
-            filtered.map((skill) => {
-              const disabled = disabledPaths.includes(skill.path);
-              return (
-                <div
-                  key={skill.path}
-                  className={`border-b border-content/5 px-3 py-2 last:border-b-0 ${
-                    disabled ? "opacity-50" : ""
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="min-w-0 flex-1 truncate font-mono text-[12px] text-content"
-                      title={skill.name}
-                    >
-                      {skill.name}
-                    </span>
-                    <span className="shrink-0 rounded-full bg-content/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-content/60">
-                      {skill.scope === "user"
-                        ? "Personal"
-                        : skill.scope === "builtin"
-                          ? "MonoCode"
-                          : "Project"}
-                    </span>
-                    <span className="w-20 shrink-0 truncate text-right font-mono text-[11px] text-content/40">
-                      {skill.source}
-                    </span>
-                    <Toggle
-                      label={`${disabled ? "Enable" : "Disable"} ${skill.name}`}
-                      on={!disabled}
-                      onChange={(on) => onToggle(skill.path, on)}
-                    />
-                  </div>
-                  {skill.description ? (
-                    <p
-                      className="mt-0.5 truncate text-[12px] text-content/55"
-                      title={skill.description}
-                    >
-                      {skill.description}
-                    </p>
-                  ) : null}
-                  <div className="mt-0.5 flex items-center gap-1">
-                    <p
-                      className="min-w-0 flex-1 truncate font-mono text-[11px] text-content/35"
-                      title={skill.path}
-                    >
-                      {skill.path}
-                    </p>
-                    <button
-                      type="button"
-                      aria-label={`Copy path of ${skill.name}`}
-                      title="Copy path"
-                      onClick={() => onCopyPath(skill.path)}
-                      className="grid size-5 shrink-0 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
-                    >
-                      <Copy className="size-3" strokeWidth={1.75} />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Reveal ${skill.name} in file explorer`}
-                      title="Reveal in File Explorer"
-                      onClick={() => onReveal(skill.path)}
-                      className="grid size-5 shrink-0 place-items-center rounded text-content/40 hover:bg-content/10 hover:text-content"
-                    >
-                      <FolderOpen className="size-3" strokeWidth={1.75} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
-
-      <p className="pt-3 text-[12px] text-content/40">
-        Disabled skills stay on disk but are hidden from the composer and prompts.
-        Skills live in <span className="font-mono">.agents/skills</span> for this
-        project and <span className="font-mono">~/.agents/skills</span> for you
-        personally; harness folders are also picked up.
       </p>
     </>
   );
@@ -1919,7 +2222,7 @@ function useArchivedProjects(): ArchivedProject[] {
 
 function archivedProjectLabel(path: string): string {
   return resolveTabGroupLabel(
-    projectName(path),
+    projectKey(path),
     loadTabGroupLabels(),
     projectName(path),
   );
@@ -2109,9 +2412,18 @@ function PageHeader({
   );
 }
 
-function Heading({ title, first = false }: { title: string; first?: boolean }) {
+function Heading({
+  title,
+  first = false,
+  id,
+}: {
+  title: string;
+  first?: boolean;
+  id?: string;
+}) {
   return (
     <h2
+      id={id}
       className={`pb-1 text-[15px] font-semibold text-content ${
         first ? "" : "pt-8"
       }`}
@@ -2168,8 +2480,10 @@ export function Segmented<T extends string>({
     <div
       role="radiogroup"
       aria-label={label}
-      className={`relative grid w-40 gap-0.5 rounded-md border border-content/10 p-0.5 text-[12px] ${className ?? ""}`}
-      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+      className={`relative inline-grid shrink-0 gap-0.5 rounded-md border border-content/10 p-0.5 text-[12px] ${className ?? ""}`}
+      style={{
+        gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))`,
+      }}
     >
       {hoverSlide ? <SharedHoverHighlight /> : null}
       {options.map((option) => (
@@ -2180,7 +2494,7 @@ export function Segmented<T extends string>({
           aria-checked={value === option.value}
           data-shared-hover-item={hoverSlide ? "" : undefined}
           onClick={() => onChange(option.value)}
-          className={`min-w-0 rounded-[5px] px-1.5 py-1 ${
+          className={`min-w-0 whitespace-nowrap rounded-[5px] px-2.5 py-1 ${
             value === option.value
               ? "bg-content/10 text-content"
               : "text-content/50 hover:text-content"
@@ -2200,8 +2514,9 @@ function Slider({
   min,
   max,
   step = 1,
-  disabled = false,
+
   onChange,
+  disabled = false,
 }: {
   label: string;
   value: number;
@@ -2209,11 +2524,14 @@ function Slider({
   min: number;
   max: number;
   step?: number;
-  disabled?: boolean;
+
   onChange: (value: number) => void;
+  disabled?: boolean;
 }) {
   return (
-    <div className="flex w-56 items-center gap-3">
+    <div
+      className={`flex w-56 items-center gap-3 ${disabled ? "opacity-40" : ""}`}
+    >
       <input
         type="range"
         min={min}
@@ -2239,14 +2557,36 @@ function Slider({
   );
 }
 
+/** macOS keeps the decision after the first prompt; only System Settings can flip it. */
+function NotificationsBlocked() {
+  return (
+    <span className="flex items-center gap-2 text-[12px] text-content/45">
+      Permission needed
+      {IS_MAC ? (
+        <button
+          type="button"
+          onClick={() => {
+            void openNotificationSettings().catch(() => {});
+          }}
+          className="rounded-md border border-content/10 px-2 py-1 text-content/70 hover:bg-content/10 hover:text-content"
+        >
+          Open System Settings
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
 function Toggle({
   label,
   on,
   onChange,
+  disabled = false,
 }: {
   label: string;
   on: boolean;
   onChange: (on: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -2254,11 +2594,12 @@ function Toggle({
       role="switch"
       aria-label={label}
       aria-checked={on}
+      disabled={disabled}
       onClick={() => {
-        playCue("switch");
         onChange(!on);
+        playCue("switch");
       }}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
+      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
         on ? "bg-accent" : "bg-content/20"
       }`}
     >

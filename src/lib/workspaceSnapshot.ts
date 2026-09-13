@@ -1,5 +1,6 @@
 import { markTurnInterrupted, type ResumedWorkspace } from "./inFlight";
 import {
+  closeLeaf,
   isTerminalTab,
   leafIds,
   newTab,
@@ -19,6 +20,9 @@ import {
   type ProjectTerminalDock,
 } from "./projectTerminal";
 import { normalizeProjectPath } from "./recents";
+import { pathKey } from "./paths";
+import { reconcileProjectReturn, type ProjectReturnMemory } from "./projectReturn";
+import type { InboxAskContext } from "./inboxAsk";
 import {
   HARNESSES,
   RUNTIME_MODES,
@@ -29,6 +33,7 @@ import {
 } from "./session";
 
 export type WorkspaceSessionStub = {
+  inboxAsk?: InboxAskContext;
   id: string;
   cwd: string;
   harness: HarnessId;
@@ -47,6 +52,7 @@ export type WorkspaceSnapshot = {
   activeTabId: string;
   projectCwd: string;
   projectTerminals: ProjectTerminalDock[];
+  projectReturnTargets?: { projectPath: string; tabId?: string; paneId?: string }[];
 };
 
 export function collectWorkspaceSnapshot(
@@ -54,9 +60,10 @@ export function collectWorkspaceSnapshot(
   sessions: Session[],
   activeTabId: string,
   projectCwd: string,
+  memory: ProjectReturnMemory = new Map(),
   projectTerminals: ProjectTerminalDock[] = [],
 ): WorkspaceSnapshot {
-  return {
+  const snapshot = withoutInboxSessions({
     tabs: tabs.map(sanitizeTab).filter((tab): tab is WorkspaceTab => tab != null),
     sessions: sessions.map(sessionStub).filter((stub): stub is WorkspaceSessionStub => stub != null),
     activeTabId,
@@ -64,6 +71,66 @@ export function collectWorkspaceSnapshot(
     projectTerminals: projectTerminals
       .map(sanitizeProjectTerminal)
       .filter((dock): dock is ProjectTerminalDock => dock != null),
+  });
+  return withProjectReturnTargets(snapshot, memory);
+}
+
+function withProjectReturnTargets(
+  snapshot: WorkspaceSnapshot,
+  memory: ProjectReturnMemory,
+): WorkspaceSnapshot {
+  const valid = reconcileProjectReturn({
+    ...snapshot,
+    memory,
+    activeTabId: "",
+  });
+  return {
+    ...snapshot,
+    projectReturnTargets: [...valid].map(([projectPath, paneId]) => ({
+      projectPath,
+      tabId: paneId,
+    })),
+  };
+}
+
+function parseProjectReturnTargets(raw: unknown): ProjectReturnMemory {
+  const memory = new Map<string, string>();
+  if (!Array.isArray(raw)) return memory;
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    if (!("projectPath" in entry)) continue;
+    const projectPath = (entry as { projectPath?: unknown }).projectPath;
+    if (typeof projectPath !== "string" || !projectPath.trim()) continue;
+
+    const remembered =
+      (entry as { paneId?: unknown }).paneId ??
+      (entry as { tabId?: unknown }).tabId;
+    if (typeof remembered !== "string" || !remembered.trim()) continue;
+
+    memory.set(pathKey(projectPath), remembered.trim());
+  }
+  return memory;
+}
+
+/** Also removes tabs saved by the earlier, persistent Inbox implementation. */
+function withoutInboxSessions(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  const inboxIds = snapshot.sessions.filter(session => session.inboxAsk).map(session => session.id);
+  if (inboxIds.length === 0) return snapshot;
+  let tabs = snapshot.tabs;
+  for (const id of inboxIds) {
+    tabs = tabs.flatMap(tab => {
+      if (!leafIds(tab.layout).includes(id)) return [tab];
+      const next = closeLeaf(tab, id);
+      return next ? [next] : [];
+    });
+  }
+  return {
+    ...snapshot,
+    tabs,
+    sessions: snapshot.sessions.filter(session => !session.inboxAsk),
+    activeTabId: tabs.some(tab => tab.id === snapshot.activeTabId)
+      ? snapshot.activeTabId
+      : tabs[0]?.id ?? "",
   };
 }
 
@@ -75,6 +142,7 @@ export function parseWorkspaceSnapshot(raw: unknown): WorkspaceSnapshot | null {
     activeTabId?: unknown;
     projectCwd?: unknown;
     projectTerminals?: unknown;
+    projectReturnTargets?: unknown;
   };
   if (!Array.isArray(value.tabs) || typeof value.activeTabId !== "string") {
     return null;
@@ -100,7 +168,13 @@ export function parseWorkspaceSnapshot(raw: unknown): WorkspaceSnapshot | null {
         .map(sanitizeProjectTerminal)
         .filter((dock): dock is ProjectTerminalDock => dock != null)
     : [];
-  return { tabs, sessions, activeTabId, projectCwd, projectTerminals };
+  const snapshot = withoutInboxSessions({ tabs, sessions, activeTabId, projectCwd, projectTerminals });
+  return snapshot.tabs.length > 0
+    ? withProjectReturnTargets(
+        snapshot,
+        parseProjectReturnTargets(value.projectReturnTargets),
+      )
+    : null;
 }
 
 export function workspaceSnapshotKey(snapshot: WorkspaceSnapshot): string {
@@ -135,7 +209,7 @@ export function hydrateWorkspaceSnapshot(
     const record = loaded.get(id);
     const stub = stubs.get(id);
     const base = record ?? (stub ? sessionFromStub(stub) : null);
-    if (!base) return null;
+    if (!base || base.inboxAsk) return null;
     const next = interruptedIds.has(id) ? markTurnInterrupted(base) : { ...base, busy: false };
     sessions.set(id, next);
     return next;
@@ -164,7 +238,8 @@ export function hydrateWorkspaceSnapshot(
   }
 
   for (const id of interruptedIds) {
-    if (!take(id)) continue;
+    const session = take(id);
+    if (!session || session.inboxAsk) continue;
     if (tabs.some((tab) => leafIds(tab.layout).includes(id))) continue;
     tabs.push(newTab(id));
   }
@@ -184,6 +259,12 @@ export function hydrateWorkspaceSnapshot(
     activeTabId,
     projectCwd,
     projectTerminals: parsed.projectTerminals,
+    projectReturnMemory: reconcileProjectReturn({
+      memory: parseProjectReturnTargets(parsed.projectReturnTargets),
+      tabs,
+      sessions: [...sessions.values()],
+      activeTabId,
+    }),
   };
 }
 
@@ -197,6 +278,7 @@ function sessionStub(session: Session): WorkspaceSessionStub | null {
     modelSettings: { ...session.modelSettings },
     runtimeMode: session.runtimeMode,
     title: session.title,
+    ...(session.inboxAsk ? { inboxAsk: session.inboxAsk } : {}),
     ...(session.providerSessionId
       ? { providerSessionId: session.providerSessionId }
       : {}),
@@ -217,6 +299,7 @@ function sessionFromStub(stub: WorkspaceSessionStub): Session {
     ...session,
     id: stub.id,
     title: stub.title,
+    ...(stub.inboxAsk ? { inboxAsk: stub.inboxAsk } : {}),
     ...(stub.providerSessionId
       ? { providerSessionId: stub.providerSessionId }
       : {}),
@@ -251,6 +334,8 @@ function sanitizeStub(raw: unknown): WorkspaceSessionStub | null {
     modelSettings,
     runtimeMode,
     title: typeof value.title === "string" ? value.title : "",
+    ...(value.inboxAsk && typeof value.inboxAsk === "object"
+      ? { inboxAsk: value.inboxAsk as InboxAskContext } : {}),
     ...(typeof value.providerSessionId === "string" && value.providerSessionId
       ? { providerSessionId: value.providerSessionId }
       : {}),
@@ -446,10 +531,12 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     ...(commit ? { commit } : {}),
     ...(sessionChanges ? { sessionChanges, review: true } : {}),
     ...(diff ? { diff, review: true } : {}),
-    ...(value.changes === true
-      ? { changes: true, review: true, ...(focusKind ? { focusKind } : {}) }
+    ...(value.review === true ? { review: true } : {}),
+    ...(value.changes === true ? { changes: true, review: true } : {}),
+    ...(value.changeKind === "staged" || value.changeKind === "unstaged"
+      ? { changeKind: value.changeKind }
       : {}),
-    ...(!diff && !value.changes && value.review === true ? { review: true } : {}),
+    ...(focusKind ? { focusKind } : {}),
     ...(value.terminal === true ? { terminal: true } : {}),
   };
 }

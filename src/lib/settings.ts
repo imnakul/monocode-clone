@@ -7,6 +7,7 @@ export type SettingsSectionId =
   | "appearance"
   | "keybindings"
   | "providers"
+  | "inbox"
   | "skills"
   | "archive"
   | "migration"
@@ -40,10 +41,15 @@ export const SETTINGS_SECTIONS: {
       "Agent CLIs MonoCode can drive, and the model new sessions start with.",
   },
   {
+    id: "inbox",
+    label: "Inbox",
+    description: "Connect and manage the services that appear in your Inbox.",
+  },
+  {
     id: "skills",
     label: "Skills",
     description:
-      "Agent skills MonoCode loads from project, personal, and harness folders.",
+      "Discover and manage file skills from project, personal, and harness folders.",
   },
   {
     id: "archive",
@@ -445,6 +451,9 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "App: New Window", keys: `${MOD}${SHIFT}N`, when: "Always" },
   { command: "App: Toggle Sidebar", keys: `${MOD}B`, when: "Always" },
   { command: "App: Switch Model", keys: `${MOD}.`, when: "Always" },
+  { command: "View: Zoom In", keys: `${MOD}+`, when: "Always" },
+  { command: "View: Zoom Out", keys: `${MOD}-`, when: "Always" },
+  { command: "View: Reset Zoom", keys: `${MOD}0`, when: "Always" },
   { command: "Tab: New", keys: `${MOD}T`, when: "Always" },
   { command: "Tab: Close Others", keys: `${MOD}${ALT}T`, when: "Always" },
   { command: "Tab: Next", keys: `${MOD}${SHIFT}]`, when: "Always" },
@@ -459,6 +468,11 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "Tab: Forward", keys: `${MOD}]`, when: "Always" },
   { command: "Tab: Activate 1–8", keys: `${MOD}1 … ${MOD}8`, when: "Always" },
   { command: "Tab: Activate Last", keys: `${MOD}9`, when: "Always" },
+  {
+    command: "Session: Archive",
+    keys: `${MOD}${SHIFT}A`,
+    when: "sessionFocus && !overlay",
+  },
   {
     command: "Session: Previous",
     keys: `${MOD}${SHIFT}↑`,

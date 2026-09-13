@@ -1,10 +1,11 @@
 use tauri::Manager;
 
 pub mod antigravity_acp;
-
+mod chat_background;
 mod checkpoint;
 mod cursor_store;
 mod fs;
+mod gitlab;
 mod harness;
 mod inbox_media;
 mod linear;
@@ -12,15 +13,19 @@ mod linear;
 mod macos;
 mod menu;
 mod notes;
+mod notifications;
 mod project_logo;
 mod pty;
 mod rate_limits;
+mod reminders;
 mod search;
 mod session_import;
 mod session_store;
 mod skills;
 mod window;
 mod window_transfer;
+#[cfg(windows)]
+mod windows;
 
 // Phase 1 seam: spawn / kill harness children per MonoCode thread.
 // Adapters own the protocol; this host only supervises processes.
@@ -29,14 +34,18 @@ mod window_transfer;
 #[tauri::command]
 fn default_cwd() -> String {
     if let Ok(cwd) = std::env::current_dir() {
-        return cwd.to_string_lossy().into_owned();
+        return fs::path_to_js(&cwd);
     }
-    dirs_home().unwrap_or_else(|| "~".into())
+    dirs_home()
+        .map(|home| fs::path_to_js(std::path::Path::new(&home)))
+        .unwrap_or_else(|| "~".into())
 }
 
 #[tauri::command]
 fn home_dir() -> String {
-    dirs_home().unwrap_or_else(|| "~".into())
+    dirs_home()
+        .map(|home| fs::path_to_js(std::path::Path::new(&home)))
+        .unwrap_or_else(|| "~".into())
 }
 
 pub(crate) struct PasswdIdentity {
@@ -46,10 +55,16 @@ pub(crate) struct PasswdIdentity {
 }
 
 pub(crate) fn dirs_home() -> Option<String> {
-    if let Some(home) = std::env::var_os("HOME") {
-        let home = home.to_string_lossy().into_owned();
-        if !home.is_empty() {
-            return Some(home);
+    #[cfg(windows)]
+    let keys = ["USERPROFILE", "HOME"];
+    #[cfg(not(windows))]
+    let keys = ["HOME", "USERPROFILE"];
+    for key in keys {
+        if let Some(home) = std::env::var_os(key) {
+            let home = home.to_string_lossy().into_owned();
+            if !home.is_empty() {
+                return Some(home);
+            }
         }
     }
     #[cfg(windows)]
@@ -61,6 +76,17 @@ pub(crate) fn dirs_home() -> Option<String> {
         return Some(home);
     }
     passwd_identity().map(|id| id.home)
+}
+
+/// Hide the console window that Windows allocates for GUI-spawned children.
+pub(crate) fn hide_window_console(cmd: &mut std::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let _ = cmd;
 }
 
 #[cfg(windows)]
@@ -195,6 +221,8 @@ fn open_new_window(app: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(windows)]
+    windows::initialize().expect("Failed to initialize Windows process safety");
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -207,6 +235,7 @@ pub fn run() {
         .setup(|app| {
             harness::reap_orphaned_harness_processes();
             session_store::init(app.handle())?;
+            reminders::init(app.handle());
             checkpoint::init(app.handle())?;
             menu::install(app.handle())?;
             #[cfg(target_os = "macos")]
@@ -239,6 +268,17 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             default_cwd,
             home_dir,
+            notifications::notification_permission,
+            notifications::request_notification_permission,
+            notifications::show_notification,
+            notifications::open_notification_settings,
+            reminders::reminder_list,
+            reminders::reminder_set,
+            reminders::reminder_clear,
+            reminders::reminder_configure,
+            reminders::reminder_take_open,
+            reminders::reminder_register_window,
+            reminders::reminder_open,
             fs::list_dir,
             fs::list_project_files,
             fs::git_diff_stats,
@@ -263,13 +303,23 @@ pub fn run() {
             fs::git_range_context,
             fs::git_pr_status,
             fs::git_pr_create,
+            fs::git_github_status,
             fs::git_github_repo,
+            fs::git_github_work_item,
             fs::git_github_work_items,
             fs::git_github_work_item_details,
             fs::git_github_work_item_thread,
             fs::git_github_work_item_comment,
             fs::git_github_pr_diff,
             inbox_media::fetch_inbox_media,
+            gitlab::gitlab_status,
+            gitlab::gitlab_set_config,
+            gitlab::gitlab_repo,
+            gitlab::gitlab_list_work_items,
+            gitlab::gitlab_work_item_details,
+            gitlab::gitlab_work_item_thread,
+            gitlab::gitlab_work_item_comment,
+            gitlab::gitlab_mr_diff,
             linear::linear_status,
             linear::linear_set_token,
             linear::linear_list_teams,
@@ -334,6 +384,7 @@ pub fn run() {
             session_store::session_upsert,
             session_store::session_list_by_project,
             session_store::session_list_scratch,
+            session_store::session_list_linked,
             session_store::session_search,
             session_store::session_get,
             session_store::session_delete,
@@ -350,6 +401,8 @@ pub fn run() {
             notes::notes_get,
             notes::notes_upsert,
             notes::notes_delete,
+            notes::notes_save_image,
+            notes::notes_image_path,
             checkpoint::session_checkpoint_ensure,
             checkpoint::session_checkpoint_prepare,
             checkpoint::session_checkpoint_capture,
@@ -364,11 +417,16 @@ pub fn run() {
             window::hide_window,
             window::destroy_window,
             window::confirm_quit,
-            window::enable_window_glass,
+            window::set_window_glass_enabled,
             window_transfer::stage_window_transfer,
             window_transfer::take_window_transfer,
+            chat_background::save_chat_background,
+            chat_background::remove_chat_background,
+            chat_background::save_project_chat_background,
+            chat_background::remove_project_chat_background,
             project_logo::save_project_logo,
             project_logo::remove_project_logo,
+            project_logo::forget_logo_file,
         ])
         .build(tauri::generate_context!())
         .expect("error while building MonoCode");
@@ -385,6 +443,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 macos::request_badge_authorization();
+                notifications::install_delegate(handle);
                 #[cfg(debug_assertions)]
                 macos::prefer_bundle_dock_icon();
             }
@@ -413,9 +472,12 @@ pub fn run() {
                 return;
             }
             api.prevent_exit();
-            // Last window destroyed (red button). Stay in the dock; ⌘Q is a
-            // separate menu handler and arrives with an exit code.
+            // Last window destroyed (red button). Stay in the dock on macOS;
+            // ⌘Q is a separate menu handler and arrives with an exit code.
+            // Windows has no dock, so the last close is a quit.
             if code.is_none() {
+                #[cfg(target_os = "windows")]
+                window::request_quit(handle);
                 return;
             }
             window::request_quit(handle);

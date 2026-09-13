@@ -1,9 +1,10 @@
 [workspace]
 resolver = "2"
 members = ["src-tauri"]
+exclude = ["vendor/portable-pty"]
 
 [workspace.package]
-version = "0.1.35-local5-queue-durability"
+version = "0.1.44-local6-upstream-sync"
 edition = "2021"
 license = "MIT"
 

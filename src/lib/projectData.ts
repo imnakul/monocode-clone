@@ -1,5 +1,7 @@
-import { projectName } from "./paths";
+import { projectKey } from "./paths";
 import { clearProjectLogo } from "./projectLogos";
+import { clearProjectChatBackground } from "./chatBackground";
+import { clearProjectChatBackgroundSetting } from "./projectChatBackground";
 import { normalizeProjectPath } from "./recents";
 import { deleteSession, listSessionsByProject } from "./sessionStore";
 import { clearTabGroupSettings } from "./tabGroups";
@@ -13,12 +15,14 @@ export async function projectSessionCount(path: string): Promise<number> {
 /** Everything we persist for a project: saved chats plus its rail appearance. */
 export async function removeProjectData(path: string): Promise<void> {
   const normalized = normalizeProjectPath(path);
-  const key = projectName(normalized);
+  const key = projectKey(normalized);
   const sessions = await listSessionsByProject(normalized).catch(() => []);
   for (const session of sessions) {
     await deleteSession(session.id).catch(() => undefined);
   }
   // Drops the copied image from app data; the localStorage entry goes with it.
   await clearProjectLogo(key).catch(() => undefined);
+  await clearProjectChatBackground(key).catch(() => undefined);
+  clearProjectChatBackgroundSetting(key);
   clearTabGroupSettings(key);
 }

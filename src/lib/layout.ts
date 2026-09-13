@@ -1,4 +1,5 @@
 import type { ReleaseNotesTabSource } from "./releaseNotes";
+import type { GitFileDiffKind } from "./fs";
 import {
   applyTerminalMeta,
   defaultTerminalTitle,
@@ -60,6 +61,8 @@ export type FilePaneTab = {
   review?: boolean;
   /** Single working-tree review of every changed file (unified diff). */
   changes?: boolean;
+  /** Which side of a staged/unstaged path was selected in source control. */
+  changeKind?: GitFileDiffKind;
   /** Read-only diff built from one session's captured before/after snapshots. */
   sessionChanges?: SessionChangesSource;
   /** Historical commit review (unified diff, read-only). */
@@ -113,19 +116,21 @@ export function newFileTab(
   path: string,
   cwd: string,
   review = false,
+  changeKind?: GitFileDiffKind,
 ): FilePaneTab {
   return {
     id: crypto.randomUUID(),
     path,
     cwd,
     ...(review ? { review: true } : {}),
+    ...(changeKind ? { changeKind } : {}),
   };
 }
 
 export function newChangesTab(
   cwd: string,
   focusPath?: string,
-  focusKind?: "staged" | "unstaged",
+  focusKind?: GitFileDiffKind,
 ): FilePaneTab {
   return {
     id: crypto.randomUUID(),
@@ -133,14 +138,14 @@ export function newChangesTab(
     cwd,
     review: true,
     changes: true,
-    ...(focusKind ? { focusKind } : {}),
+    ...(focusKind ? { changeKind: focusKind, focusKind } : {}),
   };
 }
 
 export function newGitDiffTab(
   path: string,
   cwd: string,
-  kind: "staged" | "unstaged" = "unstaged",
+  kind: GitFileDiffKind = "unstaged",
   deleted = false,
 ): FilePaneTab {
   return {
@@ -488,7 +493,7 @@ export function openChangesTab(
   tab: WorkspaceTab,
   cwd: string,
   focusPath?: string,
-  focusKind?: "staged" | "unstaged",
+  focusKind?: GitFileDiffKind,
 ): WorkspaceTab {
   tab = isolateTerminalPanes(tab);
   const next = newChangesTab(cwd, focusPath, focusKind);
@@ -501,7 +506,7 @@ export function openChangesTab(
     const updated: FilePaneTab = {
       ...existingFile,
       ...(focusPath ? { path: focusPath } : {}),
-      ...(focusKind ? { focusKind } : {}),
+      ...(focusKind ? { changeKind: focusKind, focusKind } : {}),
     };
     return {
       ...tab,

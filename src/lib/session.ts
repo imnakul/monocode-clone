@@ -7,6 +7,7 @@ import type {
   CodeReviewReport,
   InboxComposerCard,
 } from "./githubTasks";
+import type { InboxAskContext } from "./inboxAsk";
 import type { NoteCardMeta, NoteComposerCard } from "./notes";
 import {
   defaultSessionChoice,
@@ -127,6 +128,8 @@ export type ToolPreview = {
   startLine?: number;
   additions?: number;
   deletions?: number;
+  /** Write supplied new contents without the previous file to compare. */
+  contentOnly?: boolean;
   query?: string;
   lines?: ToolPreviewLine[];
   output?: string;
@@ -164,6 +167,13 @@ export type MessageQueueStatus =
   | "steering"
   | "held";
 
+/** Provider/model provenance captured when a user turn is submitted. */
+export type TurnModel = {
+  harness: HarnessId;
+  id: string;
+  name: string;
+};
+
 export type Block = {
   id: string;
   role: BlockRole;
@@ -176,6 +186,8 @@ export type Block = {
   durationMs?: number;
   /** Processed token usage for this turn. */
   turnUsage?: ProcessedUsage;
+  /** Stable model label for this turn. Present on newly created user blocks. */
+  turnModel?: TurnModel;
   tool?: {
     callId?: string;
     title?: string;
@@ -201,6 +213,14 @@ export type Block = {
 export type RuntimeMode =
   "supervised" | "auto-accept-edits" | "auto" | "full-access";
 
+/** One GitHub issue or pull request associated with a coding session. */
+export type LinkedWorkItem = {
+  kind: "issue" | "pr";
+  repo: string;
+  number: number;
+  url: string;
+};
+
 export const RUNTIME_MODES: RuntimeMode[] = [
   "supervised",
   "auto-accept-edits",
@@ -220,11 +240,13 @@ export const RUNTIME_MODE_LABEL: Record<RuntimeMode, string> = {
 export const RUNTIME_MODE_HINT: Record<RuntimeMode, string> = {
   supervised: "Ask before commands and file changes.",
   "auto-accept-edits": "Auto-approve edits, ask before other actions.",
-  auto: "An AI reviewer approves routine actions; risky ones still ask.",
+  auto: "An AI reviewer can approve or deny actions.",
   "full-access": "Allow commands and edits without prompts.",
 };
 
 export type Session = {
+  /** Temporary Inbox conversation: shares the runtime, never saved as a session. */
+  inboxAsk?: InboxAskContext;
   id: string;
   harness: HarnessId;
   model: string;
@@ -274,6 +296,8 @@ export type Session = {
   sidechat?: { sourceSessionId: string };
   /** Inbox issue/PR chip shown above the composer. In-memory, one-shot. */
   inboxCard?: InboxComposerCard;
+  /** GitHub issue or pull request shown on the persisted session card. */
+  linkedWorkItem?: LinkedWorkItem;
   /** Note chip shown above the composer. In-memory, one-shot. */
   noteCard?: NoteComposerCard;
   /** Handoff chip shown above the composer. In-memory, one-shot. */

@@ -5,6 +5,7 @@ import {
   ChevronUp,
   CircleAlert,
   FolderOpen,
+  ImagePlus,
   Inbox,
   MoreHorizontal,
   Pin,
@@ -30,8 +31,8 @@ import {
   type AppMode,
 } from "../lib/appearance";
 import { basename, revealPath, type GitDiffStats } from "../lib/fs";
-import { IS_MAC, MOD } from "../lib/platform";
-import { projectName } from "../lib/paths";
+import { IS_MAC, IS_WIN, MOD } from "../lib/platform";
+import { projectKey, projectName } from "../lib/paths";
 import {
   collectRailProjects,
   loadPinnedProjects,
@@ -62,6 +63,7 @@ import {
 import { formatLiveElapsed, type LiveAgent } from "../lib/liveAgents";
 import { HarnessIcon } from "./HarnessIcon";
 import { ProjectLogoIcon } from "./ProjectLogoIcon";
+import { ProjectBackgroundDialog } from "./ProjectBackgroundDialog";
 import { ProjectMascot } from "./ProjectMascot";
 import { RailAction, RailSearch } from "./RailAction";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
@@ -78,7 +80,7 @@ import type { SettingsSectionId } from "../lib/settings";
 
 const REVEAL_LABEL = IS_MAC
   ? "Reveal in Finder"
-  : typeof navigator !== "undefined" && /Win/.test(navigator.platform)
+  : IS_WIN
     ? "Reveal in File Explorer"
     : "Open Containing Folder";
 
@@ -87,6 +89,11 @@ function projectMenuExtraItems(
   canRemove: boolean,
 ): TabGroupMenuExtraItem[] {
   const items: TabGroupMenuExtraItem[] = [
+    {
+      id: "background",
+      label: "Background image",
+      icon: ImagePlus,
+    },
     pinned
       ? { id: "unpin", label: "Unpin project", icon: PinOff }
       : { id: "pin", label: "Pin project", icon: Pin },
@@ -252,6 +259,10 @@ export function ProjectRail({
     path: string;
     name: string;
   } | null>(null);
+  const [backgroundProject, setBackgroundProject] = useState<{
+    project: string;
+    name: string;
+  } | null>(null);
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const scrollRef = useRef<HTMLDivElement>(null);
   const groupLogos = useTabGroupLogos();
@@ -300,7 +311,7 @@ export function ProjectRail({
       x,
       y,
       path,
-      projectKey: projectName(path),
+      projectKey: projectKey(path),
     });
   };
 
@@ -386,7 +397,12 @@ export function ProjectRail({
     if (!projectMenu) return;
     const { path, projectKey } = projectMenu;
     if (action === "pin" || action === "unpin") onTogglePin(path);
-    else if (action === "reveal") void revealPath(path);
+    else if (action === "background") {
+      setBackgroundProject({
+        project: projectKey,
+        name: resolveTabGroupLabel(projectKey, groupLabels, basename(path)),
+      });
+    } else if (action === "reveal") void revealPath(path);
     else if (action === "archive") {
       onRemoveProject?.(path, { purgeData: false });
     } else if (action === "delete") {
@@ -547,7 +563,7 @@ export function ProjectRail({
             onOpenWhatsNew={onOpenWhatsNew}
             onDismissUpdate={onDismissUpdate}
           />
-          <div className="flex shrink-0 flex-col gap-px p-2 pt-0">
+          <div className="flex shrink-0 flex-col gap-px p-2">
             <RailAction
               label="Settings"
               icon={Settings}
@@ -581,15 +597,15 @@ export function ProjectRail({
             projectMenu.projectKey,
             groupColors,
             groupCustomColors,
-            projectMenu.projectKey,
+            projectName(projectMenu.path),
           )}
           logoPath={resolveTabGroupLogo(projectMenu.projectKey, groupLogos)}
-          logoProject={projectMenu.projectKey}
+          logoProject={projectMenu.path}
           mascotName={resolveTabGroupMascot(
             projectMenu.projectKey,
             groupMascots,
           )}
-          mascotProject={projectMenu.projectKey}
+          mascotProject={projectName(projectMenu.path)}
           onRename={onProjectRename}
           onColorChange={onProjectColorChange}
           onCustomColorChange={onProjectCustomColorChange}
@@ -613,6 +629,13 @@ export function ProjectRail({
           path={removing.path}
           onConfirm={onConfirmDelete}
           onCancel={() => setRemoving(null)}
+        />
+      ) : null}
+      {backgroundProject ? (
+        <ProjectBackgroundDialog
+          project={backgroundProject.project}
+          name={backgroundProject.name}
+          onClose={() => setBackgroundProject(null)}
         />
       ) : null}
       <div
@@ -751,14 +774,10 @@ function LiveAgentCard({
   groupCustomColors: Record<string, string>;
   groupMascots: Record<string, string>;
 }) {
-  const projectKey = projectName(agent.cwd);
-  const project = resolveTabGroupLabel(projectKey, groupLabels, projectKey);
-  const color = resolveTabGroupColor(
-    projectKey,
-    groupColors,
-    groupCustomColors,
-    projectKey,
-  );
+  const seed = projectName(agent.cwd);
+  const key = projectKey(agent.cwd);
+  const project = resolveTabGroupLabel(key, groupLabels, seed);
+  const color = resolveTabGroupColor(key, groupColors, groupCustomColors, seed);
   const elapsed = agent.done
     ? agent.durationMs != null
       ? formatLiveElapsed(0, agent.durationMs)
@@ -793,9 +812,9 @@ function LiveAgentCard({
     >
       <span className="flex min-w-0 items-center gap-2">
         <ProjectMascot
-          project={projectKey}
+          project={seed}
           color={color}
-          name={resolveTabGroupMascot(projectKey, groupMascots)}
+          name={resolveTabGroupMascot(key, groupMascots)}
           className="size-2 shrink-0"
           active={live}
         />
@@ -963,15 +982,11 @@ function ProjectCard({
   groupMascots: Record<string, string>;
 }) {
   const fallbackName = basename(item.path);
-  const projectKey = projectName(item.path);
-  const name = resolveTabGroupLabel(projectKey, groupLabels, fallbackName);
-  const logoPath = resolveTabGroupLogo(projectKey, groupLogos);
-  const color = resolveTabGroupColor(
-    projectKey,
-    groupColors,
-    groupCustomColors,
-    projectKey,
-  );
+  const key = projectKey(item.path);
+  const seed = projectName(item.path);
+  const name = resolveTabGroupLabel(key, groupLabels, fallbackName);
+  const logoPath = resolveTabGroupLogo(key, groupLogos);
+  const color = resolveTabGroupColor(key, groupColors, groupCustomColors, seed);
   const dragging = sortable.draggingId === item.path;
   const showStart =
     sortable.draggingId &&
@@ -1040,9 +1055,9 @@ function ProjectCard({
             />
           ) : (
             <ProjectMascot
-              project={projectKey}
+              project={seed}
               color={color}
-              name={resolveTabGroupMascot(projectKey, groupMascots)}
+              name={resolveTabGroupMascot(key, groupMascots)}
               className="size-3"
               active={busy}
             />

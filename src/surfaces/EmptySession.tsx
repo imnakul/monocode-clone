@@ -1,7 +1,13 @@
 import { type ReactNode, useSyncExternalStore } from "react";
 import { MessageSquarePlus } from "../chrome/icons";
 import { basename } from "../lib/fs";
+import { projectKey } from "../lib/paths";
 import { looksLikeProject } from "../lib/recents";
+import {
+  loadTabGroupLabels,
+  resolveTabGroupLabel,
+  subscribeTabGroupLabels,
+} from "../lib/tabGroups";
 import {
   loadGridArcadeEnabled,
   subscribeGridArcadeEnabled,
@@ -12,18 +18,27 @@ import { TerminalGridBackground } from "./TerminalGridBackground";
 type Props = {
   cwd: string;
   composer?: ReactNode;
+  hasChatBackground?: boolean;
   /** Temporary chats (sidechat) show this instead of the work prompt. */
   notice?: { title: string; body: string };
 };
 
-export function EmptySession({ cwd, composer, notice }: Props) {
+export function EmptySession({ cwd, composer, hasChatBackground, notice }: Props) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const arcadeEnabled = useSyncExternalStore(
     subscribeGridArcadeEnabled,
     loadGridArcadeEnabled,
     () => true,
   );
-  const project = looksLikeProject(cwd) ? basename(cwd) : null;
+  const getProjectLabel = () =>
+    looksLikeProject(cwd)
+      ? resolveTabGroupLabel(projectKey(cwd), loadTabGroupLabels(), basename(cwd))
+      : null;
+  const project = useSyncExternalStore(
+    subscribeTabGroupLabels,
+    getProjectLabel,
+    getProjectLabel,
+  );
   const title = project
     ? `What should we work on in ${project}?`
     : "What should we work on?";
@@ -33,7 +48,7 @@ export function EmptySession({ cwd, composer, notice }: Props) {
       ref={lockOverscroll}
       className="relative flex h-full min-h-0 overflow-y-auto overscroll-none"
     >
-      {arcadeEnabled ? <TerminalGridBackground /> : null}
+      {arcadeEnabled && !hasChatBackground ? <TerminalGridBackground /> : null}
       {composer ? (
         <div className="pointer-events-none relative z-10 mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-6 py-12">
           <div className="pointer-events-auto mb-4 px-2.5">

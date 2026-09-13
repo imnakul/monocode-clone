@@ -1,5 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
-import { IS_MAC, IS_WINDOWS } from "./platform";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { HAS_NATIVE_GLASS, IS_MAC, IS_WINDOWS } from "./platform";
+import { applyUiScale, loadUiScale } from "./uiScale";
 
 const THEME_HUE_KEY = "monocode.themeHue";
 const THEME_SATURATION_KEY = "monocode.themeSaturation";
@@ -23,6 +24,15 @@ const POPOVER_HIGHLIGHT_KEY = "monocode.popoverHighlight";
 const WALLPAPER_PATH_KEY = "monocode.wallpaperPath";
 const WALLPAPER_OPACITY_KEY = "monocode.wallpaperOpacity";
 const WINDOW_GLASS_STRENGTH_KEY = "monocode.windowGlassStrength";
+const CHAT_BACKGROUND_PATH_KEY = "monocode.chatBackgroundPath";
+const CHAT_BACKGROUND_OPACITY_KEY = "monocode.chatBackgroundOpacity";
+const CHAT_BACKGROUND_SCOPE_KEY = "monocode.chatBackgroundScope";
+const CHANGES_VIEW_KEY = "monocode.changesView";
+let chatBackgroundRevision = Date.now();
+let nativeGlassReady = false;
+
+export const CHAT_BACKGROUND_PATH_CHANGE_EVENT =
+  "monocode:chat-background-path-change";
 
 export type ColorScheme = "dark" | "light";
 export type ThemePreference = ColorScheme | "system";
@@ -122,12 +132,17 @@ export const WINDOW_GLASS_STRENGTH_MIN = 0;
 export const WINDOW_GLASS_STRENGTH_MAX = 100;
 export const WINDOW_GLASS_STRENGTH_DEFAULT = 0;
 
+export type ChatBackgroundScope = "empty" | "all";
+export type ChangesView = "list" | "tree";
+
 export const THEME_PREFERENCE_DEFAULT: ThemePreference = "dark";
 
 /** Fired on `window` whenever the color scheme flips (detail: ColorScheme). */
 export const SCHEME_CHANGE_EVENT = "monocode:schemechange";
 
 export const TRANSCRIPT_LAYOUT_DEFAULT: TranscriptLayout = "full";
+
+export const CHANGES_VIEW_DEFAULT: ChangesView = "list";
 
 export const TRANSCRIPT_ANCHOR_DEFAULT = true;
 
@@ -167,6 +182,11 @@ export const PROJECT_RAIL_WIDTH_MAX = 360;
 export const PROJECT_RAIL_WIDTH_DEFAULT = 200;
 
 export const BODY_GLASS_DEFAULT = true;
+
+export const CHAT_BACKGROUND_OPACITY_MIN = 0.05;
+export const CHAT_BACKGROUND_OPACITY_MAX = 0.65;
+export const CHAT_BACKGROUND_OPACITY_DEFAULT = 0.24;
+export const CHAT_BACKGROUND_SCOPE_DEFAULT: ChatBackgroundScope = "all";
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -623,6 +643,8 @@ export function initAppearance() {
   document.documentElement.classList.toggle("is-mac", IS_MAC);
   document.documentElement.classList.toggle("is-windows", IS_WINDOWS);
   document.documentElement.classList.toggle("has-glass", IS_MAC || IS_WINDOWS);
+  document.documentElement.classList.toggle("has-native-glass", HAS_NATIVE_GLASS);
+  applyUiScale(loadUiScale());
   applyUiFont(loadUiFont());
   applyUiFontSize(loadUiFontSize());
   applyTerminalFont(loadTerminalFont());
@@ -639,6 +661,10 @@ export function initAppearance() {
   applySidebarOpacity(loadSidebarOpacity());
   applySidebarBlur(loadSidebarBlur());
   applyBodyGlass(loadBodyGlass());
+  applyChatBackground(loadChatBackgroundPath());
+  applyChatBackgroundOpacity(loadChatBackgroundOpacity());
+  applyChatBackgroundScope(loadChatBackgroundScope());
+  void applyUiScale(loadUiScale());
 }
 
 function isThemePreference(value: unknown): value is ThemePreference {
@@ -682,10 +708,21 @@ export function isLightScheme(): boolean {
 export function applyThemePreference(value: ThemePreference): ColorScheme {
   const next = resolveColorScheme(value);
   document.documentElement.classList.toggle("theme-light", next === "light");
+  if (nativeGlassReady) syncNativeGlass(next);
   window.dispatchEvent(
     new CustomEvent<ColorScheme>(SCHEME_CHANGE_EVENT, { detail: next }),
   );
   return next;
+}
+
+function syncNativeGlass(scheme: ColorScheme) {
+  void invoke("set_window_glass_enabled", { enabled: scheme === "dark" });
+}
+
+/** Applies native transparency once the opaque launch cover can be removed. */
+export function activateWindowAppearance() {
+  nativeGlassReady = true;
+  syncNativeGlass(isLightScheme() ? "light" : "dark");
 }
 
 /** Keeps the "system" preference in sync when the OS flips appearance. */
@@ -755,6 +792,112 @@ export function saveBodyGlass(value: boolean) {
 
 export function applyBodyGlass(value: boolean) {
   document.documentElement.classList.toggle("glass-body", value);
+  return value;
+}
+
+export function loadChatBackgroundPath(): string | null {
+  try {
+    return localStorage.getItem(CHAT_BACKGROUND_PATH_KEY)?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveChatBackgroundPath(value: string | null) {
+  try {
+    if (value) localStorage.setItem(CHAT_BACKGROUND_PATH_KEY, value);
+    else localStorage.removeItem(CHAT_BACKGROUND_PATH_KEY);
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(CHAT_BACKGROUND_PATH_CHANGE_EVENT));
+}
+
+export function subscribeChatBackgroundPath(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(CHAT_BACKGROUND_PATH_CHANGE_EVENT, onStoreChange);
+  return () =>
+    window.removeEventListener(
+      CHAT_BACKGROUND_PATH_CHANGE_EVENT,
+      onStoreChange,
+    );
+}
+
+export function applyChatBackground(path: string | null) {
+  const root = document.documentElement;
+  root.classList.toggle("has-chat-background", !!path);
+  if (!path) {
+    root.style.removeProperty("--chat-background-image");
+    return null;
+  }
+  chatBackgroundRevision += 1;
+  const src = chatBackgroundSrc(path);
+  root.style.setProperty(
+    "--chat-background-image",
+    `url(${JSON.stringify(src)})`,
+  );
+  return path;
+}
+
+export function chatBackgroundSrc(path: string | null): string | null {
+  return path ? `${convertFileSrc(path)}?v=${chatBackgroundRevision}` : null;
+}
+
+export function loadChatBackgroundOpacity(): number {
+  return clamp(
+    readNumber(CHAT_BACKGROUND_OPACITY_KEY) ?? CHAT_BACKGROUND_OPACITY_DEFAULT,
+    CHAT_BACKGROUND_OPACITY_MIN,
+    CHAT_BACKGROUND_OPACITY_MAX,
+  );
+}
+
+export function saveChatBackgroundOpacity(value: number) {
+  writeNumber(
+    CHAT_BACKGROUND_OPACITY_KEY,
+    clamp(value, CHAT_BACKGROUND_OPACITY_MIN, CHAT_BACKGROUND_OPACITY_MAX),
+  );
+}
+
+export function applyChatBackgroundOpacity(value: number) {
+  const next = clamp(
+    value,
+    CHAT_BACKGROUND_OPACITY_MIN,
+    CHAT_BACKGROUND_OPACITY_MAX,
+  );
+  document.documentElement.style.setProperty(
+    "--chat-background-opacity",
+    String(next),
+  );
+  return next;
+}
+
+function isChatBackgroundScope(value: unknown): value is ChatBackgroundScope {
+  return value === "empty" || value === "all";
+}
+
+export function loadChatBackgroundScope(): ChatBackgroundScope {
+  try {
+    const raw = localStorage.getItem(CHAT_BACKGROUND_SCOPE_KEY);
+    return isChatBackgroundScope(raw) ? raw : CHAT_BACKGROUND_SCOPE_DEFAULT;
+  } catch {
+    return CHAT_BACKGROUND_SCOPE_DEFAULT;
+  }
+}
+
+export function saveChatBackgroundScope(value: ChatBackgroundScope) {
+  try {
+    localStorage.setItem(CHAT_BACKGROUND_SCOPE_KEY, value);
+  } catch {
+    // private mode / quota
+  }
+}
+
+export function applyChatBackgroundScope(value: ChatBackgroundScope) {
+  document.documentElement.classList.toggle(
+    "chat-background-empty-only",
+    value === "empty",
+  );
   return value;
 }
 
@@ -864,6 +1007,27 @@ export function saveTranscriptLayout(value: TranscriptLayout) {
       detail: next,
     }),
   );
+}
+
+function isChangesView(value: unknown): value is ChangesView {
+  return value === "list" || value === "tree";
+}
+
+export function loadChangesView(): ChangesView {
+  try {
+    const raw = localStorage.getItem(CHANGES_VIEW_KEY);
+    return isChangesView(raw) ? raw : CHANGES_VIEW_DEFAULT;
+  } catch {
+    return CHANGES_VIEW_DEFAULT;
+  }
+}
+
+export function saveChangesView(value: ChangesView) {
+  try {
+    localStorage.setItem(CHANGES_VIEW_KEY, value);
+  } catch {
+    // private mode / quota
+  }
 }
 
 export function loadTranscriptAnchor(): boolean {

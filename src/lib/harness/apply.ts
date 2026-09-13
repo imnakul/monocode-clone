@@ -18,6 +18,7 @@ import {
 import { joinStreamText } from "./streamText";
 import { taskListText } from "../taskList";
 import { isReviewablePlan } from "../plan";
+import { resolveModel } from "../models";
 import type { HarnessEvent } from "./types";
 
 export function applyHarnessEvent(
@@ -72,8 +73,21 @@ export function applyHarnessEvent(
           requestId: event.requestId,
           questions: event.questions,
           ...(event.title ? { title: event.title } : {}),
+          ...(event.autoResolveAt != null
+            ? { autoResolveAt: event.autoResolveAt }
+            : {}),
         },
       };
+    case "question.updated":
+      return session.pendingQuestion?.requestId === event.requestId
+        ? {
+            ...session,
+            pendingQuestion: {
+              ...session.pendingQuestion,
+              autoResolveAt: event.autoResolveAt,
+            },
+          }
+        : session;
     case "question.resolved":
       return session.pendingQuestion?.requestId === event.requestId
         ? { ...session, pendingQuestion: undefined }
@@ -100,7 +114,7 @@ export function applyHarnessEvent(
     case "plan":
       return upsertPlan(session, event);
     case "session.error":
-      return appendBlock(stopStreaming(session), {
+      return appendBlock(failStreaming(session), {
         id: crypto.randomUUID(),
         role: "system",
         text: event.message,
@@ -301,6 +315,17 @@ function userTurnFields(extra?: UserTurnExtra) {
   };
 }
 
+function turnModelFields(session: Session) {
+  const model = resolveModel(session.harness, session.model);
+  return {
+    turnModel: {
+      harness: session.harness,
+      id: session.model,
+      name: model.name,
+    },
+  };
+}
+
 export function appendUser(
   session: Session,
   text: string,
@@ -314,6 +339,7 @@ export function appendUser(
       role: "user",
       text,
       startedAt: Date.now(),
+      ...turnModelFields(session),
       ...(attachments.length > 0 ? { attachments } : {}),
       ...userTurnFields(extra),
     },
@@ -336,6 +362,7 @@ export function appendSteerUser(
         id: crypto.randomUUID(),
         role: "user",
         text,
+        ...turnModelFields(session),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...userTurnFields(extra),
       },
@@ -355,6 +382,45 @@ export function stopStreaming(session: Session): Session {
     pendingQuestion: undefined,
     liveTurnUsage: undefined,
     blocks,
+  };
+}
+
+/**
+ * A terminal provider failure also settles work whose final tool event was
+ * lost with the transport. Leaving those calls `in_progress` hides the real
+ * failure behind a neutral completed-turn summary.
+ */
+function failStreaming(session: Session): Session {
+  const openTools = new Set(
+    session.blocks.flatMap((block) => {
+      if (block.role !== "tool" && block.role !== "approval") return [];
+      const status = block.tool?.status?.toLowerCase() ?? "";
+      return block.streaming ||
+        status === "in_progress" ||
+        status === "pending" ||
+        status === "running"
+        ? [block.id]
+        : [];
+    }),
+  );
+  const stopped = stopStreaming(session);
+  return {
+    ...stopped,
+    blocks: stopped.blocks.map((block) => {
+      const open = openTools.has(block.id);
+      const pendingApproval = !!block.approval && !block.approval.decided;
+      if (!open && !pendingApproval) return block;
+      return {
+        ...block,
+        streaming: false,
+        ...(block.tool && open
+          ? { tool: { ...block.tool, status: "failed" } }
+          : {}),
+        ...(block.approval && !block.approval.decided
+          ? { approval: { ...block.approval, decided: "cancelled" as const } }
+          : {}),
+      };
+    }),
   };
 }
 
@@ -735,6 +801,7 @@ function samePreview(a?: ToolPreview, b?: ToolPreview): boolean {
     a.fileName === b.fileName &&
     a.additions === b.additions &&
     a.deletions === b.deletions &&
+    a.contentOnly === b.contentOnly &&
     a.startLine === b.startLine &&
     a.output === b.output &&
     a.lines === b.lines
@@ -748,6 +815,7 @@ function fillPreview(
   title?: string,
 ): ToolPreview | undefined {
   if (
+    preview?.contentOnly ||
     preview?.lines?.some((line) => line.kind === "add" || line.kind === "del")
   ) {
     return preview;

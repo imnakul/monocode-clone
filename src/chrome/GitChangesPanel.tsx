@@ -6,8 +6,11 @@ import {
   ChevronRight,
   CloudUpload,
   ExternalLink,
+  FileDiff,
+  FolderTree,
   GitBranch,
   GitPullRequest,
+  ListBullet,
   Loader,
   Minus,
   Plus,
@@ -19,12 +22,12 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 import { FileTypeIcon } from "./FileTypeIcon";
-import { DiffStat as DiffCounts } from "./DiffStat";
 import {
   GitHistoryGraph,
   GraphResizeSash,
@@ -51,10 +54,16 @@ import {
   subscribeGitChanged,
   type GitChangedFile,
   type GitDiffIndex,
+  type GitFileDiffKind,
   type GitHistoryCommit,
   type GitPr,
 } from "../lib/fs";
 import type { HarnessId } from "../lib/session";
+import {
+  loadChangesView,
+  saveChangesView,
+  type ChangesView,
+} from "../lib/appearance";
 import { generateCommitMessage, generatePrContent } from "../lib/harness";
 import { invalidateWatchedFiles } from "../lib/fileWatch";
 import { MOD } from "../lib/platform";
@@ -74,6 +83,9 @@ function confirmNative(message: string, okLabel?: string): Promise<boolean> {
 let stagedOpen = true;
 let changesOpen = true;
 let graphOpen = true;
+let changesView: ChangesView = loadChangesView();
+/** Folders the user collapsed in tree view, keyed `<kind>:<dir>`. */
+const collapsedDirs = new Set<string>();
 const indexByCwd = new Map<string, GitDiffIndex>();
 const prByCwd = new Map<string, GitPr | null>();
 
@@ -82,11 +94,15 @@ type Props = {
   enabled: boolean;
   textHarness?: HarnessId;
   selectedPath?: string;
+  selectedKind?: GitFileDiffKind;
   selectedSha?: string;
   onOpenFile: (
     path: string,
-    options?: { kind?: "staged" | "unstaged"; status?: string },
+    options?:
+      | GitFileDiffKind
+      | { kind?: "staged" | "unstaged"; status?: string },
   ) => void;
+  onOpenAllChanges?: () => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
 };
 
@@ -95,8 +111,10 @@ export function GitChangesPanel({
   enabled,
   textHarness,
   selectedPath,
+  selectedKind,
   selectedSha,
   onOpenFile,
+  onOpenAllChanges,
   onOpenCommit,
 }: Props) {
   const { index, reload } = useDiffIndex(cwd, enabled);
@@ -127,14 +145,7 @@ export function GitChangesPanel({
       className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
     >
       <header className="flex h-9 shrink-0 items-center gap-2 border-b border-content/10 px-3">
-        {(index?.additions ?? 0) > 0 || (index?.deletions ?? 0) > 0 ? (
-          <DiffCounts
-            additions={index?.additions ?? 0}
-            deletions={index?.deletions ?? 0}
-          />
-        ) : (
-          <span className="text-[12px] font-medium text-content">Changes</span>
-        )}
+        <span className="text-[12px] font-medium text-content">Changes</span>
         {index?.branch ? (
           <span className="ml-auto flex min-w-0 items-center gap-1 text-[11px] text-content/50">
             <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
@@ -160,9 +171,11 @@ export function GitChangesPanel({
         index={index}
         files={files}
         selected={selectedPath}
+        selectedKind={selectedKind}
         enabled={enabled}
         fill
         onOpenFile={onOpenFile}
+        onOpenAllChanges={onOpenAllChanges}
         onMutated={(paths) => {
           reload();
           notifyGitChanged();
@@ -216,9 +229,11 @@ function ChangedFiles({
   index,
   files,
   selected,
+  selectedKind,
   enabled,
   fill,
   onOpenFile,
+  onOpenAllChanges,
   onMutated,
 }: {
   cwd: string;
@@ -226,9 +241,16 @@ function ChangedFiles({
   index: GitDiffIndex | null;
   files: GitChangedFile[];
   selected?: string;
+  selectedKind?: GitFileDiffKind;
   enabled: boolean;
   fill: boolean;
-  onOpenFile: (path: string) => void;
+  onOpenFile: (
+    path: string,
+    options?:
+      | GitFileDiffKind
+      | { kind?: "staged" | "unstaged"; status?: string },
+  ) => void;
+  onOpenAllChanges?: () => void;
   onMutated: (paths?: string[]) => void;
 }) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
@@ -239,9 +261,13 @@ function ChangedFiles({
   const [menuOpen, setMenuOpen] = useState(false);
   const [stagedExpanded, setStagedExpanded] = useState(stagedOpen);
   const [changesExpanded, setChangesExpanded] = useState(changesOpen);
+  const [view, setView] = useState<ChangesView>(changesView);
   const { pr, reload: reloadPr } = usePrStatus(cwd, index?.branch);
-  const staged = files.filter((file) => file.staged);
-  const unstaged = files.filter((file) => file.unstaged);
+  const staged = useMemo(() => files.filter((file) => file.staged), [files]);
+  const unstaged = useMemo(
+    () => files.filter((file) => file.unstaged),
+    [files],
+  );
   const hasRemote = Boolean(index?.remote);
   const hasOpenPr = pr?.state === "open";
   const diverged = (index?.ahead ?? 0) > 0 && (index?.behind ?? 0) > 0;
@@ -285,6 +311,12 @@ function ChangedFiles({
     window.addEventListener("pointerdown", onPointer);
     return () => window.removeEventListener("pointerdown", onPointer);
   }, [menuOpen]);
+
+  const toggleView = () => {
+    changesView = view === "tree" ? "list" : "tree";
+    saveChangesView(changesView);
+    setView(changesView);
+  };
 
   const fail = (error: unknown) => {
     window.alert(error instanceof Error ? error.message : String(error));
@@ -570,7 +602,18 @@ function ChangedFiles({
                   stagedOpen = !stagedExpanded;
                   setStagedExpanded(stagedOpen);
                 }}
+                view={view}
+                onToggleView={toggleView}
                 headerActions={[
+                  ...(onOpenAllChanges
+                    ? [
+                        {
+                          title: "Open All Changes",
+                          icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
+                          onClick: onOpenAllChanges,
+                        },
+                      ]
+                    : []),
                   {
                     title: "Unstage All Changes",
                     icon: <Minus className="size-3.5" strokeWidth={1.75} />,
@@ -578,17 +621,16 @@ function ChangedFiles({
                   },
                 ]}
               >
-                {staged.map((file) => (
-                  <ChangeRow
-                    key={`staged:${file.relative}`}
-                    file={file}
-                    active={selected === file.relative}
-                    busy={busy === file.relative}
-                    kind="staged"
-                    onOpenFile={onOpenFile}
-                    onAction={run}
-                  />
-                ))}
+                <ChangeList
+                  files={staged}
+                  view={view}
+                  kind="staged"
+                  selected={selected}
+                  selectedKind={selectedKind}
+                  busy={busy}
+                  onOpenFile={onOpenFile}
+                  onAction={run}
+                />
               </FileSection>
             ) : null}
             {unstaged.length > 0 ? (
@@ -600,7 +642,18 @@ function ChangedFiles({
                   changesOpen = !changesExpanded;
                   setChangesExpanded(changesOpen);
                 }}
+                view={view}
+                onToggleView={toggleView}
                 headerActions={[
+                  ...(onOpenAllChanges
+                    ? [
+                        {
+                          title: "Open All Changes",
+                          icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
+                          onClick: onOpenAllChanges,
+                        },
+                      ]
+                    : []),
                   {
                     title: "Discard All Changes",
                     icon: <Undo2 className="size-3.5" strokeWidth={1.75} />,
@@ -613,17 +666,16 @@ function ChangedFiles({
                   },
                 ]}
               >
-                {unstaged.map((file) => (
-                  <ChangeRow
-                    key={`unstaged:${file.relative}`}
-                    file={file}
-                    active={selected === file.relative}
-                    busy={busy === file.relative}
-                    kind="unstaged"
-                    onOpenFile={onOpenFile}
-                    onAction={run}
-                  />
-                ))}
+                <ChangeList
+                  files={unstaged}
+                  view={view}
+                  kind="unstaged"
+                  selected={selected}
+                  selectedKind={selectedKind}
+                  busy={busy}
+                  onOpenFile={onOpenFile}
+                  onAction={run}
+                />
               </FileSection>
             ) : null}
           </>
@@ -841,6 +893,8 @@ function FileSection({
   count,
   open,
   onToggle,
+  view,
+  onToggleView,
   headerActions,
   children,
 }: {
@@ -848,12 +902,14 @@ function FileSection({
   count: number;
   open: boolean;
   onToggle: () => void;
+  view: ChangesView;
+  onToggleView: () => void;
   headerActions: { title: string; icon: ReactNode; onClick: () => void }[];
   children: ReactNode;
 }) {
   return (
     <div>
-      <div className="group flex h-7 items-center gap-1 px-1.5">
+      <div className="flex h-7 items-center gap-1 px-1.5">
         <button
           type="button"
           onClick={onToggle}
@@ -877,21 +933,239 @@ function FileSection({
             {count}
           </span>
         </button>
-        <div className="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
-          {headerActions.map((action) => (
-            <IconAction
-              key={action.title}
-              title={action.title}
-              onClick={action.onClick}
-            >
-              {action.icon}
-            </IconAction>
-          ))}
-        </div>
+        <IconAction
+          title={view === "tree" ? "View as List" : "View as Tree"}
+          onClick={onToggleView}
+        >
+          {view === "tree" ? (
+            <ListBullet className="size-3.5" strokeWidth={1.75} />
+          ) : (
+            <FolderTree className="size-3.5" strokeWidth={1.75} />
+          )}
+        </IconAction>
+        {headerActions.map((action) => (
+          <IconAction
+            key={action.title}
+            title={action.title}
+            onClick={action.onClick}
+          >
+            {action.icon}
+          </IconAction>
+        ))}
       </div>
       {open ? <ul>{children}</ul> : null}
     </div>
   );
+}
+
+type ChangeDir = {
+  name: string;
+  /** Path relative to the repo root; "" for the implicit root. */
+  path: string;
+  dirs: ChangeDir[];
+  files: GitChangedFile[];
+  /** Status shared by every descendant, or null when they differ. */
+  status: string | null;
+};
+
+type ChangeRowProps = {
+  files: GitChangedFile[];
+  view: ChangesView;
+  kind: GitFileDiffKind;
+  selected?: string;
+  selectedKind?: GitFileDiffKind;
+  busy: string | null;
+  onOpenFile: (
+    path: string,
+    options?:
+      | GitFileDiffKind
+      | { kind?: "staged" | "unstaged"; status?: string },
+  ) => void;
+  onAction: (
+    file: GitChangedFile,
+    action: "stage" | "unstage" | "discard",
+  ) => void;
+};
+
+function ChangeList({ files, view, ...rest }: ChangeRowProps) {
+  const tree = useMemo(() => buildChangeTree(files), [files]);
+  if (view === "tree") {
+    return <ChangeDirChildren dir={tree} depth={0} {...rest} />;
+  }
+  return (
+    <>
+      {files.map((file) => (
+        <ChangeRow
+          key={`${rest.kind}:${file.relative}`}
+          file={file}
+          active={isActive(file, rest.selected, rest.selectedKind, rest.kind)}
+          busy={rest.busy === file.relative}
+          kind={rest.kind}
+          onOpenFile={rest.onOpenFile}
+          onAction={rest.onAction}
+        />
+      ))}
+    </>
+  );
+}
+
+function ChangeDirChildren({
+  dir,
+  depth,
+  kind,
+  selected,
+  selectedKind,
+  busy,
+  onOpenFile,
+  onAction,
+}: Omit<ChangeRowProps, "files" | "view"> & {
+  dir: ChangeDir;
+  depth: number;
+}) {
+  return (
+    <>
+      {dir.dirs.map((child) => (
+        <ChangeDirRow
+          key={child.path}
+          dir={child}
+          depth={depth}
+          kind={kind}
+          selected={selected}
+          selectedKind={selectedKind}
+          busy={busy}
+          onOpenFile={onOpenFile}
+          onAction={onAction}
+        />
+      ))}
+      {dir.files.map((file) => (
+        <ChangeRow
+          key={`${kind}:${file.relative}`}
+          file={file}
+          active={isActive(file, selected, selectedKind, kind)}
+          busy={busy === file.relative}
+          kind={kind}
+          depth={depth}
+          onOpenFile={onOpenFile}
+          onAction={onAction}
+        />
+      ))}
+    </>
+  );
+}
+
+function ChangeDirRow({
+  dir,
+  depth,
+  kind,
+  ...rest
+}: Omit<ChangeRowProps, "files" | "view"> & {
+  dir: ChangeDir;
+  depth: number;
+}) {
+  const key = `${kind}:${dir.path}`;
+  const [open, setOpen] = useState(() => !collapsedDirs.has(key));
+  const toggle = () => {
+    if (open) collapsedDirs.add(key);
+    else collapsedDirs.delete(key);
+    setOpen(!open);
+  };
+  return (
+    <li>
+      <button
+        type="button"
+        title={dir.path}
+        aria-expanded={open}
+        onClick={toggle}
+        style={{ paddingLeft: 8 + depth * 12 }}
+        className="flex h-7 w-full items-center gap-1.5 pr-2 text-left leading-none text-content hover:bg-content/5"
+      >
+        <span className="grid size-4 shrink-0 place-items-center text-content/50">
+          {open ? (
+            <ChevronDown className="size-3.5" strokeWidth={1.75} />
+          ) : (
+            <ChevronRight className="size-3.5" strokeWidth={1.75} />
+          )}
+        </span>
+        <FileTypeIcon name={dir.name} isDir isOpen={open} size={16} />
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+          {dir.name}
+        </span>
+        <span
+          className={`grid w-3.5 shrink-0 place-items-center ${
+            dir.status ? statusColor(dir.status) : "text-content/40"
+          }`}
+          aria-hidden
+        >
+          <span className="size-1.5 rounded-full bg-current" />
+        </span>
+      </button>
+      {open ? (
+        <ul>
+          <ChangeDirChildren
+            dir={dir}
+            depth={depth + 1}
+            kind={kind}
+            {...rest}
+          />
+        </ul>
+      ) : null}
+    </li>
+  );
+}
+
+function isActive(
+  file: GitChangedFile,
+  selected: string | undefined,
+  selectedKind: GitFileDiffKind | undefined,
+  kind: GitFileDiffKind,
+): boolean {
+  return selected === file.relative && (!selectedKind || selectedKind === kind);
+}
+
+/** Nests changed files under their directories, VS Code's tree view. */
+function buildChangeTree(files: GitChangedFile[]): ChangeDir {
+  const root: ChangeDir = {
+    name: "",
+    path: "",
+    dirs: [],
+    files: [],
+    status: null,
+  };
+  for (const file of files) {
+    const segments = file.relative.split("/");
+    let node = root;
+    for (const segment of segments.slice(0, -1)) {
+      const path = node.path ? `${node.path}/${segment}` : segment;
+      let next = node.dirs.find((dir) => dir.path === path);
+      if (!next) {
+        next = { name: segment, path, dirs: [], files: [], status: null };
+        node.dirs.push(next);
+      }
+      node = next;
+    }
+    node.files.push(file);
+  }
+  sortChangeDir(root);
+  return root;
+}
+
+/** Sorts each level (folders first) and rolls descendant status upward. */
+function sortChangeDir(dir: ChangeDir): string | null {
+  dir.dirs.sort((a, b) => a.name.localeCompare(b.name));
+  dir.files.sort((a, b) =>
+    basename(a.relative).localeCompare(basename(b.relative)),
+  );
+  let status: string | null = null;
+  let mixed = false;
+  const merge = (next: string | null) => {
+    if (next === null) mixed = true;
+    else if (status === null) status = next;
+    else if (status !== next) mixed = true;
+  };
+  for (const child of dir.dirs) merge(sortChangeDir(child));
+  for (const file of dir.files) merge(file.status);
+  dir.status = mixed ? null : status;
+  return dir.status;
 }
 
 export function ChangeRow({
@@ -899,16 +1173,21 @@ export function ChangeRow({
   active,
   busy,
   kind,
+  depth,
   onOpenFile,
   onAction,
 }: {
   file: GitChangedFile;
   active: boolean;
   busy: boolean;
-  kind: "staged" | "unstaged";
+  kind: GitFileDiffKind;
+  /** Set in tree view: nesting level, and the folder path moves to the tree. */
+  depth?: number;
   onOpenFile: (
     path: string,
-    options?: { kind?: "staged" | "unstaged"; status?: string },
+    options?:
+      | GitFileDiffKind
+      | { kind?: "staged" | "unstaged"; status?: string },
   ) => void;
   onAction: (
     file: GitChangedFile,
@@ -916,13 +1195,17 @@ export function ChangeRow({
   ) => void;
 }) {
   const name = basename(file.relative);
-  const dir = dirname(file.relative);
+  const tree = depth !== undefined;
+  const dir = tree ? "" : dirname(file.relative);
   return (
     <li>
       <div
         data-shared-hover-item
         data-shared-hover-preserve={active ? "" : undefined}
+        style={tree ? { paddingLeft: 8 + depth * 12 } : undefined}
         className={`group relative flex h-7 w-full items-center leading-none ${
+          tree ? "" : "pl-2"
+        } ${
           active
             ? "bg-content/10 text-content"
             : "text-content hover:bg-content/5"
@@ -931,9 +1214,12 @@ export function ChangeRow({
         <button
           type="button"
           title={file.relative}
-          onClick={() => onOpenFile(file.path, { kind, status: file.status })}
+          onClick={() => {
+            onOpenFile(file.path, { kind, status: file.status });
+          }}
           className="flex h-full w-full min-w-0 items-center gap-1.5 px-2 text-left rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
         >
+          {tree ? <span className="size-4 shrink-0" /> : null}
           <FileTypeIcon name={name} isDir={false} size={16} />
           <span
             className={`min-w-0 flex-1 truncate ${

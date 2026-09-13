@@ -94,9 +94,7 @@ function terminalTheme(light: boolean) {
     foreground: cssColor("var(--color-content)", light ? "#2e2e2e" : "#e8eef2"),
     cursor: cssColor("var(--color-accent)", light ? "#4078f2" : "#4da3f5"),
     cursorAccent: light ? "#ffffff" : "#000000",
-    selectionBackground: light
-      ? "rgba(0,0,0,0.18)"
-      : "rgba(255,255,255,0.18)",
+    selectionBackground: light ? "rgba(0,0,0,0.18)" : "rgba(255,255,255,0.18)",
     selectionInactiveBackground: light
       ? "rgba(0,0,0,0.08)"
       : "rgba(255,255,255,0.08)",
@@ -223,9 +221,26 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       },
     );
 
+    const starting = spawnPty(id, cwd, term.cols, term.rows)
+      .then(() => {
+        if (!closed) spawned.current = true;
+      })
+      .catch((error) => {
+        spawned.current = false;
+        if (!closed) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          term.writeln(`\x1b[31m${message}\x1b[0m`);
+        }
+        throw error;
+      });
+    void starting.catch(() => undefined);
+
     const dataSub = term.onData((data) => {
       if (dead.current) return;
-      void writePty(id, data);
+      void starting
+        .then(() => (closed || dead.current ? undefined : writePty(id, data)))
+        .catch(() => undefined);
     });
 
     // WebView2 can stall event delivery for a window sitting behind others
@@ -259,7 +274,11 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
 
     const replyOsc = (code: 10 | 11 | 12, hex: string) => {
       const reply = oscColorReply(code, hex);
-      if (reply) void writePty(id, reply);
+      if (reply) {
+        void starting
+          .then(() => (closed ? undefined : writePty(id, reply)))
+          .catch(() => undefined);
+      }
       return true;
     };
     const oscFg = term.parser.registerOscHandler(10, (data) =>
@@ -309,29 +328,12 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       if (cols === lastCols && rows === lastRows) return;
       lastCols = cols;
       lastRows = rows;
-      if (!spawned.current) {
-        spawned.current = true;
-        void spawnPty(id, cwd, cols, rows).catch((error) => {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          if (!PTY_SUPPORTED || message === PTY_UNSUPPORTED_MESSAGE) {
-            // No PTY runtime on this OS: print once and stop. Retrying only
-            // reprints the error (each writeln re-renders, which would
-            // re-trigger applySize through onRender below).
-            dead.current = true;
-          } else {
-            spawned.current = false;
-            lastCols = 0;
-            lastRows = 0;
-          }
-          term.writeln(`\x1b[31m${message}\x1b[0m`);
+      void starting
+        .then(() => (closed || dead.current ? undefined : resizePty(id, cols, rows)))
+        .catch(() => {
+          lastCols = 0;
+          lastRows = 0;
         });
-        // The shell greets while the spawn promise is still in flight; grab
-        // those first bytes in case their events stall on arrival.
-        setTimeout(resyncOutput, 250);
-        return;
-      }
-      void resizePty(id, cols, rows);
     };
 
     const schedule = () => {
@@ -381,13 +383,13 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       renderSub.dispose();
       bufferSub.dispose();
       unsubscribe();
-      void killPty(id);
+      void starting.catch(() => undefined).then(() => killPty(id));
       term.dispose();
       termRef.current = null;
       spawned.current = false;
       syncedRef.current = 0;
     };
-  }, [id, cwd]);
+  }, [id]);
 
   // Identity-stable: the callers pass an inline arrow, so depending on the
   // prop itself would tear down and re-arm the poll — and re-fork `ps` — on

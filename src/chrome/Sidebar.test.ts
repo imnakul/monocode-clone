@@ -102,10 +102,10 @@ describe("Sidebar session list shared-hover continuity", () => {
       ),
     );
 
-    // Verify the divider is placed between two separate continuity lists, not inside either
-    expect(markup).toContain('<div class="h-px bg-content/10"></div>');
+    // Verify the pinned group container is placed outside the unpinned continuity list
+    expect(markup).toContain('data-pinned-sessions=""');
     expect(markup).toContain(
-      '</ul></li><li aria-hidden="true" class="mx-1 my-1 list-none"><div class="h-px bg-content/10"></div></li><li class="list-none"><ul data-shared-hover-continuity="true"',
+      '</ul></div></li><li class="list-none"><ul data-shared-hover-continuity="true"',
     );
   });
 

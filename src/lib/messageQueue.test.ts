@@ -463,6 +463,7 @@ describe("orchestrateTurnCompletion (production-used orchestration, Defect 2)", 
       queueStatus: "active",
       queuedMessages: [queued("q1", "queued row")],
     });
+    let failureCallbackCalled = false;
     let checkpointResolved = false;
     let resolveCheckpoint!: () => void;
     const checkpointPromise = new Promise<void>((resolve) => {
@@ -479,6 +480,11 @@ describe("orchestrateTurnCompletion (production-used orchestration, Defect 2)", 
       setSessions: (sessions) => {
         currentSession = sessions[0];
       },
+      beforeFailureCheckpoint: async () => {
+        failureCallbackCalled = true;
+        expect(currentSession.queueStatus).toBe("held");
+        expect(canDispatchQueuedHead(currentSession)).toBe(false);
+      },
       flushCheckpoint: async () => checkpointPromise,
       providerFailureSeen: true,
       buildSucceeded: false,
@@ -492,7 +498,76 @@ describe("orchestrateTurnCompletion (production-used orchestration, Defect 2)", 
 
     resolveCheckpoint();
     await completionPromise;
+    expect(failureCallbackCalled).toBe(true);
     expect(currentSession.queueStatus).toBe("held");
+  });
+
+  it("enforces ordering: held state established -> failure callback begins -> checkpoint begins, keeping auto-dispatch blocked", async () => {
+    let currentSession = chat({
+      busy: true,
+      queueStatus: "active",
+      queuedMessages: [queued("q1", "queued row")],
+    });
+    const order: string[] = [];
+
+    let resolveFailureCallback!: () => void;
+    const failureCallbackPromise = new Promise<void>((resolve) => {
+      resolveFailureCallback = resolve;
+    });
+
+    let resolveCheckpoint!: () => void;
+    const checkpointPromise = new Promise<void>((resolve) => {
+      resolveCheckpoint = resolve;
+    });
+
+    const completionPromise = orchestrateTurnCompletion({
+      sessionId: currentSession.id,
+      getSessions: () => [currentSession],
+      setSessions: (sessions) => {
+        currentSession = sessions[0];
+      },
+      beforeFailureCheckpoint: async () => {
+        order.push("failureCallback");
+        // Held state must already be established before failure callback begins
+        expect(currentSession.queueStatus).toBe("held");
+        expect(currentSession.busy).toBe(false);
+        expect(canDispatchQueuedHead(currentSession)).toBe(false);
+        await failureCallbackPromise;
+      },
+      flushCheckpoint: async () => {
+        order.push("checkpoint");
+        await checkpointPromise;
+      },
+      providerFailureSeen: true,
+      buildSucceeded: false,
+      nativePlanSeen: false,
+      planEventKey: "plan-1",
+    });
+
+    // Synchronously before any Promise yield:
+    expect(currentSession.queueStatus).toBe("held");
+    expect(currentSession.busy).toBe(false);
+    expect(canDispatchQueuedHead(currentSession)).toBe(false);
+    expect(order).toEqual(["failureCallback"]);
+
+    // While failure callback is unresolved, auto-dispatch remains impossible
+    expect(canDispatchQueuedHead(currentSession)).toBe(false);
+
+    // Resolve failure callback -> checkpoint begins next
+    resolveFailureCallback();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(order).toEqual(["failureCallback", "checkpoint"]);
+    expect(canDispatchQueuedHead(currentSession)).toBe(false);
+
+    // Resolve checkpoint flush
+    resolveCheckpoint();
+    await completionPromise;
+
+    expect(order).toEqual(["failureCallback", "checkpoint"]);
+    expect(currentSession.queueStatus).toBe("held");
+    expect(canDispatchQueuedHead(currentSession)).toBe(false);
   });
 
   it("synchronously sets queueStatus to held on assistant failure-text detection before checkpoint Promise resolves", async () => {

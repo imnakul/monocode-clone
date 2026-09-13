@@ -1,7 +1,7 @@
 {
   "name": "monocode-desktop",
   "private": true,
-  "version": "0.1.35-local5-queue-durability",
+  "version": "0.1.44-local6-upstream-sync",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,14 +11,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run check:web && npm run check:rust",
-    "check:web": "vitest run && tsc --noEmit",
+    "check:web": "tsc --noEmit && vitest run",
     "check:rust": "cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test",
     "set-version": "node scripts/bump-version.mjs",
     "tauri": "tauri",
     "tauri:stable": "tauri dev --no-watch --config src-tauri/tauri.stable.conf.json",
     "setup:linux:deb": "bash scripts/install-linux-deps-debian.sh",
     "build:linux": "tauri build --bundles deb,appimage",
-    "build:windows": "tauri build --bundles nsis --no-sign && node scripts/archive-installer.mjs",
+    "build:windows": "set \"RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-msvc\" && tauri build --bundles nsis --no-sign && node scripts/archive-installer.mjs",
     "archive:installer": "node scripts/archive-installer.mjs"
   },
   "dependencies": {
@@ -59,6 +59,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "happy-dom": "20.14.0",
     "tailwindcss": "^4",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",

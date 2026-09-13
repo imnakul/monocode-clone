@@ -57,7 +57,11 @@ html.popover-highlight-invert
 @source "../node_modules/@streamdown/code/dist/*.js";
 @source "../node_modules/@streamdown/mermaid/dist/*.js";
 
+@custom-variant dark (&:where(html:not(.theme-light), html:not(.theme-light) *));
+
 @theme {
+  /* Preserve descenders in compact labels, including two 10px lines in a 30px tab. */
+  --leading-label: 1.4;
   --color-background-base: hsl(
     var(--theme-hue) var(--theme-saturation) var(--background-lightness)
   );
@@ -90,6 +94,7 @@ html.popover-highlight-invert
   --theme-hue: 240;
   --theme-saturation: 0%;
   --sidebar-opacity: 0.72;
+  --chat-background-opacity: 0.24;
   --background-lightness: 9%;
   --content-lightness: 92%;
   --link-color: #7dd3fc;
@@ -258,14 +263,26 @@ html:not(.is-mac) ::-webkit-scrollbar-corner {
 
 html.is-mac,
 html.has-glass,
+html.has-native-glass:not(.theme-light),
 html.is-mac body,
 html.has-glass body,
+html.has-native-glass:not(.theme-light) body,
 html.is-mac #root,
-html.has-glass #root {
+html.has-glass #root,
+html.has-native-glass:not(.theme-light) #root {
   background: transparent;
 }
 
 .sidebar-glass {
+  background: color-mix(in srgb, var(--color-background-base) 90%, black);
+}
+
+html.theme-light .sidebar-glass {
+  background: var(--color-background-base);
+}
+
+html.has-glass:not(.theme-light) .sidebar-glass,
+html.has-native-glass:not(.theme-light) .sidebar-glass {
   background: hsl(
     var(--theme-hue) var(--theme-saturation) var(--background-lightness) /
       var(--sidebar-opacity)
@@ -312,6 +329,33 @@ html.is-windows .sidebar-glass {
   background: var(--color-background-base);
 }
 
+.chat-pane-background::before {
+  content: "";
+  position: absolute;
+  left: var(--chat-background-left, 0);
+  top: var(--chat-background-top, 0);
+  width: var(--chat-background-width, 100%);
+  height: var(--chat-background-height, 100%);
+  z-index: -1;
+  background-image: var(--chat-background-image, none);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: 0;
+  pointer-events: none;
+}
+
+html.has-chat-background .chat-pane-background::before,
+.chat-pane-background[data-project-chat-background="true"]::before {
+  opacity: var(--chat-background-opacity);
+}
+
+html.chat-background-empty-only
+  .chat-pane-background[data-project-chat-background="false"][data-session-empty="false"]::before,
+.chat-pane-background[data-project-chat-background="true"][data-project-background-scope="empty"][data-session-empty="false"]::before {
+  opacity: 0;
+}
+
 .transcript-turn {
   content-visibility: auto;
   contain-intrinsic-block-size: auto 240px;
@@ -336,7 +380,9 @@ html.is-windows .sidebar-glass {
 }
 
 html.is-mac.glass-body .body-glass,
-html.is-windows.glass-body .body-glass {
+html.is-windows.glass-body .body-glass,
+html.has-glass.glass-body:not(.theme-light) .body-glass,
+html.has-native-glass.glass-body:not(.theme-light) .body-glass {
   background: color-mix(
     in srgb,
     var(--color-background-base) calc(var(--sidebar-opacity) * 100%),
@@ -418,6 +464,13 @@ input,
     color-mix(in srgb, var(--color-content) 20%, transparent);
 }
 
+.agent-markdown [data-streamdown="ordered-list"],
+.agent-markdown [data-streamdown="unordered-list"] {
+  list-style-position: outside;
+  padding-left: 0;
+  padding-inline-start: 1.5rem;
+}
+
 .agent-markdown li > [data-streamdown="ordered-list"],
 .agent-markdown li > [data-streamdown="unordered-list"] {
   padding-left: 0;
@@ -457,6 +510,31 @@ html.is-resizing * {
   overflow-y: hidden;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
+}
+
+html.theme-light [data-composer-box] {
+  background: var(--color-background-base);
+  box-shadow:
+    0 6px 24px color-mix(in srgb, var(--color-content) 9%, transparent),
+    0 2px 6px color-mix(in srgb, var(--color-content) 6%, transparent);
+}
+
+html.theme-light .composer-send:not(:disabled) {
+  background: var(--color-content);
+  color: var(--color-background-base);
+}
+
+html.theme-light .composer-send:not(:disabled):hover {
+  background: color-mix(in srgb, var(--color-content) 90%, transparent);
+}
+
+html.theme-light .composer-send:disabled {
+  background: color-mix(in srgb, var(--color-content) 25%, transparent);
+  color: color-mix(
+    in srgb,
+    var(--color-background-base) 75%,
+    transparent
+  );
 }
 
 .composer-field {
@@ -1139,6 +1217,125 @@ header[data-tauri-drag-region] button {
   border-bottom-left-radius: 8px;
 }
 
+/*
+ * The connector: a line dropping out of the chevron and curving into the first
+ * thing the fold holds, so opened work reads as hanging off that line rather
+ * than running on from the answer below it. Same geometry as the phase rail —
+ * 23px is the chevron's own centre (16px of row padding plus half a 14px
+ * icon), and the curve is a quarter circle tangent to both.
+ */
+.zen-fold-drop,
+.zen-fold-rail {
+  position: relative;
+  --zen-rail: color-mix(
+    in srgb,
+    var(--color-content) 14%,
+    var(--color-background-base)
+  );
+}
+
+/* Out of the chevron, down through the gap to the row below. */
+.zen-fold-drop::after {
+  content: "";
+  position: absolute;
+  left: 23px;
+  top: 22px;
+  bottom: -4px;
+  width: 1px;
+  background: var(--zen-rail);
+}
+
+/* The spine, carried by every row so it follows however tall they turn out. */
+.zen-fold-rail::before {
+  content: "";
+  position: absolute;
+  left: 23px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--zen-rail);
+}
+
+/* The last row is where the spine ends, at its final branch. */
+.zen-fold-tail::before {
+  bottom: auto;
+  height: 7px;
+}
+
+/* Every row branches off the spine on the same curve as an activity step. */
+.zen-fold-rail::after {
+  content: "";
+  position: absolute;
+  left: 23px;
+  top: 6px;
+  width: 8px;
+  height: 8px;
+  border-left: 1px solid var(--zen-rail);
+  border-bottom: 1px solid var(--zen-rail);
+  border-bottom-left-radius: 8px;
+}
+
+.zen-fold-item[data-fold-state="closed"] {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.zen-fold-item[data-fold-state="open"] {
+  /* Match Grid's non-collapsing margins without participating in Grid sizing. */
+  display: flow-root;
+}
+
+/*
+ * Expanded rows stay in ordinary block flow so text rewraps naturally when a
+ * pane is resized. Grid exists only during the fold animation, then gets out
+ * of the layout again.
+ */
+.zen-fold-item[data-fold-state="opening"],
+.zen-fold-item[data-fold-state="closing"] {
+  display: grid;
+}
+
+.zen-fold-item[data-fold-state="opening"] {
+  animation: zen-fold-open 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.zen-fold-item[data-fold-state="closing"] {
+  pointer-events: none;
+  user-select: none;
+  animation: zen-fold-close 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.zen-fold-item:is([data-fold-state="opening"], [data-fold-state="closing"]) > *,
+.zen-fold-item[data-fold-state="closed"] > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@keyframes zen-fold-open {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+@keyframes zen-fold-close {
+  from {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
 /* Live steps fade in place. A slide or blur hitch the autoscroll. */
 @keyframes zen-step-in {
   from {
@@ -1189,6 +1386,27 @@ header[data-tauri-drag-region] button {
   .zen-phase-body {
     transition: none;
   }
+
+  .zen-fold-item[data-fold-state="opening"] {
+    display: flow-root;
+    animation: none;
+  }
+
+  .zen-fold-item[data-fold-state="closing"] {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    animation: none;
+  }
+}
+
+/* Keep the original content tint in dark mode. In light mode, use the base
+   color at the same opacity so the surface stays translucent without graying. */
+.popover-backdrop {
+  background: color-mix(in srgb, var(--color-content) 2%, transparent);
+}
+
+html.theme-light .popover-backdrop {
+  background: color-mix(in srgb, var(--color-background-base) 10%, transparent);
 }
 
 /* Popover contents grow in from the edge they hang off, sliding the last few
@@ -1343,13 +1561,6 @@ header[data-tauri-drag-region] button {
     animation: none;
     opacity: 0.7;
   }
-}
-
-[data-session-review-shell]
-  + [data-message-queue]
-  [data-message-queue-card] {
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
 }
 
 /* Graph node cutouts so lane strokes do not show through the circles. */

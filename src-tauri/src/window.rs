@@ -2,6 +2,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::window::Color;
+#[cfg(target_os = "windows")]
+use tauri::window::{Effect, EffectsBuilder};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow, WebviewWindowBuilder};
 
 static WINDOW_COUNTER: AtomicU32 = AtomicU32::new(1);
@@ -53,24 +55,33 @@ pub(crate) fn prepare_windows_window(window: &WebviewWindow) {
 #[cfg(target_os = "windows")]
 pub(crate) fn apply_windows_glass(window: &WebviewWindow) {
     prepare_windows_window(window);
-    if let Err(error) = window_vibrancy::apply_acrylic(window, None) {
-        eprintln!("failed to enable Windows Desktop Acrylic: {error}");
-    }
+    let _ = window.set_effects(EffectsBuilder::new().effect(Effect::Acrylic).build());
 }
 
-/// Desktop blur goes on after the first UI paint, not during the dock bounce.
+/// Desktop blur goes on after the first UI paint and only in dark mode.
 #[tauri::command]
-pub fn enable_window_glass(window: WebviewWindow) {
+pub fn set_window_glass_enabled(window: WebviewWindow, enabled: bool) {
     #[cfg(target_os = "macos")]
     {
-        let _ = window.set_background_color(Some(Color(0, 0, 0, 3)));
-        crate::macos::enable_glass(&window);
+        if enabled {
+            let _ = window.set_background_color(Some(Color(0, 0, 0, 3)));
+            crate::macos::enable_glass(&window);
+        } else {
+            crate::macos::disable_glass(&window);
+        }
     }
     #[cfg(target_os = "windows")]
-    apply_windows_glass(&window);
+    {
+        if enabled {
+            apply_windows_glass(&window);
+        } else {
+            let _ = window.set_effects(None);
+            let _ = window.set_background_color(Some(Color(247, 247, 247, 255)));
+        }
+    }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let _ = window;
+        let _ = (window, enabled);
     }
 }
 

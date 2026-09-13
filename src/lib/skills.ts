@@ -38,11 +38,11 @@ export function loadDisabledSkillPaths(): string[] {
   }
 }
 
-export function saveDisabledSkillPaths(paths: string[]) {
+export function saveDisabledSkillPaths(paths: string[]): void {
   try {
     localStorage.setItem(DISABLED_SKILL_PATHS_KEY, JSON.stringify(paths));
   } catch {
-    // private mode / quota
+    throw new Error("Could not save skill preferences");
   }
   // The composer catalog caches per context; drop it so the next picker or
   // prompt sees the change immediately.
@@ -311,13 +311,10 @@ async function loadCatalog(context: SkillCatalogContext): Promise<Skill[]> {
       ...command,
     }));
   }
-  // Skills disabled in Settings drop out of every catalog here, so the
-  // composer, the picker, and prompt preparation all agree.
+  const disabledPaths = loadDisabledSkillPaths();
+  const discovered = await listSkills(context.cwd, disabledPaths);
   const disabled = disabledSkillPathSet();
-  const discovered = (await listSkills(context.cwd)).filter(
-    (skill) => !disabled.has(skill.path),
-  );
-  return mergeCatalog(discovered);
+  return mergeCatalog(discovered.filter((skill) => !disabled.has(skill.path)));
 }
 
 export function mergeCatalog(discovered: DiscoveredSkill[]): Skill[] {

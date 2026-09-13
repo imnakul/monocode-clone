@@ -4,6 +4,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { setGrabbing, suppressTextSelection } from "../lib/drag";
@@ -34,6 +35,7 @@ import {
 } from "../lib/session";
 import { FilePane } from "./FilePane";
 import { SessionPane } from "./SessionPane";
+import type { SessionFolderTarget } from "../lib/sessionFolders";
 
 type Shared = {
   visible: boolean;
@@ -50,6 +52,7 @@ type Shared = {
   onClose: (sessionId: string) => void;
   onSelectFile: (paneId: string, fileId: string) => void;
   onCloseFile: (paneId: string, fileId: string) => void;
+  onCloseOtherFiles: (paneId: string, fileId: string) => void;
   onReorderFiles: (paneId: string, ids: string[]) => void;
   onFileDirtyChange: (fileId: string, dirty: boolean) => void;
   onFileErrorCountChange: (fileId: string, count: number) => void;
@@ -70,6 +73,10 @@ type Shared = {
   ) => void;
   onStop: (sessionId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
+  onPlaceSessionInFolder: (
+    sessionId: string,
+    target: SessionFolderTarget,
+  ) => void;
   onDeleteQueuedMessage: (sessionId: string, messageId: string) => void;
   onEditQueuedMessage: (
     sessionId: string,
@@ -93,6 +100,7 @@ type Shared = {
     requestId: number,
     reply: UserQuestionReply,
   ) => void;
+  onQuestionInteraction?: (sessionId: string, requestId: number) => void;
   onOpenFile: (path: string) => void;
   editorNavigation?: EditorNavigationTarget | null;
   onOpenDiff: (
@@ -151,6 +159,7 @@ function PaneTreeComponent({
   onClose,
   onSelectFile,
   onCloseFile,
+  onCloseOtherFiles,
   onReorderFiles,
   onFileDirtyChange,
   onFileErrorCountChange,
@@ -163,6 +172,7 @@ function PaneTreeComponent({
   onSubmit,
   onStop,
   onCompactContext,
+  onPlaceSessionInFolder,
   onDeleteQueuedMessage,
   onEditQueuedMessage,
   onQueuedMessageEditingChange,
@@ -174,6 +184,7 @@ function PaneTreeComponent({
   onApproval,
   onReviewFix,
   onQuestionReply,
+  onQuestionInteraction,
   onOpenFile,
   editorNavigation,
   onOpenDiff,
@@ -307,6 +318,12 @@ function PaneTreeComponent({
         const session = sessions.find((entry) => entry.id === leaf.id);
         const dragging = drop?.fromId === leaf.id;
         const onPaneDragStart = inSplit ? paneDragStartFor(leaf.id) : undefined;
+        const backgroundStyle = {
+          "--chat-background-left": `${(-leaf.rect.x / leaf.rect.w) * 100}%`,
+          "--chat-background-top": `${(-leaf.rect.y / leaf.rect.h) * 100}%`,
+          "--chat-background-width": `${100 / leaf.rect.w}%`,
+          "--chat-background-height": `${100 / leaf.rect.h}%`,
+        } as CSSProperties;
         return (
           <div
             key={leaf.id}
@@ -317,6 +334,7 @@ function PaneTreeComponent({
               top: `${leaf.rect.y * 100}%`,
               width: `${leaf.rect.w * 100}%`,
               height: `${leaf.rect.h * 100}%`,
+              ...backgroundStyle,
             }}
           >
             {drop && drop.overId === leaf.id && drop.fromId !== leaf.id ? (
@@ -332,6 +350,7 @@ function PaneTreeComponent({
                 onFocus={onFocus}
                 onSelectFile={onSelectFile}
                 onCloseFile={onCloseFile}
+                onCloseOtherFiles={onCloseOtherFiles}
                 onReorderFiles={onReorderFiles}
                 onDirtyChange={onFileDirtyChange}
                 onErrorCountChange={onFileErrorCountChange}
@@ -371,6 +390,7 @@ function PaneTreeComponent({
                 onSubmit={onSubmit}
                 onStop={onStop}
                 onCompactContext={onCompactContext}
+                onPlaceSessionInFolder={onPlaceSessionInFolder}
                 onDeleteQueuedMessage={onDeleteQueuedMessage}
                 onEditQueuedMessage={onEditQueuedMessage}
                 onQueuedMessageEditingChange={onQueuedMessageEditingChange}
@@ -382,6 +402,7 @@ function PaneTreeComponent({
                 onApproval={onApproval}
                 onReviewFix={onReviewFix}
                 onQuestionReply={onQuestionReply}
+                onQuestionInteraction={onQuestionInteraction}
                 onOpenFile={onOpenFile}
                 onOpenDiff={onOpenDiff}
                 onOpenPlan={onOpenPlan}

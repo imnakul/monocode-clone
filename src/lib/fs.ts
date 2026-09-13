@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { slash } from "./paths";
 
 export type FsEntry = {
   name: string;
@@ -38,8 +39,14 @@ export type DiscoveredSkill = {
     | "monocode";
 };
 
-export function listSkills(cwd: string): Promise<DiscoveredSkill[]> {
-  return invoke<DiscoveredSkill[]>("list_skills", { cwd });
+export function listSkills(
+  cwd: string,
+  disabledPaths?: readonly string[] | null,
+): Promise<DiscoveredSkill[]> {
+  return invoke<DiscoveredSkill[]>("list_skills", {
+    cwd,
+    disabledPaths: disabledPaths ?? null,
+  });
 }
 
 export function listProjectFiles(cwd: string): Promise<ProjectFile[]> {
@@ -315,11 +322,11 @@ export function createPath(
   name: string,
   isDir: boolean,
 ): Promise<string> {
-  return invoke<string>("create_path", { parent, name, isDir });
+  return invoke<string>("create_path", { parent, name, isDir }).then(slash);
 }
 
 export function renamePath(path: string, name: string): Promise<string> {
-  return invoke<string>("rename_path", { path, name });
+  return invoke<string>("rename_path", { path, name }).then(slash);
 }
 
 export function deletePath(path: string): Promise<void> {
@@ -327,11 +334,11 @@ export function deletePath(path: string): Promise<void> {
 }
 
 export function copyPath(from: string, destParent: string): Promise<string> {
-  return invoke<string>("copy_path", { from, destParent });
+  return invoke<string>("copy_path", { from, destParent }).then(slash);
 }
 
 export function movePath(from: string, destParent: string): Promise<string> {
-  return invoke<string>("move_path", { from, destParent });
+  return invoke<string>("move_path", { from, destParent }).then(slash);
 }
 
 export function revealPath(path: string): Promise<void> {
@@ -348,7 +355,7 @@ export async function pickFolder(title = "Open project"): Promise<string | null>
     multiple: false,
     title,
   });
-  return typeof selected === "string" && selected ? selected : null;
+  return typeof selected === "string" && selected ? slash(selected) : null;
 }
 
 export async function pickFile(title = "Select binary"): Promise<string | null> {
@@ -357,7 +364,7 @@ export async function pickFile(title = "Select binary"): Promise<string | null> 
     directory: false,
     title,
   });
-  return typeof selected === "string" && selected ? selected : null;
+  return typeof selected === "string" && selected ? slash(selected) : null;
 }
 
 export async function pickImage(
@@ -374,7 +381,7 @@ export async function pickImage(
       },
     ],
   });
-  return typeof selected === "string" && selected ? selected : null;
+  return typeof selected === "string" && selected ? slash(selected) : null;
 }
 
 export function persistWallpaper(path: string): Promise<string> {
@@ -392,15 +399,17 @@ export async function pickFiles(title = "Attach files"): Promise<string[] | null
     title,
   });
   if (Array.isArray(selected)) {
-    const paths = selected.filter((path): path is string => Boolean(path));
+    const paths = selected
+      .filter((path): path is string => Boolean(path))
+      .map(slash);
     return paths.length > 0 ? paths : null;
   }
-  if (typeof selected === "string" && selected) return [selected];
+  if (typeof selected === "string" && selected) return [slash(selected)];
   return null;
 }
 
 export function cloneRepo(url: string, parent: string): Promise<string> {
-  return invoke<string>("clone_repo", { url, parent });
+  return invoke<string>("clone_repo", { url, parent }).then(slash);
 }
 
 export function readFilePreview(
@@ -450,7 +459,8 @@ export function writeTextFile(path: string, content: string): Promise<void> {
 /** Last path segment, or `/` for the filesystem root. Splits on both `/`
  * and `\` so Windows paths label as folder names instead of full paths. */
 export function basename(path: string): string {
-  const trimmed = path.replace(/[/\\]+$/, "") || "/";
-  const parts = trimmed.split(/[/\\]/).filter(Boolean);
+  const trimmed = slash(path).replace(/\/+$/, "") || "/";
+  if (/^[A-Za-z]:$/.test(trimmed)) return trimmed;
+  const parts = trimmed.split("/").filter(Boolean);
   return parts[parts.length - 1] ?? trimmed;
 }

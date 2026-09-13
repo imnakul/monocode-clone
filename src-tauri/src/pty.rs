@@ -44,7 +44,7 @@ struct LivePty {
     /// Retained for `pty_resize`. `MasterPty: Send`, so `Mutex` is enough to
     /// share it between the Tauri thread pool and the reader/waiter threads.
     #[cfg(windows)]
-    master: Mutex<Box<dyn portable_pty::MasterPty>>,
+    master: Mutex<Box<dyn portable_pty::MasterPty + Send>>,
     /// Direct kill handle. `terminate_all` (taskkill tree-kill) is the primary
     /// path; this covers the interim before the pid is known or reachable.
     #[cfg(windows)]
@@ -151,9 +151,11 @@ impl PtyHost {
         let pids: Vec<u32> = kids.iter().map(|live| live.pid).collect();
         for live in kids {
             #[cfg(unix)]
-            hangup(live.pid);
             #[cfg(unix)]
-            close_fd(live.master_fd);
+            {
+                hangup(live.pid);
+                close_fd(live.master_fd);
+            }
             // Draining the map already drops writer + master on this thread;
             // poke the child directly first so a wedged console does not wait
             // for the taskkill escalation below.
@@ -190,6 +192,11 @@ pub fn pty_spawn(
         close_fd(prev.master_fd);
     }
 
+    #[cfg(unix)]
+    {
+        spawn_unix(app, host, id, cwd, cols.max(2), rows.max(2))
+    }
+
     #[cfg(windows)]
     {
         spawn_windows(app, host, id, cwd, cols.max(2), rows.max(2))
@@ -198,12 +205,7 @@ pub fn pty_spawn(
     #[cfg(not(any(unix, windows)))]
     {
         let _ = (app, cwd, cols, rows);
-        return Err("Terminals are supported on macOS and Linux.".into());
-    }
-
-    #[cfg(unix)]
-    {
-        spawn_unix(app, host, id, cwd, cols.max(2), rows.max(2))
+        Err("Terminals are not supported on this platform.".into())
     }
 }
 
@@ -230,20 +232,20 @@ pub fn pty_resize(host: State<PtyHost>, id: String, cols: u16, rows: u16) -> Res
     }
     #[cfg(windows)]
     {
-        use portable_pty::PtySize;
         let master = live.master.lock().unwrap_or_else(|e| e.into_inner());
         master
-            .resize(PtySize {
+            .resize(portable_pty::PtySize {
                 rows: rows.max(2),
                 cols: cols.max(2),
-                ..Default::default()
+                pixel_width: 0,
+                pixel_height: 0,
             })
-            .map_err(|e| format!("Failed to resize terminal: {e:#}"))
+            .map_err(|err| format!("Failed to resize terminal: {err}"))
     }
     #[cfg(not(any(unix, windows)))]
     {
         let _ = (live, cols, rows);
-        Err("Terminals are supported on macOS and Linux.".into())
+        Err("Terminals are not supported on this platform.".into())
     }
 }
 
@@ -406,9 +408,7 @@ fn spawn_windows(
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "MonoCode");
 
-    let mut child = pair
-        .slave
-        .spawn_command(cmd)
+    let mut child = crate::windows::spawn_pty(pair.slave.as_ref(), cmd)
         .map_err(|e| format!("Failed to start {shell}: {e:#}"))?;
     let pid = child.process_id().unwrap_or(0);
 
@@ -666,8 +666,8 @@ fn spawn_unix(
         .env("TERM", "xterm-256color")
         .env("COLORTERM", "truecolor")
         .env("COLORFGBG", "15;0")
-        .env("TERM_PROGRAM", "MonoCode");
-    apply_path(&mut cmd);
+        .env("TERM_PROGRAM", "MonoCode")
+        .env("PATH", crate::harness::gui_search_path());
     if let Some(home) = dirs_home() {
         cmd.env("HOME", &home);
     }
@@ -780,53 +780,45 @@ fn working_dir(cwd: &str) -> std::path::PathBuf {
 
 #[cfg(unix)]
 fn default_shell() -> (String, Vec<String>) {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| {
-        if cfg!(target_os = "macos") {
-            "/bin/zsh".into()
-        } else {
-            "/bin/bash".into()
+    #[cfg(windows)]
+    {
+        if let Ok(comspec) = std::env::var("COMSPEC") {
+            if !comspec.is_empty() {
+                return (comspec, Vec::new());
+            }
         }
-    });
-    let args = login_args(&shell)
-        .iter()
-        .map(|arg| (*arg).to_string())
-        .collect();
-    (shell, args)
+        ("powershell.exe".into(), vec!["-NoLogo".into()])
+    }
+    #[cfg(not(windows))]
+    {
+        let shell = std::env::var("SHELL")
+            .ok()
+            .filter(|shell| !shell.is_empty())
+            .unwrap_or_else(|| {
+                if cfg!(target_os = "macos") {
+                    "/bin/zsh".into()
+                } else {
+                    "/bin/bash".into()
+                }
+            });
+        let args = login_args(&shell)
+            .iter()
+            .map(|arg| (*arg).to_string())
+            .collect();
+        (shell, args)
+    }
 }
 
-#[cfg(unix)]
+#[cfg(not(windows))]
 fn login_args(shell: &str) -> &'static [&'static str] {
     match std::path::Path::new(shell)
-        .file_name()
+        .file_stem()
         .and_then(|name| name.to_str())
         .unwrap_or(shell)
     {
         "zsh" | "bash" | "sh" | "fish" => &["-l"],
         _ => &[],
     }
-}
-
-#[cfg(unix)]
-fn apply_path(cmd: &mut std::process::Command) {
-    let mut parts: Vec<String> = Vec::new();
-    if let Some(home) = dirs_home() {
-        parts.push(format!("{home}/.local/bin"));
-        parts.push(format!("{home}/.cargo/bin"));
-        parts.push(format!("{home}/.claude/local"));
-        parts.push(format!("{home}/.local/share/claude"));
-        parts.push(format!("{home}/.opencode/bin"));
-        parts.push(format!("{home}/.grok/bin"));
-        parts.push(format!("{home}/.npm-global/bin"));
-    }
-    parts.push("/opt/homebrew/bin".into());
-    parts.push("/usr/local/bin".into());
-    parts.push("/usr/bin".into());
-    parts.push("/bin".into());
-    parts.push("/snap/bin".into());
-    if let Ok(existing) = std::env::var("PATH") {
-        parts.push(existing);
-    }
-    cmd.env("PATH", parts.join(":"));
 }
 
 /// The hangup a closing shell expects, without `terminate`'s escalation.
@@ -863,7 +855,17 @@ fn terminate(pid: u32) {
             }
         });
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let mut cmd = std::process::Command::new("taskkill");
+        crate::hide_window_console(&mut cmd);
+        let _ = cmd
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = pid;
     }

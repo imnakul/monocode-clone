@@ -1,9 +1,9 @@
 import { listProjectFiles, type ProjectFile } from "./fs";
 import { subscribeDirsChanged } from "./fileTree";
 import { scorePath, type FuzzyHit } from "./fuzzy";
-import { resolveWorkspacePath } from "./paths";
+import { resolveWorkspacePath, slash } from "./paths";
 import { looksLikeProject } from "./recents";
-import { normalizeEditorPath } from "./search";
+import { normalizeEditorPath, type FileOpenOptions } from "./search";
 
 const MAX_RECENTS = 30;
 const MAX_RESULTS = 80;
@@ -27,7 +27,7 @@ const listeners = new Set<Listener>();
 const recentsByCwd = new Map<string, string[]>();
 
 function normCwd(cwd: string): string {
-  return cwd.replace(/\/+$/, "") || "/";
+  return slash(cwd).replace(/\/+$/, "") || "/";
 }
 
 function notifyProjectFilesChanged() {
@@ -189,7 +189,14 @@ export async function resolveOpenablePath(
   const direct = resolveWorkspacePath(href, cwd);
   if (!direct) return undefined;
 
-  const files = await loadProjectFiles(cwd);
+  let files: ProjectFile[];
+  try {
+    files = await loadProjectFiles(cwd);
+  } catch {
+    // The index only disambiguates shortened paths. Let the editor read the
+    // direct path and show its own error if that file is unavailable too.
+    return direct;
+  }
   if (files.length === 0) return direct;
 
   const byPath = new Map(
@@ -221,6 +228,16 @@ export async function resolveOpenablePath(
   if (byName.length === 1) return byName[0].path;
 
   return pickOpenableFile(byName, cwd, relHint).path;
+}
+
+/** Resolve shortened references while preserving paths selected from file UI. */
+export async function resolveFileOpenRequest(
+  cwd: string,
+  path: string,
+  options?: FileOpenOptions,
+): Promise<string> {
+  if (options?.exact) return path;
+  return (await resolveOpenablePath(cwd, path)) ?? path;
 }
 
 function relativePathHint(href: string, cwd: string, direct: string): string {

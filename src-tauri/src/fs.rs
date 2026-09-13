@@ -48,7 +48,7 @@ pub fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
         out.push(DirEntry {
             ignored: ignore.matches(name),
             name: name.to_string(),
-            path: path.to_string_lossy().into_owned(),
+            path: path_to_js(&path),
             is_dir,
         });
     }
@@ -98,12 +98,12 @@ pub(crate) fn list_project_files_sync(cwd: &str) -> Result<Vec<ProjectFile>, Str
 }
 
 fn git_ls_files(root: &Path) -> Option<Vec<ProjectFile>> {
-    let mut cmd = Command::new("git");
-    cmd.arg("-C")
+    let output = git_cmd()
+        .arg("-C")
         .arg(root)
-        .args(["ls-files", "-co", "--exclude-standard", "-z"]);
-    crate::harness::hide_console_window(&mut cmd);
-    let output = cmd.output().ok()?;
+        .args(["ls-files", "-co", "--exclude-standard", "-z"])
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -113,7 +113,7 @@ fn git_ls_files(root: &Path) -> Option<Vec<ProjectFile>> {
         if rel.is_empty() {
             continue;
         }
-        let relative = String::from_utf8_lossy(rel).replace('\\', "/");
+        let relative = path_to_js(Path::new(String::from_utf8_lossy(rel).as_ref()));
         if relative.ends_with('/') || path_has_skipped_dir(&relative) {
             continue;
         }
@@ -126,7 +126,7 @@ fn git_ls_files(root: &Path) -> Option<Vec<ProjectFile>> {
         }
         files.push(ProjectFile {
             name: name.to_string(),
-            path: path.to_string_lossy().into_owned(),
+            path: path_to_js(&path),
             relative,
         });
         if files.len() >= MAX_PROJECT_FILES {
@@ -548,6 +548,49 @@ pub struct GitHubWorkItem {
     pub repo: String,
 }
 
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHubStatus {
+    pub connected: bool,
+    pub installed: bool,
+    pub authenticated: bool,
+}
+
+/// Whether the GitHub CLI is installed and has an active authenticated account.
+#[tauri::command]
+pub async fn git_github_status() -> Result<GitHubStatus, String> {
+    tauri::async_runtime::spawn_blocking(git_github_status_for)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+fn git_github_status_for() -> GitHubStatus {
+    let Some(program) = crate::harness::resolve_gui_binary("gh") else {
+        return GitHubStatus {
+            connected: false,
+            installed: false,
+            authenticated: false,
+        };
+    };
+    let mut cmd = Command::new(program);
+    cmd.args(["auth", "status", "--active", "--hostname", "github.com"])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GH_PROMPT_DISABLED", "1")
+        .env("GH_PAGER", "cat")
+        .env("GIT_PAGER", "cat");
+    crate::harness::apply_gui_env(&mut cmd);
+    crate::hide_window_console(&mut cmd);
+    let authenticated = cmd
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    GitHubStatus {
+        connected: authenticated,
+        installed: true,
+        authenticated,
+    }
+}
+
 /// `owner/repo` for the GitHub remote of this working copy, via `gh`.
 #[tauri::command]
 pub async fn git_github_repo(cwd: String) -> Result<String, String> {
@@ -575,6 +618,22 @@ pub async fn git_github_work_items(
             &search,
             limit.unwrap_or(40),
         )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// One issue or pull request by number, used when session navigation misses
+/// the existing Inbox cache.
+#[tauri::command]
+pub async fn git_github_work_item(
+    cwd: String,
+    repo: String,
+    kind: String,
+    number: i64,
+) -> Result<GitHubWorkItem, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        git_github_work_item_for(&expand_home(&cwd), &repo, &kind, number)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -881,7 +940,7 @@ fn git_diff_index_with(root: &Path, include_sync: bool) -> GitDiffIndex {
             "modified"
         };
         out.push(GitChangedFile {
-            path: abs.to_string_lossy().into_owned(),
+            path: path_to_js(&abs),
             relative,
             status: status.to_string(),
             additions: acc.additions,
@@ -956,7 +1015,7 @@ fn normalize_diff_path(path: &str) -> String {
     } else {
         path
     };
-    path.replace('\\', "/")
+    path_to_js(Path::new(path))
 }
 
 const MAX_UNTRACKED_BYTES: u64 = 1024 * 1024;
@@ -972,7 +1031,7 @@ fn add_untracked_map(root: &Path, files: &mut HashMap<String, FileAcc>) {
         if rel.is_empty() {
             continue;
         }
-        let relative = rel.replace('\\', "/");
+        let relative = path_to_js(Path::new(rel));
         let entry = files.entry(relative.clone()).or_default();
         entry.untracked = true;
         if entry.additions == 0 {
@@ -1086,7 +1145,7 @@ fn git_file_diff_for(root: &Path, relative: &str, staged: bool) -> Result<GitFil
         )
     };
     Ok(GitFileDiff {
-        path: abs.to_string_lossy().into_owned(),
+        path: path_to_js(&abs),
         relative,
         status: status.to_string(),
         original: original_text,
@@ -1308,7 +1367,7 @@ fn git_commit_files_for(root: &Path, sha: &str) -> Result<Vec<GitChangedFile>, S
         seen.insert(relative.clone());
         let status = statuses.get(&relative).copied().unwrap_or("modified");
         out.push(GitChangedFile {
-            path: root.join(&relative).to_string_lossy().into_owned(),
+            path: path_to_js(&root.join(&relative)),
             relative,
             status: status.to_string(),
             additions: acc.additions,
@@ -1322,7 +1381,7 @@ fn git_commit_files_for(root: &Path, sha: &str) -> Result<Vec<GitChangedFile>, S
             continue;
         }
         out.push(GitChangedFile {
-            path: root.join(&relative).to_string_lossy().into_owned(),
+            path: path_to_js(&root.join(&relative)),
             relative,
             status: status.to_string(),
             additions: 0,
@@ -1366,7 +1425,7 @@ fn git_commit_file_diff_for(root: &Path, sha: &str, relative: &str) -> Result<Gi
         )
     };
     Ok(GitFileDiff {
-        path: root.join(&relative).to_string_lossy().into_owned(),
+        path: path_to_js(&root.join(&relative)),
         relative,
         status: status.to_string(),
         original,
@@ -1412,8 +1471,7 @@ fn git_index_mode(root: &Path, relative: &str) -> Option<String> {
 }
 
 fn git_hash_object(root: &Path, relative: &str, contents: &[u8]) -> Result<String, String> {
-    let mut spawn = Command::new("git");
-    spawn
+    let mut child = git_cmd()
         .arg("--no-pager")
         .arg("-C")
         .arg(root)
@@ -1422,9 +1480,9 @@ fn git_hash_object(root: &Path, relative: &str, contents: &[u8]) -> Result<Strin
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    crate::harness::hide_console_window(&mut spawn);
-    let mut child = spawn.spawn().map_err(|e| e.to_string())?;
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
     let mut stdin = child
         .stdin
         .take()
@@ -1571,13 +1629,15 @@ fn git_range_context_for(root: &Path) -> Result<GitRangeContext, String> {
 
 fn git_pr_status_for(root: &Path) -> Option<GitPr> {
     let branch = git_branch(root)?;
+    let repo = git_github_repo_for(root).ok()?;
+    let head = github_pr_head_filter(&repo, &branch)?;
     let json = gh_stdout(
         root,
         &[
             "pr",
             "list",
             "--head",
-            &branch,
+            &head,
             "--json",
             "number,title,url,state",
             "--limit",
@@ -1587,6 +1647,11 @@ fn git_pr_status_for(root: &Path) -> Option<GitPr> {
         ],
     )?;
     parse_gh_pr_list(&json)
+}
+
+fn github_pr_head_filter(repo: &str, branch: &str) -> Option<String> {
+    let (owner, _) = split_github_repo(repo).ok()?;
+    Some(format!("{owner}:{branch}"))
 }
 
 fn git_github_repo_for(root: &Path) -> Result<String, String> {
@@ -1650,6 +1715,34 @@ fn git_github_work_items_for(
     let json = gh_checked(root, &refs)?;
     let repo = git_github_repo_for(root).unwrap_or_default();
     parse_github_work_items(&json, kind, &repo)
+}
+
+fn git_github_work_item_for(
+    root: &Path,
+    repo: &str,
+    kind: &str,
+    number: i64,
+) -> Result<GitHubWorkItem, String> {
+    let kind = kind.trim();
+    if kind != "issue" && kind != "pr" {
+        return Err("Unknown GitHub task kind".into());
+    }
+    if number <= 0 {
+        return Err("GitHub task number must be positive".into());
+    }
+    let (owner, name) = split_github_repo(repo)?;
+    let repo = format!("{owner}/{name}");
+    let number = number.to_string();
+    let fields = if kind == "pr" {
+        "number,title,url,state,updatedAt,labels,assignees,isDraft"
+    } else {
+        "number,title,url,state,updatedAt,labels,assignees"
+    };
+    let json = gh_checked(
+        root,
+        &[kind, "view", &number, "--repo", &repo, "--json", fields],
+    )?;
+    parse_github_work_item(&json, kind, &repo)
 }
 
 fn git_github_work_item_details_for(
@@ -2423,6 +2516,14 @@ fn parse_github_work_items(
         .collect())
 }
 
+fn parse_github_work_item(json: &str, kind: &str, repo: &str) -> Result<GitHubWorkItem, String> {
+    let wrapped = format!("[{json}]");
+    parse_github_work_items(&wrapped, kind, repo)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "GitHub did not return a work item".into())
+}
+
 fn parse_gh_pr_list(json: &str) -> Option<GitPr> {
     #[derive(Deserialize)]
     struct Row {
@@ -2558,16 +2659,22 @@ pub(crate) fn resolve_repo_path(root: &Path, relative: &str) -> Result<String, S
     Ok(relative)
 }
 
-pub(crate) fn git_checked(root: &Path, args: &[&str]) -> Result<(), String> {
+fn git_cmd() -> Command {
     let mut cmd = Command::new("git");
-    cmd.arg("--no-pager")
+    crate::hide_window_console(&mut cmd);
+    cmd
+}
+
+pub(crate) fn git_checked(root: &Path, args: &[&str]) -> Result<(), String> {
+    let output = git_cmd()
+        .arg("--no-pager")
         .arg("-C")
         .arg(root)
         .args(args)
         .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_TERMINAL_PROMPT", "0");
-    crate::harness::hide_console_window(&mut cmd);
-    let output = cmd.output().map_err(|e| e.to_string())?;
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|e| e.to_string())?;
     if output.status.success() {
         return Ok(());
     }
@@ -2593,15 +2700,15 @@ fn git_run(root: &Path, args: &[&str]) -> Option<String> {
 }
 
 fn git_output(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
-    let mut cmd = Command::new("git");
-    cmd.arg("--no-pager")
+    let output = git_cmd()
+        .arg("--no-pager")
         .arg("-C")
         .arg(root)
         .args(args)
         .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_TERMINAL_PROMPT", "0");
-    crate::harness::hide_console_window(&mut cmd);
-    let output = cmd.output().ok()?;
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .ok()?;
     if output.status.success() {
         return Some(output.stdout);
     }
@@ -2798,14 +2905,14 @@ fn git_branch_name(root: &Path, name: &str) -> Result<String, String> {
     if name.is_empty() {
         return Err("Branch name cannot be empty".into());
     }
-    let mut cmd = Command::new("git");
-    cmd.arg("-C")
+    let output = git_cmd()
+        .arg("-C")
         .arg(root)
         .args(["check-ref-format", "--branch", name])
         .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_TERMINAL_PROMPT", "0");
-    crate::harness::hide_console_window(&mut cmd);
-    let output = cmd.output().map_err(|e| e.to_string())?;
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(|e| e.to_string())?;
     if !output.status.success() {
         return Err(format!("'{name}' is not a valid branch name"));
     }
@@ -2924,10 +3031,7 @@ fn git_ahead_behind(root: &Path, base: &str) -> (i64, i64) {
 }
 
 fn git_stdout(root: &Path, args: &[&str]) -> Option<String> {
-    let mut cmd = Command::new("git");
-    cmd.arg("-C").arg(root).args(args);
-    crate::harness::hide_console_window(&mut cmd);
-    let output = cmd.output().ok()?;
+    let output = git_cmd().arg("-C").arg(root).args(args).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -2986,10 +3090,10 @@ fn walk_project_files(root: &Path) -> Vec<ProjectFile> {
             let Ok(relative) = path.strip_prefix(root) else {
                 continue;
             };
-            let relative = relative.to_string_lossy().replace('\\', "/");
+            let relative = path_to_js(relative);
             files.push(ProjectFile {
                 name: name.to_string(),
-                path: path.to_string_lossy().into_owned(),
+                path: path_to_js(&path),
                 relative,
             });
             if files.len() >= MAX_PROJECT_FILES {
@@ -3035,7 +3139,9 @@ fn skip_walk_dir_name(name: &str) -> bool {
 }
 
 fn path_has_skipped_dir(relative: &str) -> bool {
-    relative.split('/').any(skip_walk_dir_name)
+    relative
+        .split(std::path::is_separator)
+        .any(skip_walk_dir_name)
 }
 
 /// Directories the OS guards behind a consent prompt. macOS pops "would like to
@@ -3163,12 +3269,35 @@ pub(crate) fn expand_home(path: &str) -> PathBuf {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(path));
     }
-    if let Some(rest) = path.strip_prefix("~/") {
+    let rest = path.strip_prefix("~/").or_else(|| {
+        if cfg!(windows) {
+            path.strip_prefix("~\\")
+        } else {
+            None
+        }
+    });
+    if let Some(rest) = rest {
         if let Some(home) = dirs_home() {
             return PathBuf::from(home).join(rest);
         }
     }
     PathBuf::from(path)
+}
+
+pub(crate) fn path_to_js(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    if cfg!(windows) {
+        text.replace('\\', "/")
+    } else {
+        text.into_owned()
+    }
+}
+
+#[cfg(all(test, unix))]
+#[test]
+fn preserves_unix_backslash_filenames() {
+    assert_eq!(path_to_js(Path::new(r"/tmp/a\b.txt")), r"/tmp/a\b.txt");
+    assert_eq!(expand_home(r"~\literal"), PathBuf::from(r"~\literal"));
 }
 
 struct Ignore {
@@ -3240,16 +3369,16 @@ fn clone_repo_sync(url: &str, parent: &str) -> Result<String, String> {
         return Err(format!("{} already exists", dest.display()));
     }
     let dest_str = dest.to_str().ok_or("Invalid destination path")?;
-    let mut cmd = std::process::Command::new("git");
-    cmd.args(["clone", "--", url, dest_str]);
-    crate::harness::hide_console_window(&mut cmd);
-    let output = cmd.output().map_err(|e| {
-        if e.kind() == ErrorKind::NotFound {
-            "git is not installed".into()
-        } else {
-            format!("git clone failed: {e}")
-        }
-    })?;
+    let output = git_cmd()
+        .args(["clone", "--", url, dest_str])
+        .output()
+        .map_err(|e| {
+            if e.kind() == ErrorKind::NotFound {
+                "git is not installed".into()
+            } else {
+                format!("git clone failed: {e}")
+            }
+        })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let msg = stderr
@@ -3386,7 +3515,7 @@ fn inspect_path_sync(path: &str) -> Option<PathInfo> {
         .unwrap_or(path.to_str().unwrap_or("attachment"))
         .to_string();
     Some(PathInfo {
-        path: path.to_string_lossy().into_owned(),
+        path: path_to_js(&path),
         name,
         size: meta.len(),
         is_dir: meta.is_dir(),
@@ -3788,7 +3917,10 @@ fn same_entry(a: &Path, b: &Path) -> bool {
     #[cfg(not(unix))]
     {
         let _ = (a_meta, b_meta);
-        a == b
+        match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+            (Ok(left), Ok(right)) => left == right,
+            _ => false,
+        }
     }
 }
 
@@ -3971,11 +4103,9 @@ pub fn reveal_path(path: String) -> Result<(), String> {
     if !path.exists() {
         return Err(format!("{}: No such file or directory", path.display()));
     }
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    let path_str = path.to_str().ok_or_else(|| "Invalid path".to_string())?;
-
     #[cfg(target_os = "macos")]
     {
+        let path_str = path.to_str().ok_or_else(|| "Invalid path".to_string())?;
         let status = Command::new("open")
             .args(["-R", path_str])
             .status()
@@ -3988,12 +4118,13 @@ pub fn reveal_path(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        // Explorer's exit code after `/select` dispatch is not a reliable
+        // Explorer's exit code after /select dispatch is not a reliable
         // result: it opens the right location yet still exits nonzero, which
         // surfaced as a false "Could not reveal" error. Success here means
         // Explorer was dispatched; only a spawn failure is an error.
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let path_str = path.to_string_lossy().replace('/', "\\");
         Command::new("explorer")
             .arg(format!("/select,{path_str}"))
             .creation_flags(CREATE_NO_WINDOW)
@@ -4092,7 +4223,7 @@ mod tests {
         assert!(!notes.is_dir);
         assert_eq!(notes.size, 6);
         let folder = infos.iter().find(|info| info.is_dir).unwrap();
-        assert_eq!(folder.path, dir.0.to_string_lossy());
+        assert_eq!(folder.path, path_to_js(&dir.0));
     }
 
     #[test]
@@ -4511,6 +4642,24 @@ mod tests {
     }
 
     #[test]
+    fn git_file_diff_separates_staged_and_unstaged_changes() {
+        let dir = tmp("git-file-diff-partial");
+        if !init_git_commit(&dir.0, &[("a.txt", "alpha\nbeta\ngamma\ndelta\n")]) {
+            return;
+        }
+        std::fs::write(dir.0.join("a.txt"), "alpha\nBETA\ngamma\nDELTA\n").unwrap();
+        git_stage_contents_for(&dir.0, "a.txt", b"alpha\nBETA\ngamma\ndelta\n").unwrap();
+
+        let staged = git_file_diff_for(&dir.0, "a.txt", true).unwrap();
+        assert_eq!(staged.original, "alpha\nbeta\ngamma\ndelta\n");
+        assert_eq!(staged.current, "alpha\nBETA\ngamma\ndelta\n");
+
+        let unstaged = git_file_diff_for(&dir.0, "a.txt", false).unwrap();
+        assert_eq!(unstaged.original, "alpha\nBETA\ngamma\ndelta\n");
+        assert_eq!(unstaged.current, "alpha\nBETA\ngamma\nDELTA\n");
+    }
+
+    #[test]
     fn git_file_diff_untracked_has_empty_original() {
         let dir = tmp("git-file-diff-new");
         if !init_git_commit(&dir.0, &[("a.txt", "alpha\n")]) {
@@ -4635,11 +4784,13 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].relative, "a.txt");
         assert_eq!(files[0].status, "modified");
+        assert_eq!(files[0].path, path_to_js(&dir.0.join("a.txt")));
 
         let diff = git_commit_file_diff_for(&dir.0, sha, "a.txt").unwrap();
         assert_eq!(diff.original, "alpha\n");
         assert_eq!(diff.current, "beta\n");
         assert_eq!(diff.status, "modified");
+        assert_eq!(diff.path, path_to_js(&dir.0.join("a.txt")));
     }
 
     #[test]
@@ -5041,6 +5192,7 @@ mod tests {
             || !git(&b.0, &["config", "user.email", "monocode@test"])
             || !git(&b.0, &["config", "commit.gpgsign", "false"])
             || !git(&b.0, &["config", "core.autocrlf", "false"])
+            || !git(&b.0, &["checkout", "--", "."])
         {
             return;
         }
@@ -5078,6 +5230,14 @@ mod tests {
         assert_eq!(pr.number, 3);
         assert_eq!(pr.state, "open");
         assert_eq!(pr.title, "Now");
+    }
+
+    #[test]
+    fn pr_head_filter_qualifies_branch_with_repo_owner() {
+        assert_eq!(
+            github_pr_head_filter("hardbeat920/monocode", "main").as_deref(),
+            Some("hardbeat920:main")
+        );
     }
 
     #[test]
@@ -5120,6 +5280,22 @@ mod tests {
         assert!(items[0].draft);
         assert!(items[0].labels.is_empty());
         assert_eq!(items[0].repo, "acme/web");
+    }
+
+    #[test]
+    fn parse_github_work_item_reads_view_shape() {
+        let json = r#"{
+            "number": 12,
+            "title": "WIP checkout",
+            "url": "https://github.com/acme/web/pull/12",
+            "state": "OPEN",
+            "isDraft": true
+        }"#;
+        let item = parse_github_work_item(json, "pr", "acme/web").unwrap();
+        assert_eq!(item.number, 12);
+        assert_eq!(item.kind, "pr");
+        assert_eq!(item.repo, "acme/web");
+        assert!(item.draft);
     }
 
     #[test]

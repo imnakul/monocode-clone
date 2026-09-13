@@ -30,7 +30,6 @@ export const MONOCHROME_HARNESSES = new Set<HarnessId>([
   "grok",
   "opencode",
   "pi",
-  "omp",
   "fx",
   "antigravity",
 ]);

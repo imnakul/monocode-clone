@@ -19,7 +19,7 @@
 //! shadow without that outline.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_int, c_void};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -54,6 +54,7 @@ const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
 static PINNED: AtomicBool = AtomicBool::new(false);
 static BLUR_RADIUS: AtomicU8 = AtomicU8::new(BLUR_DEFAULT);
 static WINDOW_BADGES: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
+static GLASS_WINDOWS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 type CgsConnection = usize;
 type SetBlurFn = unsafe extern "C" fn(CgsConnection, c_int, c_int) -> c_int;
@@ -77,7 +78,10 @@ pub fn install(window: &WebviewWindow) {
         WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
             stretch_titlebar(&event_window);
         }
-        WindowEvent::Destroyed => set_window_badge(&event_window, 0),
+        WindowEvent::Destroyed => {
+            set_window_badge(&event_window, 0);
+            set_glass_enabled(&event_window, false);
+        }
         _ => {}
     });
 }
@@ -148,7 +152,31 @@ pub fn set_visible(window: &WebviewWindow, visible: bool) {
 pub fn set_background_blur_radius(window: &WebviewWindow, radius: u8) {
     let radius = radius.clamp(BLUR_MIN, BLUR_MAX);
     BLUR_RADIUS.store(radius, Ordering::Relaxed);
-    apply_blur(window, radius);
+    if glass_enabled(window) {
+        apply_blur(window, radius);
+    }
+}
+
+fn glass_windows() -> &'static Mutex<HashSet<String>> {
+    GLASS_WINDOWS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn glass_enabled(window: &WebviewWindow) -> bool {
+    glass_windows()
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .contains(window.label())
+}
+
+fn set_glass_enabled(window: &WebviewWindow, enabled: bool) {
+    let mut windows = glass_windows()
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    if enabled {
+        windows.insert(window.label().to_string());
+    } else {
+        windows.remove(window.label());
+    }
 }
 
 /// Solid field behind the dock bounce. Same colour as the HTML sheet.
@@ -177,8 +205,16 @@ fn set_launch_background(window: &WebviewWindow, r: u8, g: u8, b: u8) {
 
 /// Turn on desktop blur after the first UI paint.
 pub fn enable_glass(window: &WebviewWindow) {
+    set_glass_enabled(window, true);
     prepare_glass(window);
     apply_blur(window, BLUR_RADIUS.load(Ordering::Relaxed));
+}
+
+/// Light mode stays opaque because pale desktop content makes translucent UI illegible.
+pub fn disable_glass(window: &WebviewWindow) {
+    set_glass_enabled(window, false);
+    apply_blur(window, 0);
+    set_launch_background(window, 247, 247, 247);
 }
 
 fn prepare_glass(window: &WebviewWindow) {
@@ -208,11 +244,7 @@ fn apply_blur(window: &WebviewWindow, radius: u8) {
         return;
     }
     unsafe {
-        set_blur(
-            connection,
-            window_number as c_int,
-            radius.max(BLUR_MIN) as c_int,
-        );
+        set_blur(connection, window_number as c_int, radius as c_int);
     }
 }
 
@@ -378,21 +410,39 @@ thread_local! {
 /// Since macOS 12, `NSDockTile` badge updates are ignored unless the app has
 /// requested `UNUserNotificationCenter` authorization with the badge option.
 /// Must run on the main thread after launch (`RunEvent::Ready`), not in setup.
+///
+/// Only re-requests once the user has already answered the prompt: the
+/// one-time system dialog is reserved for the Notifications toggle, so a
+/// badge-only request at startup must not consume it. Until then the badge
+/// stays off.
 pub(crate) fn request_badge_authorization() {
-    let Some(mtm) = MainThreadMarker::new() else {
+    if MainThreadMarker::new().is_none() {
         return;
-    };
+    }
 
     use block2::RcBlock;
     use objc2::runtime::Bool;
     use objc2_foundation::NSError;
-    use objc2_user_notifications::{UNAuthorizationOptions, UNUserNotificationCenter};
+    use objc2_user_notifications::{
+        UNAuthorizationOptions, UNAuthorizationStatus, UNNotificationSettings,
+        UNUserNotificationCenter,
+    };
+    use std::ptr::NonNull;
 
     let center = UNUserNotificationCenter::currentNotificationCenter();
-    let options = UNAuthorizationOptions::Badge;
-    let handler = RcBlock::new(|_granted: Bool, _error: *mut NSError| {});
-    center.requestAuthorizationWithOptions_completionHandler(options, &handler);
-    let _ = mtm;
+    let handler = RcBlock::new(|settings: NonNull<UNNotificationSettings>| {
+        let settings = unsafe { settings.as_ref() };
+        if settings.authorizationStatus() == UNAuthorizationStatus::NotDetermined {
+            return;
+        }
+        let done = RcBlock::new(|_granted: Bool, _error: *mut NSError| {});
+        UNUserNotificationCenter::currentNotificationCenter()
+            .requestAuthorizationWithOptions_completionHandler(
+                UNAuthorizationOptions::Badge,
+                &done,
+            );
+    });
+    center.getNotificationSettingsWithCompletionHandler(&handler);
 }
 
 pub(crate) fn install_dock_menu(app: &AppHandle) {
@@ -497,14 +547,27 @@ fn relaunch_from_dev_bundle() -> Result<(), String> {
 
     let bundled = macos_dir.join("monocode");
     let _ = std::fs::remove_file(&bundled);
-    if std::fs::hard_link(&exe, &bundled).is_err() {
-        std::fs::copy(&exe, &bundled).map_err(|e| e.to_string())?;
-    }
+    // A copy, not a hard link: re-signing below rewrites the file, and the
+    // linked original is the executable running this code.
+    std::fs::copy(&exe, &bundled).map_err(|e| e.to_string())?;
     let mut perms = std::fs::metadata(&bundled)
         .map_err(|e| e.to_string())?
         .permissions();
     perms.set_mode(0o755);
     std::fs::set_permissions(&bundled, perms).map_err(|e| e.to_string())?;
+
+    // The linker's ad-hoc signature carries a `monocode-<hash>` identifier.
+    // UNUserNotificationCenter refuses authorization, without prompting,
+    // unless the signing identifier matches CFBundleIdentifier.
+    let signed = Command::new("/usr/bin/codesign")
+        .args(["--force", "--sign", "-", "--identifier", DEV_BUNDLE_ID])
+        .arg(&app)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if !signed {
+        eprintln!("monocode: macos dev bundle: codesign failed; notifications stay off");
+    }
 
     let err = Command::new(&bundled)
         .args(std::env::args_os().skip(1))
@@ -525,6 +588,9 @@ fn write_dev_bundle_icons(app: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Must match `CFBundleIdentifier` in `DEV_BUNDLE_PLIST` and tauri.conf.json.
+#[cfg(debug_assertions)]
+const DEV_BUNDLE_ID: &str = "com.monocode.desktop";
 #[cfg(debug_assertions)]
 const DEV_ICNS: &[u8] = include_bytes!("../icons/icon.icns");
 #[cfg(debug_assertions)]

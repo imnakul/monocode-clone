@@ -2,6 +2,7 @@ import { leafIds, newTab, type WorkspaceTab } from "./layout";
 import type { ProjectTerminalDock } from "./projectTerminal";
 import { sessionNeedsInput, type Session } from "./session";
 import { stopStreaming } from "./harness/apply";
+import type { ProjectReturnMemory } from "./projectReturn";
 
 export const INTERRUPT_MESSAGE =
   "Turn interrupted when MonoCode quit.";
@@ -19,6 +20,7 @@ export type ResumedWorkspace = {
   activeTabId: string;
   projectCwd: string;
   projectTerminals?: ProjectTerminalDock[];
+  projectReturnMemory?: ProjectReturnMemory;
 };
 
 /** A turn or approval that would be lost if this webview died. */
@@ -43,7 +45,7 @@ export function inFlightRefs(
   const refs: InFlightRef[] = [];
 
   const push = (session: Session | undefined) => {
-    if (!session || seen.has(session.id)) return;
+    if (!session || session.inboxAsk || seen.has(session.id)) return;
     if (!isInFlightSession(session) || !canResumeAfterQuit(session)) return;
     seen.add(session.id);
     refs.push({ sessionId: session.id, cwd: session.cwd });
@@ -88,6 +90,7 @@ export function markTurnInterrupted(session: Session): Session {
 export function workspaceFromResumed(
   sessions: Session[],
 ): ResumedWorkspace | null {
+  sessions = sessions.filter((session) => !session.inboxAsk);
   if (sessions.length === 0) return null;
   const tabs = sessions.map((session) => newTab(session.id));
   return {

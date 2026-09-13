@@ -200,6 +200,7 @@ export interface TurnCompletionParams {
   setSessions: (sessions: Session[]) => void;
   syncDockBadge?: (sessions: Session[]) => void;
   flushCheckpoint: (sessionId: string) => Promise<void>;
+  beforeFailureCheckpoint?: () => Promise<void>;
   providerFailureSeen: boolean;
   intent?: TurnIntent;
   approvedPlanId?: string;
@@ -239,6 +240,9 @@ export async function orchestrateTurnCompletion(
     params.setSessions(nextSessions);
     params.syncDockBadge?.(nextSessions);
 
+    if (params.beforeFailureCheckpoint) {
+      await params.beforeFailureCheckpoint();
+    }
     await params.flushCheckpoint(params.sessionId);
   } else {
     await params.flushCheckpoint(params.sessionId);

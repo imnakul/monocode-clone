@@ -7,10 +7,12 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Composer } from "../chrome/Composer";
 import { SessionReview } from "../chrome/SessionReview";
+import { PromptOutline } from "../chrome/PromptOutline";
 import {
   latestTurnProcessedUsage,
   sessionProcessedUsage,
@@ -48,6 +50,18 @@ import { loadNotesEnabled, subscribeNotesEnabled } from "../lib/settings";
 import { resolveModel } from "../lib/models";
 import { isAstraModel } from "../lib/astraWelcome";
 import { AstraWelcome } from "./AstraWelcome";
+import { projectKey } from "../lib/paths";
+import {
+  loadProjectChatBackground,
+  projectChatBackgroundRevision,
+  subscribeProjectChatBackground,
+} from "../lib/projectChatBackground";
+import { projectChatBackgroundSrc } from "../lib/chatBackground";
+import {
+  loadChatBackgroundPath,
+  subscribeChatBackgroundPath,
+} from "../lib/appearance";
+import type { SessionFolderTarget } from "../lib/sessionFolders";
 
 type Props = {
   session: Session;
@@ -77,6 +91,10 @@ type Props = {
   ) => void;
   onStop: (sessionId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
+  onPlaceSessionInFolder: (
+    sessionId: string,
+    target: SessionFolderTarget,
+  ) => void;
   onDeleteQueuedMessage: (sessionId: string, messageId: string) => void;
   onEditQueuedMessage: (
     sessionId: string,
@@ -100,6 +118,7 @@ type Props = {
     requestId: number,
     reply: UserQuestionReply,
   ) => void;
+  onQuestionInteraction?: (sessionId: string, requestId: number) => void;
   onOpenFile: (path: string) => void;
   onOpenDiff: (
     path?: string,
@@ -150,6 +169,7 @@ export const SessionPane = memo(function SessionPane({
   onSubmit,
   onStop,
   onCompactContext,
+  onPlaceSessionInFolder,
   onDeleteQueuedMessage,
   onEditQueuedMessage,
   onQueuedMessageEditingChange,
@@ -161,6 +181,7 @@ export const SessionPane = memo(function SessionPane({
   onApproval,
   onReviewFix,
   onQuestionReply,
+  onQuestionInteraction,
   onOpenFile,
   onOpenDiff,
   onOpenPlan,
@@ -173,6 +194,25 @@ export const SessionPane = memo(function SessionPane({
   onPaneDragStart,
 }: Props) {
   const title = sessionDisplayTitle(session.title, session.harness);
+  const backgroundRevision = useSyncExternalStore(
+    subscribeProjectChatBackground,
+    projectChatBackgroundRevision,
+    projectChatBackgroundRevision,
+  );
+  const globalBackgroundPath = useSyncExternalStore(
+    subscribeChatBackgroundPath,
+    loadChatBackgroundPath,
+    loadChatBackgroundPath,
+  );
+  const projectBackground = loadProjectChatBackground(projectKey(session.cwd));
+  const projectBackgroundStyle = projectBackground
+    ? ({
+        "--chat-background-image": `url(${JSON.stringify(
+          projectChatBackgroundSrc(projectBackground.path, backgroundRevision),
+        )})`,
+        "--chat-background-opacity": String(projectBackground.opacity),
+      } as CSSProperties)
+    : undefined;
   const approve = useCallback(
     (requestId: number, decision: ApprovalDecision) =>
       onApproval(session.id, requestId, decision),
@@ -205,6 +245,7 @@ export const SessionPane = memo(function SessionPane({
     [onBuildPlan, session.id],
   );
   const jumpToBottomRef = useRef<(() => void) | null>(null);
+  const transcriptScope = useRef<HTMLDivElement>(null);
   const quoteRequestId = useRef(0);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const astraWelcomeSequence = useRef(0);
@@ -217,6 +258,14 @@ export const SessionPane = memo(function SessionPane({
   const onJumpToBottomReady = useCallback((jump: () => void) => {
     jumpToBottomRef.current = jump;
   }, []);
+  const revealBlockRef = useRef<((blockId: string) => boolean) | null>(null);
+  const onRevealReady = useCallback((reveal: (blockId: string) => boolean) => {
+    revealBlockRef.current = reveal;
+  }, []);
+  const revealBlock = useCallback(
+    (blockId: string) => revealBlockRef.current?.(blockId) ?? false,
+    [],
+  );
   const addSelectionToChat = useCallback(
     (text: string, mode?: QuoteRequest["mode"]) => {
       quoteRequestId.current += 1;
@@ -247,6 +296,17 @@ export const SessionPane = memo(function SessionPane({
     },
     [session.cwd, session.harness, session.id, session.title],
   );
+  const saveSelectionNote = useCallback(
+    (text: string) => {
+      void createNote({
+        title: noteTitle(text),
+        body: text,
+        sourceSessionId: session.id,
+        sourceCwd: session.cwd,
+      });
+    },
+    [session.cwd, session.id],
+  );
 
   useEffect(() => {
     if (!addToChatTarget) return;
@@ -261,7 +321,7 @@ export const SessionPane = memo(function SessionPane({
   const workCwd = sessionWorkCwd(session);
   const isEmpty = session.blocks.length === 0;
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
-  const dockComposer = !isEmpty || inSplit;
+  const dockComposer = !isEmpty || inSplit || !!session.inboxAsk;
   const draftRef = useRef<string | undefined>(undefined);
   const turnUsage = useMemo(
     () => latestTurnProcessedUsage(session.blocks, session.liveTurnUsage),
@@ -287,7 +347,12 @@ export const SessionPane = memo(function SessionPane({
       compactSupported={canCompactHarnessContext(session.harness)}
       canSteer={canSteerHarness(session.harness)}
       recents={recents}
-      hideProjectPicker={hideProjectPicker ? !showDeckProjectPicker : false}
+      hideProjectPicker={
+        !!session.inboxAsk ||
+        (hideProjectPicker ? !showDeckProjectPicker : false)
+      }
+      hideBranchPicker={!!session.inboxAsk}
+      hideTopBar={!!session.inboxAsk}
       context={session.context}
       blocks={session.blocks}
       turnUsage={turnUsage}
@@ -311,6 +376,7 @@ export const SessionPane = memo(function SessionPane({
       onNoteCardDismiss={() => onNoteCardDismiss?.(session.id)}
       onHandoffCardDismiss={() => onHandoffCardDismiss?.(session.id)}
       onQuestionReply={replyQuestion}
+      onQuestionInteraction={(id) => onQuestionInteraction?.(session.id, id)}
       onFocus={() => onFocus(session.id)}
       onCwdChange={(cwd) => onCwdChange(session.id, cwd)}
       onBranchChange={() => onBranchChange(session.id)}
@@ -332,6 +398,7 @@ export const SessionPane = memo(function SessionPane({
       }
       onStop={() => onStop(session.id)}
       onCompactContext={() => onCompactContext(session.id)}
+      onPlaceInFolder={(target) => onPlaceSessionInFolder(session.id, target)}
       queuedMessages={session.queuedMessages}
       queueStatus={session.queueStatus}
       onDeleteQueuedMessage={(messageId) =>
@@ -349,22 +416,17 @@ export const SessionPane = memo(function SessionPane({
       onResumeQueue={() => onResumeQueue(session.id)}
       onOpenFile={onOpenFile}
       busy={!!session.busy}
-    >
-      <SessionReview
-        sessionId={session.id}
-        cwd={workCwd}
-        enabled={visible}
-        busy={!!session.busy}
-        undoLocked={reviewUndoLocked}
-        onOpenDiff={onOpenDiff}
-      />
-    </Composer>
+    />
   );
 
   return (
     <div
       data-session-drop={session.id}
-      className="relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col"
+      data-session-empty={isEmpty}
+      data-project-chat-background={!!projectBackground}
+      data-project-background-scope={projectBackground?.scope}
+      style={projectBackgroundStyle}
+      className="chat-pane-background relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col"
       onMouseDown={() => onFocus(session.id)}
     >
       {astraWelcomeRun !== null && visible ? (
@@ -417,10 +479,13 @@ export const SessionPane = memo(function SessionPane({
           </button>
         </div>
       ) : null}
-      <div className="relative min-h-0 flex-1">
+      <div ref={transcriptScope} className="@container relative min-h-0 flex-1">
         {isEmpty ? (
           <EmptySession
             cwd={session.cwd}
+            hasChatBackground={Boolean(
+              projectBackground || globalBackgroundPath,
+            )}
             composer={dockComposer ? undefined : composer}
             notice={
               session.ephemeral && session.sidechat
@@ -445,18 +510,19 @@ export const SessionPane = memo(function SessionPane({
               onReviewFix={onReviewFix ? fixReviewIssue : undefined}
               onAddToChat={addSelectionToChat}
               onSaveNote={notesEnabled ? saveNote : undefined}
+              onSaveSelectionNote={notesEnabled ? saveSelectionNote : undefined}
               onOpenFile={onOpenFile}
               onOpenDiff={onOpenDiff}
               onOpenPlan={openPlan}
               onBuildPlan={buildPlan}
               onSecondOpinion={
-                onSecondOpinion
+                !session.inboxAsk && onSecondOpinion
                   ? (harness, turn, model) =>
                       onSecondOpinion(session.id, harness, turn, model)
                   : undefined
               }
               onHandoff={
-                onHandoff
+                !session.inboxAsk && onHandoff
                   ? (harness, turn, model) =>
                       onHandoff(session.id, harness, turn, model)
                   : undefined
@@ -465,6 +531,25 @@ export const SessionPane = memo(function SessionPane({
               onSidechat={onSidechat ? askSidechat : undefined}
               onJumpToBottomChange={setShowJumpToBottom}
               onJumpToBottomReady={onJumpToBottomReady}
+              onRevealReady={onRevealReady}
+              latestTurnAccessory={
+                session.inboxAsk ? undefined : (
+                  <SessionReview
+                    sessionId={session.id}
+                    cwd={workCwd}
+                    enabled={visible}
+                    busy={!!session.busy}
+                    undoLocked={reviewUndoLocked}
+                    onOpenDiff={onOpenDiff}
+                  />
+                )
+              }
+            />
+            <PromptOutline
+              blocks={session.blocks}
+              scope={transcriptScope}
+              visible={visible}
+              revealBlock={revealBlock}
             />
             {showJumpToBottom ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-2 z-30 flex justify-center">

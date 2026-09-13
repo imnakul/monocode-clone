@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  CHAT_BACKGROUND_OPACITY_DEFAULT,
+  CHAT_BACKGROUND_SCOPE_DEFAULT,
+  loadChatBackgroundOpacity,
+  loadChatBackgroundPath,
+  loadChatBackgroundScope,
   loadTranscriptLayout,
+  saveChatBackgroundOpacity,
+  saveChatBackgroundPath,
+  saveChatBackgroundScope,
   saveTranscriptLayout,
   TRANSCRIPT_LAYOUT_DEFAULT,
   loadTranscriptAnchor,
@@ -68,6 +76,9 @@ const POPOVER_HIGHLIGHT_KEY = "monocode.popoverHighlight";
 const WALLPAPER_PATH_KEY = "monocode.wallpaperPath";
 const WALLPAPER_OPACITY_KEY = "monocode.wallpaperOpacity";
 const WINDOW_GLASS_STRENGTH_KEY = "monocode.windowGlassStrength";
+const CHAT_BACKGROUND_PATH_KEY = "monocode.chatBackgroundPath";
+const CHAT_BACKGROUND_OPACITY_KEY = "monocode.chatBackgroundOpacity";
+const CHAT_BACKGROUND_SCOPE_KEY = "monocode.chatBackgroundScope";
 
 function mockLocalStorage() {
   const data = new Map<string, string>();
@@ -242,6 +253,43 @@ describe("wallpaper and glass strength settings", () => {
     expect(loadWallpaperPath()).toBe("");
     expect(loadWallpaperOpacity()).toBe(WALLPAPER_OPACITY_MIN);
     expect(loadWindowGlassStrength()).toBe(WINDOW_GLASS_STRENGTH_MAX);
+  });
+});
+
+describe("chat background setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem(CHAT_BACKGROUND_PATH_KEY);
+    localStorage.removeItem(CHAT_BACKGROUND_OPACITY_KEY);
+    localStorage.removeItem(CHAT_BACKGROUND_SCOPE_KEY);
+  });
+
+  it("stores and clears the app-owned background path", () => {
+    expect(loadChatBackgroundPath()).toBeNull();
+    saveChatBackgroundPath("/app-data/backgrounds/chat-background.webp");
+    expect(loadChatBackgroundPath()).toBe(
+      "/app-data/backgrounds/chat-background.webp",
+    );
+    saveChatBackgroundPath(null);
+    expect(loadChatBackgroundPath()).toBeNull();
+  });
+
+  it("defaults and clamps background visibility", () => {
+    expect(loadChatBackgroundOpacity()).toBe(CHAT_BACKGROUND_OPACITY_DEFAULT);
+    saveChatBackgroundOpacity(1);
+    expect(loadChatBackgroundOpacity()).toBe(0.65);
+    saveChatBackgroundOpacity(0);
+    expect(loadChatBackgroundOpacity()).toBe(0.05);
+  });
+
+  it("persists where the background is shown", () => {
+    expect(loadChatBackgroundScope()).toBe(CHAT_BACKGROUND_SCOPE_DEFAULT);
+    saveChatBackgroundScope("empty");
+    expect(loadChatBackgroundScope()).toBe("empty");
+    saveChatBackgroundScope("all");
+    expect(loadChatBackgroundScope()).toBe("all");
+    localStorage.setItem(CHAT_BACKGROUND_SCOPE_KEY, "transcript");
+    expect(loadChatBackgroundScope()).toBe(CHAT_BACKGROUND_SCOPE_DEFAULT);
   });
 });
 

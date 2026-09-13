@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -352,6 +353,25 @@ export function ChatPanel({
         ) : (
           <ul className="flex flex-col gap-0.5">
             {groupedEntries.map((group) => {
+              if (group.kind === "pinned") {
+                return (
+                  <Fragment key="pinned-chats">
+                    <li className="list-none">
+                      <ul
+                        data-shared-hover-continuity
+                        className="flex flex-col gap-0.5"
+                      >
+                        {group.entry.sessions.map((session) => (
+                          <li key={session.id}>{renderCard(session)}</li>
+                        ))}
+                      </ul>
+                    </li>
+                    <li aria-hidden className="mx-1 my-1 list-none">
+                      <div className="h-px bg-content/10" />
+                    </li>
+                  </Fragment>
+                );
+              }
               if (group.kind === "divider") {
                 return (
                   <li
@@ -362,6 +382,9 @@ export function ChatPanel({
                     <div className="h-px bg-content/10" />
                   </li>
                 );
+              }
+              if (group.kind === "reminders") {
+                return null;
               }
               if (group.kind === "folder") {
                 return (

@@ -202,7 +202,6 @@ export function ContextMeter({
     turnUsage != null ||
     sessionUsage != null ||
     (blocks && blocks.length > 0);
-  if (!hasData) return null;
 
   const isOpen = hovered || pinned;
 
@@ -366,6 +365,8 @@ export function ContextMeter({
             headline: "Context window",
             detail: "Usage unavailable",
           };
+
+  if (!hasData) return null;
 
   return (
     <div
