@@ -801,6 +801,8 @@ fn search_sessions(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
+    let cwd_candidates = cwd.map(project_cwd_candidates);
+
     let mut sql = String::from(
         "SELECT id, cwd, harness, title, updated_at, archived, blocks_json
          FROM sessions
@@ -812,27 +814,88 @@ fn search_sessions(
     if !options.include_archived {
         sql.push_str(" AND archived = 0");
     }
-    if cwd.is_some() {
-        sql.push_str(" AND cwd = ?2");
-        sql.push_str(" ORDER BY updated_at DESC, id ASC LIMIT ?3");
+    if let Some(ref candidates) = cwd_candidates {
+        if candidates.len() == 1 {
+            sql.push_str(" AND cwd = ?2");
+            sql.push_str(" ORDER BY updated_at DESC, id ASC LIMIT ?3");
+        } else {
+            let placeholders = (2..2 + candidates.len())
+                .map(|i| format!("?{i}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            sql.push_str(&format!(" AND cwd IN ({placeholders})"));
+            let limit_param = 2 + candidates.len();
+            sql.push_str(&format!(
+                " ORDER BY updated_at DESC, id ASC LIMIT ?{limit_param}"
+            ));
+        }
     } else {
         sql.push_str(" ORDER BY updated_at DESC, id ASC LIMIT ?2");
     }
 
-    let mut statement = conn.prepare(&sql)?;
     let limit = (MAX_SEARCH_SCAN as i64) + 1;
-    let rows = if let Some(cwd) = cwd {
-        statement.query_map(params![pattern, cwd, limit], search_row)?
-    } else {
-        statement.query_map(params![pattern, limit], search_row)?
-    };
+    let mut statement = conn.prepare(&sql)?;
+    let mut rows_raw: Vec<rusqlite::Result<SearchRow>> =
+        if let Some(ref candidates) = cwd_candidates {
+            if candidates.len() == 1 {
+                statement
+                    .query_map(params![pattern, &candidates[0], limit], search_row)?
+                    .collect()
+            } else {
+                let mut query_params: Vec<&dyn rusqlite::ToSql> =
+                    Vec::with_capacity(2 + candidates.len());
+                query_params.push(&pattern);
+                for c in candidates {
+                    query_params.push(c);
+                }
+                query_params.push(&limit);
+                statement
+                    .query_map(rusqlite::params_from_iter(query_params), search_row)?
+                    .collect()
+            }
+        } else {
+            statement
+                .query_map(params![pattern, limit], search_row)?
+                .collect()
+        };
+
+    // Bounded case-insensitive fallback on Windows if exact candidates yielded no results
+    if cfg!(windows)
+        && rows_raw.is_empty()
+        && cwd_candidates.as_ref().is_some_and(|c| !c.is_empty())
+    {
+        let canonical_lower = cwd_candidates.as_ref().unwrap()[0].to_lowercase();
+        let mut fallback_sql = String::from(
+            "SELECT id, cwd, harness, title, updated_at, archived, blocks_json
+             FROM sessions
+             WHERE inbox_ask IS NULL AND blocks_json != '[]'
+               AND blocks_json LIKE '%\"role\":\"user\"%'
+               AND (LOWER(title) LIKE LOWER(?1) ESCAPE '\\'
+                    OR LOWER(blocks_json) LIKE LOWER(?1) ESCAPE '\\')",
+        );
+        if !options.include_archived {
+            fallback_sql.push_str(" AND archived = 0");
+        }
+        fallback_sql.push_str(
+            " AND REPLACE(LOWER(cwd), '\\', '/') = ?2 ORDER BY updated_at DESC, id ASC LIMIT ?3",
+        );
+        let mut fallback_stmt = conn.prepare(&fallback_sql)?;
+        rows_raw = fallback_stmt
+            .query_map(params![pattern, canonical_lower, limit], search_row)?
+            .collect();
+    }
+    let rows = rows_raw;
 
     let mut conversations = Vec::new();
     let mut messages = Vec::new();
     let mut scanned = 0;
     let mut truncated = false;
+    let mut seen_ids = std::collections::HashSet::new();
     for row in rows {
         let (id, cwd, harness, title, updated_at, blocks_raw) = row?;
+        if !seen_ids.insert(id.clone()) {
+            continue;
+        }
         scanned += 1;
         if scanned > MAX_SEARCH_SCAN {
             truncated = true;
@@ -896,9 +959,9 @@ fn search_sessions(
     Ok(SessionSearchResult { hits, truncated })
 }
 
-fn search_row(
-    row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<(String, String, String, String, i64, String)> {
+type SearchRow = (String, String, String, String, i64, String);
+
+fn search_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SearchRow> {
     Ok((
         row.get(0)?,
         row.get(1)?,
@@ -1028,19 +1091,72 @@ fn ceil_char_boundary(text: &str, mut index: usize) -> usize {
     index
 }
 
+pub(crate) fn project_cwd_candidates(cwd: &str) -> Vec<String> {
+    project_cwd_candidates_platform(cwd, cfg!(windows))
+}
+
+pub(crate) fn project_cwd_candidates_platform(cwd: &str, is_windows: bool) -> Vec<String> {
+    let trimmed = cwd.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    if !is_windows {
+        return vec![trimmed.to_string()];
+    }
+
+    let mut candidates = Vec::with_capacity(4);
+
+    let is_drive_root = trimmed.len() >= 2
+        && trimmed.as_bytes()[0].is_ascii_alphabetic()
+        && trimmed.as_bytes()[1] == b':'
+        && (trimmed.len() == 2
+            || (trimmed.len() == 3 && (trimmed.ends_with('/') || trimmed.ends_with('\\'))));
+
+    let base = if is_drive_root {
+        trimmed
+    } else {
+        trimmed.trim_end_matches(['/', '\\'])
+    };
+
+    let forward = base.replace('\\', "/");
+    let backslash = base.replace('/', "\\");
+
+    candidates.push(forward.clone());
+    if backslash != forward {
+        candidates.push(backslash.clone());
+    }
+
+    let bytes = base.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        let drive_char = bytes[0] as char;
+        let alt_drive_char = if drive_char.is_ascii_uppercase() {
+            drive_char.to_ascii_lowercase()
+        } else {
+            drive_char.to_ascii_uppercase()
+        };
+
+        let alt_forward = format!("{}{}", alt_drive_char, &forward[1..]);
+        let alt_backslash = format!("{}{}", alt_drive_char, &backslash[1..]);
+
+        if !candidates.contains(&alt_forward) {
+            candidates.push(alt_forward);
+        }
+        if !candidates.contains(&alt_backslash) {
+            candidates.push(alt_backslash);
+        }
+    }
+
+    candidates
+}
+
 fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<SessionSummary>> {
     let git = crate::fs::git_info_for(&crate::fs::expand_home(cwd));
-    let mut statement = conn.prepare(
-        "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
-                created_at, updated_at, branch, archived, pinned,
-                linked_work_item_json
-         FROM sessions
-         WHERE cwd = ?1
-           AND has_user_message = 1
-           AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
-         ORDER BY updated_at DESC, id ASC",
-    )?;
-    let rows = statement.query_map(params![cwd], |row| {
+    let candidates = project_cwd_candidates(cwd);
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let map_summary = |row: &rusqlite::Row| {
         let stored_branch: Option<String> = row.get(9)?;
         let archived: i64 = row.get(10)?;
         let pinned: i64 = row.get(11)?;
@@ -1063,8 +1179,70 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
             pinned: pinned != 0,
             linked_work_item,
         })
-    })?;
-    rows.collect()
+    };
+
+    let mut rows_vec = if candidates.len() == 1 {
+        let mut statement = conn.prepare(
+            "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
+                    created_at, updated_at, branch, archived, pinned,
+                    linked_work_item_json
+             FROM sessions
+             WHERE cwd = ?1
+               AND has_user_message = 1
+               AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
+             ORDER BY updated_at DESC, id ASC",
+        )?;
+        let rows = statement.query_map(params![&candidates[0]], map_summary)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    } else {
+        let placeholders = (1..=candidates.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
+                    created_at, updated_at, branch, archived, pinned,
+                    linked_work_item_json
+             FROM sessions
+             WHERE cwd IN ({placeholders})
+               AND has_user_message = 1
+               AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
+             ORDER BY updated_at DESC, id ASC"
+        );
+        let mut statement = conn.prepare(&sql)?;
+        let rows =
+            statement.query_map(rusqlite::params_from_iter(candidates.iter()), map_summary)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+
+    // Bounded case-insensitive fallback on Windows if exact candidates yielded no sessions
+    if cfg!(windows) && rows_vec.is_empty() {
+        let canonical_lower = candidates[0].to_lowercase();
+        let mut fallback_statement = conn.prepare(
+            "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
+                    created_at, updated_at, branch, archived, pinned,
+                    linked_work_item_json
+             FROM sessions
+             WHERE has_user_message = 1
+               AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
+               AND REPLACE(LOWER(cwd), '\\', '/') = ?1
+             ORDER BY updated_at DESC, id ASC
+             LIMIT 1000",
+        )?;
+        let fallback_rows = fallback_statement.query_map(params![canonical_lower], map_summary)?;
+        rows_vec = fallback_rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    }
+
+    // Deduplicate by session ID while preserving ordering
+    let mut seen = std::collections::HashSet::new();
+    let mut deduplicated = Vec::with_capacity(rows_vec.len());
+    for summary in rows_vec {
+        if seen.insert(summary.id.clone()) {
+            deduplicated.push(summary);
+        }
+    }
+
+    Ok(deduplicated)
 }
 
 fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
@@ -2451,5 +2629,256 @@ mod tests {
             })
             .unwrap();
         assert_eq!(version, 14);
+    }
+
+    #[test]
+    fn windows_project_history_and_search_path_compatibility() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+
+        // 1. Store one legacy Windows session with backslashes
+        upsert_session(
+            &conn,
+            &sample(
+                "s_legacy",
+                r"E:\Developing\OpenSource\mono-clone",
+                "Legacy session",
+            ),
+        )
+        .unwrap();
+        set_archived(&conn, "s_legacy", true).unwrap();
+        conn.execute(
+            "UPDATE sessions SET updated_at = 1000 WHERE id = 's_legacy'",
+            [],
+        )
+        .unwrap();
+
+        // 2. Store one current Windows session with forward slashes
+        upsert_session(
+            &conn,
+            &sample(
+                "s_current",
+                "E:/Developing/OpenSource/mono-clone",
+                "Current session",
+            ),
+        )
+        .unwrap();
+        set_pinned(&conn, "s_current", true).unwrap();
+        conn.execute(
+            "UPDATE sessions SET updated_at = 2000 WHERE id = 's_current'",
+            [],
+        )
+        .unwrap();
+
+        // Store session for another project (must NOT be returned)
+        upsert_session(
+            &conn,
+            &sample(
+                "s_other",
+                "E:/Developing/OpenSource/other-project",
+                "Other session",
+            ),
+        )
+        .unwrap();
+
+        // Store legacy Inbox Ask row (must remain excluded)
+        upsert_session(
+            &conn,
+            &sample(
+                "s_inbox",
+                r"E:\Developing\OpenSource\mono-clone",
+                "Inbox chat",
+            ),
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE sessions SET inbox_ask = '{}' WHERE id = 's_inbox'",
+            [],
+        )
+        .unwrap();
+
+        // 3. Query using the current forward-slash project path
+        let rows = list_by_project(&conn, "E:/Developing/OpenSource/mono-clone").unwrap();
+
+        // 4. Confirm both sessions are returned
+        assert_eq!(
+            rows.len(),
+            2,
+            "Both forward-slash and legacy backslash sessions must be returned"
+        );
+
+        // 5. Confirm they appear exactly once
+        let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, vec!["s_current", "s_legacy"]);
+
+        // 6. Confirm ordering remains correct (updated_at DESC, id ASC)
+        assert_eq!(rows[0].id, "s_current");
+        assert_eq!(rows[1].id, "s_legacy");
+
+        // 7. Confirm archived and pinned metadata survive
+        assert!(rows[0].pinned);
+        assert!(!rows[0].archived);
+        assert!(!rows[1].pinned);
+        assert!(rows[1].archived);
+
+        // 8. Confirm legacy Inbox Ask rows remain excluded
+        assert!(!rows.iter().any(|r| r.id == "s_inbox"));
+
+        // 10. Confirm querying one project does not return another project's sessions
+        assert!(!rows.iter().any(|r| r.id == "s_other"));
+
+        // 9. Confirm project-scoped search finds both path spellings
+        let search = search_sessions(
+            &conn,
+            &SessionSearchOptions {
+                query: "session".into(),
+                cwd: Some("E:/Developing/OpenSource/mono-clone".into()),
+                include_archived: true,
+            },
+        )
+        .unwrap();
+        let search_ids: Vec<&str> = search.hits.iter().map(|h| h.session_id.as_str()).collect();
+        assert!(
+            search_ids.contains(&"s_legacy"),
+            "Search must find legacy backslash session"
+        );
+        assert!(
+            search_ids.contains(&"s_current"),
+            "Search must find current forward-slash session"
+        );
+        assert!(
+            !search_ids.contains(&"s_other"),
+            "Search must not find other project session"
+        );
+        assert!(
+            !search_ids.contains(&"s_inbox"),
+            "Search must not find inbox ask session"
+        );
+    }
+
+    #[test]
+    fn unix_literal_backslashes_not_conflated() {
+        // Requirement 11: Unix paths and literal backslashes are not incorrectly conflated on non-Windows targets
+        let unix_candidates =
+            project_cwd_candidates_platform(r"/tmp/project\with\backslash", false);
+        assert_eq!(unix_candidates, vec![r"/tmp/project\with\backslash"]);
+
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        upsert_session(&conn, &sample("s_bs", r"/tmp/project\with\backslash", "BS")).unwrap();
+        upsert_session(
+            &conn,
+            &sample("s_slash", "/tmp/project/with/backslash", "Slash"),
+        )
+        .unwrap();
+
+        // On non-Windows, querying "/tmp/project/with/backslash" only matches that exact path
+        let candidates = project_cwd_candidates_platform("/tmp/project/with/backslash", false);
+        assert_eq!(candidates, vec!["/tmp/project/with/backslash"]);
+        let rows: Vec<SessionSummary> = conn
+            .prepare("SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id, created_at, updated_at, branch, archived, pinned, linked_work_item_json FROM sessions WHERE cwd = ?1 AND has_user_message = 1")
+            .unwrap()
+            .query_map(params![&candidates[0]], |row| Ok(SessionSummary {
+                id: row.get(0)?,
+                cwd: row.get(1)?,
+                harness: row.get(2)?,
+                model: row.get(3)?,
+                runtime_mode: row.get(4)?,
+                title: row.get(5)?,
+                provider_session_id: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+                branch: None,
+                repo: None,
+                additions: 0,
+                deletions: 0,
+                archived: false,
+                pinned: false,
+                linked_work_item: None,
+            }))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "s_slash");
+    }
+
+    #[test]
+    fn project_history_candidates_served_by_covering_index() {
+        // Requirement 12: Confirm the project-history query is served through the intended index
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        upsert_session(
+            &conn,
+            &sample("s1", "E:/Developing/OpenSource/mono-clone", "A1"),
+        )
+        .unwrap();
+
+        // Verify multi-candidate IN query plan uses covering index
+        let plan: String = conn
+            .query_row(
+                "EXPLAIN QUERY PLAN
+                 SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
+                        created_at, updated_at, branch, archived, pinned,
+                        linked_work_item_json
+                 FROM sessions
+                 WHERE cwd IN (?1, ?2, ?3, ?4)
+                   AND has_user_message = 1
+                   AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
+                 ORDER BY updated_at DESC, id ASC",
+                params![
+                    "E:/Developing/OpenSource/mono-clone",
+                    r"E:\Developing\OpenSource\mono-clone",
+                    "e:/Developing/OpenSource/mono-clone",
+                    r"e:\Developing\OpenSource\mono-clone",
+                ],
+                |row| row.get(3),
+            )
+            .unwrap();
+        assert!(
+            plan.contains("USING COVERING INDEX sessions_cwd_cover_idx"),
+            "Query plan must use covering index: {plan}"
+        );
+    }
+
+    #[test]
+    fn project_cwd_candidates_platform_generates_expected_variants() {
+        // Windows drive letters and separators
+        let win_candidates =
+            project_cwd_candidates_platform("E:/Developing/OpenSource/mono-clone", true);
+        assert_eq!(
+            win_candidates,
+            vec![
+                "E:/Developing/OpenSource/mono-clone",
+                r"E:\Developing\OpenSource\mono-clone",
+                "e:/Developing/OpenSource/mono-clone",
+                r"e:\Developing\OpenSource\mono-clone",
+            ]
+        );
+
+        let win_candidates_bs =
+            project_cwd_candidates_platform(r"E:\Developing\OpenSource\mono-clone", true);
+        assert_eq!(
+            win_candidates_bs,
+            vec![
+                "E:/Developing/OpenSource/mono-clone",
+                r"E:\Developing\OpenSource\mono-clone",
+                "e:/Developing/OpenSource/mono-clone",
+                r"e:\Developing\OpenSource\mono-clone",
+            ]
+        );
+
+        // Windows UNC paths
+        let unc_candidates = project_cwd_candidates_platform(r"\\server\share\project", true);
+        assert_eq!(
+            unc_candidates,
+            vec!["//server/share/project", r"\\server\share\project"]
+        );
+
+        // Non-Windows preserves exact input without slash conversion
+        let unix_candidates =
+            project_cwd_candidates_platform(r"/home/user/project\with\backslash", false);
+        assert_eq!(unix_candidates, vec![r"/home/user/project\with\backslash"]);
     }
 }
