@@ -4,7 +4,7 @@ members = ["src-tauri"]
 exclude = ["vendor/portable-pty"]
 
 [workspace.package]
-version = "0.1.44-local7-upstream-sync"
+version = "0.1.44-local8-lazy-terminal"
 edition = "2021"
 license = "MIT"
 
