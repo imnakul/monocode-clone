@@ -8180,7 +8180,7 @@ export default function App({
     <OrchestrationActions.Provider value={orchestrationActions}>
       <OrchestrationWorkers.Provider value={orchestrationWorkers}>
         <div
-          className={`flex h-full text-content ${
+          className={`app-shell flex h-full text-content ${
             HAS_NATIVE_GLASS ? "bg-background-base/40" : "bg-background-base"
           }`}
         >

@@ -46,7 +46,7 @@ export function MenuBar({
   onZoomOut,
   onZoomReset,
 }: Props) {
-  const [open, setOpen] = useState(false);
+  const [_open, setOpen] = useState(false);
   const [activeMenu, setActiveMenu] = useState<MenuKey | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
@@ -244,9 +244,6 @@ export function MenuBar({
     }
   };
 
-  if (!open && !activeMenu) {
-    return null;
-  }
 
   const MENUS: { key: MenuKey; label: string }[] = [
     { key: "file", label: "File" },
