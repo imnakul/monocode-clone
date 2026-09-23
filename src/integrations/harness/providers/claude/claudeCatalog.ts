@@ -1,0 +1,585 @@
+import { homeDir } from "../../../../platform/tauri/fs";
+import {
+  setHarnessModels,
+  type AgentModel,
+  type ModelSetting,
+} from "../../../../features/sessions/model/models";
+import {
+  execChild,
+  killChild,
+  resolveClaudeBinary,
+  spawnChild,
+  unwatchChild,
+  watchChild,
+  writeChild,
+} from "../../core/child";
+import {
+  asRecord,
+  buildClaudeSpawnArgs,
+  buildControlRequest,
+  compareSemver,
+  isClaudeInitMessage,
+  listModelsFromControlResponse,
+  MINIMUM_CLAUDE_FABLE_5_VERSION,
+  MINIMUM_CLAUDE_OPUS_4_7_VERSION,
+  MINIMUM_CLAUDE_OPUS_4_8_VERSION,
+  MINIMUM_CLAUDE_OPUS_5_5_VERSION,
+  MINIMUM_CLAUDE_OPUS_5_VERSION,
+  MINIMUM_CLAUDE_SONNET_5_VERSION,
+  parseClaudeVersion,
+  parseControlResponse,
+  parseJsonLine,
+  stringField,
+} from "./claudeProtocol";
+
+const EFFORT_LOW_TO_ULTRATHINK: ModelSetting = {
+  id: "effort",
+  label: "Reasoning",
+  kind: "select",
+  value: "high",
+  options: [
+    { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High" },
+    { value: "max", label: "Max" },
+    { value: "ultrathink", label: "Ultrathink" },
+  ],
+};
+
+const EFFORT_WITH_XHIGH: ModelSetting = {
+  id: "effort",
+  label: "Reasoning",
+  kind: "select",
+  value: "high",
+  options: [
+    { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High" },
+    { value: "xhigh", label: "Extra High" },
+    { value: "max", label: "Max" },
+    {
+      value: "ultracode",
+      label: "Ultracode",
+    },
+    { value: "ultrathink", label: "Ultrathink" },
+  ],
+};
+
+const EFFORT_OPUS_47: ModelSetting = {
+  id: "effort",
+  label: "Reasoning",
+  kind: "select",
+  value: "xhigh",
+  options: [
+    { value: "low", label: "Low" },
+    { value: "medium", label: "Medium" },
+    { value: "high", label: "High" },
+    { value: "xhigh", label: "Extra High" },
+    { value: "max", label: "Max" },
+    { value: "ultrathink", label: "Ultrathink" },
+  ],
+};
+
+const FAST_MODE: ModelSetting = {
+  id: "fast",
+  label: "Fast",
+  kind: "toggle",
+  value: "false",
+  options: [
+    { value: "true", label: "On" },
+    { value: "false", label: "Off" },
+  ],
+};
+
+const THINKING: ModelSetting = {
+  id: "thinking",
+  label: "Thinking",
+  kind: "toggle",
+  value: "false",
+  options: [
+    { value: "true", label: "On" },
+    { value: "false", label: "Off" },
+  ],
+};
+
+function contextWindow(defaultValue: "200k" | "1m"): ModelSetting {
+  return {
+    id: "context",
+    label: "Context",
+    kind: "select",
+    value: defaultValue,
+    options: [
+      { value: "200k", label: "200k" },
+      { value: "1m", label: "1M" },
+    ],
+  };
+}
+
+/** Fallback catalog when `list_models` is unavailable. */
+export const CLAUDE_MODEL_CATALOG: AgentModel[] = [
+  {
+    id: "claude:fable-5",
+    harness: "claude",
+    name: "Claude Fable 5",
+    nativeId: "claude-fable-5",
+    settings: [EFFORT_WITH_XHIGH, contextWindow("1m")],
+  },
+  {
+    id: "claude:opus-5",
+    harness: "claude",
+    name: "Claude Opus 5",
+    nativeId: "claude-opus-5",
+    settings: [EFFORT_WITH_XHIGH, FAST_MODE, contextWindow("1m")],
+  },
+  {
+    id: "claude:opus-5-5",
+    harness: "claude",
+    name: "Claude Opus 5.5",
+    nativeId: "claude-opus-5-5",
+    settings: [EFFORT_WITH_XHIGH, FAST_MODE, contextWindow("1m")],
+  },
+  {
+    id: "claude:sonnet-5",
+    harness: "claude",
+    name: "Claude Sonnet 5",
+    nativeId: "claude-sonnet-5",
+    settings: [EFFORT_WITH_XHIGH, contextWindow("200k")],
+  },
+  {
+    id: "claude:opus-4.8",
+    harness: "claude",
+    name: "Claude Opus 4.8",
+    nativeId: "claude-opus-4-8",
+    settings: [EFFORT_WITH_XHIGH, FAST_MODE],
+  },
+  {
+    id: "claude:opus-4.7",
+    harness: "claude",
+    name: "Claude Opus 4.7",
+    nativeId: "claude-opus-4-7",
+    settings: [EFFORT_OPUS_47, FAST_MODE],
+  },
+  {
+    id: "claude:opus-4.6",
+    harness: "claude",
+    name: "Claude Opus 4.6",
+    nativeId: "claude-opus-4-6",
+    settings: [EFFORT_LOW_TO_ULTRATHINK, FAST_MODE, contextWindow("1m")],
+  },
+  {
+    id: "claude:sonnet-4.6",
+    harness: "claude",
+    name: "Claude Sonnet 4.6",
+    nativeId: "claude-sonnet-4-6",
+    settings: [EFFORT_LOW_TO_ULTRATHINK, contextWindow("200k")],
+  },
+  {
+    id: "claude:opus-4.5",
+    harness: "claude",
+    name: "Claude Opus 4.5",
+    nativeId: "claude-opus-4-5",
+    settings: [
+      {
+        id: "effort",
+        label: "Reasoning",
+        kind: "select",
+        value: "high",
+        options: [
+          { value: "low", label: "Low" },
+          { value: "medium", label: "Medium" },
+          { value: "high", label: "High" },
+          { value: "max", label: "Max" },
+        ],
+      },
+      FAST_MODE,
+    ],
+  },
+  {
+    id: "claude:haiku-4.5",
+    harness: "claude",
+    name: "Claude Haiku 4.5",
+    nativeId: "claude-haiku-4-5",
+    settings: [THINKING],
+  },
+];
+
+const PROBE_ID = "monocode-claude-probe";
+const LIST_MODELS_REQUEST_ID = "monocode_list_models";
+const INIT_REQUEST_ID = "monocode_init";
+// Cold start on Windows is slow (node-shim boot); the 15s budget that
+// silently emptied Codex's catalog on loaded machines also times out this
+// `list_models` probe, dropping us onto the version-gated fallback list.
+const DISCOVERY_TIMEOUT_MS = 30_000;
+
+const EFFORT_LABELS: Record<string, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra High",
+  max: "Max",
+};
+
+let inflight: Promise<void> | null = null;
+
+export function refreshClaudeCatalog(): Promise<void> {
+  if (inflight) return inflight;
+  inflight = discoverClaudeModels()
+    .then((models) => {
+      if (models.length > 0) setHarnessModels("claude", models);
+    })
+    .catch((error: unknown) => {
+      // Warn, not debug: a failure here decays into a stale fallback list
+      // that then counts as live and blocks every re-check.
+      console.warn(
+        "[monocode] claude catalog failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    })
+    .finally(() => {
+      inflight = null;
+    });
+  return inflight;
+}
+
+async function discoverClaudeModels(): Promise<AgentModel[]> {
+  const listed = await discoverViaListModels().catch((error: unknown) => {
+    console.debug("[monocode] claude list_models catalog failed", error);
+    return [];
+  });
+  if (listed.length > 0) return listed;
+  return discoverViaVersion();
+}
+
+async function discoverViaListModels(): Promise<AgentModel[]> {
+  const { path } = await resolveClaudeBinary();
+  const cwd = await homeDir();
+  const sessionId = crypto.randomUUID();
+
+  let listed: ((models: AgentModel[]) => void) | null = null;
+  let failed: ((error: Error) => void) | null = null;
+  const pending = new Promise<AgentModel[]>((resolve, reject) => {
+    listed = resolve;
+    failed = reject;
+  });
+
+  let asked = false;
+  const ask = () => {
+    if (asked) return;
+    asked = true;
+    void writeChild(
+      PROBE_ID,
+      JSON.stringify(
+        buildControlRequest(LIST_MODELS_REQUEST_ID, { subtype: "list_models" }),
+      ),
+    ).catch((error: unknown) => {
+      failed?.(error instanceof Error ? error : new Error(String(error)));
+    });
+  };
+
+  const stop = async () => {
+    unwatchChild(PROBE_ID);
+    await killChild(PROBE_ID).catch(() => undefined);
+  };
+
+  watchChild(
+    PROBE_ID,
+    (line) => {
+      const rec = parseJsonLine(line);
+      if (!rec) return;
+      if (isClaudeInitMessage(rec)) ask();
+      const init = parseControlResponse(rec);
+      if (init?.ok && init.requestId === INIT_REQUEST_ID) ask();
+      const rows = listModelsFromControlResponse(rec, LIST_MODELS_REQUEST_ID);
+      if (rows) listed?.(modelsFromClaudeListModels(rows));
+    },
+    () => failed?.(new Error("Claude Code catalog probe exited")),
+  );
+
+  try {
+    await spawnChild(
+      PROBE_ID,
+      path,
+      buildClaudeSpawnArgs({ isolated: true, sessionId }),
+      cwd,
+    );
+    await writeChild(
+      PROBE_ID,
+      JSON.stringify(
+        buildControlRequest(INIT_REQUEST_ID, { subtype: "initialize" }),
+      ),
+    );
+    return await withTimeout(DISCOVERY_TIMEOUT_MS, pending, () => {
+      void stop();
+    });
+  } finally {
+    await stop();
+  }
+}
+
+async function discoverViaVersion(): Promise<AgentModel[]> {
+  const { path } = await resolveClaudeBinary();
+  const cwd = await homeDir();
+  const versionOut = await execChild(path, ["--version"], cwd);
+  const version = parseClaudeVersion(versionOut);
+  // An unparseable version gates out every new model and would replace the
+  // fuller built-in list; keep the built-in catalog instead.
+  if (!version) return [];
+  return modelsForClaudeVersion(version);
+}
+
+function withTimeout<T>(
+  ms: number,
+  promise: Promise<T>,
+  onTimeout: () => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      onTimeout();
+      reject(new Error("Claude Code catalog probe timed out"));
+    }, ms);
+    promise.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
+/** Map a `list_models` payload into the picker catalog. */
+export function modelsFromClaudeListModels(raw: unknown): AgentModel[] {
+  const rows = Array.isArray(raw)
+    ? raw
+    : Array.isArray(asRecord(raw)?.models)
+      ? (asRecord(raw)?.models as unknown[])
+      : [];
+  const models: AgentModel[] = [];
+  const seen = new Set<string>();
+  const concrete = new Set<string>();
+  const deferred: unknown[] = [];
+  for (const item of rows) {
+    const value = stringField(asRecord(item), "value") ?? "";
+    if (value === "default") {
+      deferred.push(item);
+      continue;
+    }
+    const model = modelFromListRow(item);
+    if (!model) continue;
+    const key = model.nativeId ?? model.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const resolvedId = splitClaudeModelValue(
+      stringField(asRecord(item), "resolvedModel") ?? "",
+    ).id;
+    if (resolvedId) concrete.add(resolvedId);
+    if (model.nativeId) concrete.add(model.nativeId);
+    models.push(model);
+  }
+  for (const item of deferred) {
+    const model = modelFromListRow(item);
+    if (!model) continue;
+    const key = model.nativeId ?? model.id;
+    // An alias row already names this concrete model (default -> sonnet-5
+    // alongside a `sonnet` row): skip the duplicate. Otherwise the default
+    // slot is the only carrier of the newest model - keep it up front.
+    if (seen.has(key) || concrete.has(key)) continue;
+    seen.add(key);
+    models.unshift(model);
+  }
+  return models;
+}
+
+function modelFromListRow(raw: unknown): AgentModel | null {
+  const rec = asRecord(raw);
+  if (!rec) return null;
+  if (rec.disabled === true) return null;
+  const value = stringField(rec, "value") ?? "";
+  if (value.startsWith("cc-update-required")) return null;
+  const resolved = stringField(rec, "resolvedModel") ?? "";
+  const fromValue = splitClaudeModelValue(value);
+  const fromResolved = splitClaudeModelValue(resolved);
+  // The `default` slot is the moving alias the CLI points at its current
+  // default model (Opus 5.5 on v2.1.267, whose banner says so). Its concrete
+  // target in `resolvedModel` must reach the picker whenever no other row
+  // names that model - dropping the slot silently hid every new default.
+  const placeholder = !value || value === "default";
+  const nativeId = placeholder
+    ? fromResolved.id
+    : fromValue.id || fromResolved.id;
+  if (!nativeId) return null;
+
+  const displayName = stringField(rec, "displayName") ?? "";
+  const description = stringField(rec, "description") ?? "";
+  let name = pickerName(displayName, description, nativeId, fromResolved.id);
+  if (placeholder && /^default/i.test(name)) {
+    const pretty = resolvedClaudeModelName(fromResolved.id);
+    name = pretty ? `${pretty.family} ${pretty.version}` : nativeId;
+  }
+  const settings = settingsFromListRow(rec, fromValue.context1m || fromResolved.context1m);
+
+  return {
+    id: claudeCatalogId(nativeId),
+    harness: "claude",
+    name,
+    nativeId,
+    ...(settings.length > 0 ? { settings } : {}),
+  };
+}
+
+function settingsFromListRow(
+  rec: Record<string, unknown>,
+  context1m: boolean,
+): ModelSetting[] {
+  const settings: ModelSetting[] = [];
+  const levels = advertisedEffortLevels(rec);
+  if (rec.supportsEffort === true || levels.length > 0) {
+    settings.push(effortSetting(levels));
+  } else if (rec.supportsAdaptiveThinking === true) {
+    settings.push(THINKING);
+  }
+  if (rec.supportsFastMode === true) settings.push(FAST_MODE);
+  if (context1m) settings.push(contextWindow("1m"));
+  return settings;
+}
+
+function advertisedEffortLevels(rec: Record<string, unknown>): string[] {
+  const raw = rec.supportedEffortLevels;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((level): level is string => typeof level === "string" && level.trim() !== "");
+}
+
+function effortSetting(levels: string[]): ModelSetting {
+  const known = levels.filter((level) => EFFORT_LABELS[level]);
+  const options = (known.length > 0 ? known : ["low", "medium", "high", "max"]).map(
+    (value) => ({ value, label: EFFORT_LABELS[value] ?? value }),
+  );
+  if (options.some((option) => option.value === "xhigh")) {
+    options.push({ value: "ultracode", label: "Ultracode" });
+  }
+  options.push({ value: "ultrathink", label: "Ultrathink" });
+  const defaultValue = options.some((option) => option.value === "high")
+    ? "high"
+    : (options[0]?.value ?? "high");
+  return {
+    id: "effort",
+    label: "Reasoning",
+    kind: "select",
+    value: defaultValue,
+    options,
+  };
+}
+
+function pickerName(
+  displayName: string,
+  description: string,
+  fallback: string,
+  resolvedModel: string,
+): string {
+  const name = displayName.trim();
+  const head = description.split("·")[0]?.trim() ?? "";
+  let picked = name || head || fallback;
+  if (
+    head &&
+    name &&
+    head.toLowerCase().startsWith(name.toLowerCase()) &&
+    head.length > name.length
+  ) {
+    picked = head;
+  }
+  return qualifyClaudeAliasName(picked, resolvedModel);
+}
+
+/**
+ * Claude's live catalog can name a moving alias only as "Opus" while also
+ * reporting its concrete target as `claude-opus-5-5`. Keep the alias for CLI
+ * launches, but include the resolved version in the label so model releases do
+ * not silently look like the previous generation.
+ */
+function qualifyClaudeAliasName(name: string, resolvedModel: string): string {
+  const resolved = resolvedClaudeModelName(resolvedModel);
+  if (!resolved) return name;
+
+  const family = escapeRegExp(resolved.family);
+  const match = new RegExp(`^(Claude\\s+)?(${family})(.*)$`, "i").exec(name);
+  if (!match) return name;
+
+  const suffix = match[3] ?? "";
+  // A catalog-supplied version is more authoritative than our interpretation
+  // of the concrete id. Otherwise, enrich any generic alias variation.
+  if (/^\s+v?\d+(?:[.-]\d+)*/i.test(suffix)) return name;
+  return `${match[1] ?? ""}${match[2]} ${resolved.version}${suffix}`;
+}
+
+function resolvedClaudeModelName(
+  model: string,
+): { family: string; version: string } | null {
+  const { id } = splitClaudeModelValue(model);
+  if (!id.toLowerCase().startsWith("claude-")) return null;
+  const parts = id.slice("claude-".length).split("-");
+  const versionStart = parts.findIndex(
+    (part) => /^\d+(?:\.\d+)*$/.test(part) && !/^\d{8}$/.test(part),
+  );
+  if (versionStart <= 0) return null;
+
+  const version: string[] = [];
+  for (const part of parts.slice(versionStart)) {
+    if (!/^\d+(?:\.\d+)*$/.test(part) || /^\d{8}$/.test(part)) break;
+    version.push(...part.split("."));
+  }
+  if (version.length === 0) return null;
+
+  const family = parts
+    .slice(0, versionStart)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1).toLowerCase()}`)
+    .join(" ");
+  return { family, version: version.join(".") };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function splitClaudeModelValue(value: string): { id: string; context1m: boolean } {
+  const match = /^(.*)\[1m\]$/i.exec(value.trim());
+  if (match?.[1]?.trim()) return { id: match[1].trim(), context1m: true };
+  return { id: value.trim(), context1m: false };
+}
+
+function claudeCatalogId(nativeId: string): string {
+  const slug = nativeId.startsWith("claude-") ? nativeId.slice("claude-".length) : nativeId;
+  return `claude:${slug}`;
+}
+
+export function modelsForClaudeVersion(
+  version: string | null | undefined,
+): AgentModel[] {
+  return CLAUDE_MODEL_CATALOG.filter((model) => {
+    const slug = model.nativeId ?? "";
+    if (slug === "claude-opus-5-5") {
+      return version
+        ? compareSemver(version, MINIMUM_CLAUDE_OPUS_5_5_VERSION) >= 0
+        : false;
+    }
+    if (slug === "claude-opus-5") {
+      return version
+        ? compareSemver(version, MINIMUM_CLAUDE_OPUS_5_VERSION) >= 0
+        : false;
+    }
+    if (slug === "claude-sonnet-5") {
+      return version
+        ? compareSemver(version, MINIMUM_CLAUDE_SONNET_5_VERSION) >= 0
+        : false;
+    }
+    if (slug === "claude-fable-5") {
+      return version
+        ? compareSemver(version, MINIMUM_CLAUDE_FABLE_5_VERSION) >= 0
+        : false;
+    }
+    if (slug === "claude-opus-4-8") {
+      return version
+        ? compareSemver(version, MINIMUM_CLAUDE_OPUS_4_8_VERSION) >= 0
+        : false;
+    }
+    if (slug === "claude-opus-4-7") {
+      return version
+        ? compareSemver(version, MINIMUM_CLAUDE_OPUS_4_7_VERSION) >= 0
+        : false;
+    }
+    return true;
+  });
+}

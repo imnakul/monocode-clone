@@ -103,6 +103,8 @@ pub struct SessionUpsert {
     pub queued_messages: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queue_status: Option<String>,
+    #[serde(default)]
+    pub automation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,8 +138,12 @@ pub struct SessionSummary {
     pub archived: bool,
     #[serde(default)]
     pub pinned: bool,
+    #[serde(default)]
+    pub draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub linked_work_item: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub automation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,6 +179,9 @@ pub struct SessionRecord {
     pub queued_messages: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queue_status: Option<String>,
+    #[serde(default)]
+    pub draft: bool,
+    pub automation_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -194,6 +203,11 @@ pub fn session_upsert(
     if let Some(provider_account_id) = &session.provider_account_id {
         if !provider_account_id.is_empty() {
             validate_id(provider_account_id, "provider account")?;
+        }
+    }
+    if let Some(automation_id) = &session.automation_id {
+        if !automation_id.is_empty() {
+            validate_id(automation_id, "automation")?;
         }
     }
     if !session.model_settings.is_object() {
@@ -226,6 +240,27 @@ pub fn session_list_by_project(
 pub fn session_list_scratch(store: State<'_, SessionStore>) -> Result<Vec<SessionSummary>, String> {
     let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
     list_scratch(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+pub fn session_rebase_project(
+    store: State<'_, SessionStore>,
+    from_cwd: String,
+    to_cwd: String,
+) -> Result<(), String> {
+    if from_cwd.trim().is_empty() || to_cwd.trim().is_empty() {
+        return Err("project paths are required".into());
+    }
+    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    rebase_project(&conn, &from_cwd, &to_cwd).map_err(|error| error.to_string())
+}
+
+fn rebase_project(conn: &Connection, from_cwd: &str, to_cwd: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE sessions SET cwd = ?2 WHERE cwd = ?1",
+        params![from_cwd, to_cwd],
+    )?;
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -325,6 +360,17 @@ pub fn session_set_pinned(
     validate_id(&session_id, "session")?;
     let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
     set_pinned(&conn, &session_id, pinned).map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+pub fn session_set_linked_work_item(
+    store: State<'_, SessionStore>,
+    session_id: String,
+    linked_work_item: Option<Value>,
+) -> Result<(), String> {
+    validate_id(&session_id, "session")?;
+    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    set_linked_work_item(&conn, &session_id, linked_work_item.as_ref()).map_err(|e| e.to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -547,6 +593,8 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         ("queue_status", "TEXT"),
         ("provider_account_id", "TEXT"),
         ("worktree_removed", "INTEGER NOT NULL DEFAULT 0"),
+        ("is_draft", "INTEGER NOT NULL DEFAULT 0"),
+        ("automation_id", "TEXT"),
     ] {
         ensure_session_column(conn, column, decl)?;
     }
@@ -665,6 +713,48 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             params![now_millis()],
         )?;
     }
+    if current < 17 {
+        // Draft is rendered on every session card. Materialize it alongside
+        // `has_user_message` so listing never has to read transcript blobs.
+        ensure_session_column(conn, "is_draft", "INTEGER NOT NULL DEFAULT 0")?;
+        conn.execute(
+            "UPDATE sessions SET is_draft =
+               CASE WHEN blocks_json LIKE '%\"role\":\"user\"%'
+                          AND blocks_json LIKE '%\"draft\":true%'
+                    THEN 1 ELSE 0 END",
+            [],
+        )?;
+        conn.execute_batch(
+            "DROP INDEX IF EXISTS sessions_cwd_cover_idx;
+             CREATE INDEX sessions_cwd_cover_idx
+               ON sessions (cwd, has_user_message, updated_at DESC, id, harness,
+                            model, runtime_mode, title, provider_session_id,
+                            created_at, branch, archived, pinned,
+                            linked_work_item_json, worktree_cwd, worktree_removed,
+                            is_draft);",
+        )?;
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (17, ?1)",
+            params![now_millis()],
+        )?;
+    }
+    if current < 18 {
+        // Sidebar cards show whether a session came from an automation.
+        ensure_session_column(conn, "automation_id", "TEXT")?;
+        conn.execute_batch(
+            "DROP INDEX IF EXISTS sessions_cwd_cover_idx;
+             CREATE INDEX sessions_cwd_cover_idx
+               ON sessions (cwd, has_user_message, updated_at DESC, id, harness,
+                            model, runtime_mode, title, provider_session_id,
+                            created_at, branch, archived, pinned,
+                            linked_work_item_json, worktree_cwd, worktree_removed,
+                            is_draft, automation_id);",
+        )?;
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (18, ?1)",
+            params![now_millis()],
+        )?;
+    }
     // Create even when a version row already exists (another build may have
     // used the same numbers, or a previous run recorded the version without
     // the table). Restore writes into these; missing tables look like a
@@ -694,6 +784,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     )?;
     crate::notes::ensure_notes_table(conn)?;
     crate::reminders::ensure_table(conn)?;
+    crate::automations::ensure_tables(conn)?;
     ensure_orchestration_history(conn)?;
     Ok(())
 }
@@ -828,6 +919,11 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         .map(serde_json::to_string)
         .transpose()
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let automation_id = session
+        .automation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     let provider_session_id = session
         .provider_session_id
         .as_ref()
@@ -877,6 +973,7 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         queued_messages_json.is_some() && matches!(*status, "paused" | "held" | "active")
     });
     let has_user_message = has_user_block(&session.blocks);
+    let is_draft = has_draft_block(&session.blocks);
 
     let existing: Option<(i64, i64, String, i64, i64)> = conn
         .query_row(
@@ -909,8 +1006,8 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
            id, cwd, harness, model, model_settings, runtime_mode, title,
            provider_session_id, blocks_json, created_at, updated_at, branch,
            context_used, context_window, worktree_cwd, has_user_message,
-           linked_work_item_json, queued_messages_json, queue_status, provider_account_id, worktree_removed
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
+           linked_work_item_json, queued_messages_json, queue_status, provider_account_id, worktree_removed, is_draft, automation_id
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            harness = excluded.harness,
@@ -930,7 +1027,9 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
            queued_messages_json = excluded.queued_messages_json,
            queue_status = excluded.queue_status,
            provider_account_id = excluded.provider_account_id,
-           worktree_removed = excluded.worktree_removed",
+           worktree_removed = excluded.worktree_removed,
+           is_draft = excluded.is_draft,
+           automation_id = excluded.automation_id",
         params![
             session.id,
             session.cwd,
@@ -953,6 +1052,8 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
             queue_status,
             provider_account_id,
             i64::from(session.worktree_removed),
+            i64::from(is_draft),
+            automation_id,
         ],
     )?;
 
@@ -977,7 +1078,9 @@ fn upsert_session(conn: &Connection, session: &SessionUpsert) -> rusqlite::Resul
         updated_at,
         archived,
         pinned,
+        draft: is_draft,
         linked_work_item: session.linked_work_item.clone(),
+        automation_id: automation_id.map(str::to_owned),
     })
 }
 
@@ -1384,7 +1487,9 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
             deletions: 0,
             archived: archived != 0,
             pinned: pinned != 0,
+            draft: row.get::<_, i64>(16)? != 0,
             linked_work_item,
+            automation_id: nonempty(row.get(17)?),
         })
     };
 
@@ -1394,7 +1499,7 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
                     created_at, updated_at, branch, archived, pinned,
                     linked_work_item_json,
                     (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id), worktree_cwd,
-                    worktree_removed
+                    worktree_removed, is_draft, automation_id
              FROM sessions
              WHERE cwd = ?1
                AND has_user_message = 1
@@ -1414,7 +1519,7 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
                     created_at, updated_at, branch, archived, pinned,
                     linked_work_item_json,
                     (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id), worktree_cwd,
-                    worktree_removed
+                    worktree_removed, is_draft, automation_id
              FROM sessions
              WHERE cwd IN ({placeholders})
                AND has_user_message = 1
@@ -1436,7 +1541,7 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
                     created_at, updated_at, branch, archived, pinned,
                     linked_work_item_json,
                     (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id), worktree_cwd,
-                    worktree_removed
+                    worktree_removed, is_draft, automation_id
              FROM sessions
              WHERE has_user_message = 1
                AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
@@ -1467,7 +1572,7 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
                 created_at, updated_at, branch, archived, pinned,
                 linked_work_item_json,
                 (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id), worktree_cwd,
-                worktree_removed
+                worktree_removed, is_draft, automation_id
          FROM sessions
          WHERE has_user_message = 1
            AND linked_work_item_json IS NOT NULL
@@ -1498,7 +1603,9 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
             deletions: 0,
             archived: archived != 0,
             pinned: pinned != 0,
+            draft: row.get::<_, i64>(16)? != 0,
             linked_work_item: optional_json(row.get(12)?),
+            automation_id: nonempty(row.get(17)?),
         })
     })?;
     rows.collect()
@@ -1509,7 +1616,7 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
 fn list_scratch(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
     let mut statement = conn.prepare(
         "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
-                created_at, updated_at, branch, archived, pinned
+                created_at, updated_at, branch, archived, pinned, is_draft, automation_id
          FROM sessions
          WHERE has_user_message = 1
            AND (cwd LIKE '%.monocode/scratch/%'
@@ -1538,6 +1645,8 @@ fn list_scratch(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
             deletions: 0,
             archived: row.get::<_, i64>(10)? != 0,
             pinned: row.get::<_, i64>(11)? != 0,
+            draft: row.get::<_, i64>(12)? != 0,
+            automation_id: nonempty(row.get(13)?),
         })
     })?;
     rows.collect()
@@ -1550,6 +1659,15 @@ fn has_user_block(blocks: &Value) -> bool {
         blocks
             .iter()
             .any(|block| block.get("role").and_then(Value::as_str) == Some("user"))
+    })
+}
+
+fn has_draft_block(blocks: &Value) -> bool {
+    blocks.as_array().is_some_and(|blocks| {
+        blocks.iter().any(|block| {
+            block.get("role").and_then(Value::as_str) == Some("user")
+                && block.get("draft").and_then(Value::as_bool) == Some(true)
+        })
     })
 }
 
@@ -1695,12 +1813,29 @@ fn set_pinned(conn: &Connection, session_id: &str, pinned: bool) -> rusqlite::Re
     Ok(())
 }
 
+fn set_linked_work_item(
+    conn: &Connection,
+    session_id: &str,
+    linked_work_item: Option<&Value>,
+) -> rusqlite::Result<()> {
+    let linked_work_item_json = linked_work_item
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+    conn.execute(
+        "UPDATE sessions SET linked_work_item_json = ?1 WHERE id = ?2",
+        params![linked_work_item_json, session_id],
+    )?;
+    Ok(())
+}
+
 fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<SessionRecord>> {
     conn.query_row(
         "SELECT id, cwd, harness, model, model_settings, runtime_mode, title,
                 provider_session_id, blocks_json, created_at, updated_at,
                 context_used, context_window, branch, worktree_cwd,
-                linked_work_item_json, queued_messages_json, queue_status, provider_account_id, worktree_removed
+                linked_work_item_json, queued_messages_json, queue_status, provider_account_id, worktree_removed, is_draft,
+                automation_id
          FROM sessions
          WHERE id = ?1 AND inbox_ask IS NULL",
         params![session_id],
@@ -1750,6 +1885,8 @@ fn get_session(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<S
                 queued_messages,
                 queue_status,
                 provider_account_id: row.get(18)?,
+                draft: row.get::<_, i64>(20)? != 0,
+                automation_id: nonempty(row.get(21)?),
                 created_at: row.get(9)?,
                 updated_at: row.get(10)?,
             })
@@ -1870,6 +2007,7 @@ mod tests {
             linked_work_item: None,
             queued_messages: None,
             queue_status: None,
+            automation_id: None,
         }
     }
 
@@ -2005,7 +2143,7 @@ mod tests {
                        ON sessions (cwd, has_user_message, updated_at DESC, id, harness,
                                     model, runtime_mode, title, provider_session_id,
                                     created_at, branch, archived, pinned, linked_work_item_json);
-                     DELETE FROM schema_migrations WHERE version = 16;",
+                     DELETE FROM schema_migrations WHERE version IN (16, 17, 18);",
                 )
                 .unwrap();
                 migrate(&conn).unwrap();
@@ -2015,7 +2153,8 @@ mod tests {
                     "EXPLAIN QUERY PLAN
                  SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
                         created_at, updated_at, branch, archived, pinned,
-                        linked_work_item_json, worktree_cwd, worktree_removed,
+                        linked_work_item_json, worktree_cwd, worktree_removed, is_draft,
+                        automation_id,
                         (SELECT summary FROM orchestration_sidebar WHERE lead_id = sessions.id)
                  FROM sessions
                  WHERE cwd = ?1
@@ -2079,6 +2218,46 @@ mod tests {
             .collect();
         // Newest first; the quiet scratch chat has no user message.
         assert_eq!(ids, vec!["s3".to_string(), "s2".to_string()]);
+    }
+
+    #[test]
+    fn list_scratch_carries_draft_and_automation_id() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        let mut session = sample("s1", "/home/u/.monocode/scratch/abc", "Scratch");
+        session.automation_id = Some("automation-id".into());
+        session.blocks = json!([{ "id": "b1", "role": "user", "text": "hello", "draft": true }]);
+        upsert_session(&conn, &session).unwrap();
+
+        let rows = list_scratch(&conn).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].draft);
+        assert_eq!(rows[0].automation_id.as_deref(), Some("automation-id"));
+    }
+
+    #[test]
+    fn draft_marker_round_trips_through_session_summaries() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        let mut session = sample("s1", "/tmp/a", "Draft");
+        session.blocks = json!([
+            { "id": "b1", "role": "user", "text": "start" },
+            { "id": "b2", "role": "assistant", "text": "done" },
+            { "id": "b3", "role": "user", "text": "hello", "draft": true }
+        ]);
+
+        let saved = upsert_session(&conn, &session).unwrap();
+        assert!(saved.draft);
+        assert!(list_by_project(&conn, "/tmp/a").unwrap()[0].draft);
+
+        session.blocks = json!([
+            { "id": "b1", "role": "user", "text": "start" },
+            { "id": "b2", "role": "assistant", "text": "done" },
+            { "id": "b3", "role": "user", "text": "hello" }
+        ]);
+        let sent = upsert_session(&conn, &session).unwrap();
+        assert!(!sent.draft);
+        assert!(!list_by_project(&conn, "/tmp/a").unwrap()[0].draft);
     }
 
     #[test]
@@ -2161,6 +2340,46 @@ mod tests {
         assert_eq!(listed[0].linked_work_item, row.linked_work_item);
         let stored = get_session(&conn, "s1").unwrap().unwrap();
         assert_eq!(stored.linked_work_item, row.linked_work_item);
+    }
+
+    #[test]
+    fn linked_work_item_can_be_set_and_removed_without_rewriting_the_session() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        upsert_session(&conn, &sample("s1", "/tmp/a", "Fix PR")).unwrap();
+        let linked = json!({
+            "kind": "pr",
+            "repo": "openai/codex",
+            "number": 42,
+            "url": "https://github.com/openai/codex/pull/42"
+        });
+
+        set_linked_work_item(&conn, "s1", Some(&linked)).unwrap();
+        assert_eq!(
+            get_session(&conn, "s1").unwrap().unwrap().linked_work_item,
+            Some(linked)
+        );
+
+        set_linked_work_item(&conn, "s1", None).unwrap();
+        assert_eq!(
+            get_session(&conn, "s1").unwrap().unwrap().linked_work_item,
+            None
+        );
+    }
+
+    #[test]
+    fn automation_id_round_trips() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        let mut row = sample("s1", "/tmp/a", "Nightly review");
+        row.automation_id = Some("automation-id".into());
+
+        let summary = upsert_session(&conn, &row).unwrap();
+        assert_eq!(summary.automation_id.as_deref(), Some("automation-id"));
+        let listed = list_by_project(&conn, "/tmp/a").unwrap();
+        assert_eq!(listed[0].automation_id.as_deref(), Some("automation-id"));
+        let stored = get_session(&conn, "s1").unwrap().unwrap();
+        assert_eq!(stored.automation_id.as_deref(), Some("automation-id"));
     }
 
     #[test]
@@ -2635,6 +2854,20 @@ mod tests {
     }
 
     #[test]
+    fn rebase_project_moves_saved_sessions_to_the_renamed_path() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        upsert_session(&conn, &sample("moved", "/tmp/old", "Moved")).unwrap();
+        upsert_session(&conn, &sample("other", "/tmp/other", "Other")).unwrap();
+
+        rebase_project(&conn, "/tmp/old", "/tmp/new").unwrap();
+
+        assert!(list_by_project(&conn, "/tmp/old").unwrap().is_empty());
+        assert_eq!(list_by_project(&conn, "/tmp/new").unwrap()[0].id, "moved");
+        assert_eq!(list_by_project(&conn, "/tmp/other").unwrap()[0].id, "other");
+    }
+
+    #[test]
     fn migration_v4_creates_in_flight_table() {
         let store = SessionStore::open_in_memory().unwrap();
         let conn = store.conn.lock().unwrap();
@@ -3011,7 +3244,7 @@ mod tests {
     }
 
     #[test]
-    fn fresh_schema_reaches_version_16_and_has_all_columns_and_index() {
+    fn fresh_schema_reaches_version_18_and_has_all_columns_and_index() {
         let store = SessionStore::open_in_memory().unwrap();
         let conn = store.conn.lock().unwrap();
 
@@ -3020,7 +3253,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 16);
+        assert_eq!(version, 18);
 
         for column in [
             "linked_work_item_json",
@@ -3050,7 +3283,7 @@ mod tests {
     }
 
     #[test]
-    fn upstream_v13_database_upgrades_to_v16_and_gains_queue_columns() {
+    fn upstream_v13_database_upgrades_to_v18_and_gains_queue_columns() {
         let path = std::env::temp_dir().join(format!(
             "monocode-upgrade-v13-to-v14-{}-{}.db",
             std::process::id(),
@@ -3112,7 +3345,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 16);
+        assert_eq!(version, 18);
 
         let stored = get_session(&conn, "upstream-s1").unwrap().unwrap();
         assert_eq!(stored.id, "upstream-s1");
@@ -3136,7 +3369,7 @@ mod tests {
     }
 
     #[test]
-    fn local5_v12_database_upgrades_to_v16_and_preserves_queued_data() {
+    fn local5_v12_database_upgrades_to_v18_and_preserves_queued_data() {
         let path = std::env::temp_dir().join(format!(
             "monocode-upgrade-local5-to-v14-{}-{}.db",
             std::process::id(),
@@ -3193,7 +3426,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 16);
+        assert_eq!(version, 18);
 
         let stored = get_session(&conn, "local5-s1").unwrap().unwrap();
         assert_eq!(stored.id, "local5-s1");
@@ -3229,7 +3462,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 16);
+        assert_eq!(version, 18);
     }
 
     #[test]
@@ -3400,6 +3633,8 @@ mod tests {
                 archived: false,
                 pinned: false,
                 linked_work_item: None,
+                draft: false,
+                automation_id: None,
             }))
             .unwrap()
             .collect::<Result<Vec<_>, _>>()

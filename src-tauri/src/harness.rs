@@ -799,25 +799,34 @@ fn apply_provider_account(
     Ok(())
 }
 
+/// A child that stops draining stdin can block `write_all` for minutes, so the
+/// write runs on the blocking pool — never on an async worker or the IPC path,
+/// where it would starve `harness_kill` and make the wedged child unrecoverable.
 #[tauri::command]
-pub fn harness_write(
-    host: State<HarnessHost>,
+pub async fn harness_write(
+    host: State<'_, HarnessHost>,
     session_id: String,
     line: String,
 ) -> Result<(), String> {
     let live = host
         .get(&session_id)
         .ok_or_else(|| "Harness process is not running".to_string())?;
-    let mut stdin = live.stdin.lock().unwrap_or_else(|e| e.into_inner());
-    stdin
-        .write_all(line.as_bytes())
-        .and_then(|_| stdin.write_all(b"\n"))
-        .and_then(|_| stdin.flush())
-        .map_err(|e| format!("Failed to write to harness: {e}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut stdin = live.stdin.lock().unwrap_or_else(|e| e.into_inner());
+        stdin
+            .write_all(line.as_bytes())
+            .and_then(|_| stdin.write_all(b"\n"))
+            .and_then(|_| stdin.flush())
+            .map_err(|e| format!("Failed to write to harness: {e}"))
+    })
+    .await
+    .map_err(|e| format!("Harness write task failed: {e}"))?
 }
 
-#[tauri::command]
-pub fn harness_kill(host: State<HarnessHost>, session_id: String) -> Result<(), String> {
+/// `async` dispatch keeps kill executable while a sibling `harness_write` is
+/// blocked on a wedged child's stdin.
+#[tauri::command(async)]
+pub fn harness_kill(host: State<'_, HarnessHost>, session_id: String) -> Result<(), String> {
     host.stop_sse(&session_id);
     if let Some(live) = host.kill_session(&session_id) {
         terminate(live.pid);
@@ -2141,6 +2150,7 @@ fn is_harness_argv_token(part: &str) -> bool {
             | "omp"
             | "fx"
             | "hermes"
+            | "agy_acp_server.par"
             | "pi"
             | "worker-server"
             | "app-server"
@@ -3901,6 +3911,36 @@ mod tests {
     }
 
     #[test]
+    fn kill_completes_while_a_stdin_write_is_blocked() {
+        use std::io::Write;
+        let host = HarnessHost::new();
+        // `sleep` never drains stdin: filling the pipe wedges the writer while
+        // it holds the stdin mutex — the worst case recovery must survive.
+        let (live, mut child) = live_child();
+        host.lock_inner()
+            .children
+            .insert("wedged".to_string(), live.clone());
+        let writer = thread::spawn(move || {
+            let payload = vec![b'x'; 8 * 1024 * 1024];
+            let mut stdin = live.stdin.lock().unwrap_or_else(|e| e.into_inner());
+            let _ = stdin.write_all(&payload);
+        });
+        thread::sleep(Duration::from_millis(200));
+        // Kill needs neither the stdin mutex nor the writer's thread.
+        let live = host
+            .kill_session("wedged")
+            .expect("wedged child registered");
+        terminate(live.pid);
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !writer.is_finished() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(50));
+        }
+        assert!(writer.is_finished(), "blocked write survived the kill");
+        let _ = writer.join();
+        let _ = child.wait();
+    }
+
+    #[test]
     fn terminate_escalates_to_sigkill() {
         let mut child = spawn_group("trap '' TERM; while true; do sleep 1; done");
         let pid = child.id();
@@ -4249,6 +4289,37 @@ mod tests {
 
         assert!(!is_grok_agent(&dir.join("missing")));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn antigravity_resolver_prefers_executable_wrapper_and_tracks_orphans() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("monocode-agy-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        let wrapper = dir.join("bin/agy_acp_server.par");
+        let server = dir.join("agy_acp_server.par");
+        std::fs::write(&wrapper, b"#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::write(&server, b"#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&server, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let candidates = vec![wrapper.clone(), server.clone()];
+        assert_eq!(first_binary(candidates.clone()), Some(server));
+        std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(first_binary(candidates), Some(wrapper));
+        assert!(looks_like_harness_argv(
+            "/home/user/.local/share/agy-acp/agy_acp_server.par"
+        ));
+        assert!(!looks_like_harness_argv("agy --help"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn antigravity_launch_args_match_the_platform_registry() {
+        if cfg!(target_os = "linux") {
+            assert_eq!(antigravity_args(), vec!["--uid="]);
+        } else {
+            assert!(antigravity_args().is_empty());
+        }
     }
 
     #[test]
