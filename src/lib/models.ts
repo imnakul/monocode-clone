@@ -20,6 +20,11 @@ export type AgentModel = {
   harness: HarnessId;
   name: string;
   nativeId?: string;
+  /** Upstream provider inside a multi-provider harness such as OpenCode. */
+  provider?: {
+    id: string;
+    name: string;
+  };
   settings?: ModelSetting[];
   /** Context window, when the harness catalog reports one. */
   contextWindow?: number;
@@ -206,6 +211,12 @@ export const MODELS: AgentModel[] = [
     name: "Gemini 3.7 Flash",
     nativeId: "google/gemini-3.7-flash",
   },
+  {
+    id: "hermes:default",
+    harness: "hermes",
+    name: "Configured model",
+    nativeId: "",
+  },
 ];
 
 export const DEFAULT_MODEL_ID: Record<HarnessId, string> = {
@@ -219,6 +230,7 @@ export const DEFAULT_MODEL_ID: Record<HarnessId, string> = {
   fx: "fx:zai/glm-5.2-fast",
   antigravity: "antigravity:default",
   cline: "cline:anthropic/claude-sonnet-5",
+  hermes: "hermes:default",
 };
 
 const FAVORITES_KEY = "monocode.favoriteModels";
@@ -248,6 +260,7 @@ const HARNESS_ORDER: HarnessId[] = [
   "fx",
   "antigravity",
   "cline",
+  "hermes",
 ];
 
 const EMPTY_MODELS: AgentModel[] = [];
@@ -350,9 +363,14 @@ export function resolveModel(harness: HarnessId, id?: string): AgentModel {
       (model) => (model.nativeId ?? nativeIdFrom(model.id)) === slug,
     );
     if (byNative) return byNative;
+    const comparableSlug = comparableNativeId(harness, slug);
     const prefix = available.find((model) => {
       const native = model.nativeId ?? nativeIdFrom(model.id);
-      return native.startsWith(slug) || slug.startsWith(native);
+      const comparableNative = comparableNativeId(harness, native);
+      return (
+        comparableNative.startsWith(comparableSlug) ||
+        comparableSlug.startsWith(comparableNative)
+      );
     });
     if (prefix) return prefix;
   }
@@ -399,6 +417,30 @@ export function mergeModelSettings(
     if (value != null) next[setting.id] = value;
   }
   return next;
+}
+
+const EFFORT_SETTING_IDS = new Set(["effort", "reasoning", "reasoningEffort"]);
+
+/** The select setting that controls reasoning effort for this model, if any. */
+export function modelEffortSetting(
+  model: AgentModel,
+): ModelSetting | undefined {
+  return model.settings?.find(
+    (setting) =>
+      setting.kind === "select" && EFFORT_SETTING_IDS.has(setting.id),
+  );
+}
+
+export function modelEffortLabel(
+  model: AgentModel,
+  values?: Record<string, string>,
+): string | undefined {
+  const setting = modelEffortSetting(model);
+  if (!setting) return undefined;
+  const value = values?.[setting.id] ?? setting.value;
+  return (
+    setting.options.find((option) => option.value === value)?.label ?? value
+  );
 }
 
 /** Last chosen effort/fast/etc., applied to any model that supports those values. */
@@ -751,6 +793,11 @@ function nativeIdFrom(id: string): string {
   const slug = colon >= 0 ? trimmed.slice(colon + 1) : trimmed;
   const bracket = slug.indexOf("[");
   return bracket >= 0 ? slug.slice(0, bracket) : slug;
+}
+
+/** Claude's live catalog uses `opus`; its startup fallback uses `claude-opus-5`. */
+function comparableNativeId(harness: HarnessId, id: string): string {
+  return harness === "claude" ? id.replace(/^claude-/, "") : id;
 }
 
 function pickDefaultId(harness: HarnessId, models: AgentModel[]): string {

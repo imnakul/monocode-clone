@@ -1,9 +1,12 @@
 import type {
+  AgentStepKind,
   Attachment,
+  InterjectionMeta,
   RuntimeMode,
   TaskListItem,
   ToolPreview,
   TurnIntent,
+  TurnMetrics,
 } from "../session";
 import type { ProcessedUsage } from "../tokenAccounting";
 import type { UserQuestion } from "../userQuestion";
@@ -19,12 +22,14 @@ export type HarnessEvent =
       modelSettings?: Record<string, string>;
     }
   | { type: "status"; text: string }
+  | ({ type: "interjection"; text: string } & InterjectionMeta)
   | { type: "message.delta"; text: string }
   | { type: "message.completed" }
   | { type: "reasoning.delta"; text: string }
   | { type: "reasoning.completed" }
   | {
       type: "tool.started";
+      agentModel?: string;
       callId: string;
       title: string;
       kind?: string;
@@ -35,6 +40,7 @@ export type HarnessEvent =
     }
   | {
       type: "tool.updated";
+      agentModel?: string;
       callId: string;
       title?: string;
       kind?: string;
@@ -43,6 +49,23 @@ export type HarnessEvent =
       preview?: ToolPreview;
       /** Every path affected when one structured edit changes multiple files. */
       paths?: string[];
+    }
+  /** Something a subagent did, mirrored onto its parent Agent tool call. */
+  | {
+      type: "agent.step";
+      /** Tool call id of the parent Agent/Task call. */
+      callId: string;
+      /** Provider step identity; repeats merge onto the same row. */
+      stepId: string;
+      kind: AgentStepKind;
+      text: string;
+      /** Tool kind for a "tool" step, so it gets the right icon. */
+      toolKind?: string;
+      status?: string;
+      preview?: ToolPreview;
+      /** The subagent's own name, when the provider only reveals it here. */
+      agentName?: string;
+      agentType?: string;
     }
   | {
       type: "approval.requested";
@@ -101,7 +124,8 @@ export type HarnessEvent =
       type: "usage";
       turn?: ProcessedUsage;
       session?: ProcessedUsage;
-    };
+    }
+  | ({ type: "turn.metrics" } & TurnMetrics);
 
 export type ApprovalDecision = "allow" | "deny";
 
@@ -110,8 +134,15 @@ export type HarnessSessionInput = {
   cwd: string;
   model: string;
   modelSettings?: Record<string, string>;
+  providerAccountId?: string;
   runtimeMode: RuntimeMode;
   intent?: TurnIntent;
+  /**
+   * This session drives MonoCode's control CLI, which reaches the app over
+   * loopback. Sandboxes deny network by default, so a lead that cannot open
+   * that socket cannot supervise its agents at all.
+   */
+  controlsAgents?: boolean;
   onEvent: (event: HarnessEvent) => void;
 };
 

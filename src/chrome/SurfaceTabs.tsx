@@ -5,6 +5,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { copyText } from "../lib/clipboard";
 import { basename, revealPath } from "../lib/fs";
 import {
+  isAgentTab,
   isChangesTab,
   isCommitTab,
   isDiffTab,
@@ -21,9 +22,10 @@ import { IS_MAC, IS_WIN } from "../lib/platform";
 import { releaseNotesTitle } from "../lib/releaseNotes";
 import { terminalTabLabel } from "../lib/terminalTab";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
-import { useSortable } from "../hooks/useSortable";
+import { useAnimatedReorder } from "../hooks/useAnimatedReorder";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { FileTypeIcon } from "./FileTypeIcon";
+import { HarnessIcon } from "./HarnessIcon";
 
 type Props = {
   files: FilePaneTab[];
@@ -125,6 +127,16 @@ export function surfaceTabPresentation(
     };
   }
 
+  if (isAgentTab(file)) {
+    const name = file.path.trim() || "Agent";
+    return {
+      name,
+      label: name,
+      iconName: "AGENT",
+      tooltip: `${name} — orchestration agent`,
+    };
+  }
+
   if (isCommitTab(file)) {
     const name = file.commit.subject.trim() || file.commit.shortSha;
     return {
@@ -191,8 +203,7 @@ export function SurfaceTabs({
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const [menu, setMenu] = useState<SurfaceTabMenu | null>(null);
   const fileIds = files.map((file) => file.id);
-  const sortable = useSortable(fileIds, onReorder);
-  const canDrag = files.length > 1;
+  const sortable = useAnimatedReorder(fileIds, onReorder);
   const menuFile = menu
     ? files.find((file) => file.id === menu.fileId)
     : undefined;
@@ -244,12 +255,12 @@ export function SurfaceTabs({
   }, [activeFileId, sortable.draggingId]);
 
   return (
-    <div className="flex h-9 min-w-0 shrink-0 border-b border-content/10 bg-content/2">
+    <div className="flex h-9 min-w-0 shrink-0 border-b border-stroke">
       <div
         ref={lockOverscroll}
         role="tablist"
         aria-label={label}
-        className="scrollbar-none flex min-w-0 flex-1 overflow-x-auto overscroll-none"
+        className="scrollbar-none flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overscroll-none pl-1.5 pr-2.5"
       >
       {onPaneDragStart ? (
         <div
@@ -257,7 +268,7 @@ export function SurfaceTabs({
           title="Drag to reorder pane"
           aria-label="Drag to reorder pane"
           tabIndex={-1}
-          className="grid h-full w-5 shrink-0 cursor-grab place-items-center text-content/35 hover:bg-content/5 hover:text-content/70 active:cursor-grabbing touch-none"
+          className="grid h-7.5 w-5 shrink-0 cursor-grab place-items-center rounded-md text-content/35 hover:bg-content/5 hover:text-content/70 active:cursor-grabbing touch-none"
           onPointerDown={(event) => {
             if (event.button !== 0) return;
             event.preventDefault();
@@ -268,7 +279,7 @@ export function SurfaceTabs({
           <GripVertical className="size-3.5" strokeWidth={1.75} />
         </div>
       ) : null}
-      {files.map((file, index) => {
+      {files.map((file) => {
         const active = file.id === activeFileId;
         const dirty = dirtyFileIds.has(file.id);
         const errors = fileErrorCounts.get(file.id) ?? 0;
@@ -276,18 +287,8 @@ export function SurfaceTabs({
         const commit = isCommitTab(file);
         const review = isReviewTab(file) && !changes;
         const terminal = isTerminalTab(file);
+        const agent = isAgentTab(file) ? file.agent : null;
         const { label, iconName, tooltip } = surfaceTabPresentation(file);
-        const dragging = sortable.draggingId === file.id;
-        const showStart =
-          sortable.draggingId &&
-          sortable.toIndex === index &&
-          sortable.fromIndex !== null &&
-          sortable.toIndex < sortable.fromIndex;
-        const showEnd =
-          sortable.draggingId &&
-          sortable.toIndex === index &&
-          sortable.fromIndex !== null &&
-          sortable.toIndex > sortable.fromIndex;
         return (
           <div
             key={file.id}
@@ -295,11 +296,7 @@ export function SurfaceTabs({
               sortable.setItemRef(file.id, el);
               if (el && file.id === activeFileId) activeTabRef.current = el;
             }}
-            className={`group relative flex w-52 min-w-28 shrink touch-none items-stretch border-r border-content/10 ${
-              active ? "bg-content/8" : "hover:bg-content/5"
-            } ${dragging ? "opacity-40" : ""} ${
-              canDrag ? "cursor-grab active:cursor-grabbing" : ""
-            }`}
+            className="reorder-item tab-motion group relative flex h-full w-56 min-w-28 shrink touch-none items-center"
             onMouseDownCapture={(event) => {
               if (event.button === 1) event.preventDefault();
             }}
@@ -330,12 +327,6 @@ export function SurfaceTabs({
               });
             }}
           >
-            {showStart ? (
-              <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-0.5 bg-accent" />
-            ) : null}
-            {showEnd ? (
-              <div className="pointer-events-none absolute inset-y-0 right-0 z-20 w-0.5 bg-accent" />
-            ) : null}
             <button
               type="button"
               role="tab"
@@ -345,18 +336,23 @@ export function SurfaceTabs({
                 if (sortable.consumeClick()) return;
                 onSelectFile(file.id);
               }}
-              className={`flex min-w-0 flex-1 items-center gap-1.5 px-3 pr-8 text-left text-[12px] ${
-                canDrag ? "cursor-grab active:cursor-grabbing" : ""
-              } ${
-                active ? "text-content" : "text-content/55 hover:text-content"
+              className={`relative flex h-7.5 min-w-0 flex-1 cursor-default items-center gap-1.5 self-center rounded-md px-2 pr-7 text-left text-[13px] ${
+                active
+                  ? "bg-selection text-content"
+                  : "text-content/50 hover:bg-content/5 hover:text-content"
               }`}
             >
               {terminal ? (
                 <Terminal className="size-3.5 shrink-0" strokeWidth={1.75} />
+              ) : agent ? (
+                <HarnessIcon
+                  harness={agent.harness}
+                  className="size-3.5 shrink-0"
+                />
               ) : changes || commit ? (
                 <GitCompare className="size-3.5 shrink-0" strokeWidth={1.75} />
               ) : (
-                <FileTypeIcon name={iconName} isDir={false} size={15} />
+                <FileTypeIcon name={iconName} isDir={false} size={14} />
               )}
               <span
                 className={`min-w-0 flex-1 truncate ${review ? "italic" : ""} ${
@@ -371,7 +367,7 @@ export function SurfaceTabs({
               </span>
               {dirty ? (
                 <span
-                  className="size-1.5 shrink-0 rounded-full bg-content/75"
+                  className="size-1.5 shrink-0 rounded-full bg-content/70"
                   title="Unsaved changes"
                   aria-label="Unsaved changes"
                 />
@@ -387,7 +383,7 @@ export function SurfaceTabs({
                 event.stopPropagation();
                 onCloseFile(file.id);
               }}
-              className={`absolute right-1.5 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content ${
+              className={`absolute right-1 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content ${
                 active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
               }`}
             >

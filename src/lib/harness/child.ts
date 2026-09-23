@@ -239,6 +239,7 @@ export async function spawnChild(
   command: string,
   args: string[],
   cwd: string,
+  account?: { provider: "claude" | "codex"; id: string },
 ): Promise<void> {
   livePid.delete(sessionId);
   pendingExit.delete(sessionId);
@@ -247,6 +248,7 @@ export async function spawnChild(
     command,
     args,
     cwd,
+    account,
   });
   if (typeof pid !== "number" || pid <= 0) return;
   livePid.set(sessionId, pid);
@@ -333,6 +335,10 @@ export function resolveAntigravityBinary(): Promise<{ path: string }> {
 
 export function resolveClineBinary(): Promise<{ path: string }> {
   return resolveBinary("cline", "harness_resolve_cline");
+}
+
+export function resolveHermesBinary(): Promise<{ path: string }> {
+  return invoke("harness_resolve_hermes");
 }
 
 export function freeHarnessPort(): Promise<number> {

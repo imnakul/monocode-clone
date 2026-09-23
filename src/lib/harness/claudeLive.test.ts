@@ -29,6 +29,7 @@ vi.mock("./child", () => ({
 }));
 
 const {
+  bindClaudeSession,
   compactClaudeContext,
   respondClaudeApproval,
   respondClaudeQuestion,
@@ -59,7 +60,11 @@ const waitFor = async (pred: () => boolean, label: string) => {
 
 async function startTurn(
   sessionId: string,
-  options: { runtimeMode?: RuntimeMode; intent?: TurnIntent } = {},
+  options: {
+    runtimeMode?: RuntimeMode;
+    intent?: TurnIntent;
+    providerAccountId?: string;
+  } = {},
 ) {
   const events: HarnessEvent[] = [];
   const turn = sendClaudeTurn({
@@ -69,6 +74,7 @@ async function startTurn(
     modelSettings: {},
     runtimeMode: options.runtimeMode ?? "supervised",
     intent: options.intent,
+    providerAccountId: options.providerAccountId,
     text: "explore the codebase",
     attachments: [],
     onEvent: (event) => events.push(event),
@@ -106,8 +112,10 @@ afterEach(async () => {
 });
 
 describe("claude model switching", () => {
-  it("restarts with the new model while resuming the provider conversation", async () => {
-    const first = await startTurn("s1");
+  it("restarts a named account with the new model while resuming the provider conversation", async () => {
+    const first = await startTurn("s1", {
+      providerAccountId: "account-work",
+    });
     emit({ type: "result", subtype: "success", session_id: "sess_1" });
     await first.turn;
 
@@ -120,6 +128,7 @@ describe("claude model switching", () => {
       model: "claude:opus-5",
       modelSettings: {},
       runtimeMode: "supervised",
+      providerAccountId: "account-work",
       text: "what did I ask before?",
       attachments: [],
       onEvent: () => undefined,
@@ -144,6 +153,32 @@ describe("claude model switching", () => {
     );
     emit({ type: "result", subtype: "success", session_id: "sess_1" });
     await second;
+  });
+});
+
+describe("claude legacy account resume", () => {
+  it("resumes a legacy thread when the missing account resolves to default", async () => {
+    bindClaudeSession("s1", "legacy-session", "/repo");
+    const { turn } = await startTurn("s1", {
+      providerAccountId: "default",
+    });
+    expect(spawned[0]).toEqual(
+      expect.arrayContaining(["--resume", "legacy-session"]),
+    );
+    expect(spawned[0]).not.toContain("--session-id");
+    emit({ type: "result", subtype: "success", session_id: "legacy-session" });
+    await turn;
+  });
+
+  it("does not resume a legacy default thread under a named account", async () => {
+    bindClaudeSession("s1", "legacy-session", "/repo");
+    const { turn } = await startTurn("s1", {
+      providerAccountId: "account-work",
+    });
+    expect(spawned[0]).not.toContain("--resume");
+    expect(spawned[0]).toContain("--session-id");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
   });
 });
 
@@ -496,6 +531,120 @@ describe("claude subagents", () => {
         (event) =>
           event.type === "message.delta" &&
           event.text.includes("I will grep for tokens"),
+      ),
+    ).toBe(false);
+  });
+
+  it("mirrors a subagent's tools, thinking and prose onto its own row", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "assistant",
+      session_id: "sess_1",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_agent",
+            name: "Agent",
+            input: {
+              description: "Correctness review",
+              subagent_type: "explore",
+            },
+          },
+        ],
+      },
+    });
+    emit({
+      type: "assistant",
+      parent_tool_use_id: "toolu_agent",
+      message: {
+        id: "msg_sub_1",
+        model: "claude-haiku-4-5",
+        content: [
+          { type: "thinking", thinking: "Start with the reducer." },
+          { type: "text", text: "I will grep for tokens" },
+          {
+            type: "tool_use",
+            id: "toolu_sub_read",
+            name: "Read",
+            input: { file_path: "/repo/src/App.tsx" },
+          },
+        ],
+      },
+    });
+    emit({
+      type: "user",
+      parent_tool_use_id: "toolu_agent",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_sub_read",
+            content: "export function App() {}",
+          },
+        ],
+      },
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+
+    expect(
+      events
+        .reduce(applyHarnessEvent, newSession("claude", "/repo"))
+        .blocks.find((block) => block.tool?.callId === "toolu_agent")?.agentRun
+        ?.model,
+    ).toBe("claude-haiku-4-5");
+    const steps = events.filter((event) => event.type === "agent.step");
+    expect(steps.every((step) => step.callId === "toolu_agent")).toBe(true);
+    expect(
+      steps.map((step) => [step.stepId, step.kind, step.text, step.status]),
+    ).toEqual([
+      ["msg_sub_1:thinking", "reasoning", "Start with the reducer.", undefined],
+      ["msg_sub_1:text", "message", "I will grep for tokens", undefined],
+      ["toolu_sub_read", "tool", "Read /repo/src/App.tsx", "in_progress"],
+      ["toolu_sub_read", "tool", "", "completed"],
+    ]);
+  });
+
+  it("does not mirror a subagent result onto the parent tool row", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "assistant",
+      session_id: "sess_1",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_agent",
+            name: "Agent",
+            input: { description: "Correctness review" },
+          },
+        ],
+      },
+    });
+    emit({
+      type: "user",
+      parent_tool_use_id: "toolu_agent",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_sub_read",
+            content: "export function App() {}",
+          },
+        ],
+      },
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+
+    // The parent stays in flight: only the subagent's own row settles.
+    expect(
+      events.some(
+        (event) =>
+          event.type === "tool.updated" &&
+          event.callId === "toolu_agent" &&
+          event.status === "completed",
       ),
     ).toBe(false);
   });

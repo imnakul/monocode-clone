@@ -4,6 +4,7 @@ import type {
   TaskListItem,
   ToolPreview,
   TurnIntent,
+  TurnMetrics,
 } from "../session";
 import type { CodexRawUsageRecord } from "../tokenAccounting";
 import {
@@ -12,12 +13,14 @@ import {
   isVisionImage,
   normalizeImageMime,
 } from "../attachments";
+import { displayPath } from "../paths";
 import { normalizeTaskListStatus } from "../taskList";
 import {
   composeToolTitle,
   extractToolPreview,
   formatAgentType,
 } from "./preview";
+import { formatShellIntent, inferShellIntent } from "./shellIntent";
 import { streamTextDelta } from "./streamText";
 import type { HarnessEvent } from "./types";
 
@@ -27,12 +30,36 @@ export type CodexThreadConfig = {
   sandbox: "read-only" | "workspace-write" | "danger-full-access";
   approvalsReviewer: "user" | "auto_review";
   sandboxPolicy:
-    | { type: "readOnly" }
-    | { type: "workspaceWrite" }
+    | { type: "readOnly"; networkAccess?: boolean }
+    | { type: "workspaceWrite"; networkAccess?: boolean }
     | { type: "dangerFullAccess" };
 };
 
-export function runtimeModeToCodexConfig(mode: RuntimeMode): CodexThreadConfig {
+/**
+ * `readOnly` and `workspaceWrite` both default to networkAccess: false, which
+ * blocks loopback too. An orchestration lead has to reach the control CLI's
+ * socket, so it opts in; every other session keeps the default.
+ */
+function withNetwork(
+  config: CodexThreadConfig,
+  controlsAgents?: boolean,
+): CodexThreadConfig {
+  if (!controlsAgents || config.sandboxPolicy.type === "dangerFullAccess")
+    return config;
+  return {
+    ...config,
+    sandboxPolicy: { ...config.sandboxPolicy, networkAccess: true },
+  };
+}
+
+export function runtimeModeToCodexConfig(
+  mode: RuntimeMode,
+  controlsAgents?: boolean,
+): CodexThreadConfig {
+  return withNetwork(baseCodexConfig(mode), controlsAgents);
+}
+
+function baseCodexConfig(mode: RuntimeMode): CodexThreadConfig {
   switch (mode) {
     case "supervised":
       return {
@@ -70,14 +97,19 @@ export function runtimeModeToCodexConfig(mode: RuntimeMode): CodexThreadConfig {
 export function buildThreadStartParams(input: {
   cwd: string;
   runtimeMode: RuntimeMode;
+  controlsAgents?: boolean;
   model?: string;
   serviceTier?: string;
 }): Record<string, unknown> {
-  const config = runtimeModeToCodexConfig(input.runtimeMode);
+  const config = runtimeModeToCodexConfig(
+    input.runtimeMode,
+    input.controlsAgents,
+  );
   return {
     cwd: input.cwd,
     approvalPolicy: config.approvalPolicy,
     sandbox: config.sandbox,
+    sandboxPolicy: config.sandboxPolicy,
     approvalsReviewer: config.approvalsReviewer,
     ...(input.model ? { model: input.model } : {}),
     ...(input.serviceTier && input.serviceTier !== "default"
@@ -102,6 +134,7 @@ export function buildTurnSteerParams(input: {
 export function buildTurnStartParams(input: {
   threadId: string;
   runtimeMode: RuntimeMode;
+  controlsAgents?: boolean;
   prompt?: string;
   attachments?: Attachment[];
   model?: string;
@@ -109,15 +142,21 @@ export function buildTurnStartParams(input: {
   serviceTier?: string;
   intent?: TurnIntent;
 }): Record<string, unknown> {
-  const runtimeConfig = runtimeModeToCodexConfig(input.runtimeMode);
+  const runtimeConfig = runtimeModeToCodexConfig(
+    input.runtimeMode,
+    input.controlsAgents,
+  );
   const config: CodexThreadConfig =
     input.intent === "plan"
-      ? {
-          approvalPolicy: "never",
-          sandbox: "read-only",
-          approvalsReviewer: runtimeConfig.approvalsReviewer,
-          sandboxPolicy: { type: "readOnly" },
-        }
+      ? withNetwork(
+          {
+            approvalPolicy: "never",
+            sandbox: "read-only",
+            approvalsReviewer: runtimeConfig.approvalsReviewer,
+            sandboxPolicy: { type: "readOnly" },
+          },
+          input.controlsAgents,
+        )
       : runtimeConfig;
   return {
     threadId: input.threadId,
@@ -426,11 +465,30 @@ function mapTokenUsage(rec: Record<string, unknown>): MappedCodexNotification {
   const last = lastRaw ? parseCodexUsageRecord(lastRaw) : undefined;
   const total = totalRaw ? parseCodexUsageRecord(totalRaw) : undefined;
   const window = numberField(usage, "modelContextWindow");
+  const inputTokens = numberField(last, "inputTokens");
+  const cacheReadTokens = numberField(last, "cachedInputTokens");
+  const cacheWriteTokens = numberField(last, "cacheWriteInputTokens");
+  const outputTokens = numberField(last, "outputTokens");
+  const cacheReported =
+    last != null &&
+    ("cachedInputTokens" in last || "cacheWriteInputTokens" in last);
+  const metrics: TurnMetrics = {
+    ...(inputTokens ? { inputTokens } : {}),
+    ...(outputTokens ? { outputTokens } : {}),
+    ...(cacheReadTokens ? { cacheReadTokens } : {}),
+    ...(cacheWriteTokens ? { cacheWriteTokens } : {}),
+    ...(cacheReported && inputTokens > 0
+      ? {
+          cacheHitPercent:
+            (cacheReadTokens / (inputTokens + cacheWriteTokens)) * 100,
+        }
+      : {}),
+  };
+  const hasMetrics = Object.keys(metrics).length > 0;
+  const used = last?.totalTokens ?? 0;
   const threadId = stringField(rec, "threadId");
   const turnId = stringField(rec, "turnId");
-
   const events: HarnessEvent[] = [];
-  const used = last?.totalTokens ?? 0;
   if (used > 0 || window > 0) {
     events.push({
       type: "context",
@@ -438,7 +496,9 @@ function mapTokenUsage(rec: Record<string, unknown>): MappedCodexNotification {
       ...(window > 0 ? { window } : {}),
     });
   }
-
+  if (hasMetrics) {
+    events.push({ type: "turn.metrics", ...metrics });
+  }
   return {
     events,
     tokenUsage: {
@@ -592,26 +652,26 @@ function mapToolItem(
     const status = mapItemStatus(stringField(item, "status"), completed);
     const output =
       stringField(item, "aggregatedOutput") ?? stringField(item, "output");
-    const preview: ToolPreview | undefined = undefined;
+    const presentation = codexCommandPresentation(item, command);
     const eventType = completed ? "tool.updated" : "tool.started";
     if (eventType === "tool.started") {
       return {
         type: "tool.started",
         callId,
-        title: command,
+        title: presentation.title,
         kind: "execute",
         status,
-        preview,
+        preview: presentation.preview,
       };
     }
     return {
       type: "tool.updated",
       callId,
-      title: command,
+      title: presentation.title,
       kind: "execute",
       status,
       ...(output ? { detail: output } : {}),
-      preview,
+      preview: presentation.preview,
     };
   }
 
@@ -697,14 +757,93 @@ function mapToolItem(
   return null;
 }
 
+/** Prefer Codex's own best-effort command parsing, then our legacy fallback. */
+function codexCommandPresentation(
+  item: Record<string, unknown>,
+  command: string,
+): { title: string; preview?: ToolPreview } {
+  const cwd = stringField(item, "cwd");
+  const actions = Array.isArray(item.commandActions)
+    ? item.commandActions.flatMap((value) => {
+        const action = asRecord(value);
+        return action ? [action] : [];
+      })
+    : [];
+
+  // The last meaningful stage usually describes the pipeline's visible goal
+  // (`cat file | grep term` is a Find), while unknown filters are ignored.
+  for (let index = actions.length - 1; index >= 0; index -= 1) {
+    const action = actions[index];
+    const type = stringField(action, "type");
+    const path = stringField(action, "path");
+    const shownPath = path ? displayPath(path, cwd) : undefined;
+    if (type === "search") {
+      const query = stringField(action, "query");
+      if (!query) continue;
+      return {
+        title: `Find ${query}`,
+        preview: shellCommandPreview(command, path, query),
+      };
+    }
+    if (type === "read" && path) {
+      return {
+        title: `Read ${shownPath}`,
+        preview: shellCommandPreview(command, path),
+      };
+    }
+    if (type === "listFiles") {
+      return {
+        title: shownPath ? `List ${shownPath}` : "List",
+        preview: shellCommandPreview(command, path),
+      };
+    }
+  }
+
+  const inferred = inferShellIntent(command);
+  if (!inferred) return { title: command };
+  const path = inferred.path;
+  const shownPath = path ? displayPath(path, cwd) : undefined;
+  return {
+    title: formatShellIntent(inferred, shownPath, inferred.query) ?? command,
+    preview: shellCommandPreview(
+      command,
+      path,
+      inferred.query,
+      inferred.startLine,
+    ),
+  };
+}
+
+function shellCommandPreview(
+  command: string,
+  path?: string,
+  query?: string,
+  startLine?: number,
+): ToolPreview {
+  return {
+    kind: "shell",
+    title: command,
+    ...(path
+      ? {
+          path,
+          fileName: path
+            .replace(/[/\\]+$/, "")
+            .split(/[/\\]/)
+            .pop(),
+        }
+      : {}),
+    ...(query ? { query } : {}),
+    ...(startLine ? { startLine } : {}),
+  };
+}
+
 function mapSubAgentActivity(
   item: Record<string, unknown>,
   callId: string,
   completed: boolean,
 ): HarnessEvent {
   const kind = (stringField(item, "kind") ?? "").toLowerCase();
-  const path =
-    stringField(item, "agentPath") ?? stringField(item, "agent_path");
+  const path = stringField(item, "agentPath") ?? stringField(item, "agent_path");
   const leaf = path?.split(/[/\\]/).filter(Boolean).pop();
   const title = leaf ? `${formatAgentType(leaf)} subagent` : "Subagent";
   if (kind === "interrupted") {
@@ -764,24 +903,189 @@ function mapCollabAgentToolCall(
             : tool === "closeAgent"
               ? "Close subagent"
               : "Subagent";
-  const prompt = stringField(item, "prompt");
-  const title =
-    tool === "spawnAgent" &&
-    prompt &&
-    !prompt.includes("\n") &&
-    prompt.length <= 160
-      ? prompt
-      : fallbackTitle;
+  // A spawn's brief is the only name the agent gets. Its first line is what
+  // the model wrote the run for, so "Spawn subagent" is a last resort.
+  const brief = agentBrief(item);
+  const title = tool === "spawnAgent" && brief ? brief : fallbackTitle;
   const detail = collabAgentFailureDetail(item);
   const failed = stringField(item, "status") === "failed" || !!detail;
+  // Spawning or resuming an agent is that agent's row. Waiting on one,
+  // messaging it and closing it are bookkeeping against a row that already
+  // exists — given their own agent rows they read as extra subagents that
+  // never do anything.
+  const spawns = tool === "spawnAgent" || tool === "resumeAgent";
+  // Completing a spawn means the call returned, not that the agent it started
+  // has finished — the child runs on its own thread for as long as it needs.
+  // Only its reported state settles the row, so a running agent is never
+  // captioned as done.
+  const settled = completed && (!spawns || failed);
   return {
     type: completed ? "tool.updated" : "tool.started",
     callId,
     title,
-    kind: "agent",
-    status: completed ? (failed ? "failed" : "completed") : "in_progress",
+    kind: spawns ? "agent" : "other",
+    ...(spawns && stringField(item, "model")
+      ? { agentModel: stringField(item, "model") }
+      : {}),
+    status: settled ? (failed ? "failed" : "completed") : "in_progress",
     ...(detail ? { detail } : {}),
   };
+}
+
+const TERMINAL_AGENT_STATES = new Set([
+  "completed",
+  "complete",
+  "done",
+  "finished",
+  "errored",
+  "error",
+  "failed",
+  "notfound",
+  "not_found",
+  "closed",
+  "interrupted",
+  "stopped",
+  "cancelled",
+  "canceled",
+]);
+
+const FAILED_AGENT_STATES = new Set([
+  "errored",
+  "error",
+  "failed",
+  "notfound",
+  "not_found",
+  "interrupted",
+]);
+
+/**
+ * Per-agent state a collab item reports, keyed by child thread. This is what
+ * actually settles a spawned agent's row: the spawn call returns long before
+ * the agent it started is finished.
+ */
+export function codexSubagentStates(
+  item: Record<string, unknown>,
+): Array<{ threadId: string; status: string; message?: string }> {
+  const states = asRecord(item.agentsStates) ?? asRecord(item.agents_states);
+  return Object.entries(states ?? {}).flatMap(([threadId, value]) => {
+    const state = asRecord(value);
+    const status = (stringField(state, "status") ?? "").toLowerCase();
+    if (!threadId || !TERMINAL_AGENT_STATES.has(status)) return [];
+    const message = stringField(state, "message")?.trim();
+    return [
+      {
+        threadId,
+        status: FAILED_AGENT_STATES.has(status) ? "failed" : "completed",
+        ...(message ? { message } : {}),
+      },
+    ];
+  });
+}
+
+/**
+ * Thread ids a collab item ties to an agent row, so the child thread's own
+ * notifications can be mirrored back onto it. Codex runs each subagent as a
+ * separate thread on the same connection.
+ */
+export function codexSubagentThreadIds(
+  item: Record<string, unknown>,
+): string[] {
+  const ids = new Set<string>();
+  for (const key of ["agentThreadId", "agent_thread_id"]) {
+    const value = stringField(item, key);
+    if (value) ids.add(value);
+  }
+  const receivers = item.receiverThreadIds ?? item.receiver_thread_ids;
+  if (Array.isArray(receivers)) {
+    for (const value of receivers) {
+      if (typeof value === "string" && value) ids.add(value);
+    }
+  }
+  const states = asRecord(item.agentsStates) ?? asRecord(item.agents_states);
+  for (const key of Object.keys(states ?? {})) {
+    if (key) ids.add(key);
+  }
+  return [...ids];
+}
+
+/**
+ * A child thread's own notification, mirrored onto the agent row that spawned
+ * it. Only settled items are mirrored: the deltas that stream inside a child
+ * thread carry no item identity, so they cannot be merged onto a step without
+ * stacking the same sentence up again on every chunk.
+ */
+export function mapCodexSubagentSteps(
+  callId: string,
+  method: string,
+  params: unknown,
+): HarnessEvent[] {
+  if (method === "thread/started") {
+    const model = stringField(asRecord(asRecord(params)?.thread), "model");
+    return model
+      ? [{ type: "tool.updated", callId, kind: "agent", agentModel: model }]
+      : [];
+  }
+  if (method !== "item/started" && method !== "item/completed") return [];
+  const rec = asRecord(params);
+  const item = asRecord(rec?.item);
+  const itemId = stringField(item, "id");
+  if (!rec || !itemId) return [];
+  return mapCodexNotification(method, params).events.flatMap(
+    (event): HarnessEvent[] => {
+      if (event.type === "tool.started" || event.type === "tool.updated") {
+        return [
+          {
+            type: "agent.step",
+            callId,
+            stepId: event.callId,
+            kind: "tool",
+            text: event.title ?? "",
+            ...(event.kind ? { toolKind: event.kind } : {}),
+            ...(event.status ? { status: event.status } : {}),
+            ...(event.preview ? { preview: event.preview } : {}),
+          },
+        ];
+      }
+      if (event.type === "message.delta") {
+        return [
+          {
+            type: "agent.step",
+            callId,
+            stepId: `${itemId}:text`,
+            kind: "message",
+            text: event.text,
+          },
+        ];
+      }
+      if (event.type === "reasoning.delta") {
+        return [
+          {
+            type: "agent.step",
+            callId,
+            stepId: `${itemId}:reasoning`,
+            kind: "reasoning",
+            text: event.text,
+          },
+        ];
+      }
+      return [];
+    },
+  );
+}
+
+/** The first line of a spawn's prompt, short enough to sit on a row. */
+function agentBrief(item: Record<string, unknown>): string | undefined {
+  const path =
+    stringField(item, "agentPath") ?? stringField(item, "agent_path");
+  const leaf = path?.split(/[/\\]/).filter(Boolean).pop();
+  if (leaf) return `${formatAgentType(leaf)} subagent`;
+  const prompt = stringField(item, "prompt");
+  const line = prompt
+    ?.split("\n")
+    .map((part) => part.trim())
+    .find(Boolean);
+  if (!line) return undefined;
+  return line.length <= 160 ? line : `${line.slice(0, 159)}\u2026`;
 }
 
 function collabAgentFailureDetail(
@@ -930,15 +1234,21 @@ export function mapApprovalRequest(
     const command = stringField(rec, "command") ?? "Shell";
     const callId = stringField(rec, "itemId");
     const reason = stringField(rec, "reason");
+    const presentation = codexCommandPresentation(rec, command);
+    const readable = presentation.title !== command;
     return {
       kind: "command",
       event: {
         type: "approval.requested",
         requestId,
-        title: reason ? `${command} — ${reason}` : command,
+        title: readable
+          ? presentation.title
+          : reason
+            ? `${command} — ${reason}`
+            : command,
         kind: "execute",
         callId,
-        preview: undefined,
+        preview: presentation.preview,
       },
     };
   }

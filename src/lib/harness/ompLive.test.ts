@@ -127,6 +127,31 @@ async function started(turnInput = input()) {
 }
 
 describe("OMP command lifecycle over the real RPC multiplexer", () => {
+  it.each([["pi", sendPiTurn], ["omp", sendOmpTurn]] as const)(
+    "forwards %s extension result details into the subagent trail",
+    async (flavor, send) => {
+      const sessionId = `${flavor}-subagent`;
+      const turn = send({ ...input(sessionId, "Investigate auth"), model: `${flavor}:default` });
+      await vi.waitFor(() => expect(transport.requests.some((r) => r.sessionId === sessionId && r.command.type === "prompt")).toBe(true));
+      try {
+        frame(sessionId, { type: "tool_execution_start", toolCallId: "spawn", toolName: "task", args: { agent: "scout", task: "Check auth" } });
+        const result = { content: [{ type: "text", text: "Found auth" }], details: { results: [
+          { agent: "scout", task: "Check auth", exitCode: 0, messages: [{ role: "assistant", content: [{ type: "text", text: "Reading auth" }] }] },
+        ] } };
+        frame(sessionId, { type: "tool_execution_update", toolCallId: "spawn", partialResult: result });
+        frame(sessionId, { type: "tool_execution_end", toolCallId: "spawn", result, isError: false });
+        const session = events.reduce(applyHarnessEvent, newSession(flavor, "/repo"));
+        const row = session.blocks.find((block) => block.tool?.callId === "spawn");
+        expect(row?.agentRun?.steps).toEqual([expect.objectContaining({ kind: "message", text: "Reading auth" })]);
+        expect(row?.tool?.status).toBe("completed");
+        expect(row?.tool?.detail).toBe("Found auth");
+      } finally {
+        frame(sessionId, { type: "agent_end" });
+        await turn;
+      }
+    },
+  );
+
   it.each([
     ["pi", sendPiTurn, steerPiTurn],
     ["omp", sendOmpTurn, steerOmpTurn],
@@ -441,6 +466,111 @@ describe("OMP command lifecycle over the real RPC multiplexer", () => {
     expect(events.filter((e) => e.type === "message.completed")).toHaveLength(
       1,
     );
+  });
+
+  it("surfaces displayed OMP advisor notes and hides internal messages", async () => {
+    const running = await started();
+    const advisor = {
+      role: "custom",
+      customType: "advisor",
+      display: true,
+      content: "raw advisory envelope",
+      details: {
+        notes: [
+          { note: "Minor note", severity: "nit" },
+          { note: "Stop here", severity: "blocker" },
+        ],
+      },
+    };
+    frame("omp-test", { type: "message_start", message: advisor });
+    frame("omp-test", { type: "message_end", message: advisor });
+    frame("omp-test", {
+      type: "message_start",
+      message: {
+        role: "custom",
+        customType: "xdev-mount-notice",
+        display: false,
+        content: "internal mount details",
+      },
+    });
+    frame("omp-test", { type: "advisor_yielded" });
+
+    expect(events).toContainEqual({
+      type: "interjection",
+      text: "Minor note\n\nStop here",
+      customType: "advisor",
+      severity: "blocker",
+    });
+    expect(
+      events.filter((event) => event.type === "interjection"),
+    ).toHaveLength(1);
+    expect(
+      events.some(
+        (event) => "text" in event && event.text === "internal mount details",
+      ),
+    ).toBe(false);
+    frame("omp-test", { type: "agent_end" });
+    await running.turn;
+  });
+
+  it("emits a transient status when the OMP advisor yields", async () => {
+    const running = await started();
+    const start = events.length;
+    frame("omp-test", { type: "advisor_yielded" });
+    expect(events.slice(start)).toEqual([
+      { type: "status", text: expect.any(String) },
+    ]);
+    frame("omp-test", { type: "agent_end" });
+    await running.turn;
+  });
+
+  it("uses generic content for other displayed OMP custom messages", async () => {
+    const running = await started();
+    frame("omp-test", {
+      type: "message_start",
+      message: {
+        role: "custom",
+        customType: "extension-notice",
+        display: true,
+        content: [
+          { type: "text", text: "Extension changed the plan." },
+          { type: "image", data: "ignored", mimeType: "image/png" },
+          { type: "text", text: "Review it." },
+        ],
+      },
+    });
+
+    expect(events).toContainEqual({
+      type: "interjection",
+      text: "Extension changed the plan.\nReview it.",
+      customType: "extension-notice",
+    });
+    frame("omp-test", { type: "agent_end" });
+    await running.turn;
+  });
+
+  it("does not reinterpret Pi custom messages as OMP interjections", async () => {
+    const turn = sendPiTurn({
+      ...input("pi-test", "hello"),
+      model: "pi:default",
+    });
+    await vi.waitFor(() =>
+      expect(transport.requests.some((r) => r.command.type === "prompt")).toBe(
+        true,
+      ),
+    );
+    frame("pi-test", {
+      type: "message_start",
+      message: {
+        role: "custom",
+        customType: "advisor",
+        display: true,
+        content: "Pi-owned custom frame",
+      },
+    });
+    expect(events.some((event) => event.type === "interjection")).toBe(false);
+    frame("pi-test", { type: "agent_end" });
+    await turn;
   });
 });
 

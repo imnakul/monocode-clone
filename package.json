@@ -1,7 +1,7 @@
 {
   "name": "monocode-desktop",
   "private": true,
-  "version": "0.1.44-local8-lazy-terminal",
+  "version": "0.1.51-local1-upstream-import",
   "type": "module",
   "scripts": {
     "dev": "vite",

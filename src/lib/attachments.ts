@@ -129,6 +129,7 @@ export function persistableAttachment(file: Attachment): Attachment {
 export function displayAttachments(files: Attachment[]): Attachment[] {
   return files.map((file) => ({
     ...persistableAttachment(file),
+    ...(file.path ? { copyFromPath: true } : {}),
     ...(file.previewUrl ? { previewUrl: file.previewUrl } : {}),
     ...(file.data ? { data: file.data } : {}),
   }));
@@ -443,7 +444,7 @@ async function attachmentFromBlob(file: File): Promise<Attachment | null> {
       ...(path ? { path } : {}),
     };
   }
-  if (!data) {
+  if (data === null) {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     return null;
   }
