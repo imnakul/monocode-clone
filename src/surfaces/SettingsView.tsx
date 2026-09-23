@@ -2392,7 +2392,10 @@ export function ProvidersPage(): ReactElement {
   );
   const [choice, setChoice] = useState(loadLastModelChoice);
   const [defaultModels, setDefaultModels] = useState(loadDefaultModels);
-  const [initialLoading, setInitialLoading] = useState(true);
+  const [initialStatus, setInitialStatus] = useState<
+    "checking" | "ready" | "error"
+  >("checking");
+  const initialLoading = initialStatus === "checking";
   const [claudeHooks, setClaudeHooks] = useState(loadClaudeHooks);
 
   useEffect(() => {
@@ -2408,8 +2411,13 @@ export function ProvidersPage(): ReactElement {
     void Promise.allSettled([
       probeHarnessAvailability({ exclude: ["antigravity"] }),
       refreshHarnessCatalogs(catalogIds),
-    ]).then(() => {
-      if (mounted) setInitialLoading(false);
+    ]).then((results) => {
+      if (!mounted) return;
+      setInitialStatus(
+        results.some((result) => result.status === "rejected")
+          ? "error"
+          : "ready",
+      );
     });
     return () => {
       mounted = false;
@@ -2446,9 +2454,9 @@ export function ProvidersPage(): ReactElement {
             role="status"
             aria-live="polite"
             className={
-              initialLoading
-                ? "flex shrink-0 items-center gap-2 pt-1 text-[12px] text-content/55"
-                : "sr-only"
+              initialStatus === "ready"
+                ? "sr-only"
+                : "flex shrink-0 items-center gap-2 pt-1 text-[12px] text-content/55"
             }
           >
             {initialLoading ? (
@@ -2456,6 +2464,8 @@ export function ProvidersPage(): ReactElement {
                 <TerminalSpinner />
                 Checking providers…
               </>
+            ) : initialStatus === "error" ? (
+              "Provider checks failed. Use Recheck to retry."
             ) : (
               "Provider checks complete."
             )}

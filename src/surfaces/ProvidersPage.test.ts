@@ -96,7 +96,7 @@ describe("Providers initial discovery", () => {
     await act(async () => root.render(createElement(ProvidersPage)));
 
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
-      "Provider checks complete.",
+      "Provider checks failed. Use Recheck to retry.",
     );
     expect(recheckButtons().every((button) => !button.disabled)).toBe(true);
   });
