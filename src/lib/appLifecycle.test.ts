@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { forgetHarnessSession, killAllChildren } from "./harness";
+import { killPty } from "./pty";
 import { newSession } from "./session";
-import { newTab } from "./layout";
+import { newTab, newTerminalFile, openTerminalTab } from "./layout";
+import { createProjectTerminal } from "./projectTerminal";
 import { closeBusyWindow, setQuitWorkspace } from "./appLifecycle";
 import {
   collectWorkspaceSnapshot,
@@ -37,6 +39,9 @@ vi.mock("./harness", () => ({
   isLiveHarness: vi.fn(),
   forgetHarnessSession: vi.fn().mockResolvedValue(undefined),
   killAllChildren: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("./pty", () => ({
+  killPty: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("project choices through lifecycle saves", () => {
@@ -250,5 +255,32 @@ describe("closing a busy window", () => {
     } finally {
       release();
     }
+  });
+});
+
+describe("quitting with terminals", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("stops managed dock, pane, and harness runtimes on normal quit", async () => {
+    const { reapWindowRuntime } = await import("./appLifecycle");
+    const dockFile = newTerminalFile("/alpha", "dock-term");
+    const paneFile = newTerminalFile("/alpha", "pane-term");
+    const dock = createProjectTerminal("/alpha", dockFile);
+    const tab = openTerminalTab(newTab("s1"), paneFile);
+    await reapWindowRuntime([], [tab], [dock]);
+    expect(vi.mocked(killPty)).toHaveBeenCalledWith(dockFile.id);
+    expect(vi.mocked(killPty)).toHaveBeenCalledWith(paneFile.id);
+    expect(killAllChildren).toHaveBeenCalled();
+  });
+
+  it("still stops terminals when only the window closes", async () => {
+    const { reapWindowRuntime } = await import("./appLifecycle");
+    const dockFile = newTerminalFile("/alpha", "dock-term");
+    const dock = createProjectTerminal("/alpha", dockFile);
+    await reapWindowRuntime([], [], [dock], false);
+    expect(vi.mocked(killPty)).toHaveBeenCalledWith(dockFile.id);
+    expect(killAllChildren).not.toHaveBeenCalled();
   });
 });

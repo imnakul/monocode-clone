@@ -45,6 +45,8 @@ let availability: HarnessAvailability = {
 let version = 0;
 let inflight: Promise<void> | null = null;
 let probedAt = 0;
+/** Harnesses with backend-authoritative evidence (a probe or catalog run). */
+const evidenced = new Set<HarnessId>();
 let antigravityProbeError: string | null = null;
 const listeners = new Set<() => void>();
 
@@ -76,8 +78,35 @@ export function hasProbedHarnessAvailability(): boolean {
   return probedAt > 0;
 }
 
+/**
+ * True once this harness has backend-authoritative evidence in this session
+ * (a completed probe, or catalog discovery that proved the runtime answers).
+ * Before that the UI must render "not checked yet" — never "not installed".
+ */
+export function hasHarnessEvidence(id: HarnessId): boolean {
+  return evidenced.has(id);
+}
+
 export function isHarnessAvailable(id: HarnessId): boolean {
   return availability[id];
+}
+
+/**
+ * Record availability evidence without running a probe. Used when catalog
+ * discovery already proved the runtime answers, so the expensive Antigravity
+ * ACP handshake and the shared-runtime acquisition never run side by side.
+ */
+export function noteHarnessEvidence(
+  id: HarnessId,
+  ok: boolean,
+  error?: string,
+): void {
+  availability = { ...availability, [id]: ok };
+  evidenced.add(id);
+  if (id === "antigravity") {
+    antigravityProbeError = ok ? null : (error ?? antigravityProbeError);
+  }
+  emit();
 }
 
 export function harnessUnavailableHint(id: HarnessId): string {
@@ -89,15 +118,41 @@ export function harnessUnavailableHint(id: HarnessId): string {
   return `${name} not found${how}. Install it, or restart MonoCode if it is already installed.`;
 }
 
+/** Test seam. */
+export function resetHarnessAvailability(): void {
+  availability = {
+    claude: false,
+    codex: false,
+    cursor: false,
+    grok: false,
+    opencode: false,
+    pi: false,
+    omp: false,
+    fx: false,
+    antigravity: false,
+    cline: false,
+  };
+  evidenced.clear();
+  antigravityProbeError = null;
+  probedAt = 0;
+  emit();
+}
+
 export function probeHarnessAvailability(
-  options?: { force?: boolean },
+  options?: { force?: boolean; exclude?: HarnessId[] },
 ): Promise<void> {
   if (inflight) return inflight;
   if (!options?.force && probedAt > 0 && Date.now() - probedAt < PROBE_TTL_MS) {
     return Promise.resolve();
   }
+  // Excluded harnesses keep their current status: the Antigravity ACP probe
+  // is a ~30 s PyInstaller handshake, so blanket probes (picker open,
+  // Providers page) skip it — catalog discovery on the shared runtime
+  // reports its evidence via noteHarnessEvidence instead.
+  const excluded = new Set(options?.exclude ?? []);
   inflight = Promise.all(
     HARNESSES.map(async (id) => {
+      if (excluded.has(id)) return null;
       if (!isLiveHarness(id)) return [id, false] as const;
       try {
         await probeHarnessBinary(id);
@@ -113,7 +168,12 @@ export function probeHarnessAvailability(
   )
     .then((entries) => {
       const next = { ...availability };
-      for (const [id, ok] of entries) next[id] = ok;
+      for (const entry of entries) {
+        if (!entry) continue;
+        const [id, ok] = entry;
+        next[id] = ok;
+        evidenced.add(id);
+      }
       availability = next;
       emit();
     })

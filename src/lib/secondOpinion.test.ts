@@ -122,6 +122,8 @@ describe("secondOpinionTargets", () => {
     "omp",
     "fx",
     "grok",
+    "antigravity",
+    "cline",
   ];
   const installed = (id: HarnessId) => id === "claude" || id === "codex";
   const visible = (id: HarnessId) => all.includes(id);
@@ -131,7 +133,7 @@ describe("secondOpinionTargets", () => {
       secondOpinionTargets("claude", {
         installed,
         visible,
-        probed: true,
+        probed: () => true,
       }),
     ).toEqual(["codex"]);
   });
@@ -141,7 +143,7 @@ describe("secondOpinionTargets", () => {
       secondOpinionTargets("claude", {
         installed: () => true,
         visible: (id) => id === "codex",
-        probed: true,
+        probed: () => true,
       }),
     ).toEqual(["codex"]);
   });
@@ -151,9 +153,19 @@ describe("secondOpinionTargets", () => {
       secondOpinionTargets("claude", {
         installed: () => false,
         visible: (id) => id === "codex" || id === "cursor",
-        probed: false,
+        probed: () => false,
       }),
     ).toEqual(["codex", "cursor"]);
+  });
+
+  it("keeps a provider with deferred probing while filtering probed misses", () => {
+    expect(
+      secondOpinionTargets("claude", {
+        installed: () => false,
+        visible,
+        probed: (id) => id !== "antigravity",
+      }),
+    ).toEqual(["antigravity"]);
   });
 
   it("can include the current provider for choosing another model", () => {
@@ -161,7 +173,7 @@ describe("secondOpinionTargets", () => {
       secondOpinionTargets("codex", {
         installed,
         visible,
-        probed: true,
+        probed: () => true,
         includeCurrent: true,
       }),
     ).toEqual(["codex", "claude"]);

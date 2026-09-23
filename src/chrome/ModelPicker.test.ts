@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../lib/harness/availability", () => ({
   getHarnessAvailabilitySnapshot: () => 0,
+  hasHarnessEvidence: () => true,
   hasProbedHarnessAvailability: () => true,
   isHarnessAvailable: () => true,
   probeHarnessAvailability: () => Promise.resolve(),

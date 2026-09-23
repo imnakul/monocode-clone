@@ -83,17 +83,21 @@ export function secondOpinionTargets(
   options: {
     installed: (id: HarnessId) => boolean;
     visible: (id: HarnessId) => boolean;
-    probed: boolean;
+    /** Per-harness evidence: unevidenced providers stay listed (not deemed missing). */
+    probed: (id: HarnessId) => boolean;
     includeCurrent?: boolean;
   },
 ): HarnessId[] {
   const others = HARNESSES.filter((id) => {
     if (id === from) return false;
     if (!options.visible(id)) return false;
-    if (!options.probed) return true;
+    if (!options.probed(id)) return true;
     return options.installed(id);
   });
-  if (options.includeCurrent && (!options.probed || options.installed(from))) {
+  if (
+    options.includeCurrent &&
+    (!options.probed(from) || options.installed(from))
+  ) {
     return [from, ...others];
   }
   return others;

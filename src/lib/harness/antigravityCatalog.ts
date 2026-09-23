@@ -2,6 +2,7 @@ import { homeDir } from "../fs";
 import { setHarnessModels } from "../models";
 import { antigravityConfigs, antigravityModels } from "./antigravityAcpProtocol";
 import { acquireAntigravityRuntime } from "./antigravityRuntimeHost";
+import { noteHarnessEvidence } from "./availability";
 
 export type AntigravityCatalogPhase = "idle" | "loading" | "ready" | "error";
 
@@ -64,6 +65,9 @@ async function discover(): Promise<void> {
     );
     const models = antigravityModels(antigravityConfigs(setup));
     if (models.length === 0) {
+      // The runtime answered, so the binary is present and healthy; only the
+      // model list is empty for this account.
+      noteHarnessEvidence("antigravity", true);
       setSnapshot({
         phase: "error",
         error:
@@ -72,13 +76,20 @@ async function discover(): Promise<void> {
       return;
     }
     setHarnessModels("antigravity", models);
+    noteHarnessEvidence("antigravity", true);
     setSnapshot({ phase: "ready" });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const signInRequired = /sign[- ]?in/i.test(message);
+    // Discovery on the shared runtime doubles as the health probe: success
+    // or a healthy-but-signed-out runtime marks the provider available, so a
+    // separate ACP handshake never runs alongside this acquisition. Only a
+    // failed launch marks it unavailable.
+    noteHarnessEvidence("antigravity", signInRequired, message);
     setSnapshot({
       phase: "error",
       error: message,
-      signInRequired: /sign[- ]?in/i.test(message),
+      signInRequired,
     });
     console.debug("[monocode] antigravity catalog", error);
   }

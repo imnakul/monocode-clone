@@ -7,7 +7,13 @@ const boundary = vi.hoisted(() => ({
   setupResult: undefined as unknown,
   /** When set, session/new responses are captured for manual release. */
   capturedReleases: null as Array<(value: unknown) => void> | null,
+  probeBinary: vi.fn(async (): Promise<{ path: string }> => ({ path: "/bin/agy" })),
 }));
+vi.mock("./child", () => ({
+  probeHarnessBinary: (...args: unknown[]): Promise<{ path: string }> =>
+    boundary.probeBinary(...args),
+}));
+vi.mock("./registry", () => ({ isLiveHarness: (): boolean => true }));
 vi.mock("../fs", () => ({ homeDir: async (): Promise<string> => "/home/test" }));
 vi.mock("../models", () => ({ setHarnessModels: boundary.setModels }));
 vi.mock("./antigravityRuntimeHost", () => ({
@@ -27,6 +33,7 @@ vi.mock("./antigravityRuntimeHost", () => ({
 }));
 
 const catalog = await import("./antigravityCatalog");
+const availability = await import("./availability");
 
 const modelSetup = {
   sessionId: "S1",
@@ -42,9 +49,11 @@ const modelSetup = {
 
 beforeEach((): void => {
   boundary.setModels.mockClear();
+  boundary.probeBinary.mockClear();
   boundary.requestError = undefined;
   boundary.setupResult = undefined;
   boundary.capturedReleases = null;
+  availability.resetHarnessAvailability();
 });
 
 afterEach(async (): Promise<void> => {
@@ -99,5 +108,30 @@ describe("Antigravity ACP catalog discovery", (): void => {
     for (const release of boundary.capturedReleases) release(boundary.setupResult);
     await Promise.all([first, second]);
     expect(catalog.getAntigravityCatalogSnapshot().phase).toBe("ready");
+  });
+});
+
+describe("catalog discovery as availability evidence", (): void => {
+  it("marks the runtime available without running the ACP handshake probe", async (): Promise<void> => {
+    boundary.setupResult = modelSetup;
+    await catalog.refreshAntigravityCatalog(true);
+    expect(availability.isHarnessAvailable("antigravity")).toBe(true);
+    expect(availability.hasHarnessEvidence("antigravity")).toBe(true);
+    expect(boundary.probeBinary).not.toHaveBeenCalled();
+  });
+
+  it("treats a healthy-but-signed-out runtime as available", async (): Promise<void> => {
+    boundary.requestError = new Error("Antigravity requires Google sign-in. Sign in with Google, then retry.");
+    await catalog.refreshAntigravityCatalog(true);
+    expect(availability.isHarnessAvailable("antigravity")).toBe(true);
+    expect(availability.hasHarnessEvidence("antigravity")).toBe(true);
+  });
+
+  it("marks the runtime unavailable when discovery cannot launch it", async (): Promise<void> => {
+    boundary.requestError = new Error("Antigravity exited before startup finished.");
+    await catalog.refreshAntigravityCatalog(true);
+    expect(availability.isHarnessAvailable("antigravity")).toBe(false);
+    expect(availability.hasHarnessEvidence("antigravity")).toBe(true);
+    expect(boundary.probeBinary).not.toHaveBeenCalled();
   });
 });

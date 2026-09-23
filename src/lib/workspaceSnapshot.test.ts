@@ -593,3 +593,91 @@ describe("hydrateWorkspaceSnapshot", () => {
     ).toBeUndefined();
   });
 });
+
+describe("legacy encoded drive-colon snapshot repair", () => {
+  const project = "E:/Developing/Knoarc/rigorup-active";
+
+  function snapshotWithDocks(docks: unknown[]) {
+    return {
+      tabs: [{ ...newTab("s1"), id: "t1" }],
+      sessions: [],
+      activeTabId: "t1",
+      projectCwd: project,
+      projectTerminals: docks,
+    };
+  }
+
+  it("repairs an encoded twin into one dock with both terminals", () => {
+    const first = newTerminalFile(project, "one");
+    const second = newTerminalFile(project, "two");
+    const parsed = parseWorkspaceSnapshot(
+      snapshotWithDocks([
+        { ...createProjectTerminal(project, first) },
+        {
+          ...createProjectTerminal(project, second),
+          projectPath: "e%3A/Developing/Knoarc/rigorup-active",
+        },
+      ]),
+    );
+    expect(parsed?.projectTerminals).toHaveLength(1);
+    expect(parsed?.projectTerminals[0]?.projectPath).toBe(project);
+    expect(
+      parsed?.projectTerminals[0]?.pane.files.map((file) => file.id).sort(),
+    ).toEqual([first.id, second.id].sort());
+  });
+
+  it("repairs encoded stub and file working directories", () => {
+    const parsed = parseWorkspaceSnapshot({
+      tabs: [{ ...newTab("s1"), id: "t1" }],
+      sessions: [
+        {
+          id: "s1",
+          cwd: "e%3A/Developing/Knoarc/rigorup-active",
+          harness: "cursor",
+          model: "",
+          modelSettings: {},
+          runtimeMode: "supervised",
+          title: "",
+        },
+      ],
+      activeTabId: "t1",
+      projectCwd: "e%3A/Developing/Knoarc/rigorup-active",
+      projectTerminals: [],
+    });
+    // Repair preserves the original drive-letter case; identity still matches
+    // because pathKey() compares case-insensitively on Windows paths.
+    expect(parsed?.projectCwd).toBe("e:/Developing/Knoarc/rigorup-active");
+    expect(parsed?.sessions[0]?.cwd).toBe("e:/Developing/Knoarc/rigorup-active");
+    expect(parsed?.projectTerminals).toEqual([]);
+  });
+
+  it("preserves a saved provider model, settings, and native session id without a live catalog", () => {
+    const stub = {
+      id: "agy-1",
+      cwd: "/home/me/app",
+      harness: "antigravity",
+      model: "agy-acp:v1:gemini-3-pro",
+      modelSettings: { effort: "high" },
+      runtimeMode: "supervised",
+      title: "Saved chat",
+      providerSessionId: "agy-acp:v1:native-1",
+    };
+    const workspace = hydrateWorkspaceSnapshot(
+      {
+        tabs: [{ ...newTab("agy-1"), id: "t1" }],
+        sessions: [stub],
+        activeTabId: "t1",
+        projectCwd: "/home/me/app",
+        projectTerminals: [],
+      },
+      new Map(),
+    );
+    const restored = workspace?.sessions.find(
+      (session) => session.id === "agy-1",
+    );
+    // Deferred catalog loading must never rewrite these against a fallback.
+    expect(restored?.model).toBe("agy-acp:v1:gemini-3-pro");
+    expect(restored?.modelSettings).toEqual({ effort: "high" });
+    expect(restored?.providerSessionId).toBe("agy-acp:v1:native-1");
+  });
+});

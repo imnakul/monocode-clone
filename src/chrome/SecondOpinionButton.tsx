@@ -16,7 +16,7 @@ import {
 } from "react";
 import {
   getHarnessAvailabilitySnapshot,
-  hasProbedHarnessAvailability,
+  hasHarnessEvidence,
   isHarnessAvailable,
   probeHarnessAvailability,
   subscribeHarnessAvailability,
@@ -141,17 +141,16 @@ export function SecondOpinionButton({
   const [activeRow, setActiveRow] = useState<HTMLButtonElement | null>(null);
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
 
-  const probed = hasProbedHarnessAvailability();
   const targets = useMemo(() => {
     void availabilityVersion;
     void visibilityVersion;
     return secondOpinionTargets(from, {
       installed: isHarnessAvailable,
       visible: isPickerProviderVisible,
-      probed,
+      probed: hasHarnessEvidence,
       includeCurrent,
     });
-  }, [from, includeCurrent, probed, availabilityVersion, visibilityVersion]);
+  }, [from, includeCurrent, availabilityVersion, visibilityVersion]);
 
   const activeHarness = targets[active];
   const models = useMemo(() => {
@@ -167,7 +166,7 @@ export function SecondOpinionButton({
 
   useEffect(() => {
     if (!open) return;
-    void probeHarnessAvailability();
+    void probeHarnessAvailability({ exclude: ["antigravity"] });
   }, [open]);
 
   useEffect(() => {
@@ -338,18 +337,18 @@ export function SecondOpinionButton({
                       modelsFor(harness).length > 0 ? "menu" : undefined
                     }
                     aria-expanded={highlighted && showSubmenu}
-                    disabled={!available && probed}
+                    disabled={!available && hasHarnessEvidence(harness)}
                     onMouseDown={(event) => event.preventDefault()}
                     onMouseEnter={() => {
                       setActive(index);
                       setInSubmenu(true);
                     }}
                     onClick={() => {
-                      if (!available && probed) return;
+                      if (!available && hasHarnessEvidence(harness)) return;
                       pickPreferred(harness);
                     }}
                     className={`flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] leading-none ${
-                      !available && probed
+                      !available && hasHarnessEvidence(harness)
                         ? "text-content/30"
                         : highlighted
                           ? "bg-content/10 text-content"

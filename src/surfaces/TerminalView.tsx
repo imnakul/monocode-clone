@@ -1,5 +1,10 @@
 import { Terminal } from "@xterm/xterm";
-import { useEffect, useRef } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   getPtyStatus,
   killPty,
@@ -12,6 +17,17 @@ import {
   subscribePty,
   writePty,
 } from "../lib/pty";
+import {
+  hasTerminalSpawned,
+  isTerminalStarted,
+  isTerminalWanted,
+  markTerminalExited,
+  requestTerminalStart,
+  retryTerminalStart,
+  startTerminal,
+  subscribeTerminalLifecycle,
+  terminalExitCode,
+} from "../lib/terminalLifecycle";
 import { isOscColorQuery, oscColorReply } from "../lib/terminalChrome";
 import {
   defaultTerminalTitle,
@@ -118,9 +134,56 @@ function oscColors() {
 }
 
 export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
+  const started = useSyncExternalStore(
+    subscribeTerminalLifecycle,
+    () => isTerminalStarted(id),
+    () => false,
+  );
+  if (!started) {
+    return <DormantTerminalView id={id} cwd={cwd} />;
+  }
+  return (
+    <LiveTerminalView
+      id={id}
+      cwd={cwd}
+      active={active}
+      onMetaChange={onMetaChange}
+    />
+  );
+}
+
+function DormantTerminalView({ id, cwd }: { id: string; cwd: string }) {
+  const title = defaultTerminalTitle(cwd);
+  return (
+    <div className="flex h-full w-full min-h-0 min-w-0 flex-col items-center justify-center gap-1.5 p-6 text-center">
+      <p className="text-[13px] font-medium text-content">{title}</p>
+      <p className="max-w-60 text-[12px] leading-relaxed text-content/50">
+        This terminal hasn&apos;t started yet. Nothing is running.
+      </p>
+      <button
+        type="button"
+        onClick={() => startTerminal(id)}
+        aria-label={`Start Terminal in ${title}`}
+        className="mt-1 rounded-md bg-content px-3 py-1.5 text-[12px] font-medium text-background-base hover:bg-content/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      >
+        Start Terminal
+      </button>
+    </div>
+  );
+}
+
+function LiveTerminalView({ id, cwd, active, onMetaChange }: Props) {
   const outerRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
+  const cwdRef = useRef(cwd);
+  cwdRef.current = cwd;
+  const restartRef = useRef<() => void>(() => {});
+  const [exitCode, setExitCode] = useState<number | null | undefined>(() =>
+    terminalExitCode(id),
+  );
+  const exited = exitCode !== undefined;
+  const [spawnError, setSpawnError] = useState<string | null>(null);
   const spawned = useRef(false);
   /**
    * Permanent failure: on Windows there is no PTY runtime, so every spawn
@@ -136,6 +199,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
   const runningProcessRef = useRef<string | null>(null);
   /** Absolute offset of the last byte written into this terminal view. */
   const syncedRef = useRef(0);
+  const currentAttemptRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     const outer = outerRef.current;
@@ -217,28 +281,70 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       (code) => {
         if (closed) return;
         const status = code == null ? "" : ` (${code})`;
+        setExitCode(code);
+        markTerminalExited(id, code);
         term.writeln(`\r\n[process exited${status}]`);
       },
     );
 
-    const starting = spawnPty(id, cwd, term.cols, term.rows)
+    // Deferred first spawn: restored terminals mount dormant and never reach
+    // here until the user starts them. Concurrent mounts (Strict Mode
+    // setup/cleanup/setup, repeated Start) share one spawn promise; a
+    // remount after a successful spawn only reattaches and resyncs output.
+    const alreadyLive = hasTerminalSpawned(id);
+    const starting = requestTerminalStart(id, () =>
+      spawnPty(id, cwd, term.cols, term.rows),
+    );
+    currentAttemptRef.current = starting;
+    if (alreadyLive) spawned.current = true;
+    starting
       .then(() => {
-        if (!closed) spawned.current = true;
+        if (closed) return;
+        spawned.current = true;
+        setSpawnError(null);
       })
       .catch((error) => {
         spawned.current = false;
         if (!closed) {
           const message =
             error instanceof Error ? error.message : String(error);
+          setSpawnError(message);
           term.writeln(`\x1b[31m${message}\x1b[0m`);
         }
-        throw error;
       });
     void starting.catch(() => undefined);
 
+    restartRef.current = () => {
+      if (closed || dead.current) return;
+      setExitCode(undefined);
+      setSpawnError(null);
+      term.clear();
+      syncedRef.current = 0;
+      spawned.current = false;
+      const next = retryTerminalStart(id, () =>
+        spawnPty(id, cwdRef.current, term.cols, term.rows),
+      );
+      currentAttemptRef.current = next;
+      void next
+        .then(() => {
+          if (closed) return;
+          spawned.current = true;
+        })
+        .catch((error) => {
+          spawned.current = false;
+          if (!closed) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            setSpawnError(message);
+            term.writeln(`\x1b[31m${message}\x1b[0m`);
+          }
+        });
+      void next.catch(() => undefined);
+    };
+
     const dataSub = term.onData((data) => {
       if (dead.current) return;
-      void starting
+      void currentAttemptRef.current
         .then(() => (closed || dead.current ? undefined : writePty(id, data)))
         .catch(() => undefined);
     });
@@ -275,7 +381,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
     const replyOsc = (code: 10 | 11 | 12, hex: string) => {
       const reply = oscColorReply(code, hex);
       if (reply) {
-        void starting
+        void currentAttemptRef.current
           .then(() => (closed ? undefined : writePty(id, reply)))
           .catch(() => undefined);
       }
@@ -328,7 +434,7 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       if (cols === lastCols && rows === lastRows) return;
       lastCols = cols;
       lastRows = rows;
-      void starting
+      void currentAttemptRef.current
         .then(() => (closed || dead.current ? undefined : resizePty(id, cols, rows)))
         .catch(() => {
           lastCols = 0;
@@ -383,7 +489,15 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
       renderSub.dispose();
       bufferSub.dispose();
       unsubscribe();
-      void starting.catch(() => undefined).then(() => killPty(id));
+      restartRef.current = () => {};
+      // Hiding, switching tabs/projects, or blur never unmounts a started
+      // terminal, so this runs on real close (or a Strict Mode remount that
+      // still wants the session). Only kill when nobody wants the id: that
+      // keeps a shared pending spawn alive across remounts while still
+      // cleaning up a child whose close landed mid-spawn.
+      void currentAttemptRef.current.catch(() => undefined).then(() => {
+        if (!isTerminalWanted(id)) void killPty(id);
+      });
       term.dispose();
       termRef.current = null;
       spawned.current = false;
@@ -438,12 +552,31 @@ export function TerminalView({ id, cwd, active, onMetaChange }: Props) {
     termRef.current?.focus();
   }, [active]);
 
+  const statusMessage = exited
+    ? `Process exited${exitCode == null ? "" : ` (${exitCode})`}.`
+    : spawnError;
   return (
     <div
       ref={outerRef}
       className="monocode-terminal flex h-full w-full min-h-0 min-w-0 flex-col"
       onMouseDown={() => termRef.current?.focus()}
     >
+      {statusMessage ? (
+        <div
+          role="status"
+          className="flex shrink-0 items-center gap-2 border-b border-content/10 bg-content/5 px-3 py-1.5 text-[12px] text-content/70"
+        >
+          <span className="min-w-0 flex-1 truncate">{statusMessage}</span>
+          <button
+            type="button"
+            onClick={() => restartRef.current()}
+            aria-label={exited ? "Restart terminal" : "Retry starting terminal"}
+            className="shrink-0 rounded-md bg-content px-2 py-0.5 text-[11px] font-medium text-background-base hover:bg-content/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            {exited ? "Restart" : "Retry"}
+          </button>
+        </div>
+      ) : null}
       <div
         ref={hostRef}
         className="monocode-terminal-host min-h-0 min-w-0 flex-1 overflow-hidden"

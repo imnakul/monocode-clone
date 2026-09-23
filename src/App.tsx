@@ -127,6 +127,8 @@ import {
   confirmCloseTerminal,
   confirmCloseTerminals,
 } from "./lib/terminalClose";
+import { forgetTerminal, startTerminal } from "./lib/terminalLifecycle";
+import { killPty } from "./lib/pty";
 import {
   listRunningTerminals,
   terminalTabLabel,
@@ -144,8 +146,6 @@ import {
   forgetHarnessSession,
   generateHarnessTitle,
   isLiveHarness,
-  probeHarnessAvailability,
-  refreshHarnessCatalogs,
   registerBuiltinHarnesses,
   respondHarnessApproval,
   respondHarnessQuestion,
@@ -153,6 +153,11 @@ import {
   sendHarnessTurn,
   steerHarnessTurn,
   startHarnessBridge,
+  // NOTE: probeHarnessAvailability / refreshHarnessCatalogs are intentionally
+  // NOT called during boot (see the removed cold-start effect below). Live
+  // provider discovery starts only on explicit provider interaction (model
+  // picker, provider row visit, manual Recheck) or when an operation needs
+  // the runtime.
   stopHarnessSession,
   stopStreaming,
   pickTextHarness,
@@ -193,7 +198,6 @@ import { notifyDirsChanged } from "./lib/fileTree";
 import { nudgeWatchedFiles } from "./lib/fileWatch";
 import { type EditorNavigationTarget, type OpenFileFn } from "./lib/search";
 import {
-  mergeModelSettings,
   preferredModelSettings,
   resolveModel,
   saveLastModelSettings,
@@ -989,33 +993,13 @@ export default function App({
     };
   }, [resumed, readProjectReturnMemory]);
 
-  useEffect(() => {
-    void probeHarnessAvailability();
-    // Only the harnesses already in this window. Probing every installed CLI
-    // at boot left unused agents (especially Pi) running in the background.
-    const harnesses = [
-      ...new Set(sessionsRef.current.map((session) => session.harness)),
-    ];
-    void refreshHarnessCatalogs(harnesses).then(() => {
-      setSessions((prev) =>
-        prev.map((session) => {
-          if (!isLiveHarness(session.harness)) return session;
-          const resolved = resolveModel(session.harness, session.model);
-          const modelSettings = mergeModelSettings(
-            resolved,
-            session.modelSettings,
-          );
-          if (
-            resolved.id === session.model &&
-            sameSettings(modelSettings, session.modelSettings)
-          ) {
-            return session;
-          }
-          return { ...session, model: resolved.id, modelSettings };
-        }),
-      );
-    });
-  }, []);
+  // Cold boot deliberately starts ZERO provider processes and rewrites no
+  // saved model/settings. Live catalog discovery (and the expensive
+  // Antigravity ACP handshake) begins only on explicit provider interaction
+  // — opening the model picker or a provider row, manual Recheck, or
+  // executing a provider operation — so idle saved conversations never boot
+  // unused runtimes. Saved sessions keep their persisted model until a live
+  // catalog is actually available.
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
   const active =
@@ -1817,13 +1801,19 @@ export default function App({
       const workdir = cwd || projectCwdRef.current;
       const projectPath = projectCwdRef.current;
       if (!looksLikeProject(projectPath)) return false;
+      // A created terminal is an explicit start: only this new id starts.
+      const existing = findProjectTerminal(
+        projectTerminalsRef.current,
+        projectPath,
+      );
+      const file = newTerminalFile(
+        workdir,
+        existing ? nextDockTerminalTitle(existing, workdir) : undefined,
+      );
+      startTerminal(file.id);
       setProjectTerminals((prev) => {
-        const existing = findProjectTerminal(prev, projectPath);
-        const file = newTerminalFile(
-          workdir,
-          existing ? nextDockTerminalTitle(existing, workdir) : undefined,
-        );
-        if (!existing) {
+        const current = findProjectTerminal(prev, projectPath);
+        if (!current) {
           return [...prev, createProjectTerminal(projectPath, file)];
         }
         return mapProjectTerminal(prev, projectPath, (dock) =>
@@ -1843,6 +1833,7 @@ export default function App({
 
       if (asWorkspaceTab || !activeTab) {
         const file = newTerminalFile(workdir);
+        startTerminal(file.id);
         const tab = newTerminalWorkspaceTab(file);
         appendTab(tab, workdir);
         setActiveTabId(tab.id);
@@ -1868,6 +1859,7 @@ export default function App({
         workdir,
         nextTerminalTitle(activeTab, workdir),
       );
+      startTerminal(file.id);
       setTabs((prev) =>
         prev.map((tab) =>
           tab.id === activeTab.id
@@ -1894,6 +1886,8 @@ export default function App({
           ),
         );
       }
+      // Explicitly showing the panel starts only the visible (active) entry.
+      startTerminal(dock.pane.activeFileId);
       focusProjectTerminal();
       return;
     }
@@ -1927,8 +1921,10 @@ export default function App({
         withDockOpen(entry, nextOpen),
       ),
     );
-    if (nextOpen) focusProjectTerminal();
-    else setProjectTerminalFocused(false);
+    if (nextOpen) {
+      startTerminal(dock.pane.activeFileId);
+      focusProjectTerminal();
+    } else setProjectTerminalFocused(false);
   }, [active?.cwd, focusProjectTerminal, openProjectTerminal, projectCwd]);
 
   const onHideProjectTerminal = useCallback(() => {
@@ -1964,6 +1960,8 @@ export default function App({
 
   const onSelectProjectTerminal = useCallback(
     (fileId: string) => {
+      // Selecting a dormant tab is an explicit start for that tab only.
+      startTerminal(fileId);
       setProjectTerminals((prev) =>
         mapProjectTerminal(prev, projectCwdRef.current, (dock) =>
           selectDockTerminal(dock, fileId),
@@ -1990,6 +1988,8 @@ export default function App({
     const file = dock?.pane.files.find((entry) => entry.id === fileId);
     if (!file) return;
     const finishClose = () => {
+      forgetTerminal(fileId);
+      void killPty(fileId);
       setProjectTerminals((prev) =>
         mapProjectTerminal(prev, projectCwdRef.current, (entry) =>
           closeTerminalInDock(entry, fileId),
@@ -2008,6 +2008,10 @@ export default function App({
     const closingIds = new Set(closingFiles.map((file) => file.id));
 
     const finishClose = () => {
+      for (const id of closingIds) {
+        forgetTerminal(id);
+        void killPty(id);
+      }
       setProjectTerminals((prev) =>
         mapProjectTerminal(prev, projectPath, (entry) => {
           if (!entry.pane.files.some((file) => file.id === fileId)) {
@@ -2057,6 +2061,7 @@ export default function App({
             withDockOpen(selectDockTerminal(entry, fileId), true),
           ),
         );
+        startTerminal(fileId);
         focusProjectTerminal();
         return;
       }
@@ -2126,6 +2131,11 @@ export default function App({
       );
 
       const finishClose = () => {
+        for (const file of closingFiles) {
+          if (!file.terminal) continue;
+          forgetTerminal(file.id);
+          void killPty(file.id);
+        }
         const nextActiveTabId = closePlan.nextActiveTabId;
         const next = current.filter((t) => t.id !== id);
         const gone = new Set(
@@ -2185,6 +2195,10 @@ export default function App({
       const terminals = closingFiles.filter((file) => file.terminal);
 
       const finishClose = () => {
+        for (const terminal of terminals) {
+          forgetTerminal(terminal.id);
+          void killPty(terminal.id);
+        }
         const sessionIds = new Set(
           closing.flatMap((tab) =>
             leafIds(tab.layout).filter((paneId) =>
@@ -2250,6 +2264,10 @@ export default function App({
         isFilesystemTab(file) && dirtyFilesRef.current.has(fileId);
 
       const finishClose = () => {
+        if (file.terminal) {
+          forgetTerminal(fileId);
+          void killPty(fileId);
+        }
         const files = pane.files.filter((entry) => entry.id !== fileId);
         let nextFocus = tab.focusedId;
         let nextLayout = tab.layout;
@@ -2378,6 +2396,10 @@ export default function App({
     const terminals = closingFiles.filter((file) => file.terminal);
 
     const finishClose = () => {
+      for (const terminal of terminals) {
+        forgetTerminal(terminal.id);
+        void killPty(terminal.id);
+      }
       setTabs((prev) =>
         prev.map((entry) => {
           if (entry.id !== tab.id) return entry;
@@ -2447,6 +2469,11 @@ export default function App({
 
       const finishClear = () => {
         persistSession(oldSession);
+        for (const file of closingFiles) {
+          if (!file.terminal) continue;
+          forgetTerminal(file.id);
+          void killPty(file.id);
+        }
 
         const session = newSession(
           oldSession.harness,
@@ -3299,6 +3326,29 @@ export default function App({
               for (const file of closingFiles) next.delete(file.id);
               return next;
             });
+            // Session removal can close tabs or reset their terminal panes to
+            // empty (replacement conversation). Forget + kill every terminal
+            // id that disappears so no shell outlives its surface.
+            {
+              const before = new Set<string>();
+              for (const tab of tabsRef.current) {
+                for (const pane of tab.terminalPanes ?? []) {
+                  for (const file of pane.files) before.add(file.id);
+                }
+              }
+              const after = new Set<string>();
+              for (const tab of removal.tabs) {
+                for (const pane of tab.terminalPanes ?? []) {
+                  for (const file of pane.files) after.add(file.id);
+                }
+              }
+              for (const id of before) {
+                if (!after.has(id)) {
+                  forgetTerminal(id);
+                  void killPty(id);
+                }
+              }
+            }
             sessionsRef.current = removal.sessions;
             tabsRef.current = removal.tabs;
             setSessions(removal.sessions);
@@ -3770,6 +3820,23 @@ export default function App({
         }
         return updated;
       });
+      for (const tab of projectTabs) {
+        for (const pane of tab.terminalPanes ?? []) {
+          for (const file of pane.files) {
+            forgetTerminal(file.id);
+            void killPty(file.id);
+          }
+        }
+      }
+      // Updaters must stay pure (Strict Mode double-invokes them), so the
+      // kills happen here in the handler body, not inside setState.
+      for (const dock of projectTerminalsRef.current) {
+        if (!sameProjectPath(dock.projectPath, normalized)) continue;
+        for (const file of dock.pane.files) {
+          forgetTerminal(file.id);
+          void killPty(file.id);
+        }
+      }
       setProjectTerminals((prev) =>
         prev.filter((dock) => !sameProjectPath(dock.projectPath, normalized)),
       );
@@ -3920,6 +3987,15 @@ export default function App({
   );
 
   const onSelectFileSurface = useCallback((paneId: string, fileId: string) => {
+    // Selecting a dormant workspace terminal file is an explicit start for
+    // that file only. Focusing an editor file never starts a terminal.
+    const tab = tabsRef.current.find((entry) => findSurfacePane(entry, paneId));
+    const file = tab
+      ? findSurfacePane(tab, paneId)?.pane.files.find(
+          (entry) => entry.id === fileId,
+        )
+      : undefined;
+    if (file?.terminal) startTerminal(fileId);
     setTabs((prev) =>
       prev.map((tab) => {
         const found = findSurfacePane(tab, paneId);
@@ -6674,17 +6750,4 @@ function nudgeOpenEditors(event: HarnessEvent, cwd: string) {
     notifyGitChanged();
     nudgeWorkspace(cwd);
   }
-}
-
-function sameSettings(
-  a: Record<string, string> | undefined,
-  b: Record<string, string> | undefined,
-): boolean {
-  const left = a ?? {};
-  const right = b ?? {};
-  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
-  for (const key of keys) {
-    if (left[key] !== right[key]) return false;
-  }
-  return true;
 }

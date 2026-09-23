@@ -27,8 +27,8 @@ import {
   type ModelSetting,
 } from "../lib/models";
 import {
+  hasHarnessEvidence,
   harnessUnavailableHint,
-  hasProbedHarnessAvailability,
   isHarnessAvailable,
   probeHarnessAvailability,
   subscribeHarnessAvailability,
@@ -118,6 +118,14 @@ function settingValueLabel(
   );
 }
 
+// Honest status for rows the user can see but that have no evidence yet:
+// "Checking availability…" while deferred, the real hint once probed.
+function providerRowTitle(harness: HarnessId): string | undefined {
+  if (isHarnessAvailable(harness)) return undefined;
+  if (!hasHarnessEvidence(harness)) return "Checking availability…";
+  return harnessUnavailableHint(harness);
+}
+
 function recentMenuModels(current: AgentModel): AgentModel[] {
   const models = loadRecentModelChoices().flatMap((choice) => {
     const item = findModel(choice.model);
@@ -196,11 +204,15 @@ export function ModelPicker({
   const pickerHarnesses = useMemo(() => {
     void availabilityVersion;
     void visibilityVersion;
+    // Per-harness evidence (not the global probe flag): Antigravity is
+    // excluded from blanket probes, so it must stay listed until its own
+    // catalog discovery reports — never hidden as "not installed" merely
+    // because probing was deferred.
     return HARNESSES.filter((id) =>
       showProviderInModelPicker(
         id,
         isHarnessAvailable(id),
-        hasProbedHarnessAvailability(),
+        hasHarnessEvidence(id),
       ),
     );
   }, [availabilityVersion, visibilityVersion]);
@@ -273,7 +285,10 @@ export function ModelPicker({
 
   useEffect(() => {
     if (!open) return;
-    void probeHarnessAvailability();
+    // Blanket probes skip the Antigravity ACP handshake: opening this picker
+    // is explicit discovery, and the catalog run below reports Antigravity
+    // evidence from the shared runtime instead of launching both at once.
+    void probeHarnessAvailability({ exclude: ["antigravity"] });
     void refreshHarnessCatalogs([current.harness]);
     setTab(
       coerceModelPickerTab(current.harness, (id) =>
@@ -759,7 +774,7 @@ export function ModelPicker({
                 aria-checked={selected}
                 disabled={disabled}
                 title={
-                  disabled ? harnessUnavailableHint(item.harness) : undefined
+                  disabled ? providerRowTitle(item.harness) : undefined
                 }
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setRecentActive(index)}
@@ -936,7 +951,7 @@ function ModelFlyout({
               {tab === "favorites" && !query.trim()
                 ? "No favorite models"
                 : tab !== "favorites" && !isHarnessAvailable(tab)
-                  ? harnessUnavailableHint(tab)
+                  ? (providerRowTitle(tab) ?? "No matching models")
                   : tab === "codex" && !query.trim()
                     ? "Loading Codex models…"
                     : "No matching models"}
@@ -967,7 +982,7 @@ function ModelFlyout({
                     disabled={disabled}
                     title={
                       disabled
-                        ? harnessUnavailableHint(item.harness)
+                        ? providerRowTitle(item.harness)
                         : undefined
                     }
                     onMouseDown={(event) => event.preventDefault()}

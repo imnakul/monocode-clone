@@ -155,6 +155,7 @@ import {
 } from "../lib/uiScale";
 import {
   getHarnessAvailabilitySnapshot,
+  hasHarnessEvidence,
   harnessUnavailableHint,
   isHarnessAvailable,
   probeHarnessAvailability,
@@ -383,10 +384,12 @@ export function SettingsView({
         className="min-h-0 flex-1 overflow-y-auto overscroll-none"
       >
         <div className="mx-auto w-full max-w-5xl px-8 py-8">
-          <PageHeader
-            title={settingsSectionLabel(section)}
-            description={settingsSectionDescription(section)}
-          />
+          {section !== "providers" ? (
+            <PageHeader
+              title={settingsSectionLabel(section)}
+              description={settingsSectionDescription(section)}
+            />
+          ) : null}
           {section === "general" ? (
             <GeneralPage onOpenWhatsNew={onOpenWhatsNew} />
           ) : null}
@@ -1901,7 +1904,8 @@ function KeybindingsPage() {
   );
 }
 
-function ProvidersPage() {
+/** Settings page that owns the initial provider discovery lifecycle. */
+export function ProvidersPage(): ReactElement {
   useSyncExternalStore(subscribeModels, getModelSnapshot, getModelSnapshot);
   useSyncExternalStore(
     subscribeHarnessAvailability,
@@ -1910,9 +1914,27 @@ function ProvidersPage() {
   );
   const [choice, setChoice] = useState(loadLastModelChoice);
   const [defaultModels, setDefaultModels] = useState(loadDefaultModels);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   useEffect(() => {
-    void probeHarnessAvailability();
+    let mounted = true;
+    // All rows mount together, so track both concurrent discovery paths as
+    // one page-level task. The blanket probe skips Antigravity's expensive
+    // handshake; its catalog supplies availability evidence instead.
+    const catalogIds = HARNESSES.filter(
+      (id) =>
+        !hasLiveCatalog(id) &&
+        (isHarnessAvailable(id) || !hasHarnessEvidence(id)),
+    );
+    void Promise.allSettled([
+      probeHarnessAvailability({ exclude: ["antigravity"] }),
+      refreshHarnessCatalogs(catalogIds),
+    ]).then(() => {
+      if (mounted) setInitialLoading(false);
+    });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const onModelChange = (harness: HarnessId, model: string) => {
@@ -1932,6 +1954,30 @@ function ProvidersPage() {
 
   return (
     <>
+      <PageHeader
+        title={settingsSectionLabel("providers")}
+        description={settingsSectionDescription("providers")}
+        action={
+          <div
+            role="status"
+            aria-live="polite"
+            className={
+              initialLoading
+                ? "flex shrink-0 items-center gap-2 pt-1 text-[12px] text-content/55"
+                : "sr-only"
+            }
+          >
+            {initialLoading ? (
+              <>
+                <TerminalSpinner />
+                Checking providers…
+              </>
+            ) : (
+              "Provider checks complete."
+            )}
+          </div>
+        }
+      />
       <p className="pb-2 text-[12px] leading-relaxed text-content/45">
         A provider is listed as installed once its CLI is found on your PATH.
         Uninstalled CLIs stay listed here but are omitted from the model picker.
@@ -1950,6 +1996,7 @@ function ProvidersPage() {
               : defaultModelId(harness))
           }
           isDefault={choice?.harness === harness}
+          initialLoading={initialLoading}
           onDefault={onDefault}
           onModelChange={onModelChange}
         />
@@ -1962,15 +2009,17 @@ function ProviderRow({
   harness,
   selectedModel,
   isDefault,
+  initialLoading,
   onDefault,
   onModelChange,
 }: {
   harness: HarnessId;
   selectedModel: string;
   isDefault: boolean;
+  initialLoading: boolean;
   onDefault: (harness: HarnessId, model: string) => void;
   onModelChange: (harness: HarnessId, model: string) => void;
-}) {
+}): ReactElement {
   const models = modelsFor(harness);
   const available = isHarnessAvailable(harness);
   const catalog = useAntigravityCatalogSnapshot();
@@ -1983,15 +2032,20 @@ function ProviderRow({
     getCustomBinary(harness),
   );
   const [rechecking, setRechecking] = useState(false);
+  const initialDiscoveryFinished = useRef(false);
 
-  // Refresh the live catalog on visit: the built-in fallback list (e.g. a
-  // single "Default" entry) must not suppress discovery. One-shot per
-  // harness — refreshHarnessCatalogs dedupes inflight work and skips
-  // harnesses that already have a live overlay.
+  // The page owns the first visit. Later availability/model changes still
+  // refresh this row when a live catalog is missing.
   useEffect(() => {
-    if (!available || hasLiveCatalog(harness)) return;
+    if (initialLoading) return;
+    if (!initialDiscoveryFinished.current) {
+      initialDiscoveryFinished.current = true;
+      return;
+    }
+    if (hasLiveCatalog(harness)) return;
+    if (!available && hasHarnessEvidence(harness)) return;
     void refreshHarnessCatalogs([harness]);
-  }, [available, harness, models.length]);
+  }, [initialLoading, available, harness, models.length]);
 
   const onPickerVisible = (visible: boolean) => {
     savePickerProviderVisible(harness, visible);
@@ -2021,7 +2075,7 @@ function ProviderRow({
   // must rerun real ACP discovery even when a previous catalog succeeded —
   // a stale "ready" would hide sign-in and runtime errors.
   const handleRecheck = async () => {
-    if (rechecking) return;
+    if (initialLoading || rechecking) return;
     setRechecking(true);
     try {
       await probeHarnessAvailability({ force: true });
@@ -2079,7 +2133,9 @@ function ProviderRow({
             "Antigravity setup needs attention — see the note above."
           : available
             ? `${models.length} ${models.length === 1 ? "model" : "models"} available.`
-            : harnessUnavailableHint(harness)
+            : !hasHarnessEvidence(harness)
+              ? "Not checked yet — checking now, or click Recheck."
+              : harnessUnavailableHint(harness)
       }
     >
       <SecondaryButton
@@ -2090,7 +2146,7 @@ function ProviderRow({
       </SecondaryButton>
       <SecondaryButton
         onClick={() => void handleRecheck()}
-        disabled={rechecking}
+        disabled={initialLoading || rechecking}
         title={`Re-probe ${HARNESS_TITLE[harness]} and refresh its model list`}
       >
         {rechecking ? (
@@ -2394,20 +2450,25 @@ function formatDate(value: number): string {
 function PageHeader({
   title,
   description,
+  action,
 }: {
   title: string;
   description: string;
-}) {
+  action?: ReactNode;
+}): ReactElement {
   return (
-    <header className="pb-4">
-      <h1 className="text-[20px] font-semibold leading-tight text-content">
-        {title}
-      </h1>
-      {description ? (
-        <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-content/45">
-          {description}
-        </p>
-      ) : null}
+    <header className="flex flex-col gap-2 pb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+      <div className="min-w-0">
+        <h1 className="text-[20px] font-semibold leading-tight text-content">
+          {title}
+        </h1>
+        {description ? (
+          <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-content/45">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      {action}
     </header>
   );
 }

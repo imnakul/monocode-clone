@@ -21,6 +21,7 @@ import {
 } from "./projectTerminal";
 import { normalizeProjectPath } from "./recents";
 import { pathKey } from "./paths";
+import { repairLegacyEncodedDriveColon } from "./legacyProjectPath";
 import { reconcileProjectReturn, type ProjectReturnMemory } from "./projectReturn";
 import type { InboxAskContext } from "./inboxAsk";
 import {
@@ -107,7 +108,10 @@ function parseProjectReturnTargets(raw: unknown): ProjectReturnMemory {
       (entry as { tabId?: unknown }).tabId;
     if (typeof remembered !== "string" || !remembered.trim()) continue;
 
-    memory.set(pathKey(projectPath), remembered.trim());
+    memory.set(
+      pathKey(repairLegacyEncodedDriveColon(projectPath)),
+      remembered.trim(),
+    );
   }
   return memory;
 }
@@ -161,12 +165,14 @@ export function parseWorkspaceSnapshot(raw: unknown): WorkspaceSnapshot | null {
     : tabs[0].id;
   const projectCwd =
     typeof value.projectCwd === "string" && value.projectCwd.trim()
-      ? value.projectCwd.trim()
+      ? repairLegacyEncodedDriveColon(value.projectCwd.trim())
       : "~";
   const projectTerminals = Array.isArray(value.projectTerminals)
-    ? value.projectTerminals
-        .map(sanitizeProjectTerminal)
-        .filter((dock): dock is ProjectTerminalDock => dock != null)
+    ? mergeProjectTerminalDocks(
+        value.projectTerminals
+          .map(sanitizeProjectTerminal)
+          .filter((dock): dock is ProjectTerminalDock => dock != null),
+      )
     : [];
   const snapshot = withoutInboxSessions({ tabs, sessions, activeTabId, projectCwd, projectTerminals });
   return snapshot.tabs.length > 0
@@ -298,6 +304,11 @@ function sessionFromStub(stub: WorkspaceSessionStub): Session {
   return {
     ...session,
     id: stub.id,
+    // Never normalize against the fallback catalog here: live catalogs load
+    // lazily after boot, and resolving now would replace a valid persisted
+    // model (e.g. an Antigravity native id) with a fallback default.
+    model: stub.model,
+    modelSettings: { ...stub.modelSettings },
     title: stub.title,
     ...(stub.inboxAsk ? { inboxAsk: stub.inboxAsk } : {}),
     ...(stub.providerSessionId
@@ -328,7 +339,9 @@ function sanitizeStub(raw: unknown): WorkspaceSessionStub | null {
   return {
     id: value.id,
     cwd:
-      typeof value.cwd === "string" && value.cwd.trim() ? value.cwd.trim() : "~",
+      typeof value.cwd === "string" && value.cwd.trim()
+        ? repairLegacyEncodedDriveColon(value.cwd.trim())
+        : "~",
     harness,
     model: typeof value.model === "string" ? value.model : "",
     modelSettings,
@@ -525,7 +538,7 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
   return {
     id: value.id,
     path: value.path,
-    cwd: value.cwd,
+    cwd: repairLegacyEncodedDriveColon(value.cwd),
     ...(plan ? { plan } : {}),
     ...(releaseNotes ? { releaseNotes } : {}),
     ...(commit ? { commit } : {}),
@@ -601,6 +614,9 @@ function sanitizeProjectTerminal(raw: unknown): ProjectTerminalDock | null {
   if (typeof value.projectPath !== "string" || !value.projectPath.trim()) {
     return null;
   }
+  const projectPath = normalizeProjectPath(
+    repairLegacyEncodedDriveColon(value.projectPath.trim()),
+  );
   if (!isDockSide(value.side)) return null;
   const pane = sanitizePane(value.pane);
   if (!pane) return null;
@@ -610,12 +626,52 @@ function sanitizeProjectTerminal(raw: unknown): ProjectTerminalDock | null {
     ? pane.activeFileId
     : files[0].id;
   return {
-    projectPath: normalizeProjectPath(value.projectPath),
+    projectPath,
     pane: { ...pane, files, activeFileId },
     side: value.side,
     size: clampDockSize(value.side, Number(value.size)),
     open: value.open !== false,
   };
+}
+
+/**
+ * Legacy snapshots can hold two dock records for one project (a repaired
+ * `e%3A/...` entry beside its `E:/...` twin). Merge by identity so one
+ * project owns one dock; terminal entries union by id, first dock's
+ * side/size wins, open wins if either record is open.
+ */
+export function mergeProjectTerminalDocks(
+  docks: ProjectTerminalDock[],
+): ProjectTerminalDock[] {
+  const byKey = new Map<string, ProjectTerminalDock>();
+  const merged: ProjectTerminalDock[] = [];
+  for (const dock of docks) {
+    const key = pathKey(dock.projectPath);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, dock);
+      merged.push(dock);
+      continue;
+    }
+    const seen = new Set(existing.pane.files.map((file) => file.id));
+    const files = [
+      ...existing.pane.files,
+      ...dock.pane.files.filter((file) => !seen.has(file.id)),
+    ];
+    const activeFileId = files.some(
+      (file) => file.id === existing.pane.activeFileId,
+    )
+      ? existing.pane.activeFileId
+      : files[0].id;
+    const next: ProjectTerminalDock = {
+      ...existing,
+      pane: { ...existing.pane, files, activeFileId },
+      open: existing.open || dock.open,
+    };
+    byKey.set(key, next);
+    merged[merged.indexOf(existing)] = next;
+  }
+  return merged;
 }
 
 function sanitizePlan(raw: unknown): PlanTabSource | undefined {
