@@ -5108,6 +5108,26 @@ pub async fn move_path(from: String, dest_parent: String) -> Result<String, Stri
         .map_err(|e| e.to_string())?
 }
 
+/// `explorer /select,` argument; Explorer wants native separators.
+#[cfg(target_os = "windows")]
+fn reveal_arg(path_str: &str) -> String {
+    format!("/select,{}", path_str.replace('/', "\\"))
+}
+
+/// Explorer's exit code after `/select` is not a reliable result — it opens
+/// the right location yet can still exit nonzero. Success means "dispatched":
+/// only a spawn failure is an error. Extracted so tests can prove the contract
+/// without opening a real Explorer window on every `cargo test` run.
+#[cfg(target_os = "windows")]
+fn spawn_reveal(mut cmd: Command) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn reveal_path(path: String) -> Result<(), String> {
     let path = expand_home(&path);
@@ -5133,16 +5153,9 @@ pub fn reveal_path(path: String) -> Result<(), String> {
         // result: it opens the right location yet still exits nonzero, which
         // surfaced as a false "Could not reveal" error. Success here means
         // Explorer was dispatched; only a spawn failure is an error.
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let path_str = path.to_string_lossy().replace('/', "\\");
-        Command::new("explorer")
-            .arg(format!("/select,{path_str}"))
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        let mut cmd = Command::new("explorer");
+        cmd.arg(reveal_arg(&path.to_string_lossy()));
+        spawn_reveal(cmd)
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -7446,18 +7459,26 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn reveal_path_dispatches_existing_file_without_false_error() {
-        let dir = tmp("reveal-file");
-        let file = dir.0.join("notes.md");
-        std::fs::write(&file, "hi\n").unwrap();
-        reveal_path(file.to_string_lossy().into_owned()).expect("file reveals");
+    fn reveal_arg_selects_the_native_path() {
+        assert_eq!(reveal_arg("C:/repo/notes.md"), "/select,C:\\repo\\notes.md");
     }
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn reveal_path_dispatches_existing_directory_without_false_error() {
-        let dir = tmp("reveal-dir");
-        reveal_path(dir.0.to_string_lossy().into_owned()).expect("dir reveals");
+    fn reveal_dispatch_treats_a_spawned_child_as_success_whatever_its_exit_code() {
+        // `explorer /select` exits nonzero after a successful reveal, so the
+        // contract is "dispatched = Ok". Prove it on a harmless hidden child
+        // instead of opening a real Explorer window per test run.
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", "exit", "1"]);
+        spawn_reveal(cmd).expect("spawn success is the contract");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn reveal_dispatch_reports_spawn_failure() {
+        let cmd = Command::new("monocode-definitely-not-a-real-binary");
+        spawn_reveal(cmd).expect_err("spawn failure is the only error");
     }
 
     #[test]
