@@ -4,7 +4,7 @@ members = ["src-tauri"]
 exclude = ["vendor/portable-pty"]
 
 [workspace.package]
-version = "0.1.55-local2-upstream-import"
+version = "0.1.55-local3-rail-wallpaper"
 edition = "2021"
 license = "MIT"
 
