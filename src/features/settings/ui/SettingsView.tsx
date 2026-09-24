@@ -35,6 +35,12 @@ import {
   ColorSwatchRow,
 } from "../../../shared/ui/ColorPickerPopover";
 import { Popover } from "../../../shared/ui/Popover";
+import { UpdateToasts } from "./UpdateToasts";
+import {
+  checkCliUpdates,
+  type CliUpdateNotice,
+} from "../../../integrations/harness/core/cliVersions";
+import { JiraSettings } from "./JiraSettings";
 import { InboxProviderMark } from "../../inbox/ui/InboxProviderMark";
 import { RemoveProjectDialog } from "../../projects/ui/RemoveProjectDialog";
 import { WindowControls } from "../../../app/shell/WindowControls";
@@ -112,6 +118,7 @@ import {
   loadTerminalFontSize,
   loadUiFont,
   loadUiFontSize,
+  loadNewThreadBackgroundEffect,
   loadThemeDarkLightness,
   loadThemePreference,
   loadSidebarBlur,
@@ -136,6 +143,7 @@ import {
   saveTerminalFontSize,
   saveUiFont,
   saveUiFontSize,
+  setNewThreadBackgroundEffect,
   saveThemeDarkLightness,
   saveThemePreference,
   saveSidebarBlur,
@@ -167,6 +175,11 @@ import {
   type ThemePreference,
   type ChatBackgroundScope,
   type UiFontId,
+  NEW_THREAD_BACKGROUND_EFFECTS,
+  NEW_THREAD_BACKGROUND_EFFECT_LABELS,
+  NEW_THREAD_BACKGROUND_EFFECT_DESCRIPTIONS,
+  NEW_THREAD_BACKGROUND_EFFECT_DEFAULT,
+  type NewThreadBackgroundEffect,
   type TranscriptLayout,
 } from "../model/appearance";
 import {
@@ -274,7 +287,10 @@ import {
   saveLinearToken,
   type LinearTeam,
 } from "../../inbox/model/linear";
-import { loadTabGroupLabels, resolveTabGroupLabel } from "../../workspace/model/tabGroups";
+import {
+  loadTabGroupLabels,
+  resolveTabGroupLabel,
+} from "../../workspace/model/tabGroups";
 import {
   filterKeybindings,
   KEYBINDINGS,
@@ -338,7 +354,10 @@ import {
 import { SkillsPage } from "../../skills/ui/SkillsPage";
 import { ProjectNotificationSettings } from "../../notifications/ui/ProjectNotificationSettings";
 import { WorktreesPage } from "../../source-control/ui/WorktreesPage";
-import { removeWorktree, type RemoveWorktree } from "../../source-control/model/worktrees";
+import {
+  removeWorktree,
+  type RemoveWorktree,
+} from "../../source-control/model/worktrees";
 import type { Session } from "../../sessions/model/session";
 import { getCustomBinary, setCustomBinary } from "../../../integrations/harness/core/customBinary";
 import { clearManagedWallpaper, persistWallpaper, pickFile, pickImage } from "../../../platform/tauri/fs";
@@ -1169,6 +1188,19 @@ function InboxPage({
       </Group>
 
       <Group
+        id="jira"
+        title={
+          <span className="flex items-center gap-2">
+            <InboxProviderMark provider="jira" className="size-4 shrink-0" />
+            Jira
+          </span>
+        }
+        description="Jira Cloud issues from the projects you pick."
+      >
+        <JiraSettings />
+      </Group>
+
+      <Group
         id="linear"
         title={
           <span className="flex items-center gap-2">
@@ -1792,6 +1824,8 @@ function useAppearanceSettings(
     useState(loadChatBackgroundSessionOpacity);
   const [chatBackgroundScope, setChatBackgroundScope] =
     useState<ChatBackgroundScope>(loadChatBackgroundScope);
+  const [newThreadBackgroundEffect, setBackgroundEffect] =
+    useState<NewThreadBackgroundEffect>(loadNewThreadBackgroundEffect);
   const [chatBackgroundBusy, setChatBackgroundBusy] = useState(false);
   const [chatBackgroundError, setChatBackgroundError] = useState<string | null>(
     null,
@@ -1982,6 +2016,14 @@ function useAppearanceSettings(
     setChatBackgroundScope(next);
   }, []);
 
+  const onNewThreadBackgroundEffect = useCallback(
+    (next: NewThreadBackgroundEffect) => {
+      setNewThreadBackgroundEffect(next);
+      setBackgroundEffect(next);
+    },
+    [],
+  );
+
   const onUiScale = useCallback((percent: number) => {
     const next = saveUiScale(percent / 100);
     setUiScale(next);
@@ -2023,6 +2065,7 @@ function useAppearanceSettings(
       Math.round(CHAT_BACKGROUND_SESSION_OPACITY_DEFAULT * 100),
     );
     onChatBackgroundScope(CHAT_BACKGROUND_SCOPE_DEFAULT);
+    onNewThreadBackgroundEffect(NEW_THREAD_BACKGROUND_EFFECT_DEFAULT);
     if (chatBackgroundPath) void onClearChatBackground();
     onUiScale(Math.round(UI_SCALE_DEFAULT * 100));
     onCollapsedProjectRailMode(COLLAPSED_PROJECT_RAIL_MODE_DEFAULT);
@@ -2033,6 +2076,7 @@ function useAppearanceSettings(
     onChatBackgroundEmptyOpacity,
     onChatBackgroundSessionOpacity,
     onChatBackgroundScope,
+    onNewThreadBackgroundEffect,
     onClearChatBackground,
     onAccentColor,
     onShowExcludedFiles,
@@ -2079,6 +2123,7 @@ function useAppearanceSettings(
     chatBackgroundEmptyOpacity,
     chatBackgroundSessionOpacity,
     chatBackgroundScope,
+    newThreadBackgroundEffect,
     chatBackgroundBusy,
     chatBackgroundError,
     uiScale,
@@ -2107,6 +2152,7 @@ function useAppearanceSettings(
     onChatBackgroundEmptyOpacity,
     onChatBackgroundSessionOpacity,
     onChatBackgroundScope,
+    onNewThreadBackgroundEffect,
     onUiScale,
     onCollapsedProjectRailMode,
     restoreDefaults,
@@ -2490,12 +2536,13 @@ function ChatBackgroundCard({
         <div className="overflow-hidden rounded-lg border border-content/10">
           {hasImage ? (
             <div className="relative h-36">
-              <img
-                src={src ?? undefined}
-                alt=""
-                draggable={false}
-                className="size-full object-cover"
-                style={{ opacity: appearance.chatBackgroundEmptyOpacity }}
+              <div
+                aria-hidden
+                className="size-full bg-cover bg-center bg-no-repeat"
+                style={{
+                  backgroundImage: "var(--chat-background-image)",
+                  opacity: appearance.chatBackgroundEmptyOpacity,
+                }}
               />
               <span className="pointer-events-none absolute bottom-2 left-2 text-[11px] text-content/40">
                 Empty chat preview at {emptyVisibility}%
@@ -2545,6 +2592,25 @@ function ChatBackgroundCard({
       </div>
       {hasImage ? (
         <>
+          <Row
+            label="Background effect"
+            description={
+              NEW_THREAD_BACKGROUND_EFFECT_DESCRIPTIONS[
+                appearance.newThreadBackgroundEffect
+              ]
+            }
+          >
+            <Segmented
+              label="Background effect"
+              value={appearance.newThreadBackgroundEffect}
+              options={NEW_THREAD_BACKGROUND_EFFECTS.map((effect) => ({
+                value: effect,
+                label: NEW_THREAD_BACKGROUND_EFFECT_LABELS[effect],
+              }))}
+              onChange={appearance.onNewThreadBackgroundEffect}
+              optionIdPrefix="new-thread-background-effect"
+            />
+          </Row>
           <Row
             label="Show on"
             description="Empty sessions only, or every conversation."
@@ -2663,6 +2729,23 @@ export function ProvidersPage(): ReactElement {
   >("checking");
   const initialLoading = initialStatus === "checking";
   const [claudeHooks, setClaudeHooks] = useState(loadClaudeHooks);
+  const [updateNotices, setUpdateNotices] = useState<CliUpdateNotice[]>([]);
+  const notifiedRef = useRef<Set<HarnessId>>(new Set());
+  const runUpdateCheck = useCallback(async () => {
+    const notices = await checkCliUpdates({
+      claude: getCustomBinary("claude") ?? "claude",
+      codex: getCustomBinary("codex") ?? "codex",
+      pi: getCustomBinary("pi") ?? "pi",
+      cline: getCustomBinary("cline") ?? "cline",
+    });
+    setUpdateNotices((current) => {
+      const fresh = notices.filter(
+        (entry) => !notifiedRef.current.has(entry.harness),
+      );
+      for (const entry of fresh) notifiedRef.current.add(entry.harness);
+      return fresh.length > 0 ? [...current, ...fresh] : current;
+    });
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -2684,6 +2767,7 @@ export function ProvidersPage(): ReactElement {
           ? "error"
           : "ready",
       );
+      void runUpdateCheck();
     });
     return () => {
       mounted = false;
@@ -2738,6 +2822,14 @@ export function ProvidersPage(): ReactElement {
           </div>
         }
       />
+      <UpdateToasts
+        notices={updateNotices}
+        onDismiss={(harness) =>
+          setUpdateNotices((current) =>
+            current.filter((entry) => entry.harness !== harness),
+          )
+        }
+      />
       <ProviderAccountsSettings />
 
       <Group
@@ -2758,6 +2850,7 @@ export function ProvidersPage(): ReactElement {
             initialLoading={initialLoading}
             onDefault={onDefault}
             onModelChange={onModelChange}
+            onCatalogRefreshed={runUpdateCheck}
           />
         ))}
       </Group>
@@ -3080,6 +3173,7 @@ function ProviderRow({
   initialLoading,
   onDefault,
   onModelChange,
+  onCatalogRefreshed,
 }: {
   harness: HarnessId;
   selectedModel: string;
@@ -3087,6 +3181,7 @@ function ProviderRow({
   initialLoading?: boolean;
   onDefault: (harness: HarnessId, model: string) => void;
   onModelChange: (harness: HarnessId, model: string) => void;
+  onCatalogRefreshed?: () => void;
 }): ReactElement {
   const models = modelsFor(harness);
   const available = isHarnessAvailable(harness);
@@ -3152,6 +3247,7 @@ function ProviderRow({
       } else {
         await refreshHarnessCatalogs([harness], { force: true });
       }
+      void onCatalogRefreshed?.();
     } finally {
       setRechecking(false);
     }
@@ -3655,6 +3751,7 @@ export function Segmented<T extends string>({
   onChange,
   className,
   hoverSlide,
+  optionIdPrefix,
 }: {
   label: string;
   value: T;
@@ -3664,6 +3761,7 @@ export function Segmented<T extends string>({
   className?: string;
   /** Sliding hover marker over the options (shared hover system). */
   hoverSlide?: boolean;
+  optionIdPrefix?: string;
 }) {
   return (
     <div
@@ -3677,6 +3775,11 @@ export function Segmented<T extends string>({
       {hoverSlide ? <SharedHoverHighlight /> : null}
       {options.map((option) => (
         <button
+          id={
+            optionIdPrefix
+              ? `${optionIdPrefix}-${option.value.toLowerCase()}`
+              : undefined
+          }
           key={option.value}
           type="button"
           role="radio"

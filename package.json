@@ -1,7 +1,7 @@
 {
   "name": "monocode-desktop",
   "private": true,
-  "version": "0.1.54-local2-upstream-import",
+  "version": "0.1.55-local2-upstream-import",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,15 +11,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run check:web && npm run check:rust",
-    "check:web": "tsc --noEmit && vitest run",
+    "check:web": "vitest run && tsc --noEmit",
     "check:rust": "cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test",
     "set-version": "node scripts/bump-version.mjs",
     "tauri": "tauri",
     "tauri:stable": "tauri dev --no-watch --config src-tauri/tauri.stable.conf.json",
     "setup:linux:deb": "bash scripts/install-linux-deps-debian.sh",
     "build:linux": "tauri build --bundles deb,appimage",
-    "build:windows": "set \"RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-msvc\" && tauri build --bundles nsis --no-sign && node scripts/archive-installer.mjs",
-    "archive:installer": "node scripts/archive-installer.mjs"
+    "build:windows": "set \"RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-msvc\" && tauri build --bundles nsis"
   },
   "dependencies": {
     "@codemirror/lang-cpp": "^6.0.3",
