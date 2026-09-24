@@ -1,10 +1,15 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { isHexColor } from "../../../shared/lib/colorUtils";
+import {
+  persistWallpaper,
+  retainManagedWallpaper,
+} from "../../../platform/tauri/fs";
 import { HAS_NATIVE_GLASS, IS_MAC, IS_WINDOWS } from "../../../platform/tauri/platform";
 import { applyUiScale, loadUiScale } from "./uiScale";
 import {
   applyPreparedNewThreadBackground,
   clearPreparedNewThreadBackground,
+  prepareNewThreadBackgroundEffect,
 } from "./newThreadBackgroundEffects";
 
 const ACCENT_COLOR_KEY = "monocode.accentColor";
@@ -31,6 +36,7 @@ const POPOVER_BLUR_KEY = "monocode.popoverBlur";
 const POPOVER_HIGHLIGHT_KEY = "monocode.popoverHighlight";
 const WALLPAPER_PATH_KEY = "monocode.wallpaperPath";
 const WALLPAPER_OPACITY_KEY = "monocode.wallpaperOpacity";
+const WALLPAPER_HALFTONE_KEY = "monocode.wallpaperHalftone";
 const WINDOW_GLASS_STRENGTH_KEY = "monocode.windowGlassStrength";
 const CHAT_BACKGROUND_PATH_KEY = "monocode.chatBackgroundPath";
 const CHAT_BACKGROUND_OPACITY_KEY = "monocode.chatBackgroundOpacity";
@@ -653,6 +659,14 @@ export function saveWallpaperPath(value: string) {
   writeText(WALLPAPER_PATH_KEY, value);
 }
 
+export function loadWallpaperHalftone(): boolean {
+  return readFlag(WALLPAPER_HALFTONE_KEY) ?? false;
+}
+
+export function saveWallpaperHalftone(value: boolean) {
+  writeFlag(WALLPAPER_HALFTONE_KEY, value);
+}
+
 export function loadWallpaperOpacity(): number {
   return Math.round(
     clamp(
@@ -681,7 +695,162 @@ export function applyWallpaperOpacity(value: number): number {
   return next;
 }
 
+let wallpaperSourceUrl: string | null = null;
+let wallpaperSourceKey: string | null = null;
 let wallpaperObjectUrl: string | null = null;
+let wallpaperRevision = 0;
+let wallpaperPathRevision = 0;
+let managedWallpaperChoicesInFlight = 0;
+let wallpaperHalftoneError: string | null = null;
+const wallpaperHalftoneErrorListeners = new Set<
+  (error: string | null) => void
+>();
+
+export type WallpaperApplyResult = {
+  success: boolean;
+  effectError?: string;
+  stale?: boolean;
+  failure?: "persistence" | "read" | "render";
+};
+
+export interface WallpaperChoiceOptions {
+  canCommit: () => boolean;
+  getHalftone: () => boolean;
+  commit: (managedPath: string) => boolean;
+  publishError?: boolean;
+  rejectEffectError?: boolean;
+}
+
+interface WallpaperPathCommitOptions {
+  canCommit: () => boolean;
+  commit?: () => boolean;
+  rejectEffectError?: boolean;
+  publishError?: boolean;
+  getHalftone?: () => boolean;
+}
+
+type WallpaperRenderOutput =
+  | { status: "stale" }
+  | {
+      status: "ready";
+      displayUrl: string;
+      effectUrl: string | null;
+      effectError?: string;
+    };
+
+export function subscribeWallpaperHalftoneError(
+  listener: (error: string | null) => void,
+): () => void {
+  wallpaperHalftoneErrorListeners.add(listener);
+  listener(wallpaperHalftoneError);
+  return () => wallpaperHalftoneErrorListeners.delete(listener);
+}
+
+function publishWallpaperHalftoneError(
+  result: WallpaperApplyResult,
+): void {
+  if (!result.success || result.stale) return;
+  wallpaperHalftoneError = result.effectError
+    ? "Halftone could not be applied."
+    : null;
+  for (const listener of wallpaperHalftoneErrorListeners) {
+    listener(wallpaperHalftoneError);
+  }
+}
+
+function setWallpaperImage(url: string) {
+  const root = document.documentElement;
+  root.style.setProperty(
+    "--app-wallpaper-image",
+    `url(${JSON.stringify(url)})`,
+  );
+  root.classList.add("has-app-wallpaper");
+}
+
+function releaseWallpaperUrls() {
+  if (wallpaperSourceUrl) URL.revokeObjectURL(wallpaperSourceUrl);
+  if (wallpaperObjectUrl) URL.revokeObjectURL(wallpaperObjectUrl);
+  wallpaperSourceUrl = null;
+  wallpaperSourceKey = null;
+  wallpaperObjectUrl = null;
+}
+
+async function renderWallpaper(
+  revision: number,
+  sourceUrl: string,
+  sourceKey: string,
+  halftone: boolean,
+): Promise<WallpaperRenderOutput> {
+  if (!halftone) {
+    return { status: "ready", displayUrl: sourceUrl, effectUrl: null };
+  }
+
+  try {
+    const blob = await prepareNewThreadBackgroundEffect(
+      sourceKey,
+      sourceUrl,
+      "halftone",
+      isLightScheme(),
+    );
+    if (revision !== wallpaperRevision) return { status: "stale" };
+    const nextUrl = URL.createObjectURL(blob);
+    return { status: "ready", displayUrl: nextUrl, effectUrl: nextUrl };
+  } catch (error) {
+    if (revision !== wallpaperRevision) return { status: "stale" };
+    return {
+      status: "ready",
+      displayUrl: sourceUrl,
+      effectUrl: null,
+      effectError:
+        error instanceof Error
+          ? error.message
+          : "Unable to render wallpaper Halftone.",
+    };
+  }
+}
+
+function revokeRenderedWallpaper(output: WallpaperRenderOutput): void {
+  if (output.status === "ready" && output.effectUrl) {
+    URL.revokeObjectURL(output.effectUrl);
+  }
+}
+
+function commitWallpaperSource(
+  sourceUrl: string,
+  sourceKey: string,
+  output: Extract<WallpaperRenderOutput, { status: "ready" }>,
+): void {
+  const previousUrls = new Set(
+    [wallpaperSourceUrl, wallpaperObjectUrl].filter(
+      (url): url is string => url !== null,
+    ),
+  );
+  const nextUrls = new Set([sourceUrl, output.effectUrl].filter(Boolean));
+
+  setWallpaperImage(output.displayUrl);
+  wallpaperSourceUrl = sourceUrl;
+  wallpaperSourceKey = sourceKey;
+  wallpaperObjectUrl = output.effectUrl;
+  for (const url of previousUrls) {
+    if (!nextUrls.has(url)) URL.revokeObjectURL(url);
+  }
+}
+
+function commitWallpaperEffect(
+  sourceUrl: string,
+  output: Extract<WallpaperRenderOutput, { status: "ready" }>,
+): void {
+  const previousEffectUrl = wallpaperObjectUrl;
+  setWallpaperImage(output.displayUrl);
+  wallpaperObjectUrl = output.effectUrl;
+  if (
+    previousEffectUrl &&
+    previousEffectUrl !== sourceUrl &&
+    previousEffectUrl !== output.effectUrl
+  ) {
+    URL.revokeObjectURL(previousEffectUrl);
+  }
+}
 
 function wallpaperMime(path: string): string {
   const ext = path.toLowerCase().split(".").pop();
@@ -693,15 +862,34 @@ function wallpaperMime(path: string): string {
   return "image/png";
 }
 
-export async function applyWallpaperPath(path: string): Promise<boolean> {
+/**
+ * Loads the Windows wallpaper and applies the optional effect. A stale request
+ * reports `stale` so its caller can ignore the result without changing UI state.
+ */
+export async function applyWallpaperPath(
+  path: string,
+  halftone = loadWallpaperHalftone(),
+  commitOptions?: WallpaperPathCommitOptions,
+): Promise<WallpaperApplyResult> {
+  const isCandidate = commitOptions !== undefined;
+  const pathRevision = isCandidate
+    ? wallpaperPathRevision
+    : ++wallpaperPathRevision;
+  let revision = isCandidate ? wallpaperRevision : ++wallpaperRevision;
   const root = document.documentElement;
   if (!IS_WINDOWS || !path) {
+    wallpaperPathRevision += 1;
+    wallpaperRevision += 1;
     root.classList.remove("has-app-wallpaper");
     root.style.removeProperty("--app-wallpaper-image");
-    if (wallpaperObjectUrl) URL.revokeObjectURL(wallpaperObjectUrl);
-    wallpaperObjectUrl = null;
-    return !path;
+    releaseWallpaperUrls();
+    const result = { success: !path };
+    if (commitOptions?.publishError !== false) {
+      publishWallpaperHalftoneError(result);
+    }
+    return result;
   }
+  let sourceUrl: string | null = null;
   try {
     const data = await invoke<string>("read_wallpaper_base64", { path });
     const binary = atob(data);
@@ -709,34 +897,207 @@ export async function applyWallpaperPath(path: string): Promise<boolean> {
     for (let index = 0; index < binary.length; index += 1) {
       bytes[index] = binary.charCodeAt(index);
     }
-    const nextUrl = URL.createObjectURL(
+    sourceUrl = URL.createObjectURL(
       new Blob([bytes], { type: wallpaperMime(path) }),
     );
-    const previousUrl = wallpaperObjectUrl;
-    wallpaperObjectUrl = nextUrl;
-    root.style.setProperty("--app-wallpaper-image", `url("${nextUrl}")`);
-    root.classList.add("has-app-wallpaper");
-    if (previousUrl) URL.revokeObjectURL(previousUrl);
-    return true;
-  } catch {
-    return false;
+    if (
+      (!isCandidate && pathRevision !== wallpaperPathRevision) ||
+      (commitOptions && !commitOptions.canCommit())
+    ) {
+      URL.revokeObjectURL(sourceUrl);
+      return { success: true, stale: true };
+    }
+    const sourceKey = `${path}?v=${revision}`;
+    let effectiveHalftone = halftone;
+    while (true) {
+      const output = await renderWallpaper(
+        revision,
+        sourceUrl,
+        sourceKey,
+        effectiveHalftone,
+      );
+      if (output.status === "stale" || revision !== wallpaperRevision) {
+        revokeRenderedWallpaper(output);
+        if (
+          (!isCandidate && pathRevision !== wallpaperPathRevision) ||
+          (commitOptions && !commitOptions.canCommit())
+        ) {
+          URL.revokeObjectURL(sourceUrl);
+          return { success: true, stale: true };
+        }
+        revision = wallpaperRevision;
+        effectiveHalftone =
+          commitOptions?.getHalftone?.() ?? loadWallpaperHalftone();
+        continue;
+      }
+      if (output.effectError && commitOptions?.rejectEffectError) {
+        revokeRenderedWallpaper(output);
+        URL.revokeObjectURL(sourceUrl);
+        return {
+          success: false,
+          failure: "render",
+          effectError: output.effectError,
+        };
+      }
+      if (
+        (!isCandidate && pathRevision !== wallpaperPathRevision) ||
+        (commitOptions && !commitOptions.canCommit())
+      ) {
+        revokeRenderedWallpaper(output);
+        URL.revokeObjectURL(sourceUrl);
+        return { success: true, stale: true };
+      }
+      if (commitOptions?.commit) {
+        let shouldCommit: boolean;
+        try {
+          shouldCommit = commitOptions.commit();
+        } catch (error) {
+          revokeRenderedWallpaper(output);
+          URL.revokeObjectURL(sourceUrl);
+          return {
+            success: false,
+            failure: "persistence",
+            effectError:
+              error instanceof Error
+                ? error.message
+                : "Unable to save the wallpaper choice.",
+          };
+        }
+        if (!shouldCommit) {
+          revokeRenderedWallpaper(output);
+          URL.revokeObjectURL(sourceUrl);
+          return { success: true, stale: true };
+        }
+      }
+      wallpaperPathRevision += 1;
+      wallpaperRevision += 1;
+      commitWallpaperSource(sourceUrl, sourceKey, output);
+      sourceUrl = null;
+      const result: WallpaperApplyResult = {
+        success: true,
+        ...(output.effectError ? { effectError: output.effectError } : {}),
+      };
+      if (commitOptions?.publishError !== false) {
+        publishWallpaperHalftoneError(result);
+      }
+      return result;
+    }
+  } catch (error) {
+    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+    if (
+      (!isCandidate && pathRevision !== wallpaperPathRevision) ||
+      (commitOptions && !commitOptions.canCommit())
+    ) {
+      return { success: true, stale: true };
+    }
+    return {
+      success: false,
+      failure: "read",
+      effectError:
+        error instanceof Error
+          ? error.message
+          : "Unable to load the wallpaper image.",
+    };
+  }
+}
+
+/**
+ * Stages a selected image, renders it, and retains only the committed managed
+ * file after all overlapping wallpaper choices have settled.
+ */
+export async function applyManagedWallpaperChoice(
+  sourcePath: string,
+  options: WallpaperChoiceOptions,
+): Promise<WallpaperApplyResult> {
+  managedWallpaperChoicesInFlight += 1;
+  try {
+    const managedPath = await persistWallpaper(sourcePath);
+    if (!options.canCommit()) return { success: true, stale: true };
+    return await applyWallpaperPath(managedPath, options.getHalftone(), {
+      canCommit: options.canCommit,
+      getHalftone: options.getHalftone,
+      rejectEffectError: options.rejectEffectError ?? true,
+      publishError: options.publishError,
+      commit: () => options.commit(managedPath),
+    });
+  } catch (error) {
+    return {
+      success: false,
+      failure: "persistence",
+      effectError:
+        error instanceof Error
+          ? error.message
+          : "Unable to save the wallpaper image.",
+    };
+  } finally {
+    managedWallpaperChoicesInFlight -= 1;
+    if (managedWallpaperChoicesInFlight === 0) {
+      try {
+        await retainManagedWallpaper(loadWallpaperPath() || null);
+      } catch (error) {
+        console.debug("[monocode] wallpaper cleanup", error);
+      }
+    }
+  }
+}
+
+/** Re-renders the current wallpaper choice without touching chat background state. */
+export async function applyWallpaperHalftone(
+  enabled: boolean,
+): Promise<WallpaperApplyResult> {
+  const revision = ++wallpaperRevision;
+  const sourceUrl = wallpaperSourceUrl;
+  const sourceKey = wallpaperSourceKey;
+  if (!IS_WINDOWS || !sourceUrl || !sourceKey) return { success: true };
+  const output = await renderWallpaper(
+    revision,
+    sourceUrl,
+    sourceKey,
+    enabled,
+  );
+  if (output.status === "stale" || revision !== wallpaperRevision) {
+    revokeRenderedWallpaper(output);
+    return { success: true, stale: true };
+  }
+  commitWallpaperEffect(sourceUrl, output);
+  const result: WallpaperApplyResult = {
+    success: true,
+    ...(output.effectError ? { effectError: output.effectError } : {}),
+  };
+  publishWallpaperHalftoneError(result);
+  return result;
+}
+
+function refreshWallpaperTheme() {
+  if (loadWallpaperHalftone() && wallpaperSourceUrl) {
+    void applyWallpaperHalftone(true);
   }
 }
 
 async function initWallpaper() {
+  const pathRevision = wallpaperPathRevision;
   const path = loadWallpaperPath();
   if (!IS_WINDOWS || !path) {
-    await applyWallpaperPath(path);
+    await applyWallpaperPath(path, loadWallpaperHalftone());
     return;
   }
-  try {
-    const managed = await invoke<string>("persist_wallpaper", { path });
-    if (managed !== path) saveWallpaperPath(managed);
-    await applyWallpaperPath(managed);
-  } catch {
+  const result = await applyManagedWallpaperChoice(
+    path,
+    {
+      canCommit: () => pathRevision === wallpaperPathRevision,
+      getHalftone: loadWallpaperHalftone,
+      commit: (managedPath) => {
+        if (pathRevision !== wallpaperPathRevision) return false;
+        saveWallpaperPath(managedPath);
+        return true;
+      },
+      rejectEffectError: false,
+    },
+  );
+  if (!result.success && pathRevision === wallpaperPathRevision) {
     // Older/dev native hosts may not have the persistence command yet. Keep the
     // existing wallpaper usable until the next native restart.
-    await applyWallpaperPath(path);
+    await applyWallpaperPath(path, loadWallpaperHalftone());
   }
 }
 
@@ -861,6 +1222,7 @@ export function applyThemePreference(value: ThemePreference): ColorScheme {
   ) {
     renderChatBackground(backgroundPath);
   }
+  refreshWallpaperTheme();
   return next;
 }
 

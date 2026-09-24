@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -14,6 +15,7 @@ pub(crate) const MAX_TEXT_FILE_BYTES: u64 = 8 * 1024 * 1024;
 pub(crate) const MAX_ATTACHMENT_EMBED_BYTES: u64 = 20 * 1024 * 1024;
 const MAX_WALLPAPER_BYTES: u64 = 64 * 1024 * 1024;
 pub(crate) const MAX_PREVIEW_BYTES: u64 = 25 * 1024 * 1024;
+static WALLPAPER_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -4603,8 +4605,9 @@ pub async fn read_wallpaper_base64(path: String) -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
-/// Copy the selected wallpaper into MonoCode's app-data directory. Only one
-/// managed wallpaper is kept, so trying several images does not accumulate files.
+/// Stage a wallpaper in MonoCode's app-data directory without replacing the
+/// currently committed image. The caller retains the successful path after
+/// the image has been read and rendered.
 #[tauri::command]
 pub async fn persist_wallpaper(app: tauri::AppHandle, path: String) -> Result<String, String> {
     let dir = app
@@ -4615,6 +4618,24 @@ pub async fn persist_wallpaper(app: tauri::AppHandle, path: String) -> Result<St
     tauri::async_runtime::spawn_blocking(move || persist_wallpaper_sync(&dir, &path))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Keep the committed managed wallpaper and remove staged or superseded files.
+#[tauri::command]
+pub async fn retain_managed_wallpaper(
+    app: tauri::AppHandle,
+    path: Option<String>,
+) -> Result<(), String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("wallpaper");
+    tauri::async_runtime::spawn_blocking(move || {
+        retain_managed_wallpaper_sync(&dir, path.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -4664,39 +4685,51 @@ fn read_wallpaper_base64_sync(path: &str) -> Result<String, String> {
 fn persist_wallpaper_sync(dir: &Path, path: &str) -> Result<String, String> {
     let (source, ext) = wallpaper_source(path)?;
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let destination = dir.join(format!("current.{ext}"));
-
-    if destination.exists() {
-        let same_file = source
-            .canonicalize()
-            .ok()
-            .zip(destination.canonicalize().ok())
-            .is_some_and(|(source, destination)| source == destination);
-        if same_file {
-            cleanup_wallpaper_dir(dir, Some(&destination))?;
-            return Ok(destination.to_string_lossy().into_owned());
-        }
-    }
-
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    let temp = dir.join(format!(".wallpaper-{stamp}.tmp"));
-    std::fs::copy(&source, &temp)
-        .map_err(|e| format!("{} -> {}: {e}", source.display(), temp.display()))?;
+    let sequence = WALLPAPER_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let name = format!("wallpaper-{stamp}-{}-{sequence}", std::process::id());
+    let temp = dir.join(format!(".{name}.tmp"));
+    let destination = dir.join(format!("{name}.{ext}"));
 
-    let result = (|| -> Result<(), String> {
-        cleanup_wallpaper_dir(dir, Some(&temp))?;
-        std::fs::rename(&temp, &destination)
-            .map_err(|e| format!("{} -> {}: {e}", temp.display(), destination.display()))?;
-        Ok(())
-    })();
-    if result.is_err() {
+    if let Err(error) = std::fs::copy(&source, &temp) {
         let _ = std::fs::remove_file(&temp);
+        return Err(format!(
+            "{} -> {}: {error}",
+            source.display(),
+            temp.display()
+        ));
     }
-    result?;
+    if let Err(error) = std::fs::rename(&temp, &destination) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(format!(
+            "{} -> {}: {error}",
+            temp.display(),
+            destination.display()
+        ));
+    }
     Ok(destination.to_string_lossy().into_owned())
+}
+
+fn retain_managed_wallpaper_sync(dir: &Path, path: Option<&str>) -> Result<(), String> {
+    let keep = path.and_then(|path| managed_wallpaper_keep_path(dir, path));
+    cleanup_wallpaper_dir(dir, keep.as_deref())
+}
+
+fn managed_wallpaper_keep_path(dir: &Path, path: &str) -> Option<PathBuf> {
+    let canonical_dir = dir.canonicalize().ok()?;
+    let canonical_path = Path::new(path).canonicalize().ok()?;
+    if canonical_path.parent() != Some(canonical_dir.as_path()) {
+        return None;
+    }
+    let file_name = canonical_path.file_name()?;
+    let file_name_text = file_name.to_str()?;
+    if !file_name_text.starts_with("wallpaper-") && !file_name_text.starts_with("current.") {
+        return None;
+    }
+    Some(dir.join(file_name))
 }
 
 fn cleanup_wallpaper_dir(dir: &Path, keep: Option<&Path>) -> Result<(), String> {
@@ -5516,6 +5549,48 @@ mod tests {
         assert_eq!(notes.size, 6);
         let folder = infos.iter().find(|info| info.is_dir).unwrap();
         assert_eq!(folder.path, path_to_js(&dir.0));
+    }
+
+    #[test]
+    fn wallpaper_candidates_preserve_the_active_file_until_retained() {
+        let temp = tmp("wallpaper-transaction");
+        let managed_dir = temp.0.join("managed");
+        let first_source = temp.0.join("first.png");
+        let second_source = temp.0.join("second.png");
+        std::fs::write(&first_source, b"first wallpaper").unwrap();
+        std::fs::write(&second_source, b"second wallpaper").unwrap();
+
+        let first = persist_wallpaper_sync(&managed_dir, &first_source.to_string_lossy())
+            .expect("first wallpaper stages");
+        let second = persist_wallpaper_sync(&managed_dir, &second_source.to_string_lossy())
+            .expect("second wallpaper stages");
+        assert_ne!(first, second);
+        assert_eq!(std::fs::read(&first).unwrap(), b"first wallpaper");
+        assert_eq!(std::fs::read(&second).unwrap(), b"second wallpaper");
+
+        retain_managed_wallpaper_sync(&managed_dir, Some(&first)).unwrap();
+        assert!(Path::new(&first).is_file());
+        assert!(!Path::new(&second).exists());
+        assert!(persist_wallpaper_sync(
+            &managed_dir,
+            &temp.0.join("missing.png").to_string_lossy()
+        )
+        .is_err());
+        assert_eq!(std::fs::read(&first).unwrap(), b"first wallpaper");
+    }
+
+    #[test]
+    fn wallpaper_retention_never_removes_an_external_source_file() {
+        let temp = tmp("wallpaper-external-retention");
+        let managed_dir = temp.0.join("managed");
+        let source = temp.0.join("external.webp");
+        std::fs::write(&source, b"external wallpaper").unwrap();
+        let staged = persist_wallpaper_sync(&managed_dir, &source.to_string_lossy()).unwrap();
+
+        retain_managed_wallpaper_sync(&managed_dir, Some(&source.to_string_lossy())).unwrap();
+
+        assert!(source.is_file());
+        assert!(!Path::new(&staged).exists());
     }
 
     #[test]

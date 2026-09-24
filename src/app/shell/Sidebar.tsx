@@ -2163,6 +2163,7 @@ function CompactProjectRail({
       data-compact-project-rail
       className="sidebar-glass relative flex h-full w-12 shrink-0 flex-col items-center"
     >
+      <SharedHoverHighlight />
       {titleBarAbove ? null : (
         <div
           className="h-10 w-full shrink-0 border-b border-stroke"
@@ -2178,6 +2179,7 @@ function CompactProjectRail({
       />
       <div
         data-compact-rail-actions
+        data-shared-hover-continuity
         className="flex w-full shrink-0 flex-col items-center gap-1.5 py-1.5"
       >
         <CompactRailAction
@@ -2250,7 +2252,10 @@ function CompactProjectRail({
         />
       </div>
       <div className="min-h-2 flex-1" />
-      <div className="flex w-full flex-col items-center gap-1 py-1.5">
+      <div
+        data-shared-hover-continuity
+        className="flex w-full flex-col items-center gap-1 py-1.5"
+      >
         <CompactRailAction
           label={`Settings (${MOD},)`}
           icon={Settings}
@@ -2297,6 +2302,8 @@ function CompactRailAction({
       aria-label={label}
       aria-selected={tab ? active : undefined}
       aria-pressed={tab ? undefined : active}
+      data-shared-hover-item
+      data-shared-hover-preserve={active ? "" : undefined}
       disabled={!onClick}
       onClick={onClick}
       onContextMenu={

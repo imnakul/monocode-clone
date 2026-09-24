@@ -435,6 +435,7 @@ pub fn run() {
             fs::read_file_base64,
             fs::read_wallpaper_base64,
             fs::persist_wallpaper,
+            fs::retain_managed_wallpaper,
             fs::clear_managed_wallpaper,
             fs::read_binary_file,
             fs::write_attachment,

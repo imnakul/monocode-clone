@@ -6,6 +6,9 @@ import {
   gitHeadMessage,
   isCheckoutBlockedByChanges,
   listSkills,
+  persistWallpaper,
+  retainManagedWallpaper,
+  clearManagedWallpaper,
   resolveProjectLocation,
 } from "./fs";
 
@@ -88,6 +91,93 @@ describe("resolveProjectLocation", () => {
       path: "/repo",
       identity: null,
     });
+  });
+});
+
+describe("managed wallpaper persistence", () => {
+  it("runs persist and clear operations in the order the user requested", async () => {
+    let finishFirstPersist: ((path: string) => void) | undefined;
+    let finishLastPersist: ((path: string) => void) | undefined;
+    vi.mocked(invoke).mockClear();
+    vi.mocked(invoke)
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            finishFirstPersist = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            finishLastPersist = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(undefined);
+
+    const firstPersist = persistWallpaper("C:/Pictures/first.png");
+    const lastPersist = persistWallpaper("C:/Pictures/last.webp");
+    const remove = clearManagedWallpaper();
+
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    expect(invoke).toHaveBeenNthCalledWith(1, "persist_wallpaper", {
+      path: "C:/Pictures/first.png",
+    });
+
+    finishFirstPersist?.("C:/app-data/wallpaper/current.png");
+    await expect(firstPersist).resolves.toBe(
+      "C:/app-data/wallpaper/current.png",
+    );
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+    expect(invoke).toHaveBeenNthCalledWith(2, "persist_wallpaper", {
+      path: "C:/Pictures/last.webp",
+    });
+
+    finishLastPersist?.("C:/app-data/wallpaper/current.webp");
+    await expect(lastPersist).resolves.toBe(
+      "C:/app-data/wallpaper/current.webp",
+    );
+    await expect(remove).resolves.toBeUndefined();
+    expect(invoke).toHaveBeenNthCalledWith(3, "clear_managed_wallpaper");
+  });
+
+  it("retains the committed file after staged choices settle", async () => {
+    let finishFirstPersist: ((path: string) => void) | undefined;
+    let finishLastPersist: ((path: string) => void) | undefined;
+    vi.mocked(invoke).mockClear();
+    vi.mocked(invoke)
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            finishFirstPersist = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            finishLastPersist = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+
+    const firstPersist = persistWallpaper("C:/Pictures/first.png");
+    const lastPersist = persistWallpaper("C:/Pictures/last.webp");
+    const retain = retainManagedWallpaper("C:/app-data/wallpaper/last.webp");
+    const remove = clearManagedWallpaper();
+
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    finishFirstPersist?.("C:/app-data/wallpaper/first.png");
+    await expect(firstPersist).resolves.toBe("C:/app-data/wallpaper/first.png");
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+    finishLastPersist?.("C:/app-data/wallpaper/last.webp");
+    await expect(lastPersist).resolves.toBe("C:/app-data/wallpaper/last.webp");
+    await expect(retain).resolves.toBeUndefined();
+    await expect(remove).resolves.toBeUndefined();
+
+    expect(invoke).toHaveBeenNthCalledWith(3, "retain_managed_wallpaper", {
+      path: "C:/app-data/wallpaper/last.webp",
+    });
+    expect(invoke).toHaveBeenNthCalledWith(4, "clear_managed_wallpaper");
   });
 });
 

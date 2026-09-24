@@ -466,11 +466,34 @@ export async function pickImage(
 }
 
 export function persistWallpaper(path: string): Promise<string> {
-  return invoke<string>("persist_wallpaper", { path });
+  return enqueueManagedWallpaperOperation(() =>
+    invoke<string>("persist_wallpaper", { path }),
+  );
 }
 
 export function clearManagedWallpaper(): Promise<void> {
-  return invoke<void>("clear_managed_wallpaper");
+  return enqueueManagedWallpaperOperation(() =>
+    invoke<void>("clear_managed_wallpaper"),
+  );
+}
+
+export function retainManagedWallpaper(path: string | null): Promise<void> {
+  return enqueueManagedWallpaperOperation(() =>
+    invoke<void>("retain_managed_wallpaper", { path }),
+  );
+}
+
+let managedWallpaperOperation: Promise<void> = Promise.resolve();
+
+function enqueueManagedWallpaperOperation<Result>(
+  operation: () => Promise<Result>,
+): Promise<Result> {
+  const result = managedWallpaperOperation.then(operation);
+  managedWallpaperOperation = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
 }
 
 export async function pickFiles(title = "Attach files"): Promise<string[] | null> {

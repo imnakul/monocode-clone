@@ -164,6 +164,8 @@ export function SearchableProjectPicker({
         }
         aria-expanded={open}
         aria-haspopup="dialog"
+        data-shared-hover-item={compact ? "" : undefined}
+        data-shared-hover-preserve={compact && open ? "" : undefined}
         data-tauri-drag-region="false"
         onClick={() => (open ? closePicker() : openPicker())}
         onKeyDown={(event) => {

@@ -62,7 +62,9 @@ import {
   loadWallpaperPath,
   saveWallpaperPath,
   loadWallpaperOpacity,
+  loadWallpaperHalftone,
   saveWallpaperOpacity,
+  saveWallpaperHalftone,
   WALLPAPER_OPACITY_DEFAULT,
   WALLPAPER_OPACITY_MIN,
   WALLPAPER_OPACITY_MAX,
@@ -88,6 +90,7 @@ const POPOVER_BLUR_KEY = "monocode.popoverBlur";
 const POPOVER_HIGHLIGHT_KEY = "monocode.popoverHighlight";
 const WALLPAPER_PATH_KEY = "monocode.wallpaperPath";
 const WALLPAPER_OPACITY_KEY = "monocode.wallpaperOpacity";
+const WALLPAPER_HALFTONE_KEY = "monocode.wallpaperHalftone";
 const WINDOW_GLASS_STRENGTH_KEY = "monocode.windowGlassStrength";
 const SHOW_EXCLUDED_FILES_KEY = "monocode.showExcludedFiles";
 const CHAT_BACKGROUND_PATH_KEY = "monocode.chatBackgroundPath";
@@ -271,12 +274,14 @@ describe("wallpaper and glass strength settings", () => {
   afterEach(() => {
     localStorage.removeItem(WALLPAPER_PATH_KEY);
     localStorage.removeItem(WALLPAPER_OPACITY_KEY);
+    localStorage.removeItem(WALLPAPER_HALFTONE_KEY);
     localStorage.removeItem(WINDOW_GLASS_STRENGTH_KEY);
   });
 
   it("defaults to no wallpaper and the standard glass treatment", () => {
     expect(loadWallpaperPath()).toBe("");
     expect(loadWallpaperOpacity()).toBe(WALLPAPER_OPACITY_DEFAULT);
+    expect(loadWallpaperHalftone()).toBe(false);
     expect(loadWindowGlassStrength()).toBe(WINDOW_GLASS_STRENGTH_DEFAULT);
   });
 
@@ -286,6 +291,8 @@ describe("wallpaper and glass strength settings", () => {
     saveWindowGlassStrength(WINDOW_GLASS_STRENGTH_MIN - 20);
     expect(loadWallpaperPath()).toBe("C:/Pictures/wallpaper.png");
     expect(loadWallpaperOpacity()).toBe(WALLPAPER_OPACITY_MAX);
+    saveWallpaperHalftone(true);
+    expect(loadWallpaperHalftone()).toBe(true);
     expect(loadWindowGlassStrength()).toBe(WINDOW_GLASS_STRENGTH_MIN);
 
     saveWallpaperPath("");
@@ -293,6 +300,8 @@ describe("wallpaper and glass strength settings", () => {
     saveWindowGlassStrength(WINDOW_GLASS_STRENGTH_MAX);
     expect(loadWallpaperPath()).toBe("");
     expect(loadWallpaperOpacity()).toBe(WALLPAPER_OPACITY_MIN);
+    saveWallpaperHalftone(false);
+    expect(loadWallpaperHalftone()).toBe(false);
     expect(loadWindowGlassStrength()).toBe(WINDOW_GLASS_STRENGTH_MAX);
   });
 

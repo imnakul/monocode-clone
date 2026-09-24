@@ -57,6 +57,9 @@ import {
   applyPopoverHighlight,
   applyWallpaperOpacity,
   applyWallpaperPath,
+  applyManagedWallpaperChoice,
+  applyWallpaperHalftone,
+  subscribeWallpaperHalftoneError,
   applyWindowGlassStrength,
   applyPopoverSurfaceOpacity,
   applyTerminalFont,
@@ -112,6 +115,7 @@ import {
   loadPopoverHighlight,
   loadWallpaperOpacity,
   loadWallpaperPath,
+  loadWallpaperHalftone,
   loadWindowGlassStrength,
   loadPopoverSurfaceOpacity,
   loadTerminalFont,
@@ -137,6 +141,7 @@ import {
   savePopoverHighlight,
   saveWallpaperOpacity,
   saveWallpaperPath,
+  saveWallpaperHalftone,
   saveWindowGlassStrength,
   savePopoverSurfaceOpacity,
   saveTerminalFont,
@@ -360,7 +365,7 @@ import {
 } from "../../source-control/model/worktrees";
 import type { Session } from "../../sessions/model/session";
 import { getCustomBinary, setCustomBinary } from "../../../integrations/harness/core/customBinary";
-import { clearManagedWallpaper, persistWallpaper, pickFile, pickImage } from "../../../platform/tauri/fs";
+import { clearManagedWallpaper, pickFile, pickImage } from "../../../platform/tauri/fs";
 import { IS_WINDOWS } from "../../../platform/tauri/platform";
 import { AntigravitySetupPanel } from "../../sessions/ui/AntigravitySetupPanel";
 import { MigrationView } from "../../sessions/ui/MigrationView";
@@ -1800,6 +1805,20 @@ function useAppearanceSettings(
   const [popoverHighlight, setPopoverHighlight] =
     useState(loadPopoverHighlight);
   const [wallpaperPath, setWallpaperPath] = useState(loadWallpaperPath);
+  const [wallpaperHalftone, setWallpaperHalftone] = useState(
+    loadWallpaperHalftone,
+  );
+  const [wallpaperHalftoneBusy, setWallpaperHalftoneBusy] = useState(false);
+  const [wallpaperHalftoneError, setWallpaperHalftoneError] = useState<
+    string | null
+  >(null);
+  const wallpaperHalftoneRef = useRef(wallpaperHalftone);
+  const wallpaperChoiceSequence = useRef(0);
+  const wallpaperCommittedChoice = useRef(0);
+  const wallpaperPickerSequence = useRef(0);
+  const wallpaperPickerEpoch = useRef(0);
+  const wallpaperErrorRevision = useRef(0);
+  const wallpaperBusyCount = useRef(0);
   const [wallpaperOpacity, setWallpaperOpacity] =
     useState(loadWallpaperOpacity);
   const [windowGlassStrength, setWindowGlassStrength] = useState(
@@ -1835,6 +1854,11 @@ function useAppearanceSettings(
     useState<CollapsedProjectRailMode>(loadCollapsedProjectRailMode);
   const collapsedProjectRailMode =
     controlledCollapsedProjectRailMode ?? storedCollapsedProjectRailMode;
+
+  useEffect(
+    () => subscribeWallpaperHalftoneError(setWallpaperHalftoneError),
+    [],
+  );
 
   useEffect(() => subscribeUiScale(() => setUiScale(loadUiScale())), []);
 
@@ -1930,6 +1954,34 @@ function useAppearanceSettings(
     setWallpaperOpacity(next);
   }, []);
 
+  const beginWallpaperAction = useCallback(() => {
+    wallpaperBusyCount.current += 1;
+    setWallpaperHalftoneBusy(true);
+  }, []);
+
+  const finishWallpaperAction = useCallback(() => {
+    wallpaperBusyCount.current = Math.max(0, wallpaperBusyCount.current - 1);
+    setWallpaperHalftoneBusy(wallpaperBusyCount.current > 0);
+  }, []);
+
+  const onWallpaperHalftone = useCallback(async (enabled: boolean) => {
+    const revision = ++wallpaperErrorRevision.current;
+    wallpaperHalftoneRef.current = enabled;
+    saveWallpaperHalftone(enabled);
+    setWallpaperHalftone(enabled);
+    beginWallpaperAction();
+    setWallpaperHalftoneError(null);
+    try {
+      const result = await applyWallpaperHalftone(enabled);
+      if (revision !== wallpaperErrorRevision.current || result.stale) return;
+      setWallpaperHalftoneError(
+        result.effectError ? "Halftone could not be applied." : null,
+      );
+    } finally {
+      finishWallpaperAction();
+    }
+  }, [beginWallpaperAction, finishWallpaperAction]);
+
   const onWindowGlassStrength = useCallback((value: number) => {
     const next = applyWindowGlassStrength(value);
     saveWindowGlassStrength(next);
@@ -1937,21 +1989,73 @@ function useAppearanceSettings(
   }, []);
 
   const onChooseWallpaper = useCallback(async () => {
-    const selected = await pickImage("Choose Windows wallpaper");
-    if (!selected) return;
+    const pickerRequest = ++wallpaperPickerSequence.current;
+    const pickerEpoch = wallpaperPickerEpoch.current;
+    let wallpaperActionStarted = false;
     try {
-      const managed = await persistWallpaper(selected);
-      if (!(await applyWallpaperPath(managed))) return;
-      saveWallpaperPath(managed);
-      setWallpaperPath(managed);
+      const selected = await pickImage("Choose Windows wallpaper");
+      if (pickerEpoch !== wallpaperPickerEpoch.current || !selected) return;
+
+      beginWallpaperAction();
+      wallpaperActionStarted = true;
+      const choiceRevision = ++wallpaperChoiceSequence.current;
+      const errorRevision = ++wallpaperErrorRevision.current;
+      setWallpaperHalftoneError(null);
+      const result = await applyManagedWallpaperChoice(selected, {
+        canCommit: () =>
+          pickerEpoch === wallpaperPickerEpoch.current &&
+          choiceRevision > wallpaperCommittedChoice.current,
+        getHalftone: () => wallpaperHalftoneRef.current,
+        commit: (managedPath) => {
+          if (
+            pickerEpoch !== wallpaperPickerEpoch.current ||
+            choiceRevision <= wallpaperCommittedChoice.current
+          ) {
+            return false;
+          }
+          saveWallpaperPath(managedPath);
+          wallpaperCommittedChoice.current = choiceRevision;
+          setWallpaperPath(managedPath);
+          if (errorRevision === wallpaperErrorRevision.current) {
+            setWallpaperHalftoneError(null);
+          }
+          return true;
+        },
+        publishError: false,
+      });
+      if (!result.success && !result.stale) {
+        if (errorRevision === wallpaperErrorRevision.current) {
+          setWallpaperHalftoneError(
+            result.failure === "persistence"
+              ? "Wallpaper could not be saved."
+              : result.failure === "render"
+                ? "Wallpaper could not be applied."
+                : "Wallpaper could not be loaded.",
+          );
+        }
+      }
     } catch (error) {
       console.debug("[monocode] wallpaper persist", error);
+      if (
+        pickerRequest === wallpaperPickerSequence.current &&
+        pickerEpoch === wallpaperPickerEpoch.current
+      ) {
+        wallpaperErrorRevision.current += 1;
+        setWallpaperHalftoneError("Wallpaper could not be selected.");
+      }
+    } finally {
+      if (wallpaperActionStarted) finishWallpaperAction();
     }
-  }, []);
+  }, [beginWallpaperAction, finishWallpaperAction]);
 
   const onRemoveWallpaper = useCallback(() => {
+    const removeRevision = ++wallpaperChoiceSequence.current;
+    wallpaperCommittedChoice.current = removeRevision;
+    wallpaperPickerEpoch.current += 1;
+    wallpaperErrorRevision.current += 1;
     saveWallpaperPath("");
     setWallpaperPath("");
+    setWallpaperHalftoneError(null);
     void applyWallpaperPath("");
     void clearManagedWallpaper().catch((error) => {
       console.debug("[monocode] wallpaper cleanup", error);
@@ -2055,6 +2159,7 @@ function useAppearanceSettings(
     onPopoverBlur(POPOVER_BLUR_DEFAULT);
     onPopoverHighlight(POPOVER_HIGHLIGHT_DEFAULT);
     onWallpaperOpacity(WALLPAPER_OPACITY_DEFAULT);
+    void onWallpaperHalftone(false);
     onWindowGlassStrength(WINDOW_GLASS_STRENGTH_DEFAULT);
     onRemoveWallpaper();
     onShowExcludedFiles(SHOW_EXCLUDED_FILES_DEFAULT);
@@ -2087,6 +2192,7 @@ function useAppearanceSettings(
     onPopoverSurfaceOpacity,
     onRemoveWallpaper,
     onWallpaperOpacity,
+    onWallpaperHalftone,
     onWindowGlassStrength,
     onTerminalFont,
     onTerminalFontSize,
@@ -2117,6 +2223,9 @@ function useAppearanceSettings(
     popoverHighlight,
     wallpaperPath,
     wallpaperOpacity,
+    wallpaperHalftone,
+    wallpaperHalftoneBusy,
+    wallpaperHalftoneError,
     windowGlassStrength,
     showExcludedFiles,
     chatBackgroundPath,
@@ -2143,6 +2252,7 @@ function useAppearanceSettings(
     onPopoverBlur,
     onPopoverHighlight,
     onWallpaperOpacity,
+    onWallpaperHalftone,
     onWindowGlassStrength,
     onChooseWallpaper,
     onRemoveWallpaper,
@@ -2362,6 +2472,38 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
                 onChange={appearance.onWallpaperOpacity}
                 disabled={!appearance.wallpaperPath}
               />
+            </Row>
+            <Row
+              id="wallpaper-halftone"
+              label="Halftone wallpaper"
+              description="Applies the existing print-dot effect to the Windows wallpaper. The chat background keeps its own effect setting."
+            >
+              <div className="flex flex-col items-end gap-1">
+                <Toggle
+                  label="Halftone wallpaper"
+                  on={appearance.wallpaperHalftone}
+                  onChange={(enabled) =>
+                    void appearance.onWallpaperHalftone(enabled)
+                  }
+                  disabled={!appearance.wallpaperPath}
+                />
+                {appearance.wallpaperHalftoneBusy ? (
+                  <span role="status" className="text-[11px] text-content/45">
+                    Applying effect...
+                  </span>
+                ) : null}
+                {appearance.wallpaperHalftoneError ? (
+                  <span
+                    role="alert"
+                    className="max-w-48 text-right text-[11px] text-red-400"
+                  >
+                    {appearance.wallpaperHalftoneError}
+                    {appearance.wallpaperHalftoneError.includes("Halftone")
+                      ? " Showing the original wallpaper."
+                      : null}
+                  </span>
+                ) : null}
+              </div>
             </Row>
           </>
         ) : null}

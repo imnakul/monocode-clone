@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatSessionTitle } from "../../features/sessions/model/session";
 import { formatReminderTime } from "../../features/sessions/model/sessionReminders";
+import { SHARED_HOVER_CONTINUITY_ATTR } from "../../features/sessions/ui/SharedHoverHighlight";
 import { Sidebar } from "./Sidebar";
 import { loadSessionFolders } from "../../features/sessions/model/sessionFolders";
 import { useProjectDiffStats } from "../../features/source-control/hooks/useProjectDiffStats";
@@ -1289,6 +1290,27 @@ describe("collapsed rail Inbox actions", () => {
     const rail = container.querySelector<HTMLElement>(
       "[data-compact-project-rail]",
     )!;
+    expect(rail.querySelectorAll('[data-shared-hover-highlight="true"]')).toHaveLength(1);
+    const railButtons = rail.querySelectorAll<HTMLButtonElement>("button");
+    expect(railButtons.length).toBeGreaterThan(0);
+    for (const button of railButtons) {
+      expect(button.hasAttribute("data-shared-hover-item")).toBe(true);
+    }
+    expect(
+      rail.querySelector('[aria-label^="Switch project"]')?.hasAttribute(
+        "data-shared-hover-item",
+      ),
+    ).toBe(true);
+    expect(
+      rail.querySelector('[aria-label^="Settings"]')?.hasAttribute(
+        "data-shared-hover-item",
+      ),
+    ).toBe(true);
+    expect(
+      rail.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute(
+        "data-shared-hover-preserve",
+      ),
+    ).toBe("");
     expect(rail).not.toBeNull();
     expect(rail.className).toContain("w-12");
     expect(rail.className).not.toContain("border-r");
@@ -1298,10 +1320,23 @@ describe("collapsed rail Inbox actions", () => {
     expect(
       rail.querySelectorAll('[class*="border-b"], [class*="border-t"]'),
     ).toHaveLength(1);
-    expect(rail.firstElementChild?.className).toContain("border-b");
+    expect(
+      rail.querySelector('[data-tauri-drag-region="deep"]')?.className,
+    ).toContain("border-b");
     expect(
       rail.querySelector("[data-compact-rail-actions]")?.className,
     ).toContain("gap-1.5");
+    expect(
+      rail
+        .querySelector("[data-compact-rail-actions]")
+        ?.hasAttribute(SHARED_HOVER_CONTINUITY_ATTR),
+    ).toBe(true);
+    expect(
+      rail
+        .querySelector('[aria-label^="Settings"]')
+        ?.parentElement?.hasAttribute(SHARED_HOVER_CONTINUITY_ATTR),
+    ).toBe(true);
+    expect(rail.hasAttribute(SHARED_HOVER_CONTINUITY_ATTR)).toBe(false);
     expect(
       Array.from(rail.querySelectorAll("button"), (button) =>
         button.getAttribute("aria-label")?.replace(/ \(.+\)$/, ""),
