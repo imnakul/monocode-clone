@@ -294,10 +294,10 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     keywords: "wallpaper opacity strength image",
   },
   {
-    id: "wallpaper-halftone",
+    id: "wallpaper-effect",
     section: "appearance",
-    label: "Halftone wallpaper",
-    keywords: "wallpaper print dots effect halftone",
+    label: "Wallpaper effect",
+    keywords: "wallpaper effect dither ascii halftone scanlines print dots",
   },
   {
     id: "menu-surface-tint",

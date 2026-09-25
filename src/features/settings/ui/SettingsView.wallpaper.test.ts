@@ -7,9 +7,9 @@ import { SettingsView } from "./SettingsView";
 import {
   applyThemePreference,
   applyWallpaperPath,
-  saveWallpaperHalftone,
+  saveWallpaperEffect,
   saveWallpaperPath,
-  subscribeWallpaperHalftoneError,
+  subscribeWallpaperEffectError,
 } from "../model/appearance";
 import { type SettingsSectionId } from "../model/settings";
 
@@ -185,7 +185,7 @@ describe("wallpaper settings races", () => {
   it("keeps a successful choice when a later picker is canceled and restores it after reinitialization", async () => {
     const pendingRender = deferred<Blob>();
     const managedPath = "C:/AppData/wallpaper/wallpaper-a.png";
-    saveWallpaperHalftone(true);
+    saveWallpaperEffect("halftone");
     mocks.open
       .mockResolvedValueOnce("C:/Pictures/a.png")
       .mockResolvedValueOnce(null);
@@ -211,7 +211,7 @@ describe("wallpaper settings races", () => {
     expect(wallpaperRow().querySelectorAll("button")).toHaveLength(2);
     expect(
       container.querySelector<HTMLButtonElement>(
-        '[role="switch"][aria-label="Halftone wallpaper"]',
+        '#wallpaper-effect-halftone',
       )?.disabled,
     ).toBe(false);
     const displayedCss = document.documentElement.style.getPropertyValue(
@@ -224,7 +224,7 @@ describe("wallpaper settings races", () => {
     await act(async () => root.unmount());
     root = createRoot(container);
     await act(async () => {
-      await applyWallpaperPath(managedPath, false);
+      await applyWallpaperPath(managedPath, "none");
     });
     expect(mocks.invoke).toHaveBeenCalledWith("read_wallpaper_base64", {
       path: managedPath,
@@ -237,28 +237,32 @@ describe("wallpaper settings races", () => {
     expect(wallpaperRow().querySelectorAll("button")).toHaveLength(2);
     expect(
       container.querySelector<HTMLButtonElement>(
-        '[role="switch"][aria-label="Halftone wallpaper"]',
+        '#wallpaper-effect-halftone',
       )?.disabled,
     ).toBe(false);
   });
 
   it("lets a newer off choice win while the previous render is still pending", async () => {
     saveWallpaperPath("C:/Pictures/current.png");
-    await applyWallpaperPath("C:/Pictures/current.png", false);
+    await applyWallpaperPath("C:/Pictures/current.png", "none");
     const slowRender = deferred<Blob>();
     mocks.prepareEffect.mockReturnValueOnce(slowRender.promise);
     await render("appearance");
-    const toggle = container.querySelector<HTMLButtonElement>(
-      '[role="switch"][aria-label="Halftone wallpaper"]',
+    const halftone = container.querySelector<HTMLButtonElement>(
+      '#wallpaper-effect-halftone',
+    )!;
+    const none = container.querySelector<HTMLButtonElement>(
+      '#wallpaper-effect-none',
     )!;
 
-    await act(async () => toggle.click());
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-    expect(toggle.disabled).toBe(false);
+    await act(async () => halftone.click());
+    expect(halftone.getAttribute("aria-checked")).toBe("true");
+    expect(halftone.disabled).toBe(false);
     expect(container.textContent).toContain("Applying effect...");
 
-    await act(async () => toggle.click());
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    await act(async () => none.click());
+    expect(halftone.getAttribute("aria-checked")).toBe("false");
+    expect(none.getAttribute("aria-checked")).toBe("true");
     expect(
       document.documentElement.style.getPropertyValue("--app-wallpaper-image"),
     ).toBe('url("blob:settings-wallpaper-1")');
@@ -267,10 +271,90 @@ describe("wallpaper settings races", () => {
       slowRender.resolve(new Blob(["late halftone"]));
       await Promise.resolve();
     });
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(halftone.getAttribute("aria-checked")).toBe("false");
     expect(
       document.documentElement.style.getPropertyValue("--app-wallpaper-image"),
     ).toBe('url("blob:settings-wallpaper-1")');
+  });
+
+  it("offers all five wallpaper effects and keeps chat's effect independent", async () => {
+    localStorage.setItem("monocode.newThreadBackgroundEffect", "ascii");
+    document.documentElement.style.setProperty(
+      "--chat-background-image",
+      'url("blob:existing-chat")',
+    );
+    await render("appearance");
+    const options = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        '[role="radiogroup"][aria-label="Wallpaper effect"] [role="radio"]',
+      ),
+    );
+    expect(options.map((option) => option.textContent)).toEqual([
+      "None", "Dither", "ASCII", "Halftone", "Scanlines",
+    ]);
+    expect(options.every((option) => option.disabled)).toBe(true);
+
+    saveWallpaperPath("C:/Pictures/current.png");
+    await applyWallpaperPath("C:/Pictures/current.png", "none");
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await render("appearance");
+    for (const effect of ["dither", "ascii", "halftone", "scanlines"] as const) {
+      const option = container.querySelector<HTMLButtonElement>(
+        `#wallpaper-effect-${effect}`,
+      )!;
+      await act(async () => option.click());
+      expect(option.getAttribute("aria-checked")).toBe("true");
+      expect(localStorage.getItem("monocode.wallpaperEffect")).toBe(effect);
+      expect(mocks.prepareEffect).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(String),
+        effect,
+        false,
+      );
+      expect(localStorage.getItem("monocode.newThreadBackgroundEffect")).toBe("ascii");
+      expect(document.documentElement.style.getPropertyValue("--chat-background-image"))
+        .toBe('url("blob:existing-chat")');
+    }
+
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("#wallpaper-effect-none")!.click(),
+    );
+    expect(localStorage.getItem("monocode.wallpaperEffect")).toBe("none");
+    expect(document.documentElement.style.getPropertyValue("--app-wallpaper-image"))
+      .toBe('url("blob:settings-wallpaper-1")');
+  });
+
+  it("keeps the newer wallpaper effect when an older render finishes late", async () => {
+    saveWallpaperPath("C:/Pictures/current.png");
+    await applyWallpaperPath("C:/Pictures/current.png", "none");
+    const slowDither = deferred<Blob>();
+    mocks.prepareEffect
+      .mockReturnValueOnce(slowDither.promise)
+      .mockResolvedValueOnce(new Blob(["scanlines"]));
+    await render("appearance");
+
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("#wallpaper-effect-dither")!.click(),
+    );
+    await vi.waitFor(() => expect(mocks.prepareEffect).toHaveBeenCalledTimes(1));
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("#wallpaper-effect-scanlines")!.click(),
+    );
+    const latestImage = document.documentElement.style.getPropertyValue(
+      "--app-wallpaper-image",
+    );
+    expect(latestImage).toBe('url("blob:settings-wallpaper-2")');
+    expect(localStorage.getItem("monocode.wallpaperEffect")).toBe("scanlines");
+
+    await act(async () => {
+      slowDither.resolve(new Blob(["late dither"]));
+      await Promise.resolve();
+    });
+    expect(document.documentElement.style.getPropertyValue("--app-wallpaper-image"))
+      .toBe(latestImage);
+    expect(liveObjectUrls.has("blob:settings-wallpaper-2")).toBe(true);
+    expect(revokedObjectUrls).not.toContain("blob:settings-wallpaper-2");
   });
 
   it("keeps the last selected image when an earlier persist finishes late", async () => {
@@ -337,8 +421,8 @@ describe("wallpaper settings races", () => {
       const firstManagedPath = "C:/AppData/wallpaper/first.png";
       const secondManagedPath = "C:/AppData/wallpaper/second.png";
       saveWallpaperPath(existingPath);
-      saveWallpaperHalftone(true);
-      await applyWallpaperPath(existingPath, true);
+      saveWallpaperEffect("halftone");
+      await applyWallpaperPath(existingPath, "halftone");
       mocks.open
         .mockResolvedValueOnce("C:/Pictures/first.png")
         .mockResolvedValueOnce("C:/Pictures/second.png");
@@ -404,7 +488,7 @@ describe("wallpaper settings races", () => {
       expect(liveObjectUrls.has("blob:settings-wallpaper-2")).toBe(true);
       expect(
         container.querySelector<HTMLButtonElement>(
-          '[role="switch"][aria-label="Halftone wallpaper"]',
+          '#wallpaper-effect-halftone',
         )?.disabled,
       ).toBe(false);
 
@@ -431,7 +515,7 @@ describe("wallpaper settings races", () => {
       expect(revokedObjectUrls).not.toContain(displayUrl);
       expect(
         container.querySelector<HTMLButtonElement>(
-          '[role="switch"][aria-label="Halftone wallpaper"]',
+          '#wallpaper-effect-halftone',
         )?.disabled,
       ).toBe(false);
       await vi.waitFor(() =>
@@ -446,7 +530,7 @@ describe("wallpaper settings races", () => {
     const pendingRender = deferred<Blob>();
     const firstManagedPath = "C:/AppData/wallpaper/first.png";
     const secondManagedPath = "C:/AppData/wallpaper/second.png";
-    saveWallpaperHalftone(true);
+    saveWallpaperEffect("halftone");
     mocks.open
       .mockResolvedValueOnce("C:/Pictures/first.png")
       .mockResolvedValueOnce("C:/Pictures/second.png");
@@ -484,7 +568,7 @@ describe("wallpaper settings races", () => {
     expect(liveObjectUrls.has(secondUrl!)).toBe(true);
     expect(
       container.querySelector<HTMLButtonElement>(
-        '[role="switch"][aria-label="Halftone wallpaper"]',
+        '#wallpaper-effect-halftone',
       )?.disabled,
     ).toBe(false);
 
@@ -507,8 +591,8 @@ describe("wallpaper settings races", () => {
     const pendingRender = deferred<Blob>();
     const existingPath = "C:/AppData/wallpaper/existing.png";
     saveWallpaperPath(existingPath);
-    saveWallpaperHalftone(true);
-    await applyWallpaperPath(existingPath, false);
+    saveWallpaperEffect("halftone");
+    await applyWallpaperPath(existingPath, "none");
     mocks.open.mockResolvedValueOnce("C:/Pictures/pending.png");
     mocks.invoke.mockImplementation(async (command) =>
       command === "persist_wallpaper"
@@ -550,7 +634,7 @@ describe("wallpaper settings races", () => {
     expect(liveObjectUrls.size).toBe(0);
     expect(
       container.querySelector<HTMLButtonElement>(
-        '[role="switch"][aria-label="Halftone wallpaper"]',
+        '#wallpaper-effect-halftone',
       )?.disabled,
     ).toBe(true);
     expect(invokeCalls("clear_managed_wallpaper")).toHaveLength(1);
@@ -601,12 +685,12 @@ describe("wallpaper settings races", () => {
   });
 
   it("shows Settings error when a theme refresh cannot render Halftone", async () => {
-    await applyWallpaperPath("C:/Pictures/current.png", false);
+    await applyWallpaperPath("C:/Pictures/current.png", "none");
     saveWallpaperPath("C:/Pictures/current.png");
-    saveWallpaperHalftone(true);
+    saveWallpaperEffect("halftone");
     mocks.prepareEffect.mockRejectedValue(new Error("worker failed"));
     let reportedError: string | null = null;
-    const unsubscribe = subscribeWallpaperHalftoneError((error) => {
+    const unsubscribe = subscribeWallpaperEffectError((error) => {
       reportedError = error;
     });
     await render("appearance");
@@ -616,10 +700,10 @@ describe("wallpaper settings races", () => {
       expect(mocks.prepareEffect).toHaveBeenCalled();
     });
     await vi.waitFor(() =>
-      expect(reportedError).toBe("Halftone could not be applied."),
+      expect(reportedError).toBe("Wallpaper effect could not be applied."),
     );
     await vi.waitFor(() =>
-      expect(container.textContent).toContain("Halftone could not be applied."),
+      expect(container.textContent).toContain("Wallpaper effect could not be applied."),
     );
     unsubscribe();
 

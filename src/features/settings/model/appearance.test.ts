@@ -62,9 +62,9 @@ import {
   loadWallpaperPath,
   saveWallpaperPath,
   loadWallpaperOpacity,
-  loadWallpaperHalftone,
+  loadWallpaperEffect,
   saveWallpaperOpacity,
-  saveWallpaperHalftone,
+  saveWallpaperEffect,
   WALLPAPER_OPACITY_DEFAULT,
   WALLPAPER_OPACITY_MIN,
   WALLPAPER_OPACITY_MAX,
@@ -75,6 +75,7 @@ import {
   WINDOW_GLASS_STRENGTH_MAX,
   THEME_DARK_LIGHTNESS_DEFAULT,
   NEW_THREAD_BACKGROUND_EFFECT_DEFAULT,
+  NEW_THREAD_BACKGROUND_EFFECTS,
 } from "./appearance";
 
 const KEY = "monocode.transcriptLayout";
@@ -91,6 +92,7 @@ const POPOVER_HIGHLIGHT_KEY = "monocode.popoverHighlight";
 const WALLPAPER_PATH_KEY = "monocode.wallpaperPath";
 const WALLPAPER_OPACITY_KEY = "monocode.wallpaperOpacity";
 const WALLPAPER_HALFTONE_KEY = "monocode.wallpaperHalftone";
+const WALLPAPER_EFFECT_KEY = "monocode.wallpaperEffect";
 const WINDOW_GLASS_STRENGTH_KEY = "monocode.windowGlassStrength";
 const SHOW_EXCLUDED_FILES_KEY = "monocode.showExcludedFiles";
 const CHAT_BACKGROUND_PATH_KEY = "monocode.chatBackgroundPath";
@@ -275,13 +277,14 @@ describe("wallpaper and glass strength settings", () => {
     localStorage.removeItem(WALLPAPER_PATH_KEY);
     localStorage.removeItem(WALLPAPER_OPACITY_KEY);
     localStorage.removeItem(WALLPAPER_HALFTONE_KEY);
+    localStorage.removeItem(WALLPAPER_EFFECT_KEY);
     localStorage.removeItem(WINDOW_GLASS_STRENGTH_KEY);
   });
 
   it("defaults to no wallpaper and the standard glass treatment", () => {
     expect(loadWallpaperPath()).toBe("");
     expect(loadWallpaperOpacity()).toBe(WALLPAPER_OPACITY_DEFAULT);
-    expect(loadWallpaperHalftone()).toBe(false);
+    expect(loadWallpaperEffect()).toBe("none");
     expect(loadWindowGlassStrength()).toBe(WINDOW_GLASS_STRENGTH_DEFAULT);
   });
 
@@ -291,8 +294,8 @@ describe("wallpaper and glass strength settings", () => {
     saveWindowGlassStrength(WINDOW_GLASS_STRENGTH_MIN - 20);
     expect(loadWallpaperPath()).toBe("C:/Pictures/wallpaper.png");
     expect(loadWallpaperOpacity()).toBe(WALLPAPER_OPACITY_MAX);
-    saveWallpaperHalftone(true);
-    expect(loadWallpaperHalftone()).toBe(true);
+    saveWallpaperEffect("halftone");
+    expect(loadWallpaperEffect()).toBe("halftone");
     expect(loadWindowGlassStrength()).toBe(WINDOW_GLASS_STRENGTH_MIN);
 
     saveWallpaperPath("");
@@ -300,9 +303,24 @@ describe("wallpaper and glass strength settings", () => {
     saveWindowGlassStrength(WINDOW_GLASS_STRENGTH_MAX);
     expect(loadWallpaperPath()).toBe("");
     expect(loadWallpaperOpacity()).toBe(WALLPAPER_OPACITY_MIN);
-    saveWallpaperHalftone(false);
-    expect(loadWallpaperHalftone()).toBe(false);
+    saveWallpaperEffect("none");
+    expect(loadWallpaperEffect()).toBe("none");
     expect(loadWindowGlassStrength()).toBe(WINDOW_GLASS_STRENGTH_MAX);
+  });
+
+  it("keeps legacy Halftone preferences and stores every wallpaper effect separately", () => {
+    localStorage.setItem(WALLPAPER_HALFTONE_KEY, "true");
+    expect(loadWallpaperEffect()).toBe("halftone");
+
+    for (const effect of NEW_THREAD_BACKGROUND_EFFECTS) {
+      saveWallpaperEffect(effect);
+      expect(loadWallpaperEffect()).toBe(effect);
+      expect(localStorage.getItem(WALLPAPER_EFFECT_KEY)).toBe(effect);
+      expect(localStorage.getItem(WALLPAPER_HALFTONE_KEY)).toBeNull();
+    }
+
+    localStorage.setItem(WALLPAPER_EFFECT_KEY, "unknown");
+    expect(loadWallpaperEffect()).toBe("none");
   });
 
 });

@@ -58,8 +58,8 @@ import {
   applyWallpaperOpacity,
   applyWallpaperPath,
   applyManagedWallpaperChoice,
-  applyWallpaperHalftone,
-  subscribeWallpaperHalftoneError,
+  applyWallpaperEffect,
+  subscribeWallpaperEffectError,
   applyWindowGlassStrength,
   applyPopoverSurfaceOpacity,
   applyTerminalFont,
@@ -115,7 +115,7 @@ import {
   loadPopoverHighlight,
   loadWallpaperOpacity,
   loadWallpaperPath,
-  loadWallpaperHalftone,
+  loadWallpaperEffect,
   loadWindowGlassStrength,
   loadPopoverSurfaceOpacity,
   loadTerminalFont,
@@ -141,7 +141,7 @@ import {
   savePopoverHighlight,
   saveWallpaperOpacity,
   saveWallpaperPath,
-  saveWallpaperHalftone,
+  saveWallpaperEffect,
   saveWindowGlassStrength,
   savePopoverSurfaceOpacity,
   saveTerminalFont,
@@ -1805,14 +1805,13 @@ function useAppearanceSettings(
   const [popoverHighlight, setPopoverHighlight] =
     useState(loadPopoverHighlight);
   const [wallpaperPath, setWallpaperPath] = useState(loadWallpaperPath);
-  const [wallpaperHalftone, setWallpaperHalftone] = useState(
-    loadWallpaperHalftone,
-  );
-  const [wallpaperHalftoneBusy, setWallpaperHalftoneBusy] = useState(false);
-  const [wallpaperHalftoneError, setWallpaperHalftoneError] = useState<
+  const [wallpaperEffect, setWallpaperEffect] =
+    useState<NewThreadBackgroundEffect>(loadWallpaperEffect);
+  const [wallpaperEffectBusy, setWallpaperEffectBusy] = useState(false);
+  const [wallpaperEffectError, setWallpaperEffectError] = useState<
     string | null
   >(null);
-  const wallpaperHalftoneRef = useRef(wallpaperHalftone);
+  const wallpaperEffectRef = useRef(wallpaperEffect);
   const wallpaperChoiceSequence = useRef(0);
   const wallpaperCommittedChoice = useRef(0);
   const wallpaperPickerSequence = useRef(0);
@@ -1856,7 +1855,7 @@ function useAppearanceSettings(
     controlledCollapsedProjectRailMode ?? storedCollapsedProjectRailMode;
 
   useEffect(
-    () => subscribeWallpaperHalftoneError(setWallpaperHalftoneError),
+    () => subscribeWallpaperEffectError(setWallpaperEffectError),
     [],
   );
 
@@ -1956,31 +1955,34 @@ function useAppearanceSettings(
 
   const beginWallpaperAction = useCallback(() => {
     wallpaperBusyCount.current += 1;
-    setWallpaperHalftoneBusy(true);
+    setWallpaperEffectBusy(true);
   }, []);
 
   const finishWallpaperAction = useCallback(() => {
     wallpaperBusyCount.current = Math.max(0, wallpaperBusyCount.current - 1);
-    setWallpaperHalftoneBusy(wallpaperBusyCount.current > 0);
+    setWallpaperEffectBusy(wallpaperBusyCount.current > 0);
   }, []);
 
-  const onWallpaperHalftone = useCallback(async (enabled: boolean) => {
-    const revision = ++wallpaperErrorRevision.current;
-    wallpaperHalftoneRef.current = enabled;
-    saveWallpaperHalftone(enabled);
-    setWallpaperHalftone(enabled);
-    beginWallpaperAction();
-    setWallpaperHalftoneError(null);
-    try {
-      const result = await applyWallpaperHalftone(enabled);
-      if (revision !== wallpaperErrorRevision.current || result.stale) return;
-      setWallpaperHalftoneError(
-        result.effectError ? "Halftone could not be applied." : null,
-      );
-    } finally {
-      finishWallpaperAction();
-    }
-  }, [beginWallpaperAction, finishWallpaperAction]);
+  const onWallpaperEffect = useCallback(
+    async (effect: NewThreadBackgroundEffect) => {
+      const revision = ++wallpaperErrorRevision.current;
+      wallpaperEffectRef.current = effect;
+      saveWallpaperEffect(effect);
+      setWallpaperEffect(effect);
+      beginWallpaperAction();
+      setWallpaperEffectError(null);
+      try {
+        const result = await applyWallpaperEffect(effect);
+        if (revision !== wallpaperErrorRevision.current || result.stale) return;
+        setWallpaperEffectError(
+          result.effectError ? "Wallpaper effect could not be applied." : null,
+        );
+      } finally {
+        finishWallpaperAction();
+      }
+    },
+    [beginWallpaperAction, finishWallpaperAction],
+  );
 
   const onWindowGlassStrength = useCallback((value: number) => {
     const next = applyWindowGlassStrength(value);
@@ -2000,12 +2002,12 @@ function useAppearanceSettings(
       wallpaperActionStarted = true;
       const choiceRevision = ++wallpaperChoiceSequence.current;
       const errorRevision = ++wallpaperErrorRevision.current;
-      setWallpaperHalftoneError(null);
+      setWallpaperEffectError(null);
       const result = await applyManagedWallpaperChoice(selected, {
         canCommit: () =>
           pickerEpoch === wallpaperPickerEpoch.current &&
           choiceRevision > wallpaperCommittedChoice.current,
-        getHalftone: () => wallpaperHalftoneRef.current,
+        getEffect: () => wallpaperEffectRef.current,
         commit: (managedPath) => {
           if (
             pickerEpoch !== wallpaperPickerEpoch.current ||
@@ -2017,7 +2019,7 @@ function useAppearanceSettings(
           wallpaperCommittedChoice.current = choiceRevision;
           setWallpaperPath(managedPath);
           if (errorRevision === wallpaperErrorRevision.current) {
-            setWallpaperHalftoneError(null);
+            setWallpaperEffectError(null);
           }
           return true;
         },
@@ -2025,7 +2027,7 @@ function useAppearanceSettings(
       });
       if (!result.success && !result.stale) {
         if (errorRevision === wallpaperErrorRevision.current) {
-          setWallpaperHalftoneError(
+          setWallpaperEffectError(
             result.failure === "persistence"
               ? "Wallpaper could not be saved."
               : result.failure === "render"
@@ -2041,7 +2043,7 @@ function useAppearanceSettings(
         pickerEpoch === wallpaperPickerEpoch.current
       ) {
         wallpaperErrorRevision.current += 1;
-        setWallpaperHalftoneError("Wallpaper could not be selected.");
+        setWallpaperEffectError("Wallpaper could not be selected.");
       }
     } finally {
       if (wallpaperActionStarted) finishWallpaperAction();
@@ -2055,7 +2057,7 @@ function useAppearanceSettings(
     wallpaperErrorRevision.current += 1;
     saveWallpaperPath("");
     setWallpaperPath("");
-    setWallpaperHalftoneError(null);
+    setWallpaperEffectError(null);
     void applyWallpaperPath("");
     void clearManagedWallpaper().catch((error) => {
       console.debug("[monocode] wallpaper cleanup", error);
@@ -2159,7 +2161,7 @@ function useAppearanceSettings(
     onPopoverBlur(POPOVER_BLUR_DEFAULT);
     onPopoverHighlight(POPOVER_HIGHLIGHT_DEFAULT);
     onWallpaperOpacity(WALLPAPER_OPACITY_DEFAULT);
-    void onWallpaperHalftone(false);
+    void onWallpaperEffect("none");
     onWindowGlassStrength(WINDOW_GLASS_STRENGTH_DEFAULT);
     onRemoveWallpaper();
     onShowExcludedFiles(SHOW_EXCLUDED_FILES_DEFAULT);
@@ -2192,7 +2194,7 @@ function useAppearanceSettings(
     onPopoverSurfaceOpacity,
     onRemoveWallpaper,
     onWallpaperOpacity,
-    onWallpaperHalftone,
+    onWallpaperEffect,
     onWindowGlassStrength,
     onTerminalFont,
     onTerminalFontSize,
@@ -2223,9 +2225,9 @@ function useAppearanceSettings(
     popoverHighlight,
     wallpaperPath,
     wallpaperOpacity,
-    wallpaperHalftone,
-    wallpaperHalftoneBusy,
-    wallpaperHalftoneError,
+    wallpaperEffect,
+    wallpaperEffectBusy,
+    wallpaperEffectError,
     windowGlassStrength,
     showExcludedFiles,
     chatBackgroundPath,
@@ -2252,7 +2254,7 @@ function useAppearanceSettings(
     onPopoverBlur,
     onPopoverHighlight,
     onWallpaperOpacity,
-    onWallpaperHalftone,
+    onWallpaperEffect,
     onWindowGlassStrength,
     onChooseWallpaper,
     onRemoveWallpaper,
@@ -2474,31 +2476,36 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
               />
             </Row>
             <Row
-              id="wallpaper-halftone"
-              label="Halftone wallpaper"
-              description="Applies the existing print-dot effect to the Windows wallpaper. The chat background keeps its own effect setting."
+              id="wallpaper-effect"
+              label="Wallpaper effect"
+              description={`${NEW_THREAD_BACKGROUND_EFFECT_DESCRIPTIONS[appearance.wallpaperEffect]} The chat background keeps its own effect setting.`}
             >
               <div className="flex flex-col items-end gap-1">
-                <Toggle
-                  label="Halftone wallpaper"
-                  on={appearance.wallpaperHalftone}
-                  onChange={(enabled) =>
-                    void appearance.onWallpaperHalftone(enabled)
+                <Segmented
+                  label="Wallpaper effect"
+                  value={appearance.wallpaperEffect}
+                  options={NEW_THREAD_BACKGROUND_EFFECTS.map((effect) => ({
+                    value: effect,
+                    label: NEW_THREAD_BACKGROUND_EFFECT_LABELS[effect],
+                  }))}
+                  onChange={(effect) =>
+                    void appearance.onWallpaperEffect(effect)
                   }
+                  optionIdPrefix="wallpaper-effect"
                   disabled={!appearance.wallpaperPath}
                 />
-                {appearance.wallpaperHalftoneBusy ? (
+                {appearance.wallpaperEffectBusy ? (
                   <span role="status" className="text-[11px] text-content/45">
                     Applying effect...
                   </span>
                 ) : null}
-                {appearance.wallpaperHalftoneError ? (
+                {appearance.wallpaperEffectError ? (
                   <span
                     role="alert"
                     className="max-w-48 text-right text-[11px] text-red-400"
                   >
-                    {appearance.wallpaperHalftoneError}
-                    {appearance.wallpaperHalftoneError.includes("Halftone")
+                    {appearance.wallpaperEffectError}
+                    {appearance.wallpaperEffectError.includes("effect")
                       ? " Showing the original wallpaper."
                       : null}
                   </span>
@@ -3894,6 +3901,7 @@ export function Segmented<T extends string>({
   className,
   hoverSlide,
   optionIdPrefix,
+  disabled = false,
 }: {
   label: string;
   value: T;
@@ -3904,12 +3912,16 @@ export function Segmented<T extends string>({
   /** Sliding hover marker over the options (shared hover system). */
   hoverSlide?: boolean;
   optionIdPrefix?: string;
+  disabled?: boolean;
 }) {
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className={`inline-grid max-w-full shrink-0 gap-0.5 rounded-md border border-content/10 p-0.5 text-[12px] ${className ?? ""}`}
+      aria-disabled={disabled}
+      className={`inline-grid max-w-full shrink-0 gap-0.5 rounded-md border border-content/10 p-0.5 text-[12px] ${
+        disabled ? "opacity-50" : ""
+      } ${className ?? ""}`}
       style={{
         gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))`,
       }}
@@ -3926,6 +3938,7 @@ export function Segmented<T extends string>({
           type="button"
           role="radio"
           aria-checked={value === option.value}
+          disabled={disabled}
           data-shared-hover-item={hoverSlide ? "" : undefined}
           onClick={() => onChange(option.value)}
           className={`min-w-0 rounded-[5px] px-2.5 py-1 ${

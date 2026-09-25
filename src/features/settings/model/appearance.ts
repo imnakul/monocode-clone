@@ -36,6 +36,7 @@ const POPOVER_BLUR_KEY = "monocode.popoverBlur";
 const POPOVER_HIGHLIGHT_KEY = "monocode.popoverHighlight";
 const WALLPAPER_PATH_KEY = "monocode.wallpaperPath";
 const WALLPAPER_OPACITY_KEY = "monocode.wallpaperOpacity";
+const WALLPAPER_EFFECT_KEY = "monocode.wallpaperEffect";
 const WALLPAPER_HALFTONE_KEY = "monocode.wallpaperHalftone";
 const WINDOW_GLASS_STRENGTH_KEY = "monocode.windowGlassStrength";
 const CHAT_BACKGROUND_PATH_KEY = "monocode.chatBackgroundPath";
@@ -659,12 +660,21 @@ export function saveWallpaperPath(value: string) {
   writeText(WALLPAPER_PATH_KEY, value);
 }
 
-export function loadWallpaperHalftone(): boolean {
-  return readFlag(WALLPAPER_HALFTONE_KEY) ?? false;
+export function loadWallpaperEffect(): NewThreadBackgroundEffect {
+  const saved = readText(WALLPAPER_EFFECT_KEY);
+  if (saved !== null) {
+    return isNewThreadBackgroundEffect(saved) ? saved : "none";
+  }
+  return readFlag(WALLPAPER_HALFTONE_KEY) ? "halftone" : "none";
 }
 
-export function saveWallpaperHalftone(value: boolean) {
-  writeFlag(WALLPAPER_HALFTONE_KEY, value);
+export function saveWallpaperEffect(effect: NewThreadBackgroundEffect): void {
+  try {
+    localStorage.setItem(WALLPAPER_EFFECT_KEY, effect);
+    localStorage.removeItem(WALLPAPER_HALFTONE_KEY);
+  } catch {
+    // private mode / quota
+  }
 }
 
 export function loadWallpaperOpacity(): number {
@@ -701,8 +711,8 @@ let wallpaperObjectUrl: string | null = null;
 let wallpaperRevision = 0;
 let wallpaperPathRevision = 0;
 let managedWallpaperChoicesInFlight = 0;
-let wallpaperHalftoneError: string | null = null;
-const wallpaperHalftoneErrorListeners = new Set<
+let wallpaperEffectError: string | null = null;
+const wallpaperEffectErrorListeners = new Set<
   (error: string | null) => void
 >();
 
@@ -715,7 +725,7 @@ export type WallpaperApplyResult = {
 
 export interface WallpaperChoiceOptions {
   canCommit: () => boolean;
-  getHalftone: () => boolean;
+  getEffect: () => NewThreadBackgroundEffect;
   commit: (managedPath: string) => boolean;
   publishError?: boolean;
   rejectEffectError?: boolean;
@@ -726,7 +736,7 @@ interface WallpaperPathCommitOptions {
   commit?: () => boolean;
   rejectEffectError?: boolean;
   publishError?: boolean;
-  getHalftone?: () => boolean;
+  getEffect?: () => NewThreadBackgroundEffect;
 }
 
 type WallpaperRenderOutput =
@@ -738,23 +748,23 @@ type WallpaperRenderOutput =
       effectError?: string;
     };
 
-export function subscribeWallpaperHalftoneError(
+export function subscribeWallpaperEffectError(
   listener: (error: string | null) => void,
 ): () => void {
-  wallpaperHalftoneErrorListeners.add(listener);
-  listener(wallpaperHalftoneError);
-  return () => wallpaperHalftoneErrorListeners.delete(listener);
+  wallpaperEffectErrorListeners.add(listener);
+  listener(wallpaperEffectError);
+  return () => wallpaperEffectErrorListeners.delete(listener);
 }
 
-function publishWallpaperHalftoneError(
+function publishWallpaperEffectError(
   result: WallpaperApplyResult,
 ): void {
   if (!result.success || result.stale) return;
-  wallpaperHalftoneError = result.effectError
-    ? "Halftone could not be applied."
+  wallpaperEffectError = result.effectError
+    ? "Wallpaper effect could not be applied."
     : null;
-  for (const listener of wallpaperHalftoneErrorListeners) {
-    listener(wallpaperHalftoneError);
+  for (const listener of wallpaperEffectErrorListeners) {
+    listener(wallpaperEffectError);
   }
 }
 
@@ -779,9 +789,9 @@ async function renderWallpaper(
   revision: number,
   sourceUrl: string,
   sourceKey: string,
-  halftone: boolean,
+  effect: NewThreadBackgroundEffect,
 ): Promise<WallpaperRenderOutput> {
-  if (!halftone) {
+  if (effect === "none") {
     return { status: "ready", displayUrl: sourceUrl, effectUrl: null };
   }
 
@@ -789,7 +799,7 @@ async function renderWallpaper(
     const blob = await prepareNewThreadBackgroundEffect(
       sourceKey,
       sourceUrl,
-      "halftone",
+      effect,
       isLightScheme(),
     );
     if (revision !== wallpaperRevision) return { status: "stale" };
@@ -804,7 +814,7 @@ async function renderWallpaper(
       effectError:
         error instanceof Error
           ? error.message
-          : "Unable to render wallpaper Halftone.",
+          : "Unable to render the wallpaper effect.",
     };
   }
 }
@@ -868,7 +878,7 @@ function wallpaperMime(path: string): string {
  */
 export async function applyWallpaperPath(
   path: string,
-  halftone = loadWallpaperHalftone(),
+  effect = loadWallpaperEffect(),
   commitOptions?: WallpaperPathCommitOptions,
 ): Promise<WallpaperApplyResult> {
   const isCandidate = commitOptions !== undefined;
@@ -885,7 +895,7 @@ export async function applyWallpaperPath(
     releaseWallpaperUrls();
     const result = { success: !path };
     if (commitOptions?.publishError !== false) {
-      publishWallpaperHalftoneError(result);
+      publishWallpaperEffectError(result);
     }
     return result;
   }
@@ -908,13 +918,13 @@ export async function applyWallpaperPath(
       return { success: true, stale: true };
     }
     const sourceKey = `${path}?v=${revision}`;
-    let effectiveHalftone = halftone;
+    let effectiveEffect = effect;
     while (true) {
       const output = await renderWallpaper(
         revision,
         sourceUrl,
         sourceKey,
-        effectiveHalftone,
+        effectiveEffect,
       );
       if (output.status === "stale" || revision !== wallpaperRevision) {
         revokeRenderedWallpaper(output);
@@ -926,8 +936,8 @@ export async function applyWallpaperPath(
           return { success: true, stale: true };
         }
         revision = wallpaperRevision;
-        effectiveHalftone =
-          commitOptions?.getHalftone?.() ?? loadWallpaperHalftone();
+        effectiveEffect =
+          commitOptions?.getEffect?.() ?? loadWallpaperEffect();
         continue;
       }
       if (output.effectError && commitOptions?.rejectEffectError) {
@@ -978,7 +988,7 @@ export async function applyWallpaperPath(
         ...(output.effectError ? { effectError: output.effectError } : {}),
       };
       if (commitOptions?.publishError !== false) {
-        publishWallpaperHalftoneError(result);
+        publishWallpaperEffectError(result);
       }
       return result;
     }
@@ -1013,9 +1023,9 @@ export async function applyManagedWallpaperChoice(
   try {
     const managedPath = await persistWallpaper(sourcePath);
     if (!options.canCommit()) return { success: true, stale: true };
-    return await applyWallpaperPath(managedPath, options.getHalftone(), {
+    return await applyWallpaperPath(managedPath, options.getEffect(), {
       canCommit: options.canCommit,
-      getHalftone: options.getHalftone,
+      getEffect: options.getEffect,
       rejectEffectError: options.rejectEffectError ?? true,
       publishError: options.publishError,
       commit: () => options.commit(managedPath),
@@ -1042,8 +1052,8 @@ export async function applyManagedWallpaperChoice(
 }
 
 /** Re-renders the current wallpaper choice without touching chat background state. */
-export async function applyWallpaperHalftone(
-  enabled: boolean,
+export async function applyWallpaperEffect(
+  effect: NewThreadBackgroundEffect,
 ): Promise<WallpaperApplyResult> {
   const revision = ++wallpaperRevision;
   const sourceUrl = wallpaperSourceUrl;
@@ -1053,7 +1063,7 @@ export async function applyWallpaperHalftone(
     revision,
     sourceUrl,
     sourceKey,
-    enabled,
+    effect,
   );
   if (output.status === "stale" || revision !== wallpaperRevision) {
     revokeRenderedWallpaper(output);
@@ -1064,13 +1074,14 @@ export async function applyWallpaperHalftone(
     success: true,
     ...(output.effectError ? { effectError: output.effectError } : {}),
   };
-  publishWallpaperHalftoneError(result);
+  publishWallpaperEffectError(result);
   return result;
 }
 
 function refreshWallpaperTheme() {
-  if (loadWallpaperHalftone() && wallpaperSourceUrl) {
-    void applyWallpaperHalftone(true);
+  const effect = loadWallpaperEffect();
+  if (effect !== "none" && wallpaperSourceUrl) {
+    void applyWallpaperEffect(effect);
   }
 }
 
@@ -1078,14 +1089,14 @@ async function initWallpaper() {
   const pathRevision = wallpaperPathRevision;
   const path = loadWallpaperPath();
   if (!IS_WINDOWS || !path) {
-    await applyWallpaperPath(path, loadWallpaperHalftone());
+    await applyWallpaperPath(path, loadWallpaperEffect());
     return;
   }
   const result = await applyManagedWallpaperChoice(
     path,
     {
       canCommit: () => pathRevision === wallpaperPathRevision,
-      getHalftone: loadWallpaperHalftone,
+      getEffect: loadWallpaperEffect,
       commit: (managedPath) => {
         if (pathRevision !== wallpaperPathRevision) return false;
         saveWallpaperPath(managedPath);
@@ -1097,7 +1108,7 @@ async function initWallpaper() {
   if (!result.success && pathRevision === wallpaperPathRevision) {
     // Older/dev native hosts may not have the persistence command yet. Keep the
     // existing wallpaper usable until the next native restart.
-    await applyWallpaperPath(path, loadWallpaperHalftone());
+    await applyWallpaperPath(path, loadWallpaperEffect());
   }
 }
 

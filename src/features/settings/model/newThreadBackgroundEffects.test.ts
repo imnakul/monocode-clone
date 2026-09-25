@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import tauriConfig from "../../../../src-tauri/tauri.conf.json";
 import {
   applyPreparedNewThreadBackground,
   clearPreparedNewThreadBackground,
@@ -14,6 +15,20 @@ afterEach(() => {
 });
 
 describe("new-thread background effects", () => {
+  it("allows wallpaper blob URLs to be read under both Tauri CSPs", () => {
+    for (const policy of [
+      tauriConfig.app.security.csp,
+      tauriConfig.app.security.devCsp,
+    ]) {
+      const connectSources = policy
+        .split(";")
+        .map((directive) => directive.trim())
+        .find((directive) => directive.startsWith("connect-src "))
+        ?.split(/\s+/);
+      expect(connectSources).toContain("blob:");
+    }
+  });
+
   it("uses the original asset directly for None so animation is preserved", async () => {
     const fetch = vi.fn();
     const worker = vi.fn(() => {

@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { applyWallpaperHalftone, applyWallpaperPath } from "./appearance";
+import { applyWallpaperEffect, applyWallpaperPath } from "./appearance";
 import { prepareNewThreadBackgroundEffect } from "./newThreadBackgroundEffects";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -57,8 +57,25 @@ afterEach(async () => {
 });
 
 describe("wallpaper Halftone", () => {
+  it.each(["dither", "ascii", "scanlines"] as const)(
+    "renders %s with the shared worker without changing chat",
+    async (effect) => {
+      await applyWallpaperPath("C:/Pictures/wallpaper.png", effect);
+
+      expect(prepareNewThreadBackgroundEffect).toHaveBeenCalledWith(
+        expect.stringContaining("C:/Pictures/wallpaper.png"),
+        "blob:wallpaper-1",
+        effect,
+        false,
+      );
+      expect(
+        document.documentElement.style.getPropertyValue("--chat-background-image"),
+      ).toBe('url("blob:chat-background")');
+    },
+  );
+
   it("uses an independent wallpaper URL and the shared Halftone renderer", async () => {
-    const result = await applyWallpaperPath("C:/Pictures/wallpaper.png", true);
+    const result = await applyWallpaperPath("C:/Pictures/wallpaper.png", "halftone");
 
     expect(result).toEqual({ success: true });
     expect(prepareNewThreadBackgroundEffect).toHaveBeenCalledWith(
@@ -80,7 +97,7 @@ describe("wallpaper Halftone", () => {
       new Error("worker failed"),
     );
 
-    const result = await applyWallpaperPath("C:/Pictures/wallpaper.png", true);
+    const result = await applyWallpaperPath("C:/Pictures/wallpaper.png", "halftone");
 
     expect(result).toEqual({ success: true, effectError: "worker failed" });
     expect(
@@ -92,8 +109,8 @@ describe("wallpaper Halftone", () => {
   });
 
   it("restores the source image when Halftone is turned off", async () => {
-    await applyWallpaperPath("C:/Pictures/wallpaper.png", true);
-    await applyWallpaperHalftone(false);
+    await applyWallpaperPath("C:/Pictures/wallpaper.png", "halftone");
+    await applyWallpaperEffect("none");
 
     expect(
       document.documentElement.style.getPropertyValue("--app-wallpaper-image"),
@@ -112,11 +129,11 @@ describe("wallpaper Halftone", () => {
           : Promise.resolve(new Blob(["halftone"])),
     );
 
-    const oldRequest = applyWallpaperPath("C:/Pictures/first.png", true);
+    const oldRequest = applyWallpaperPath("C:/Pictures/first.png", "halftone");
     await vi.waitFor(() =>
       expect(prepareNewThreadBackgroundEffect).toHaveBeenCalledTimes(1),
     );
-    await applyWallpaperPath("C:/Pictures/second.png", false);
+    await applyWallpaperPath("C:/Pictures/second.png", "none");
     finishOldRender?.(new Blob(["late result"]));
 
     expect(await oldRequest).toEqual({ success: true, stale: true });
@@ -126,7 +143,7 @@ describe("wallpaper Halftone", () => {
   });
 
   it("keeps the visible wallpaper URL alive when a newer image read fails", async () => {
-    await applyWallpaperPath("C:/Pictures/existing.png", true);
+    await applyWallpaperPath("C:/Pictures/existing.png", "halftone");
     const visibleUrl = "blob:wallpaper-2";
     let finishNewRender: ((blob: Blob) => void) | undefined;
     vi.mocked(prepareNewThreadBackgroundEffect).mockImplementation(
@@ -139,7 +156,7 @@ describe("wallpaper Halftone", () => {
     );
     const pendingWallpaper = applyWallpaperPath(
       "C:/Pictures/pending.png",
-      true,
+      "halftone",
     );
     await vi.waitFor(() => expect(finishNewRender).toBeTypeOf("function"));
 
@@ -154,7 +171,7 @@ describe("wallpaper Halftone", () => {
     });
     const failedRead = await applyWallpaperPath(
       "C:/Pictures/missing.png",
-      true,
+      "halftone",
     );
     finishNewRender?.(new Blob(["late halftone"]));
 
@@ -167,7 +184,7 @@ describe("wallpaper Halftone", () => {
   });
 
   it("lets a newer off choice win while an older Halftone render is slow", async () => {
-    await applyWallpaperPath("C:/Pictures/wallpaper.png", false);
+    await applyWallpaperPath("C:/Pictures/wallpaper.png", "none");
     let finishRender: ((blob: Blob) => void) | undefined;
     vi.mocked(prepareNewThreadBackgroundEffect).mockImplementation(
       () =>
@@ -175,10 +192,10 @@ describe("wallpaper Halftone", () => {
           finishRender = resolve;
         }),
     );
-    const slowEnable = applyWallpaperHalftone(true);
+    const slowEnable = applyWallpaperEffect("halftone");
     await vi.waitFor(() => expect(finishRender).toBeTypeOf("function"));
 
-    const latestDisable = await applyWallpaperHalftone(false);
+    const latestDisable = await applyWallpaperEffect("none");
     finishRender?.(new Blob(["late halftone"]));
 
     expect(latestDisable).toEqual({ success: true });
