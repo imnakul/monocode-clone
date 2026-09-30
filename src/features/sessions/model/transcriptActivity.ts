@@ -122,7 +122,7 @@ export function isNoticeBlock(block: Block): boolean {
 
 /** Turn chrome the trail absorbed: a status ping, not a notice. */
 function isStatusStep(block: Block): boolean {
-  return block.role === "system" && !block.interjection;
+  return block.role === "system" && !block.interjection && !block.branchOrigin;
 }
 
 /**
@@ -139,7 +139,7 @@ function isStatusStep(block: Block): boolean {
 export function isActivityBlock(block: Block): boolean {
   if (isThinkingBlock(block)) return true;
   if (block.role === "system") {
-    return !block.interjection && !isNoticeBlock(block);
+    return !block.interjection && !block.branchOrigin && !isNoticeBlock(block);
   }
   if (block.role !== "tool" && block.role !== "approval") return false;
   if (
@@ -215,7 +215,7 @@ export function groupTurns(blocks: Block[], managed = false): Block[][] {
     // message. Dropping it here folds the reply into the turn above, so a
     // supervised run reads as one conversation.
     if (block.internal && !managed) continue;
-    if (block.role === "handoff") {
+    if (block.role === "handoff" || block.branchOrigin) {
       if (current.length > 0) turns.push(current);
       turns.push([block]);
       current = [];

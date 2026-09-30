@@ -5,12 +5,17 @@ import {
   MAX_FORK_TURNS,
   sidechatContextBlock,
   sidechatTitle,
+  wrapBranchSummaryPrompt,
 } from "./fork";
 import type { Block } from "./session";
 
 function block(partial: Partial<Block> & Pick<Block, "id" | "role">): Block {
   return { text: "", ...partial };
 }
+
+it("wraps a branch summary exactly without changing the user's text", () => {
+  expect(wrapBranchSummaryPrompt("bundle", "hello")).toBe("bundle\n\nContinue from the conversation above. The user's new message:\n\nhello");
+});
 
 describe("forkThreadBlocks", () => {
   it("copies up to the cutoff with fresh ids", () => {

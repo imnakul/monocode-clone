@@ -39,6 +39,7 @@ const {
   __claudeTestReset,
 } = await import("./claude");
 import type { HarnessEvent } from "../../core/types";
+import { NativeForkError, type NativeForkRequest } from "../../core/types";
 import type { RuntimeMode, TurnIntent } from "../../../../features/sessions/model/session";
 
 function parse() {
@@ -97,12 +98,14 @@ async function startTurn(
     model?: string;
     modelSettings?: Record<string, string>;
     text?: string;
+    fork?: NativeForkRequest;
   } = {},
 ) {
   const events: HarnessEvent[] = [];
   const userCount = parse().filter((message) => message.type === "user").length;
   const turn = sendClaudeTurn({
     sessionId,
+    fork: options.fork,
     cwd: options.cwd ?? "/repo",
     model: options.model ?? "claude:claude-sonnet-5",
     modelSettings: options.modelSettings ?? {},
@@ -131,6 +134,48 @@ async function startTurn(
   );
   return { events, turn };
 }
+
+describe("Claude native fork", () => {
+  it("delays binding until result and records the last top-level assistant uuid", async () => {
+    const { events, turn } = await startTurn("claude-live", { text: "hello", fork: { sourceProviderSessionId: "source", forkPoint: "at-uuid" } });
+    const args = spawned[0];
+    expect(args[args.indexOf("--resume") + 1]).toBe("source");
+    expect(args).toContain("--fork-session");
+    expect(args[args.indexOf("--resume-session-at") + 1]).toBe("at-uuid");
+    const newId = args[args.indexOf("--session-id") + 1];
+    expect(newId).not.toBe("source");
+    expect(events.some(event => event.type === "session.providerBound")).toBe(false);
+    emit({ type: "assistant", uuid: "first", message: { content: [] } });
+    emit({ type: "assistant", uuid: "last", message: { content: [] } });
+    emit({ type: "assistant", uuid: "child", parent_tool_use_id: "tool", message: { content: [] } });
+    emit({ type: "result", subtype: "success" }); await turn;
+    expect(events).toContainEqual({ type: "turn.forkPoint", providerForkPoint: "last" });
+    expect(events).toContainEqual({ type: "session.providerBound", providerSessionId: newId });
+  });
+  it("rejects exit before initialization without binding or writing a user message and re-forks", async () => {
+    const events: HarnessEvent[] = [];
+    const pending = sendClaudeTurn({ sessionId: "claude-live", cwd: "/repo", model: "claude:claude-sonnet-5", runtimeMode: "supervised", text: "hello", fork: { sourceProviderSessionId: "source" }, onEvent: event => events.push(event) });
+    const rejected = expect(pending).rejects.toBeInstanceOf(NativeForkError);
+    await waitFor(() => !!outgoingControlRequest("initialize"), "init request"); onExit?.(1); await rejected;
+    expect(events.some(event => event.type === "session.providerBound")).toBe(false);
+    expect(parse().some(message => message.type === "user")).toBe(false);
+    const firstId = spawned[0][spawned[0].indexOf("--session-id") + 1]; sent.length = 0;
+    const next = await startTurn("claude-live", { fork: { sourceProviderSessionId: "source" } });
+    expect(spawned[1]).toContain("--fork-session");
+    expect(spawned[1][spawned[1].indexOf("--session-id") + 1]).not.toBe(firstId);
+    emit({ type: "result", subtype: "success" }); await next.turn;
+  });
+  it("exit after the user write is a generic failure, and the next user send re-forks", async () => {
+    const first = await startTurn("claude-live", { fork: { sourceProviderSessionId: "source" } });
+    const rejected = expect(first.turn).rejects.toThrow("Claude Code exited"); onExit?.(1); await rejected;
+    expect(spawned).toHaveLength(1); expect(first.events.some(event => event.type === "session.providerBound")).toBe(false);
+    const firstId = spawned[0][spawned[0].indexOf("--session-id") + 1]; sent.length = 0;
+    const next = await startTurn("claude-live", { fork: { sourceProviderSessionId: "source" } });
+    expect(spawned).toHaveLength(2); expect(spawned[1]).toContain("--fork-session");
+    expect(spawned[1][spawned[1].indexOf("--session-id") + 1]).not.toBe(firstId);
+    emit({ type: "result", subtype: "success" }); await next.turn;
+  });
+});
 
 function sendFollowup(
   sessionId: string,

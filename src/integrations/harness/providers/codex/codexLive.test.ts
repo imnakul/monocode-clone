@@ -31,6 +31,7 @@ const {
   __codexTestReset,
 } = await import("./codex");
 import type { HarnessEvent } from "../../core/types";
+import { NativeForkError, type NativeForkRequest } from "../../core/types";
 import { newSession, type RuntimeMode, type TurnIntent } from "../../../../features/sessions/model/session";
 import { applyHarnessEvent } from "../../core/apply";
 
@@ -70,6 +71,7 @@ async function startTurn(
     expectResume?: boolean;
     beforeThreadReply?: () => Promise<void>;
     onAccepted?: () => void;
+    fork?: NativeForkRequest;
   } = {},
 ) {
   const events: HarnessEvent[] = [];
@@ -83,6 +85,7 @@ async function startTurn(
   }
   const turn = sendCodexTurn({
     sessionId,
+    fork: options.fork,
     cwd: "/repo",
     model: "codex:gpt-5.4",
     modelSettings: {},
@@ -101,7 +104,7 @@ async function startTurn(
   );
   reply(parse().find((m) => m.method === "initialize")!.id as number, {});
   const threadMethod =
-    (options.expectResume ?? options.resume) ? "thread/resume" : "thread/start";
+    (options.expectResume ?? options.resume) ? "thread/resume" : options.fork ? "thread/fork" : "thread/start";
   await waitFor(
     () => parse().some((m) => m.method === threadMethod),
     threadMethod,
@@ -123,6 +126,29 @@ async function startTurn(
 }
 
 describe("codex live turn sequence", () => {
+  it("forks without starting a fresh thread, then resumes the fork on the next send", async () => {
+    const { events, turn } = await startTurn("codex-live", { fork: { sourceProviderSessionId: "source", forkPoint: "turn-2" } });
+    expect(parse().find(message => message.method === "thread/fork")?.params).toEqual({ threadId: "source", lastTurnId: "turn-2", excludeTurns: true, cwd: "/repo", approvalPolicy: "untrusted", approvalsReviewer: "user", sandbox: "read-only", model: "gpt-5.4" });
+    expect(parse().some(message => message.method === "thread/start" || message.method === "thread/resume")).toBe(false);
+    expect(events).toContainEqual({ type: "session.providerBound", providerSessionId: "thr_1" });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } }); await turn;
+    await stopCodexSession("codex-live"); sent.length = 0;
+    const next = await startTurn("codex-live", { expectResume: true, fork: { sourceProviderSessionId: "source" } });
+    expect(parse().find(message => message.method === "thread/resume")?.params).toMatchObject({ threadId: "thr_1" });
+    expect(parse().some(message => message.method === "thread/fork")).toBe(false);
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } }); await next.turn;
+  });
+  it.each(["reject", "missing-id"] as const)("proves a %s fork failure precedes turn/start", async outcome => {
+    const pending = sendCodexTurn({ sessionId: "codex-live", cwd: "/repo", model: "codex:gpt-5.4", runtimeMode: "supervised", text: "hello", fork: { sourceProviderSessionId: "source" }, onEvent: () => {} });
+    const rejected = expect(pending).rejects.toBeInstanceOf(NativeForkError);
+    await waitFor(() => parse().some(message => message.method === "initialize"), "initialize");
+    reply(parse().find(message => message.method === "initialize")!.id as number, {});
+    await waitFor(() => parse().some(message => message.method === "thread/fork"), "fork");
+    const id = parse().find(message => message.method === "thread/fork")!.id;
+    if (outcome === "reject") onLine?.(JSON.stringify({ id, error: { code: -1, message: "fork rejected" } }));
+    else reply(id as number, {});
+    await rejected; expect(parse().some(message => message.method === "turn/start")).toBe(false);
+  });
   beforeEach(() => {
     sent.length = 0;
     onLine = undefined;

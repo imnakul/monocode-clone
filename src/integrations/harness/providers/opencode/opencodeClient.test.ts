@@ -14,6 +14,16 @@ vi.mock("../../core/child", () => ({
 import { OpenCodeClient } from "./opencodeClient";
 
 describe("OpenCodeClient.summarizeSession", () => {
+  it("sends the exclusive fork message id and an empty body for whole-session forks", async () => {
+    mocks.harnessHttp.mockResolvedValue({ status: 200, body: JSON.stringify({ id: "forked" }) });
+    const client = new OpenCodeClient("http://127.0.0.1:4096", "/repo");
+    await client.forkSession("source", "/worktree", "msg_9");
+    expect(mocks.harnessHttp).toHaveBeenLastCalledWith(expect.objectContaining({
+      url: "http://127.0.0.1:4096/session/source/fork?directory=%2Fworktree", method: "POST", body: '{"messageID":"msg_9"}',
+    }));
+    await client.forkSession("source", "/worktree");
+    expect(mocks.harnessHttp).toHaveBeenLastCalledWith(expect.objectContaining({ body: "{}" }));
+  });
   beforeEach(() => {
     mocks.harnessHttp.mockReset();
     mocks.harnessHttp.mockResolvedValue({ status: 200, body: "true" });

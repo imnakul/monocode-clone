@@ -48,6 +48,7 @@ import {
   extractSkillName,
 } from "../../core/preview";
 import { streamTextDelta } from "../../core/streamText";
+import { NativeForkError, type NativeForkRequest } from "../../core/types";
 import type {
   ApprovalDecision,
   CompactContextInput,
@@ -78,6 +79,7 @@ type PendingQuestion = {
 };
 
 type Live = {
+  turnUserMessageId?: string;
   client: OpenCodeClient;
   openCodeSessionId: string;
   cwd: string;
@@ -421,6 +423,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     const client = new OpenCodeClient(url, input.cwd);
     const openCodeSession = await resolveSession(client, {
       resume: canResume ? resume : undefined,
+      fork: input.fork,
       runtimeMode: input.runtimeMode,
       cwd: input.cwd,
     });
@@ -527,11 +530,30 @@ async function resolveSession(
   client: OpenCodeClient,
   input: {
     resume?: Resume;
+    fork?: NativeForkRequest;
     runtimeMode: RuntimeMode;
     cwd: string;
   },
 ) {
   const permission = buildOpenCodePermissionRules(input.runtimeMode);
+  if (!input.resume && input.fork) {
+    let forked;
+    try {
+      const { sourceProviderSessionId, forkPoint } = input.fork;
+      if (forkPoint) {
+        const messages = await client.getMessages(sourceProviderSessionId);
+        if (!messages.some(message => message.info?.id === forkPoint)) {
+          throw new NativeForkError("OpenCode couldn't find where this turn ends.");
+        }
+      }
+      forked = await client.forkSession(sourceProviderSessionId, input.cwd, forkPoint);
+      if (!forked?.id) throw new NativeForkError("OpenCode could not open the original conversation.");
+    } catch (error) {
+      throw error instanceof NativeForkError ? error : new NativeForkError(error instanceof Error ? error.message : "OpenCode could not open the original conversation.");
+    }
+    await client.updateSession(forked.id, { permission }).catch(() => undefined);
+    return forked;
+  }
   if (input.resume) {
     try {
       const adopted = await client.getSession(input.resume.sessionId);
@@ -568,6 +590,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     live.turnFailed = reject;
   });
   live.activeTurn = true;
+  live.turnUserMessageId = undefined;
   live.turnMetricsByMessageId.clear();
   settlePendingTurn(live);
 
@@ -648,6 +671,10 @@ async function handleEvent(
       const role = stringField(info, "role");
       const agent = stringField(info, "agent");
       const hidden = agent != null && KNOWN_HIDDEN_AGENTS.has(agent);
+      if (id && role === "user" && !hidden && payloadSessionId === live.openCodeSessionId && live.activeTurn && !live.turnUserMessageId) {
+        live.turnUserMessageId = id;
+        live.onEvent({ type: "turn.started", providerTurnId: id });
+      }
       if (id && (role === "user" || role === "assistant")) {
         live.messageRoleById.set(id, hidden ? "hidden" : role);
       }

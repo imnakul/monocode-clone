@@ -404,6 +404,8 @@ export function buildClaudeSpawnArgs(input: {
   permissionMode?: ClaudePermissionMode;
   resume?: string;
   sessionId?: string;
+  forkSession?: boolean;
+  resumeSessionAt?: string;
   settings?: ClaudeCliSettings;
   includePartialMessages?: boolean;
   maxTurns?: number;
@@ -455,7 +457,9 @@ export function buildClaudeSpawnArgs(input: {
     args.push("--allow-dangerously-skip-permissions");
   }
   if (input.resume) args.push("--resume", input.resume);
-  if (input.sessionId) args.push("--session-id", input.sessionId);
+  if (input.sessionId && (!input.resume || input.forkSession)) args.push("--session-id", input.sessionId);
+  if (input.forkSession) args.push("--fork-session");
+  if (input.resumeSessionAt) args.push("--resume-session-at", input.resumeSessionAt);
   if (input.maxTurns) args.push("--max-turns", String(input.maxTurns));
   return args;
 }

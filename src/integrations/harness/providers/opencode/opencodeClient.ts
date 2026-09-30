@@ -79,13 +79,14 @@ export class OpenCodeClient {
   async forkSession(
     sessionID: string,
     directory: string,
+    messageID?: string,
   ): Promise<OpenCodeSession> {
     return this.request<OpenCodeSession>(
       "POST",
       `/session/${enc(sessionID)}/fork`,
       {
         query: { directory },
-        body: {},
+        body: messageID ? { messageID } : {},
       },
     );
   }

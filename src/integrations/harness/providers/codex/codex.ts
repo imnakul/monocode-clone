@@ -49,6 +49,8 @@ import {
   type McpFormUnsupportedReason,
 } from "./codexElicitation";
 import { joinStreamText, snapshotRemainder } from "../../core/streamText";
+import { NativeForkError } from "../../core/types";
+import { buildThreadForkParams } from "./codexProtocol";
 import type {
   ApprovalDecision,
   ApprovalScope,
@@ -592,6 +594,18 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       }
     }
 
+    if (!canResume && input.fork) {
+      try {
+        const opened = await rpc.request<{ thread?: { id?: string } }>("thread/fork", buildThreadForkParams({
+          threadId: input.fork.sourceProviderSessionId, lastTurnId: input.fork.forkPoint,
+          cwd: input.cwd, runtimeMode: input.runtimeMode, controlsAgents: input.controlsAgents, model, serviceTier,
+        }));
+        threadId = opened.thread?.id?.trim();
+        if (!threadId) throw new Error("Codex did not return a forked thread id");
+      } catch (error) {
+        throw new NativeForkError(error instanceof Error ? error.message : "Codex could not open the original conversation.");
+      }
+    }
     if (!threadId) {
       const opened = await rpc.request<{ thread?: { id?: string } }>(
         "thread/start",

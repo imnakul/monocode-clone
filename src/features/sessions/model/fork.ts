@@ -61,9 +61,19 @@ export function forkThreadBlocks(
     }
     const next = { ...block, id: crypto.randomUUID() };
     delete next.streaming;
+    delete next.providerTurnId;
+    delete next.providerForkPoint;
+    if (next.branchOrigin) {
+      next.branchOrigin = { ...next.branchOrigin, status: "done" };
+      delete next.branchOrigin.fork;
+    }
     out.push(next);
   }
   return out;
+}
+
+export function wrapBranchSummaryPrompt(bundleText: string, userText: string): string {
+  return `${bundleText}\n\nContinue from the conversation above. The user's new message:\n\n${userText}`;
 }
 
 function capForkText(text: string, max: number): string {

@@ -1,4 +1,6 @@
 export { startHarnessBridge, killAllChildren } from "./core/child";
+export { NativeForkError } from "./core/types";
+export type { NativeForkRequest } from "./core/types";
 export {
   harnessLoginArgs,
   isHarnessAuthError,

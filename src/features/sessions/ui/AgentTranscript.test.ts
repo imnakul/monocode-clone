@@ -6,6 +6,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Block } from "../model/session";
 import { AgentTranscript } from "./AgentTranscript";
+import { planBranch, convertToPrefixSummary } from "../model/branchPlan";
+import { newSession } from "../model/session";
+import { groupTurns } from "../model/transcriptActivity";
 
 function tool(id: string, approval?: Block["approval"]): Block {
   return {
@@ -43,6 +46,23 @@ afterEach(() => {
 });
 
 describe("AgentTranscript collapsed work", () => {
+  it("renders native, composer and prefix origins as separate accessible divider rows", () => {
+    const source = { ...newSession("claude", "/repo"), id: "source", title: "Original", providerSessionId: "provider", blocks: [
+      { id: "u1", role: "user" as const, text: "hello" }, { id: "a1", role: "assistant" as const, text: "reply" },
+    ] };
+    const native = planBranch({ source, turn: source.blocks, newSessionId: "branch" });
+    const copied = planBranch({ source: { ...source, providerSessionId: undefined }, turn: source.blocks, newSessionId: "branch" });
+    if (!native || !copied) throw new Error("missing plans");
+    const prefix = convertToPrefixSummary({ ...source, id: "branch", blocks: native.blocks }, "fork-failed");
+    for (const blocks of [native.blocks, copied.blocks, prefix.blocks]) {
+      const divider = blocks[blocks.length - 1];
+      expect(groupTurns(blocks)).toEqual([blocks.slice(0, 2), [divider]]);
+      const markup = render(blocks);
+      const container = document.createElement("div"); container.innerHTML = markup;
+      const separator = container.querySelector('[role="separator"]');
+      expect(separator?.getAttribute("aria-label")).toBe(divider.text); expect(separator?.textContent).toBe(divider.text);
+    }
+  });
   it("hides provider authentication errors handled by the sign-in modal", () => {
     const markup = renderToStaticMarkup(
       createElement(AgentTranscript, {

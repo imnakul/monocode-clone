@@ -9,6 +9,8 @@ import type {
   AgentRunMeta,
   AgentStep,
   Block,
+  BranchOrigin,
+  BranchSummaryReason,
   HarnessId,
   HandoffMeta,
   HandoffStatus,
@@ -520,6 +522,13 @@ function sanitizeBlock(block: Block): Block | null {
   const turnModel = sanitizeTurnModel(block.turnModel);
   if (block.role === "user" && turnModel) next.turnModel = turnModel;
   if (block.role === "user" && block.draft) next.draft = true;
+  if (block.role === "user" && typeof block.providerForkPoint === "string" && isPersistableId(block.providerForkPoint)) {
+    next.providerForkPoint = block.providerForkPoint;
+  }
+  if (block.role === "system") {
+    const origin = sanitizeBranchOrigin(block.branchOrigin);
+    if (origin) next.branchOrigin = origin;
+  }
   if (
     block.role === "user" &&
     typeof block.providerTurnId === "string" &&
@@ -584,6 +593,43 @@ function sanitizeBlock(block: Block): Block | null {
     }
   }
   return next;
+}
+
+function sanitizeBranchOrigin(value: unknown): BranchOrigin | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const reasons: BranchSummaryReason[] = ["different-provider", "not-started", "pending-switch", "orchestration-worker", "no-fork-point", "source-continued", "branch-changed", "fork-failed"];
+  // Persistence accepts untrusted JSON, so narrow every field before retaining it.
+  const row = value as Record<string, unknown>;
+  const harness = HARNESSES.find(harness => harness === row.harness);
+  const reason = reasons.find(reason => reason === row.reason);
+  if (typeof row.sessionId !== "string" || !isPersistableId(row.sessionId)
+    || typeof row.sourceSessionId !== "string" || !isPersistableId(row.sourceSessionId)
+    || typeof row.sourceTitle !== "string" || !harness
+    || (row.mode !== "native" && row.mode !== "summary")
+    || (row.status !== "pending" && row.status !== "uncertain" && row.status !== "done")
+    || (row.reason !== undefined && !reason)
+    || (row.summaryDelivery !== undefined && row.summaryDelivery !== "composer" && row.summaryDelivery !== "prefix")
+    || (row.mode === "summary" && (!reason || !row.summaryDelivery || row.status === "uncertain"))) return undefined;
+  const origin: BranchOrigin = {
+    sessionId: row.sessionId, sourceSessionId: row.sourceSessionId, sourceTitle: row.sourceTitle,
+    harness, mode: row.mode, status: row.status,
+    ...(reason ? { reason } : {}),
+    ...(row.summaryDelivery === "composer" || row.summaryDelivery === "prefix" ? { summaryDelivery: row.summaryDelivery } : {}),
+  };
+  if (row.mode === "native" && row.status !== "done" && row.fork && typeof row.fork === "object" && !Array.isArray(row.fork)) {
+    const fork = row.fork as Record<string, unknown>;
+    const validOptionalId = (id: unknown): boolean => id === undefined || (typeof id === "string" && isPersistableId(id));
+    if (typeof fork.sourceProviderSessionId === "string" && isPersistableId(fork.sourceProviderSessionId)
+      && validOptionalId(fork.forkPoint) && validOptionalId(fork.providerAccountId)
+      && validOptionalId(fork.sourceLastUserBlockId) && typeof fork.workCwd === "string") {
+      origin.fork = { sourceProviderSessionId: fork.sourceProviderSessionId, workCwd: fork.workCwd,
+        ...(typeof fork.forkPoint === "string" ? { forkPoint: fork.forkPoint } : {}),
+        ...(typeof fork.providerAccountId === "string" ? { providerAccountId: fork.providerAccountId } : {}),
+        ...(typeof fork.sourceLastUserBlockId === "string" ? { sourceLastUserBlockId: fork.sourceLastUserBlockId } : {}),
+      };
+    }
+  }
+  return origin;
 }
 
 function sanitizeTurnMetrics(value: unknown): TurnMetrics | undefined {

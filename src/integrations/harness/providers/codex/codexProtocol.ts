@@ -120,6 +120,21 @@ export function buildThreadStartParams(input: {
   };
 }
 
+export function buildThreadForkParams(input: {
+  threadId: string;
+  lastTurnId?: string;
+  cwd: string;
+  runtimeMode: RuntimeMode;
+  controlsAgents?: boolean;
+  model?: string;
+  serviceTier?: string;
+}): Record<string, unknown> {
+  const params = buildThreadStartParams(input);
+  delete params.sandboxPolicy;
+  return { threadId: input.threadId, ...(input.lastTurnId ? { lastTurnId: input.lastTurnId } : {}),
+    excludeTurns: true, ...params };
+}
+
 export function buildTurnSteerParams(input: {
   threadId: string;
   expectedTurnId: string;

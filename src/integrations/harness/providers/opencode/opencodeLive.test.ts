@@ -20,6 +20,12 @@ const harnessHttp = vi.fn(
     if (input.method === "POST" && url.pathname === "/session") {
       return { status: 200, body: JSON.stringify({ id: "session_1" }) };
     }
+    if (input.method === "POST" && url.pathname === "/session/session_1/fork") {
+      return { status: 200, body: JSON.stringify({ id: "session_2" }) };
+    }
+    if (input.method === "GET" && url.pathname === "/session/session_2") {
+      return { status: 200, body: JSON.stringify({ id: "session_2", directory: "/repo" }) };
+    }
     if (input.method === "GET" && url.pathname === "/session/session_1") {
       return {
         status: 200,
@@ -70,6 +76,7 @@ const {
   stopOpenCodeSession,
 } = await import("./opencode");
 import type { HarnessEvent } from "../../core/types";
+import { NativeForkError, type NativeForkRequest } from "../../core/types";
 
 const waitFor = async (predicate: () => boolean, label: string) => {
   for (let index = 0; index < 200; index += 1) {
@@ -81,10 +88,11 @@ const waitFor = async (predicate: () => boolean, label: string) => {
 
 function turn(
   events: HarnessEvent[],
-  options: { runtimeMode?: RuntimeMode; onAccepted?: () => void } = {},
+  options: { runtimeMode?: RuntimeMode; onAccepted?: () => void; fork?: NativeForkRequest } = {},
 ) {
   return sendOpenCodeTurn({
     sessionId: "opencode-live",
+    fork: options.fork,
     cwd: "/repo",
     model: "opencode:openrouter/anthropic/claude-sonnet-4.6",
     runtimeMode: options.runtimeMode ?? "supervised",
@@ -149,6 +157,44 @@ beforeEach(() => {
 afterEach(async () => {
   await stopOpenCodeSession("opencode-live");
   __openCodeTestReset();
+});
+
+describe("OpenCode native fork", () => {
+  it("checks the exclusive boundary, forks, updates permissions and prompts the returned session", async () => {
+    sessionMessages = [{ info: { id: "msg_9", role: "user" }, parts: [] }];
+    const events: HarnessEvent[] = [];
+    const done = turn(events, { fork: { sourceProviderSessionId: "session_1", forkPoint: "msg_9" } });
+    await waitFor(() => harnessHttp.mock.calls.some(([input]) => input.url.includes("/prompt_async")), "prompt");
+    const calls = harnessHttp.mock.calls.map(([input]) => input);
+    const messages = calls.findIndex(input => input.url.includes("/session/session_1/message"));
+    const fork = calls.findIndex(input => input.url.includes("/session/session_1/fork"));
+    const update = calls.findIndex(input => input.method === "PATCH" && new URL(input.url).pathname === "/session/session_2");
+    const prompt = calls.findIndex(input => input.url.includes("/session/session_2/prompt_async"));
+    expect(messages).toBeGreaterThanOrEqual(0); expect(fork).toBeGreaterThan(messages); expect(update).toBeGreaterThan(fork); expect(prompt).toBeGreaterThan(update);
+    expect(JSON.parse(calls[fork].body ?? "{}")).toEqual({ messageID: "msg_9" });
+    expect(events).toContainEqual({ type: "session.providerBound", providerSessionId: "session_2" });
+    idle("session_2"); await done;
+    await stopOpenCodeSession("opencode-live"); harnessHttp.mockClear();
+    const next = turn(events, { fork: { sourceProviderSessionId: "session_1", forkPoint: "msg_9" } });
+    await waitFor(() => harnessHttp.mock.calls.some(([input]) => input.url.includes("/prompt_async")), "next prompt");
+    expect(harnessHttp.mock.calls.some(([input]) => input.url.includes("/fork"))).toBe(false);
+    idle("session_2"); await next;
+  });
+  it("unknown message id rejects before any fork or prompt", async () => {
+    await expect(turn([], { fork: { sourceProviderSessionId: "session_1", forkPoint: "unknown" } })).rejects.toEqual(new NativeForkError("OpenCode couldn't find where this turn ends."));
+    expect(harnessHttp.mock.calls.some(([input]) => input.url.includes("/fork") || input.url.includes("/prompt_async"))).toBe(false);
+  });
+  it("records the first main user id once per turn, ignoring hidden and child messages", async () => {
+    const events: HarnessEvent[] = []; const { done } = await startTurn(events);
+    const message = (sessionID: string, id: string, agent?: string) => onSseEvent?.({ type: "message.updated", properties: { info: { sessionID, id, role: "user", agent } } });
+    message("child", "child-user"); message("session_1", "hidden", "compaction");
+    message("session_1", "main-user"); message("session_1", "other-user");
+    expect(events.filter(event => event.type === "turn.started")).toEqual([{ type: "turn.started", providerTurnId: "main-user" }]);
+    idle(); await done;
+    harnessHttp.mockClear();
+    const next = await startTurn(events); message("session_1", "next-user"); idle(); await next.done;
+    expect(events.filter(event => event.type === "turn.started")).toHaveLength(2);
+  });
 });
 
 it("reports when OpenCode accepts a turn", async () => {

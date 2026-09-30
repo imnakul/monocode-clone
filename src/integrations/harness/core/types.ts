@@ -18,6 +18,7 @@ export type HarnessEvent =
   | { type: "session.error"; message: string }
   | { type: "session.providerBound"; providerSessionId: string }
   | { type: "turn.started"; providerTurnId: string }
+  | { type: "turn.forkPoint"; providerForkPoint: string }
   | {
       type: "session.configChanged";
       model?: string;
@@ -148,6 +149,7 @@ export type ApprovalDecision = "allow" | "deny";
 export type ApprovalScope = "once" | "session";
 
 export type HarnessSessionInput = {
+  fork?: NativeForkRequest;
   sessionId: string;
   cwd: string;
   model: string;
@@ -163,6 +165,20 @@ export type HarnessSessionInput = {
   controlsAgents?: boolean;
   onEvent: (event: HarnessEvent) => void;
 };
+
+export type NativeForkRequest = {
+  sourceProviderSessionId: string;
+  /** Claude/Codex inclusive position; OpenCode exclusive next message. */
+  forkPoint?: string;
+};
+
+/** Only failures proven to occur before writing the user's message. */
+export class NativeForkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NativeForkError";
+  }
+}
 
 export type SendTurnInput = HarnessSessionInput & {
   text: string;

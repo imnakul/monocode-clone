@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildThreadStartParams,
+  buildThreadForkParams,
   buildTurnStartParams,
   buildTurnSteerParams,
   isRecoverableThreadResumeError,
@@ -12,6 +13,12 @@ import {
 import { codexModelPage, parseCodexModelList } from "./codexCatalog";
 
 describe("runtimeModeToCodexConfig", () => {
+  it("builds fork parameters with an inclusive turn and no sandboxPolicy", () => {
+    expect(buildThreadForkParams({ threadId: "source", lastTurnId: "turn-2", cwd: "/repo", runtimeMode: "auto", controlsAgents: true, model: "gpt-5.4", serviceTier: "fast" })).toEqual({
+      threadId: "source", lastTurnId: "turn-2", excludeTurns: true, cwd: "/repo", approvalPolicy: "on-request", approvalsReviewer: "auto_review", sandbox: "workspace-write", model: "gpt-5.4", serviceTier: "fast",
+    });
+    expect(buildThreadForkParams({ threadId: "source", cwd: "/repo", runtimeMode: "supervised" })).toEqual({ threadId: "source", excludeTurns: true, cwd: "/repo", approvalPolicy: "untrusted", approvalsReviewer: "user", sandbox: "read-only" });
+  });
   it("maps supervised to untrusted read-only", () => {
     expect(runtimeModeToCodexConfig("supervised")).toEqual({
       approvalPolicy: "untrusted",

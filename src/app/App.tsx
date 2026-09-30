@@ -567,7 +567,10 @@ import { type ReviewIssue } from "../features/inbox/model/githubTasks";
 import { type PlanStatus } from "../features/sessions/model/session";
 import { type RecentProject } from "../features/projects/model/recents";
 import { queuePersistFingerprint } from "../features/sessions/data/sessionStore";
-import { buildForkBundle, forkThreadBlocks, sidechatContextBlock, sidechatTitle } from "../features/sessions/model/fork";
+import { sidechatContextBlock, sidechatTitle } from "../features/sessions/model/fork";
+import { planBranch } from "../features/sessions/model/branchPlan";
+import { sendBranchTurn } from "../features/sessions/model/branchFlow";
+import type { NativeForkRequest } from "../integrations/harness";
 import { settleQueuedSteerCancellations } from "../features/sessions/model/messageQueue";
 import { mergeModelSettings } from "../features/sessions/model/models";
 import { isProviderFailureText } from "../features/sessions/model/plan";
@@ -6629,8 +6632,9 @@ export default function App({
               return;
             }
           }
-          const sendTurn = (text: string, turnAttachments = prepared) =>
+          const sendTurn = (text: string, turnAttachments = prepared, fork?: NativeForkRequest, onSummaryBinding?: (id: string) => void) =>
             sendHarnessTurn({
+              ...(fork ? { fork } : {}),
               harness: current.harness,
               sessionId,
               cwd: sessionWorkCwd(current),
@@ -6646,10 +6650,13 @@ export default function App({
               attachments: turnAttachments,
               ...(editedResend ? { onAccepted: acceptEditedResend } : {}),
               humanAuthored: !options?.managed,
-              onEvent: routeTurnEvent,
+              onEvent: event => {
+                if (event.type === "session.providerBound" && onSummaryBinding) {
+                  if (turnGen.current.get(sessionId) === gen) onSummaryBinding(event.providerSessionId);
+                } else routeTurnEvent(event);
+              },
             });
-          await sendTurn(
-            orchestrator.prompt(
+          const wrappedPrompt = orchestrator.prompt(
               sessionId,
               inboxAskPrompt(
                 rawCommand ? undefined : current.inboxAsk,
@@ -6662,8 +6669,25 @@ export default function App({
                     )
                   : turnPrompt,
               ),
-            ),
-          );
+            );
+          await sendBranchTurn({
+            session: current,
+            text: wrappedPrompt,
+            canPrefix: !wrap && !current.inboxAsk && wrappedPrompt === turnPrompt,
+            isCurrent: () => turnGen.current.get(sessionId) === gen,
+            readSession: () => {
+              flushHarnessEvents();
+              return sessionsRef.current.find(session => session.id === sessionId) ?? current;
+            },
+            readSource: async (id) => sessionsRef.current.find(session => session.id === id) ?? await getSession(id) ?? undefined,
+            updateSession: update => {
+              flushHarnessEvents();
+              const next = sessionsRef.current.map(session => session.id === sessionId ? update(session) : session);
+              sessionsRef.current = next;
+              setSessions(next);
+            },
+            send: (text, fork, onSummaryBinding) => sendTurn(text, prepared, fork, onSummaryBinding),
+          });
           acceptEditedResend();
           if (proposalDraft && !providerFailureSeen) {
             completedProposal = await completeOrRepairOrchestrationProposal(
@@ -7697,19 +7721,15 @@ export default function App({
   );
 
   /**
-   * Branch a thread at one turn: the fork copies the visible history
-   * exactly and opens it as a new chat with a fresh native session whose
-   * composer carries the conversation-so-far bundle. History is copied,
-   * never shared — the original keeps running untouched.
+   * Copy visible history now; provider-owned forks start only on first send.
    */
   const onBranch = useCallback(
     (sessionId: string, turn: Block[]) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
-      const lastId = turn.length > 0 ? turn[turn.length - 1]?.id : undefined;
-      if (!session || !lastId) return;
-      const copied = forkThreadBlocks(session.blocks, lastId);
-      if (copied.length === 0) return;
-      const bundle = buildForkBundle(copied);
+      if (!session) return;
+      const newSessionId = crypto.randomUUID();
+      const plan = planBranch({ source: session, turn, newSessionId });
+      if (!plan) return;
       const forked = {
         ...newSession(
           session.harness,
@@ -7718,9 +7738,14 @@ export default function App({
           session.runtimeMode,
           session.modelSettings,
         ),
+        id: newSessionId,
         title: `${session.title} (branch)`,
-        blocks: copied,
-        composerSeed: bundle.text,
+        blocks: plan.blocks,
+        ...(plan.kind === "native" ? {
+          providerAccountId: session.providerAccountId,
+          worktreeCwd: session.worktreeCwd,
+          branch: session.branch,
+        } : { composerSeed: plan.bundleText }),
       };
       setSessions((prev) => [...prev, forked]);
       const tab = newTab(forked.id);

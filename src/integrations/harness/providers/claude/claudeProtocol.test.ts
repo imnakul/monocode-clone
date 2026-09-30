@@ -211,6 +211,13 @@ describe("resolveClaudeApiModelId", () => {
 });
 
 describe("buildClaudeSpawnArgs", () => {
+  it("combines resume and a new session id only for a native fork", () => {
+    const args = buildClaudeSpawnArgs({ resume: "source", sessionId: "new", forkSession: true, resumeSessionAt: "uuid", allowedTools: ["Read"] });
+    expect(args.slice(args.indexOf("--resume"))).toEqual(["--resume", "source", "--session-id", "new", "--fork-session", "--resume-session-at", "uuid"]);
+    expect(args).toContain("--allowedTools");
+    expect(buildClaudeSpawnArgs({ resume: "source", sessionId: "new" })).not.toContain("--session-id");
+    expect(buildClaudeSpawnArgs({ resume: "source", sessionId: "new", forkSession: true })).not.toContain("--resume-session-at");
+  });
   it("speaks stream-json with stdio permissions like the Agent SDK", () => {
     const args = buildClaudeSpawnArgs({
       model: "claude-sonnet-5",

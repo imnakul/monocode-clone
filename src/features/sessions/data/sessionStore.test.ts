@@ -1,11 +1,62 @@
 import { describe, expect, it } from "vitest";
 import { newSession, type Block, type Session } from "../model/session";
 import { applyHarnessEvent } from "../../../integrations/harness/core/apply";
+import { planBranch } from "../model/branchPlan";
 import {
   isPersistableId,
   persistFingerprint,
   sanitizeSessionForPersist,
 } from "./sessionStore";
+
+describe("native branch persistence", () => {
+  function branch(): Session {
+    const source: Session = { ...newSession("claude", "/repo"), id: "source", providerSessionId: "provider", blocks: [
+      { id: "u1", role: "user", text: "hello", providerForkPoint: "assistant-uuid" },
+    ] };
+    const plan = planBranch({ source, turn: source.blocks, newSessionId: "branch" });
+    if (!plan) throw new Error("missing plan");
+    return { ...newSession("claude", "/repo"), id: "branch", blocks: plan.blocks };
+  }
+  it("round-trips pending and uncertain forks and user positions through JSON", () => {
+    for (const status of ["pending", "uncertain"] as const) {
+      const session = branch();
+      session.blocks[0].providerForkPoint = "new-uuid";
+      const origin = session.blocks[1].branchOrigin;
+      if (!origin) throw new Error("missing origin");
+      origin.status = status;
+      const saved = sanitizeSessionForPersist(session);
+      const restored = sanitizeSessionForPersist({ ...session, blocks: JSON.parse(JSON.stringify(saved.blocks)) });
+      expect(restored.blocks).toEqual(saved.blocks);
+      expect(restored.blocks[0].providerForkPoint).toBe("new-uuid");
+      expect(restored.blocks[1].branchOrigin).toMatchObject({ status, fork: { sourceProviderSessionId: "provider", forkPoint: "assistant-uuid", workCwd: "/repo" } });
+    }
+  });
+  it("drops unsafe positions and unsafe fork IDs while retaining the divider", () => {
+    const session = branch(); session.blocks[0].providerForkPoint = "/unsafe/path";
+    const origin = session.blocks[1].branchOrigin;
+    if (!origin?.fork) throw new Error("missing fork");
+    for (const field of ["sourceProviderSessionId", "forkPoint", "providerAccountId", "sourceLastUserBlockId"] as const) {
+      const malformed = { ...session, blocks: [session.blocks[0], { ...session.blocks[1], branchOrigin: { ...origin, fork: { ...origin.fork, [field]: "/unsafe/path" } } }] };
+      const saved = sanitizeSessionForPersist(malformed);
+      expect(saved.blocks[0].providerForkPoint).toBeUndefined();
+      expect(saved.blocks[1].branchOrigin).toBeDefined(); expect(saved.blocks[1].branchOrigin?.fork).toBeUndefined();
+    }
+  });
+  it.each([null, "oops", { status: "unknown" }, { mode: "bad" }, { harness: "bad" }, { summaryDelivery: "bad" }, { reason: "bad" }, { sourceTitle: 5 }, { sourceSessionId: "/bad" }])("drops invalid origin fields without throwing: %j", patch => {
+    const session = branch();
+    session.blocks[1].branchOrigin = (patch && typeof patch === "object" ? { ...session.blocks[1].branchOrigin, ...patch } : patch) as never;
+    expect(sanitizeSessionForPersist(session).blocks[1].branchOrigin).toBeUndefined();
+  });
+  it("provider binding completes only the owned divider and removes the fork", () => {
+    const session = branch(); const original = session.blocks[1];
+    session.blocks.unshift({ ...original, id: "old-divider", branchOrigin: original.branchOrigin ? { ...original.branchOrigin, sessionId: "other" } : undefined });
+    const bound = applyHarnessEvent(session, { type: "session.providerBound", providerSessionId: "forked" });
+    expect(bound.blocks[0].branchOrigin?.status).toBe("pending");
+    expect(bound.blocks[2].branchOrigin?.status).toBe("done"); expect(bound.blocks[2].branchOrigin?.fork).toBeUndefined();
+    const positioned = applyHarnessEvent(bound, { type: "turn.forkPoint", providerForkPoint: "position" });
+    expect(positioned.blocks[1].providerForkPoint).toBe("position");
+  });
+});
 
 describe("isPersistableId", () => {
   it("accepts alphanumeric ids with hyphens and underscores", () => {

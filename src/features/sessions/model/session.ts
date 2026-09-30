@@ -259,6 +259,9 @@ export type Block = {
   turnModel?: TurnModel;
   /** Provider turn boundary used to replace this user message, when known. */
   providerTurnId?: string;
+  /** Provider position through which a native branch retains history. */
+  providerForkPoint?: string;
+  branchOrigin?: BranchOrigin;
   /** User turn saved to the session but not submitted to the harness yet. */
   draft?: boolean;
   /** Provider-reported token metrics for this user turn, when available. */
@@ -303,6 +306,30 @@ export type Block = {
    * rather than turn chrome like a status ping. Never folds into the trail.
    */
   notice?: "error" | "interrupt";
+};
+
+export type BranchSummaryReason =
+  | "different-provider" | "not-started" | "pending-switch"
+  | "orchestration-worker" | "no-fork-point" | "source-continued"
+  | "branch-changed" | "fork-failed";
+
+export type BranchOrigin = {
+  /** Only the session owning this divider may act on its pending fork. */
+  sessionId: string;
+  sourceSessionId: string;
+  sourceTitle: string;
+  harness: HarnessId;
+  mode: "native" | "summary";
+  summaryDelivery?: "composer" | "prefix";
+  status: "pending" | "uncertain" | "done";
+  reason?: BranchSummaryReason;
+  fork?: {
+    sourceProviderSessionId: string;
+    forkPoint?: string;
+    providerAccountId?: string;
+    workCwd: string;
+    sourceLastUserBlockId?: string;
+  };
 };
 
 export type RuntimeMode =

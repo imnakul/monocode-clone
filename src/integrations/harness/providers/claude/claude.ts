@@ -86,6 +86,7 @@ import {
   questionsFromUnknown,
   type UserQuestionReply,
 } from "../../../../features/sessions/model/userQuestion";
+import { NativeForkError } from "../../core/types";
 import type {
   ApprovalDecision,
   ApprovalScope,
@@ -141,6 +142,9 @@ type LiveAgentTask = {
 };
 
 type Live = {
+  lastAssistantUuid?: string;
+  forkPending: boolean;
+  exited: boolean;
   sessionId: string;
   cwd: string;
   claudeSessionId: string;
@@ -506,8 +510,15 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     canResume ? resume?.sessionId : undefined,
     claudeSessionId,
   );
+  const fork = !canResume && input.fork ? input.fork : undefined;
+  const spawnArgs = buildClaudeSpawnArgs(fork ? {
+    ...launch, resume: fork.sourceProviderSessionId, forkSession: true,
+    sessionId: claudeSessionId, resumeSessionAt: fork.forkPoint,
+  } : launch);
 
   const live: Live = {
+    forkPending: !!fork,
+    exited: false,
     sessionId: input.sessionId,
     cwd: input.cwd,
     claudeSessionId,
@@ -555,6 +566,12 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     },
     (code) => {
       const current = liveRef.current;
+      if (current) {
+        current.exited = true;
+        if (current.forkPending && resumeByThread.get(input.sessionId)?.sessionId === current.claudeSessionId) {
+          resumeByThread.delete(input.sessionId);
+        }
+      }
       if (current && liveByThread.get(input.sessionId) === current) {
         liveByThread.delete(input.sessionId);
       }
@@ -580,7 +597,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   await spawnChild(
     input.sessionId,
     path,
-    buildClaudeSpawnArgs(launch),
+    spawnArgs,
     input.cwd,
     { provider: "claude", id: input.providerAccountId ?? "default" },
   );
@@ -598,7 +615,11 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       buildControlRequest(nextControlId(), { subtype: "initialize" }),
     );
     await waitForInit(live, INIT_TIMEOUT_MS);
-    live.onEvent({
+    if (live.forkPending && live.exited) {
+      resumeByThread.delete(input.sessionId);
+      throw new NativeForkError("Claude Code could not open the original conversation.");
+    }
+    if (!live.forkPending) live.onEvent({
       type: "session.providerBound",
       providerSessionId: live.claudeSessionId,
     });
@@ -617,6 +638,11 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
 }
 
 async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
+  if (live.forkPending && live.exited) {
+    resumeByThread.delete(input.sessionId);
+    await stopClaudeSession(input.sessionId);
+    throw new NativeForkError("Claude Code could not open the original conversation.");
+  }
   const effort = input.modelSettings?.effort;
   const message = buildClaudeUserMessage({
     text: input.text,
@@ -628,6 +654,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   if (content.length === 0) return;
 
   live.emittedAssistant = "";
+  live.lastAssistantUuid = undefined;
   live.emittedReasoning = "";
   live.toolsByIndex.clear();
   live.toolsById.clear();
@@ -705,7 +732,7 @@ function handleLine(sessionId: string, live: Live, line: string): void {
   if (live.muteUpdates) return;
 
   const sessionIdFromLine = sessionIdFromMessage(rec);
-  if (sessionIdFromLine && sessionIdFromLine !== live.claudeSessionId) {
+  if (!live.forkPending && sessionIdFromLine && sessionIdFromLine !== live.claudeSessionId) {
     live.claudeSessionId = sessionIdFromLine;
     resumeByThread.set(sessionId, {
       sessionId: sessionIdFromLine,
@@ -859,6 +886,8 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
     return;
   }
 
+  const uuid = stringField(rec, "uuid");
+  if (uuid) live.lastAssistantUuid = uuid;
   const msg = asRecord(rec.message);
   const expectedModel = live.expectModel;
   if (expectedModel) {
@@ -963,6 +992,13 @@ function handleUser(live: Live, rec: Record<string, unknown>): void {
 
 function handleResult(live: Live, rec: Record<string, unknown>): void {
   if (isSubagentMessage(rec)) return;
+  if (live.forkPending) {
+    live.forkPending = false;
+    live.onEvent({ type: "session.providerBound", providerSessionId: live.claudeSessionId });
+  }
+  if (!live.manualCompaction && live.lastAssistantUuid) {
+    live.onEvent({ type: "turn.forkPoint", providerForkPoint: live.lastAssistantUuid });
+  }
   // A /compact result reports the summarizer call's usage, not the rebuilt
   // conversation level. The next real turn will provide the fresh reading.
   if (!live.manualCompaction) {
@@ -1579,7 +1615,7 @@ function markInitialized(live: Live): void {
 }
 
 function waitForInit(live: Live, timeoutMs: number): Promise<void> {
-  if (live.initialized) return Promise.resolve();
+  if (live.initialized || live.exited) return Promise.resolve();
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       live.initDone = null;

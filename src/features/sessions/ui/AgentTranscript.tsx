@@ -1526,6 +1526,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   }
 
   if (block.role === "system") {
+    if (block.branchOrigin) return <BranchOriginDivider block={block} />;
     if (block.interjection) {
       return <InterjectionDivider block={block} />;
     }
@@ -3523,6 +3524,23 @@ function SessionApprovalStatus({ block }: { block: Block }) {
     <span className="shrink-0 text-[10px] text-content/45">
       Allowed for session
     </span>
+  );
+}
+
+function BranchOriginDivider({ block }: { block: Block }): React.JSX.Element | null {
+  if (!block.branchOrigin) return null;
+  return (
+    <div className="px-4 py-5">
+      <div className="flex items-center gap-3">
+        <div className="h-px min-w-4 flex-1 bg-content/12" />
+        <div role="separator" aria-label={block.text}
+          className="flex max-w-[min(100%,20rem)] items-center gap-1.5 px-1.5 font-sans text-[12px] text-content/55">
+          <HarnessIcon harness={block.branchOrigin.harness} className="size-3.5 shrink-0" />
+          <span>{block.text}</span>
+        </div>
+        <div className="h-px min-w-4 flex-1 bg-content/12" />
+      </div>
+    </div>
   );
 }
 

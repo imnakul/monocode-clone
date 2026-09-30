@@ -8,6 +8,8 @@ import type {
   ToolPreview,
 } from "../../../features/sessions/model/session";
 import { mergeContextUsage } from "../../../features/sessions/model/contextUsage";
+import { branchDividerText } from "../../../features/sessions/model/branchPlan";
+import { HARNESS_TITLE } from "../../../features/sessions/model/session";
 import { displayPath } from "../../../shared/lib/paths";
 import {
   composeToolTitle,
@@ -151,7 +153,21 @@ export function applyHarnessEvent(
         notice: "error",
       });
     case "session.providerBound":
-      return { ...session, providerSessionId: event.providerSessionId };
+      return { ...session, providerSessionId: event.providerSessionId,
+        blocks: session.blocks.map(block => {
+          if (block.branchOrigin?.sessionId !== session.id || block.branchOrigin.status === "done") return block;
+          const branchOrigin = { ...block.branchOrigin, status: "done" as const };
+          delete branchOrigin.fork;
+          return { ...block, branchOrigin, text: branchDividerText(branchOrigin, HARNESS_TITLE[branchOrigin.harness]) };
+        }),
+      };
+    case "turn.forkPoint": {
+      const index = lastMatchingBlock(session.blocks, block => block.role === "user");
+      if (index < 0) return session;
+      const blocks = session.blocks.slice();
+      blocks[index] = { ...blocks[index], providerForkPoint: event.providerForkPoint };
+      return { ...session, blocks };
+    }
     case "turn.started": {
       const index = lastMatchingBlock(
         session.blocks,
