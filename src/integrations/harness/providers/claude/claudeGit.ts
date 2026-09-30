@@ -3,6 +3,7 @@ import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
+  fallbackPrContent,
   formatCommitMessage,
   parseBranchName,
   parseCommitMessage,
@@ -55,13 +56,10 @@ export async function generateClaudePrContent(
   } catch (error) {
     console.debug("[monocode] pr content", error);
   }
-  const title =
-    parsed?.title ||
-    range.commitSummary.split(/\r?\n/)[0]?.trim() ||
-    `Update ${range.head}`;
+  const fallback = fallbackPrContent(range);
   return {
-    title,
-    body: parsed?.body || range.commitSummary.trim(),
+    title: parsed?.title || fallback.title,
+    body: parsed?.body || fallback.body,
     base: range.base,
     head: range.head,
   };

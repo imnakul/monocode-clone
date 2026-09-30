@@ -17,7 +17,7 @@ import {
   generateOpenCodePrContent,
 } from "./opencodeGit";
 import { generateOpenCodeSessionTitle } from "./opencodeTitle";
-import { warmupOpenCodeText } from "./opencodeText";
+import { runOpenCodeTextPrompt, warmupOpenCodeText } from "./opencodeText";
 import { registerHarness, type HarnessAdapter } from "../../core/registry";
 
 export const openCodeAdapter: HarnessAdapter = {
@@ -39,6 +39,8 @@ export const openCodeAdapter: HarnessAdapter = {
   generatePrContent: generateOpenCodePrContent,
   generateBranchName: generateOpenCodeBranchName,
   warmupText: warmupOpenCodeText,
+  runHelperPrompt: ({ cwd, prompt, timeoutMs, model }) =>
+    runOpenCodeTextPrompt({ cwd, prompt, timeoutMs, model }),
 };
 
 let registered = false;

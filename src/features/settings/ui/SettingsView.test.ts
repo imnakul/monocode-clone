@@ -403,6 +403,60 @@ describe("settings pages", () => {
       }
     }
   });
+
+  it("saves a custom helper and exposes account selection only for Claude and Codex", async () => {
+    await render("chat");
+    const helperRow = container.querySelector(
+      '[data-setting-id="ai-helper"]',
+    )!;
+    const modeButtons = helperRow.querySelectorAll<HTMLButtonElement>(
+      '[role="radio"]',
+    );
+    await act(async () => modeButtons[1]?.click());
+
+    expect(
+      container.querySelector('[data-setting-id="ai-helper-primary"]'),
+    ).not.toBeNull();
+    const providerTrigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label^="Main model provider:"]',
+    )!;
+    await act(async () => providerTrigger.click());
+    const antigravity = document.querySelector<HTMLButtonElement>(
+      '[role="option"][aria-disabled="true"]',
+    )!;
+    expect(antigravity.textContent).toContain("Antigravity (not available yet)");
+    expect(antigravity.title).toContain("can't switch off");
+    expect(antigravity.textContent).toContain("built-in tools");
+
+    const openCode = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+    ).find((option) => option.textContent?.includes("OpenCode"));
+    expect(openCode).toBeDefined();
+    await act(async () => openCode?.click());
+    expect(
+      container.querySelector('[aria-label^="Main model account:"]'),
+    ).toBeNull();
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label^="Main model provider:"]',
+        )!
+        .click(),
+    );
+    const claude = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+    ).find((option) => option.textContent?.includes("Claude Code"));
+    expect(claude).toBeDefined();
+    await act(async () => claude?.click());
+    expect(
+      container.querySelector('[aria-label^="Main model account:"]'),
+    ).not.toBeNull();
+    expect(localStorage.getItem("monocode.aiHelper")).toContain(
+      '"provider":"claude"',
+    );
+    expect(SETTINGS_INDEX.some((entry) => entry.id === "ai-helper")).toBe(true);
+  });
 });
 
 describe("settings search", () => {

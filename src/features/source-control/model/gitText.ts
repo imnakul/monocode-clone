@@ -10,6 +10,17 @@ export type PrContent = {
   body: string;
 };
 
+export function fallbackPrContent(range: {
+  head: string;
+  commitSummary: string;
+}): PrContent {
+  return {
+    title:
+      range.commitSummary.split(/\r?\n/)[0]?.trim() || `Update ${range.head}`,
+    body: range.commitSummary.trim(),
+  };
+}
+
 export function buildCommitMessagePrompt(input: {
   branch: string | null;
   stagedSummary: string;

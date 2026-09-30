@@ -1,7 +1,7 @@
 import { Loader, WandSparkles } from "../../../shared/ui/icons";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { generateCommitMessage } from "../../../integrations/harness";
+import { generateHelperCommitMessage } from "../../../integrations/harness";
 import { LAYER } from "../../../shared/lib/layers";
 import { MOD } from "../../../platform/tauri/platform";
 
@@ -31,6 +31,7 @@ export function SwitchBranchDialog({
   const [message, setMessage] = useState("");
   const [generating, setGenerating] = useState(false);
   const messageRef = useRef<HTMLTextAreaElement>(null);
+  const generationController = useRef<AbortController | null>(null);
   const trimmed = message.trim();
   const canCommit = trimmed.length > 0 && !busy && !generating;
 
@@ -56,16 +57,46 @@ export function SwitchBranchDialog({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [busy, generating, onCancel]);
 
+  useEffect(
+    () => () => {
+      generationController.current?.abort();
+      generationController.current = null;
+    },
+    [],
+  );
+
   const generate = async () => {
     if (busy || generating) return;
+    const startText = messageRef.current?.value ?? message;
+    const controller = new AbortController();
+    generationController.current = controller;
     setGenerating(true);
     try {
-      setMessage(await generateCommitMessage(cwd));
+      const generated = await generateHelperCommitMessage(
+        cwd,
+        undefined,
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      if ((messageRef.current?.value ?? message) !== startText) {
+        window.alert(
+          "A commit message was generated, but you edited the field, so it wasn't applied.",
+        );
+        return;
+      }
+      setMessage(generated);
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err));
+      if (!controller.signal.aborted) {
+        window.alert(err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      setGenerating(false);
-      messageRef.current?.focus();
+      if (generationController.current === controller) {
+        generationController.current = null;
+      }
+      if (!controller.signal.aborted) {
+        setGenerating(false);
+        messageRef.current?.focus();
+      }
     }
   };
 
@@ -102,7 +133,7 @@ export function SwitchBranchDialog({
             rows={1}
             value={message}
             placeholder={`Message (${MOD}↩ to commit)`}
-            disabled={Boolean(busy) || generating}
+            disabled={Boolean(busy)}
             aria-label="Commit message"
             className="max-h-40 w-full resize-none overflow-y-auto rounded-md bg-content/10 py-1 pr-8 pl-2 text-[13px] leading-5 text-content outline-none placeholder:text-content/35 disabled:opacity-40"
             onChange={(event) => setMessage(event.target.value)}

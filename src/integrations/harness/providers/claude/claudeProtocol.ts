@@ -272,6 +272,7 @@ export function buildClaudeSpawnArgs(input: {
   maxTurns?: number;
   isolated?: boolean;
   allowedTools?: string[];
+  noTools?: boolean;
 }): string[] {
   const args = [
     "--output-format",
@@ -304,6 +305,9 @@ export function buildClaudeSpawnArgs(input: {
   } else {
     args.push(`--setting-sources=${CLAUDE_SETTING_SOURCES}`);
     args.push("--settings", JSON.stringify(settings));
+  }
+  if (input.noTools) {
+    args.push("--tools", "", "--disable-slash-commands");
   }
   if (input.model) args.push("--model", input.model);
   if (input.effort) args.push("--effort", input.effort);

@@ -1019,3 +1019,26 @@ describe("subagent messages", () => {
     });
   });
 });
+
+describe("Claude helper spawn arguments", () => {
+  it("disables tools and slash commands only for isolated helper spawns", () => {
+    const helperArgs = buildClaudeSpawnArgs({
+      isolated: true,
+      model: "claude-sonnet-4-6",
+      noTools: true,
+    });
+    expect(helperArgs).toEqual(
+      expect.arrayContaining([
+        "--tools",
+        "",
+        "--disable-slash-commands",
+        "--model",
+        "claude-sonnet-4-6",
+      ]),
+    );
+
+    const normalArgs = buildClaudeSpawnArgs({ isolated: true });
+    expect(normalArgs).not.toContain("--tools");
+    expect(normalArgs).not.toContain("--disable-slash-commands");
+  });
+});

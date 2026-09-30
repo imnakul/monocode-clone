@@ -206,7 +206,7 @@ import {
   compactHarnessContext,
   rewindHarnessLastTurn,
   forgetHarnessSession,
-  generateHarnessTitle,
+  generateHelperTitle,
   generateHarnessBranchName,
   isLiveHarness,
   registerBuiltinHarnesses,
@@ -6252,7 +6252,8 @@ export default function App({
         }
         const titleMessage =
           harnessText || attachments.map((file) => file.name).join(", ");
-        void generateHarnessTitle(current.harness, {
+        void generateHelperTitle({
+          chatHarness: current.harness,
           sessionId,
           cwd: workCwd,
           message: titleMessage,

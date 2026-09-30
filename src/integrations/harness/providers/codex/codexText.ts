@@ -14,6 +14,7 @@ import {
 } from "./codexProtocol";
 import { JsonRpcClient, type JsonRpcId } from "../../core/jsonRpc";
 import { mergeStream, streamTextDelta } from "../../core/streamText";
+import { HelperToolAttemptError } from "../../core/helperIsolation";
 
 const TEXT_CHILD_ID = "monocode-codex-text";
 const INIT_TIMEOUT_MS = 60_000;
@@ -34,6 +35,7 @@ type LiveText = {
   closed: boolean;
   turnDone: (() => void) | null;
   turnFailed: ((error: Error) => void) | null;
+  toolAttempting: boolean;
 };
 
 let live: LiveText | null = null;
@@ -78,6 +80,8 @@ export function warmupCodexText(cwd: string): Promise<void> {
 export async function runCodexTextPrompt(input: {
   cwd: string;
   providerAccountId?: string;
+  model?: string;
+  outputSchema?: Record<string, unknown>;
   prompt: string;
   timeoutMs?: number;
 }): Promise<string> {
@@ -92,13 +96,20 @@ export async function runCodexTextPrompt(input: {
 async function promptOnLive(input: {
   cwd: string;
   providerAccountId?: string;
+  model?: string;
+  outputSchema?: Record<string, unknown>;
   prompt: string;
   timeoutMs?: number;
 }): Promise<string> {
-  const session = await ensureLive(input.cwd, input.providerAccountId);
+  const session = await ensureLive(
+    input.cwd,
+    input.providerAccountId,
+    input.model,
+  );
   session.output = "";
   session.collecting = true;
   const timeoutMs = input.timeoutMs ?? REQUEST_TIMEOUT_MS;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
 
   try {
     const turnPromise = new Promise<void>((resolve, reject) => {
@@ -114,6 +125,7 @@ async function promptOnLive(input: {
         prompt: input.prompt,
         model: session.model || undefined,
         effort: session.effort,
+        outputSchema: input.outputSchema,
       }),
       timeoutMs,
     );
@@ -121,7 +133,7 @@ async function promptOnLive(input: {
     await Promise.race([
       turnPromise,
       new Promise<void>((_, reject) => {
-        setTimeout(
+        timeout = setTimeout(
           () => reject(new Error("Codex text generation timed out")),
           timeoutMs,
         );
@@ -130,12 +142,15 @@ async function promptOnLive(input: {
 
     return session.output;
   } catch (error) {
-    await session.rpc
-      .request("turn/interrupt", { threadId: session.threadId })
-      .catch(() => undefined);
+    if (!session.toolAttempting) {
+      await session.rpc
+        .request("turn/interrupt", { threadId: session.threadId })
+        .catch(() => undefined);
+    }
     if (session.closed) await dropLive();
     throw error;
   } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
     session.collecting = false;
     session.turnDone = null;
     session.turnFailed = null;
@@ -146,8 +161,9 @@ async function promptOnLive(input: {
 async function ensureLive(
   cwd: string,
   providerAccountId?: string,
+  requestedModel?: string,
 ): Promise<LiveText> {
-  const model = pickTextModel();
+  const model = requestedModel ?? pickTextModel();
   const effort = pickTextEffort(model);
   if (live && !live.closed) {
     if (
@@ -160,7 +176,7 @@ async function ensureLive(
     }
     if (live.providerAccountId !== providerAccountId) {
       await dropLive();
-      return startLive(cwd, providerAccountId);
+      return startLive(cwd, providerAccountId, model);
     }
     try {
       live.model = model;
@@ -171,12 +187,13 @@ async function ensureLive(
       await dropLive();
     }
   }
-  return startLive(cwd, providerAccountId);
+  return startLive(cwd, providerAccountId, model);
 }
 
 async function startLive(
   cwd: string,
   providerAccountId?: string,
+  model = pickTextModel(),
 ): Promise<LiveText> {
   await dropLive();
   const { path } = await resolveCodexBinary();
@@ -188,13 +205,12 @@ async function startLive(
         handleNotification(sessionRef.session, method, params);
       },
       onRequest: (id, method, params) => {
-        void handleServerRequest(rpc, id, method, params);
+        void handleServerRequest(rpc, sessionRef.session, id, method, params);
       },
     },
     { includeJsonrpc: false, label: "codex-text" },
   );
 
-  const model = pickTextModel();
   const session: LiveText = {
     rpc,
     cwd,
@@ -207,6 +223,7 @@ async function startLive(
     closed: false,
     turnDone: null,
     turnFailed: null,
+    toolAttempting: false,
   };
   sessionRef.session = session;
 
@@ -260,6 +277,7 @@ async function openThread(session: LiveText, cwd: string): Promise<void> {
       cwd,
       runtimeMode: TEXT_RUNTIME_MODE,
       model: session.model || undefined,
+      ephemeral: true,
     }),
     INIT_TIMEOUT_MS,
   );
@@ -294,6 +312,20 @@ function handleNotification(
     return;
   }
 
+  if (method === "item/started") {
+    const item = asRecord(asRecord(params)?.item);
+    const itemType = stringField(item, "type") ?? "unknown";
+    if (
+      itemType !== "userMessage" &&
+      itemType !== "agentMessage" &&
+      itemType !== "reasoning" &&
+      itemType !== "contextCompaction"
+    ) {
+      void interruptForToolAttempt(session, itemType);
+    }
+    return;
+  }
+
   if (method === "item/agentMessage/delta") {
     const delta = streamTextDelta(asRecord(params)?.delta);
     if (delta) session.output = mergeStream(session.output, delta);
@@ -317,20 +349,45 @@ function handleNotification(
 
 async function handleServerRequest(
   rpc: JsonRpcClient,
+  session: LiveText | null,
   id: JsonRpcId,
   method: string,
   _params: unknown,
 ): Promise<void> {
+  let response: Record<string, unknown> = {};
+  let toolKind: string | null = null;
   if (
     method === "item/commandExecution/requestApproval" ||
     method === "item/fileChange/requestApproval"
   ) {
-    await rpc.respond(id, { decision: "decline" }).catch(() => undefined);
-    return;
+    response = { decision: "decline" };
+    toolKind = method.split("/").pop() ?? "approval";
+  } else if (method === "item/permissions/requestApproval") {
+    response = { permissions: {} };
+    toolKind = "permission approval";
+  } else if (method === "mcpServer/elicitation/request") {
+    response = { action: "decline", content: null, _meta: null };
+    toolKind = "MCP elicitation";
   }
-  if (method === "item/permissions/requestApproval") {
-    await rpc.respond(id, { permissions: {} }).catch(() => undefined);
-    return;
+  await rpc.respond(id, response).catch(() => undefined);
+  if (toolKind && session?.collecting) {
+    await interruptForToolAttempt(session, toolKind);
   }
-  await rpc.respond(id, {}).catch(() => undefined);
+}
+
+async function interruptForToolAttempt(
+  session: LiveText,
+  toolKind: string,
+): Promise<void> {
+  if (session.toolAttempting) return;
+  session.toolAttempting = true;
+  const interrupted = session.rpc
+    .request(
+      "turn/interrupt",
+      { threadId: session.threadId },
+      REQUEST_TIMEOUT_MS,
+    )
+    .catch(() => undefined);
+  session.turnFailed?.(new HelperToolAttemptError("codex", toolKind));
+  await interrupted;
 }

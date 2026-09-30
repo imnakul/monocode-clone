@@ -934,3 +934,54 @@ describe("mapCodexNotification thread/tokenUsage/updated", () => {
     });
   });
 });
+
+describe("Codex helper protocol options", () => {
+  it("adds ephemeral helper threads without changing ordinary thread params", () => {
+    const ordinary = buildThreadStartParams({
+      cwd: "/repo",
+      runtimeMode: "supervised",
+      model: "gpt-5.4",
+    });
+    expect(ordinary).not.toHaveProperty("ephemeral");
+
+    expect(
+      buildThreadStartParams({
+        cwd: "/helper",
+        runtimeMode: "supervised",
+        model: "gpt-5.4",
+        ephemeral: true,
+      }),
+    ).toMatchObject({
+      cwd: "/helper",
+      ephemeral: true,
+      approvalPolicy: "untrusted",
+      sandbox: "read-only",
+    });
+  });
+
+  it("passes an optional structured output schema to the turn", () => {
+    const outputSchema = {
+      type: "object",
+      required: ["subject", "body"],
+      properties: {
+        subject: { type: "string" },
+        body: { type: "string" },
+      },
+    };
+    expect(
+      buildTurnStartParams({
+        threadId: "helper-thread",
+        runtimeMode: "supervised",
+        prompt: "Return JSON.",
+        outputSchema,
+      }).outputSchema,
+    ).toEqual(outputSchema);
+    expect(
+      buildTurnStartParams({
+        threadId: "ordinary-thread",
+        runtimeMode: "supervised",
+        prompt: "Hello",
+      }),
+    ).not.toHaveProperty("outputSchema");
+  });
+});

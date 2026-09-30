@@ -48,6 +48,10 @@ import {
   subscribeDetailedContext,
   subscribeFollowUpBehavior,
   subscribeRemainingQuota,
+  AI_HELPER_CHANGE_EVENT,
+  loadAiHelperSettings,
+  parseAiHelperSettings,
+  saveAiHelperSettings,
   saveTabAnimationsEnabled,
 } from "./settings";
 import { MOD, SHIFT } from "../../../platform/tauri/platform";
@@ -65,6 +69,89 @@ const DETAILED_CONTEXT_KEY = "monocode.detailedContext";
 const REMAINING_QUOTA_KEY = "monocode.remainingQuota";
 const TAB_ANIMATIONS_KEY = "monocode.tabAnimationsEnabled";
 const COLLAPSED_PROJECT_RAIL_MODE_KEY = "monocode.collapsedProjectRailMode";
+const AI_HELPER_KEY = "monocode.aiHelper";
+
+describe("AI helper setting", () => {
+  beforeEach(mockLocalStorage);
+
+  it("defaults invalid and malformed preferences to automatic", () => {
+    expect(parseAiHelperSettings(null)).toEqual({ mode: "automatic" });
+    expect(parseAiHelperSettings("x")).toEqual({ mode: "automatic" });
+    expect(parseAiHelperSettings({ mode: "other" })).toEqual({
+      mode: "automatic",
+    });
+    expect(
+      parseAiHelperSettings({ mode: "custom", primary: { provider: "cursor" } }),
+    ).toEqual({ mode: "automatic" });
+    expect(
+      parseAiHelperSettings({
+        mode: "custom",
+        primary: { provider: "opencode", accountId: "account-a" },
+      }),
+    ).toEqual({ mode: "automatic" });
+    localStorage.setItem(AI_HELPER_KEY, "{");
+    expect(loadAiHelperSettings()).toEqual({ mode: "automatic" });
+  });
+
+  it("drops invalid and duplicate fallbacks", () => {
+    expect(
+      parseAiHelperSettings({
+        mode: "custom",
+        primary: { provider: "codex", model: "gpt-5.5" },
+        fallback: {
+          provider: "codex",
+          accountId: "default",
+          model: "gpt-5.5",
+        },
+      }),
+    ).toEqual({
+      mode: "custom",
+      primary: { provider: "codex", model: "gpt-5.5" },
+      fallback: null,
+    });
+    expect(
+      parseAiHelperSettings({
+        mode: "custom",
+        primary: { provider: "claude" },
+        fallback: { provider: "grok" },
+      }),
+    ).toEqual({
+      mode: "custom",
+      primary: { provider: "claude" },
+      fallback: null,
+    });
+  });
+
+  it("rejects overlong models and persists changes with event detail", () => {
+    expect(
+      parseAiHelperSettings({
+        mode: "custom",
+        primary: { provider: "opencode", model: ` ${"x".repeat(201)} ` },
+      }),
+    ).toEqual({ mode: "automatic" });
+
+    const target = new EventTarget();
+    vi.stubGlobal("window", target);
+    try {
+      const next = {
+        mode: "custom",
+        primary: { provider: "codex", accountId: "work", model: "gpt-5.5" },
+        fallback: { provider: "claude", model: "sonnet" },
+      } as const;
+      const listener = vi.fn((event: Event) => {
+        expect((event as CustomEvent).detail).toEqual(next);
+      });
+      target.addEventListener(AI_HELPER_CHANGE_EVENT, listener);
+      saveAiHelperSettings(next);
+      expect(localStorage.getItem(AI_HELPER_KEY)).toBe(JSON.stringify(next));
+      expect(loadAiHelperSettings()).toEqual(next);
+      expect(listener).toHaveBeenCalledTimes(1);
+      target.removeEventListener(AI_HELPER_CHANGE_EVENT, listener);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
 
 describe("follow-up behavior setting", () => {
   beforeEach(mockLocalStorage);

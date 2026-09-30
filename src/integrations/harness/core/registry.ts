@@ -22,6 +22,15 @@ export type TitleInput = {
   providerAccountId?: string;
 };
 
+export type HelperPromptInput = {
+  cwd: string;
+  prompt: string;
+  timeoutMs: number;
+  providerAccountId?: string;
+  model?: string;
+  outputSchema?: Record<string, unknown>;
+};
+
 /**
  * Lifecycle contract for a live harness adapter.
  * App.tsx dispatches through the registry instead of harness-specific branches.
@@ -78,6 +87,8 @@ export type HarnessAdapter = {
   generateBranchName?(cwd: string, message: string): Promise<string | null>;
   /** Optional warmup for text-generation backends. */
   warmupText?(cwd: string): Promise<void>;
+  /** Isolated text generation used by user-selected AI helpers. */
+  runHelperPrompt?(input: HelperPromptInput): Promise<string>;
 };
 
 const adapters = new Map<HarnessId, HarnessAdapter>();
@@ -384,6 +395,17 @@ export async function generateHarnessTitle(
   const adapter = getHarness(harness);
   if (!adapter?.generateTitle) return null;
   return adapter.generateTitle(input);
+}
+
+export async function runHarnessHelperPrompt(
+  harness: HarnessId,
+  input: HelperPromptInput,
+): Promise<string> {
+  const adapter = getHarness(harness);
+  if (!adapter?.runHelperPrompt) {
+    throw new Error(`${harness} does not support AI helper prompts`);
+  }
+  return adapter.runHelperPrompt(input);
 }
 
 export async function generateHarnessCommitMessage(

@@ -313,6 +313,7 @@ pub fn run() {
             control::control_turn_finished,
             default_cwd,
             home_dir,
+            antigravity_acp::antigravity_helper_directory,
             notifications::notification_permission,
             notifications::request_notification_permission,
             notifications::show_notification,

@@ -178,7 +178,17 @@ export {
   generateHarnessCommitMessage,
   generateHarnessPrContent,
   generateHarnessBranchName,
+  runHarnessHelperPrompt,
 } from "./core/registry";
+export {
+  generateHelperTitle,
+  generateHelperCommitMessage,
+  generateHelperPrContent,
+  helperFailureMessage,
+  HelperFailedError,
+} from "./core/helperText";
+export type { HelperPrDraft, HelperPrOutcome } from "./core/helperText";
+export type { HelperPromptInput } from "./core/registry";
 export type {
   ApprovalDecision,
   ApprovalScope,

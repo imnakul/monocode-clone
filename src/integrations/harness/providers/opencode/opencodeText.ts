@@ -16,6 +16,7 @@ import {
   parseOpenCodeVersion,
   parseServerUrlFromOutput,
 } from "./opencodeProtocol";
+import { HelperToolAttemptError } from "../../core/helperIsolation";
 
 const TEXT_CHILD_ID = "monocode-opencode-text";
 const SERVER_TIMEOUT_MS = 30_000;
@@ -50,6 +51,7 @@ export function warmupOpenCodeText(cwd: string): Promise<void> {
 
 export async function runOpenCodeTextPrompt(input: {
   cwd: string;
+  model?: string;
   prompt: string;
   timeoutMs?: number;
 }): Promise<string> {
@@ -63,10 +65,11 @@ export async function runOpenCodeTextPrompt(input: {
 
 async function promptOnLive(input: {
   cwd: string;
+  model?: string;
   prompt: string;
   timeoutMs?: number;
 }): Promise<string> {
-  const session = await ensureLive(input.cwd);
+  const session = await ensureLive(input.cwd, input.model);
   try {
     const result = await session.client.prompt({
       sessionID: session.sessionId,
@@ -74,6 +77,21 @@ async function promptOnLive(input: {
       parts: [{ type: "text", text: input.prompt }],
       timeoutMs: input.timeoutMs ?? REQUEST_TIMEOUT_MS,
     });
+    const attemptedTool = (result.parts ?? []).find((part) => {
+      if (!part || typeof part !== "object" || !("type" in part)) return false;
+      return part.type === "tool";
+    });
+    if (attemptedTool) {
+      const toolKind = isRecord(attemptedTool)
+        ? typeof attemptedTool.tool === "string"
+          ? attemptedTool.tool
+          : typeof attemptedTool.name === "string"
+            ? attemptedTool.name
+            : "tool"
+        : "tool";
+      await session.client.abortSession(session.sessionId).catch(() => undefined);
+      throw new HelperToolAttemptError("opencode", toolKind);
+    }
     const error = result.info?.error;
     if (error) {
       throw new Error(
@@ -90,8 +108,20 @@ async function promptOnLive(input: {
   }
 }
 
-async function ensureLive(cwd: string): Promise<LiveText> {
-  const model = pickTextModel();
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+async function ensureLive(
+  cwd: string,
+  requestedModel?: string,
+): Promise<LiveText> {
+  const model = requestedModel
+    ? parseOpenCodeModelSlug(requestedModel)
+    : pickTextModel();
+  if (!model) {
+    throw new Error("OpenCode model id must look like provider/model.");
+  }
   if (live && live.cwd === cwd && sameModel(live.model, model)) return live;
   if (live) await dropLive();
   return startLive(cwd, model);

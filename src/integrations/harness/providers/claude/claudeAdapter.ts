@@ -16,7 +16,7 @@ import {
   generateClaudePrContent,
 } from "./claudeGit";
 import { generateClaudeSessionTitle } from "./claudeTitle";
-import { warmupClaudeText } from "./claudeText";
+import { runClaudeTextPrompt, warmupClaudeText } from "./claudeText";
 import { registerHarness, type HarnessAdapter } from "../../core/registry";
 
 export const claudeAdapter: HarnessAdapter = {
@@ -37,6 +37,8 @@ export const claudeAdapter: HarnessAdapter = {
   generatePrContent: generateClaudePrContent,
   generateBranchName: generateClaudeBranchName,
   warmupText: warmupClaudeText,
+  runHelperPrompt: ({ cwd, prompt, timeoutMs, providerAccountId, model }) =>
+    runClaudeTextPrompt({ cwd, prompt, timeoutMs, providerAccountId, model }),
 };
 
 let registered = false;

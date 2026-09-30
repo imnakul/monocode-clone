@@ -209,6 +209,7 @@ import {
   subscribeHarnessAvailability,
 } from "../../../integrations/harness/core/availability";
 import { refreshHarnessCatalogs } from "../../../integrations/harness/core/registry";
+import { HELPER_ISOLATION } from "../../../integrations/harness/core/helperIsolation";
 import { loginHarness } from "../../../integrations/harness/core/auth";
 import {
   getAntigravityCatalogSnapshot,
@@ -252,11 +253,13 @@ import {
 import {
   newProviderAccount,
   providerAccounts,
+  providerAccountExists,
   PROVIDER_ACCOUNT_PROVIDERS,
   removeProviderAccount,
   renameProviderAccount,
   saveProviderAccount,
   subscribeProviderAccounts,
+  supportsProviderAccounts,
   type ProviderAccount,
   type ProviderAccountProvider,
 } from "../../providers/model/providerAccounts";
@@ -299,6 +302,7 @@ import {
 import {
   filterKeybindings,
   KEYBINDINGS,
+  loadAiHelperSettings,
   loadClaudeHooks,
   loadCloseToTray,
   loadCollapsedProjectRailMode,
@@ -317,6 +321,7 @@ import {
   saveCloseToTray,
   saveCollapsedProjectRailMode,
   saveComposerRunner,
+  saveAiHelperSettings,
   saveDetailedContext,
   saveDiffViewer,
   saveFileTabMode,
@@ -328,10 +333,15 @@ import {
   saveRemainingQuota,
   saveTabAnimationsEnabled,
   searchSettings,
+  parseAiHelperSettings,
   settingsSectionDescription,
   settingsSectionLabel,
   COLLAPSED_PROJECT_RAIL_MODE_DEFAULT,
+  AI_HELPER_PROVIDERS,
+  subscribeAiHelperSettings,
   type CollapsedProjectRailMode,
+  type AiHelperSettings,
+  type AiHelperTarget,
   type DiffViewer,
   type FileTabMode,
   type FollowUpBehavior,
@@ -943,6 +953,7 @@ function GeneralPage({
 }
 
 function ChatPage() {
+  const [aiHelper, setAiHelper] = useState(loadAiHelperSettings);
   const [transcriptLayout, setTranscriptLayout] =
     useState<TranscriptLayout>(loadTranscriptLayout);
   const [transcriptAnchor, setTranscriptAnchor] =
@@ -956,6 +967,21 @@ function ChatPage() {
   const [gridArcadeEnabled, setGridArcadeEnabled] = useState(
     loadGridArcadeEnabled,
   );
+  const [, setAiHelperOptionsVersion] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => {
+      setAiHelper(loadAiHelperSettings());
+      setAiHelperOptionsVersion((version) => version + 1);
+    };
+    const unsubscribers = [
+      subscribeAiHelperSettings(refresh),
+      subscribeProviderAccounts(refresh),
+      subscribeModels(refresh),
+      subscribeHarnessAvailability(refresh),
+    ];
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, []);
 
   useEffect(() => {
     const onAnchor = (event: Event) => {
@@ -1000,6 +1026,52 @@ function ChatPage() {
   const onGridArcadeEnabled = (next: boolean) => {
     saveGridArcadeEnabled(next);
     setGridArcadeEnabled(next);
+  };
+
+  const onAiHelperSettings = (next: AiHelperSettings) => {
+    saveAiHelperSettings(next);
+    setAiHelper(next);
+  };
+
+  const onAiHelperMode = (mode: "automatic" | "custom") => {
+    if (mode === "automatic") {
+      onAiHelperSettings({ mode: "automatic" });
+      return;
+    }
+    const firstAvailable = (["claude", "codex", "opencode"] as const).find(
+      (provider) => isHarnessAvailable(provider),
+    );
+    onAiHelperSettings({
+      mode: "custom",
+      primary: { provider: firstAvailable ?? "claude" },
+      fallback: null,
+    });
+  };
+
+  const onAiHelperTarget = (
+    slot: "primary" | "fallback",
+    target: AiHelperTarget,
+  ) => {
+    if (aiHelper.mode !== "custom") return;
+    const next = parseAiHelperSettings({ ...aiHelper, [slot]: target });
+    onAiHelperSettings(next);
+  };
+
+  const onAddAiHelperFallback = () => {
+    if (aiHelper.mode !== "custom" || aiHelper.fallback) return;
+    const provider =
+      AI_HELPER_PROVIDERS.find(
+        (candidate) => candidate !== aiHelper.primary.provider,
+      ) ?? aiHelper.primary.provider;
+    onAiHelperSettings({
+      ...aiHelper,
+      fallback: { provider },
+    });
+  };
+
+  const onRemoveAiHelperFallback = () => {
+    if (aiHelper.mode !== "custom") return;
+    onAiHelperSettings({ ...aiHelper, fallback: null });
   };
 
   return (
@@ -1073,6 +1145,70 @@ function ChatPage() {
       </Group>
 
       <Group
+        title="AI helper"
+        description="Which model writes chat titles, commit messages and pull request descriptions."
+      >
+        <Row
+          id="ai-helper"
+          label="AI helper"
+          description="Automatic uses the chat's provider for titles and the first installed provider for commits and PRs."
+        >
+          <Segmented
+            label="AI helper"
+            value={aiHelper.mode}
+            options={[
+              { value: "automatic", label: "Automatic" },
+              { value: "custom", label: "Choose a model" },
+            ]}
+            onChange={onAiHelperMode}
+          />
+        </Row>
+        {aiHelper.mode === "custom" ? (
+          <>
+            <AiHelperTargetEditor
+              id="ai-helper-primary"
+              label="Main model"
+              target={aiHelper.primary}
+              onChange={(target) => onAiHelperTarget("primary", target)}
+            />
+            {aiHelper.fallback ? (
+              <AiHelperTargetEditor
+                id="ai-helper-fallback"
+                label="Backup model"
+                target={aiHelper.fallback}
+                onChange={(target) => onAiHelperTarget("fallback", target)}
+                action={
+                  <button
+                    type="button"
+                    onClick={onRemoveAiHelperFallback}
+                    className="text-[12px] text-content/55 hover:text-content"
+                  >
+                    Remove backup
+                  </button>
+                }
+              />
+            ) : (
+              <Row label="Backup model">
+                <button
+                  type="button"
+                  onClick={onAddAiHelperFallback}
+                  className="text-[12px] text-content/55 hover:text-content"
+                >
+                  Add backup
+                </button>
+              </Row>
+            )}
+            <p className="px-4 py-3 text-[12px] leading-relaxed text-content/45">
+              If the main model's reply is unusable, MonoCode asks it to fix the
+              reply once, then tries the backup once. Sign-in or permission
+              errors never switch to the backup. Helpers run without tools and
+              can't change your files.
+            </p>
+          </>
+        ) : null}
+      </Group>
+
+      <Group
         title="Code review"
         description="Where a turn's changes open when you go to read them."
       >
@@ -1121,6 +1257,126 @@ function ChatPage() {
         </Row>
       </Group>
     </>
+  );
+}
+
+function AiHelperTargetEditor({
+  id,
+  label,
+  target,
+  onChange,
+  action,
+}: {
+  id: string;
+  label: string;
+  target: AiHelperTarget;
+  onChange: (target: AiHelperTarget) => void;
+  action?: ReactNode;
+}) {
+  const [providerSelectOpen, setProviderSelectOpen] = useState(false);
+  const providerOptions = AI_HELPER_PROVIDERS.map((provider) => {
+    const isolation = HELPER_ISOLATION[provider];
+    const notInstalled =
+      hasHarnessEvidence(provider) && !isHarnessAvailable(provider);
+    return {
+      value: provider,
+      label:
+        provider === "antigravity" && !isolation.verified
+          ? "Antigravity (not available yet)"
+          : `${HARNESS_TITLE[provider]}${notInstalled ? " (not installed)" : ""}`,
+      disabled: !isolation.verified,
+      title: isolation.reason,
+      description: isolation.reason,
+    };
+  });
+  const models = modelsFor(target.provider);
+  const modelOptions = [
+    { value: "", label: "Automatic model" },
+    ...models.map((model) => ({
+      value: model.nativeId ?? model.id,
+      label: model.name,
+    })),
+  ];
+  const accounts = supportsProviderAccounts(target.provider)
+    ? providerAccounts(target.provider)
+    : [];
+  const warnings: string[] = [];
+  if (hasHarnessEvidence(target.provider) && !isHarnessAvailable(target.provider)) {
+    warnings.push("Not installed. MonoCode will skip it.");
+  }
+  if (
+    target.accountId !== undefined &&
+    supportsProviderAccounts(target.provider) &&
+    !providerAccountExists(target.provider, target.accountId)
+  ) {
+    warnings.push("This account was removed. MonoCode will skip it.");
+  }
+  if (
+    target.model &&
+    !models.some((model) => (model.nativeId ?? model.id) === target.model)
+  ) {
+    warnings.push(
+      "Not in the current model list. The provider will decide if it works.",
+    );
+  }
+  if (target.provider === "antigravity" && !HELPER_ISOLATION.antigravity.verified) {
+    warnings.push(HELPER_ISOLATION.antigravity.reason ?? "");
+  } else if (providerSelectOpen && HELPER_ISOLATION.antigravity.reason) {
+    warnings.push(HELPER_ISOLATION.antigravity.reason);
+  }
+
+  const setProvider = (value: string) => {
+    const provider = AI_HELPER_PROVIDERS.find((candidate) => candidate === value);
+    if (!provider || !HELPER_ISOLATION[provider].verified) return;
+    onChange({ provider });
+  };
+
+  return (
+    <Row
+      id={id}
+      label={label}
+      description={warnings.length > 0 ? warnings.join(" ") : undefined}
+    >
+      <Select
+        label={`${label} provider`}
+        value={target.provider}
+        options={providerOptions}
+        onChange={setProvider}
+        onOpenChange={setProviderSelectOpen}
+      />
+      {supportsProviderAccounts(target.provider) ? (
+        <Select
+          label={`${label} account`}
+          value={target.accountId ?? "default"}
+          options={accounts.map((account) => ({
+            value: account.id,
+            label: account.label,
+          }))}
+          onChange={(accountId) =>
+            onChange({
+              provider: target.provider,
+              ...(accountId === "default" ? {} : { accountId }),
+              ...(target.model === undefined ? {} : { model: target.model }),
+            })
+          }
+        />
+      ) : null}
+      <Select
+        label={`${label} model`}
+        value={target.model ?? ""}
+        options={modelOptions}
+        onChange={(model) =>
+          onChange({
+            provider: target.provider,
+            ...(target.accountId === undefined
+              ? {}
+              : { accountId: target.accountId }),
+            ...(model ? { model } : {}),
+          })
+        }
+      />
+      {action}
+    </Row>
   );
 }
 
@@ -4157,11 +4413,19 @@ export function Select({
   value,
   options,
   onChange,
+  onOpenChange,
 }: {
   label: string;
   value: string;
-  options: { value: string; label: string }[];
+  options: {
+    value: string;
+    label: string;
+    disabled?: boolean;
+    title?: string;
+    description?: string;
+  }[];
   onChange: (value: string) => void;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(() =>
@@ -4194,36 +4458,59 @@ export function Select({
   }, [active, open]);
 
   const pick = (next: string) => {
+    if (options.find((option) => option.value === next)?.disabled) return;
     onChange(next);
     setOpen(false);
+    onOpenChange?.(false);
     trigger.current?.focus();
   };
 
   const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((i) => Math.min(options.length - 1, i + 1));
+      setActive((current) => {
+        for (let index = current + 1; index < options.length; index += 1) {
+          if (!options[index]?.disabled) return index;
+        }
+        return current;
+      });
       return;
     }
     if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActive((i) => Math.max(0, i - 1));
+      setActive((current) => {
+        for (let index = current - 1; index >= 0; index -= 1) {
+          if (!options[index]?.disabled) return index;
+        }
+        return current;
+      });
       return;
     }
     if (e.key === "Home") {
       e.preventDefault();
-      setActive(0);
+      const firstEnabled = options.findIndex((option) => !option.disabled);
+      if (firstEnabled >= 0) setActive(firstEnabled);
       return;
     }
     if (e.key === "End") {
       e.preventDefault();
-      setActive(options.length - 1);
+      let lastEnabled = -1;
+      for (let index = options.length - 1; index >= 0; index -= 1) {
+        if (!options[index]?.disabled) {
+          lastEnabled = index;
+          break;
+        }
+      }
+      if (lastEnabled >= 0) setActive(lastEnabled);
       return;
     }
     if (e.key === "Tab") {
       const option = options[active];
-      if (option && option.value !== value) onChange(option.value);
+      if (option && !option.disabled && option.value !== value) {
+        onChange(option.value);
+      }
       setOpen(false);
+      onOpenChange?.(false);
       trigger.current?.focus();
       return;
     }
@@ -4242,7 +4529,10 @@ export function Select({
         aria-label={`${label}: ${selected?.label ?? value}`}
         aria-expanded={open}
         aria-haspopup="listbox"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          setOpen((previous) => !previous);
+          onOpenChange?.(!open);
+        }}
         className="flex w-full items-center justify-between gap-2 rounded-md border border-content/10 bg-content/5 px-2 py-1 text-left text-[12px] text-content outline-none hover:border-content/20"
       >
         <span className="min-w-0 flex-1 truncate">
@@ -4263,6 +4553,7 @@ export function Select({
           autoFocus
           onDismiss={(reason) => {
             setOpen(false);
+            onOpenChange?.(false);
             if (reason === "escape") trigger.current?.focus();
           }}
           role="listbox"
@@ -4284,8 +4575,13 @@ export function Select({
                 role="option"
                 tabIndex={-1}
                 aria-selected={isSelected}
+                aria-disabled={option.disabled || undefined}
+                disabled={option.disabled}
+                title={option.title}
                 onMouseDown={(e) => e.preventDefault()}
-                onMouseEnter={() => setActive(index)}
+                onMouseEnter={() => {
+                  if (!option.disabled) setActive(index);
+                }}
                 onClick={() => pick(option.value)}
                 className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] ${
                   highlighted || isSelected
@@ -4293,7 +4589,14 @@ export function Select({
                     : "text-content hover:bg-content/5"
                 }`}
               >
-                <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{option.label}</span>
+                  {option.description ? (
+                    <span className="mt-0.5 block text-[11px] leading-relaxed text-content/45">
+                      {option.description}
+                    </span>
+                  ) : null}
+                </span>
                 {isSelected ? (
                   <Check className="size-3.5 shrink-0" strokeWidth={2.25} />
                 ) : null}

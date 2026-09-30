@@ -100,6 +100,7 @@ export function buildThreadStartParams(input: {
   controlsAgents?: boolean;
   model?: string;
   serviceTier?: string;
+  ephemeral?: boolean;
 }): Record<string, unknown> {
   const config = runtimeModeToCodexConfig(
     input.runtimeMode,
@@ -115,6 +116,7 @@ export function buildThreadStartParams(input: {
     ...(input.serviceTier && input.serviceTier !== "default"
       ? { serviceTier: input.serviceTier }
       : {}),
+    ...(input.ephemeral === undefined ? {} : { ephemeral: input.ephemeral }),
   };
 }
 
@@ -141,6 +143,7 @@ export function buildTurnStartParams(input: {
   effort?: string;
   serviceTier?: string;
   intent?: TurnIntent;
+  outputSchema?: Record<string, unknown>;
 }): Record<string, unknown> {
   const runtimeConfig = runtimeModeToCodexConfig(
     input.runtimeMode,
@@ -177,6 +180,7 @@ export function buildTurnStartParams(input: {
     ...(input.serviceTier && input.serviceTier !== "default"
       ? { serviceTier: input.serviceTier }
       : {}),
+    ...(input.outputSchema ? { outputSchema: input.outputSchema } : {}),
   };
 }
 

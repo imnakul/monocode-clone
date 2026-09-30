@@ -8,14 +8,19 @@ import {
   writeChild,
 } from "../../core/child";
 import {
+  asRecord,
   assistantTextBlocks,
+  buildControlResponse,
   buildClaudeSpawnArgs,
   buildClaudeUserMessage,
+  parseControlRequest,
   parseJsonLine,
   stringField,
+  toClaudePermissionResult,
   turnStatusFromResult,
 } from "./claudeProtocol";
 import { mergeStream } from "../../core/streamText";
+import { HelperToolAttemptError } from "../../core/helperIsolation";
 
 const TEXT_CHILD_ID = "monocode-claude-text";
 const INIT_TIMEOUT_MS = 8_000;
@@ -25,6 +30,7 @@ const TEXT_MODEL = "claude-haiku-4-5";
 type LiveText = {
   cwd: string;
   providerAccountId?: string;
+  model: string;
   collecting: boolean;
   output: string;
   closed: boolean;
@@ -64,6 +70,7 @@ export function warmupClaudeText(cwd: string): Promise<void> {
 export async function runClaudeTextPrompt(input: {
   cwd: string;
   providerAccountId?: string;
+  model?: string;
   prompt: string;
   timeoutMs?: number;
 }): Promise<string> {
@@ -78,13 +85,19 @@ export async function runClaudeTextPrompt(input: {
 async function promptOnLive(input: {
   cwd: string;
   providerAccountId?: string;
+  model?: string;
   prompt: string;
   timeoutMs?: number;
 }): Promise<string> {
-  const session = await ensureLive(input.cwd, input.providerAccountId);
+  const session = await ensureLive(
+    input.cwd,
+    input.providerAccountId,
+    input.model,
+  );
   session.output = "";
   session.collecting = true;
   const timeoutMs = input.timeoutMs ?? REQUEST_TIMEOUT_MS;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
 
   try {
     const turnPromise = new Promise<void>((resolve, reject) => {
@@ -100,7 +113,7 @@ async function promptOnLive(input: {
     await Promise.race([
       turnPromise,
       new Promise<void>((_, reject) => {
-        setTimeout(
+        timeout = setTimeout(
           () => reject(new Error("Claude text generation timed out")),
           timeoutMs,
         );
@@ -114,6 +127,7 @@ async function promptOnLive(input: {
     if (session.closed) await dropLive();
     throw error;
   } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
     session.collecting = false;
     session.turnDone = null;
     session.turnFailed = null;
@@ -124,27 +138,32 @@ async function promptOnLive(input: {
 async function ensureLive(
   cwd: string,
   providerAccountId?: string,
+  requestedModel?: string,
 ): Promise<LiveText> {
+  const model = requestedModel ?? pickTextModel();
   if (
     live &&
     !live.closed &&
     live.cwd === cwd &&
-    live.providerAccountId === providerAccountId
+    live.providerAccountId === providerAccountId &&
+    live.model === model
   ) {
     return live;
   }
   await dropLive();
-  return startLive(cwd, providerAccountId);
+  return startLive(cwd, providerAccountId, model);
 }
 
 async function startLive(
   cwd: string,
   providerAccountId?: string,
+  model = pickTextModel(),
 ): Promise<LiveText> {
   const { path } = await resolveClaudeBinary();
   const session: LiveText = {
     cwd,
     providerAccountId,
+    model,
     collecting: false,
     output: "",
     closed: false,
@@ -174,7 +193,8 @@ async function startLive(
       path,
       buildClaudeSpawnArgs({
         isolated: true,
-        model: pickTextModel(),
+        model,
+        noTools: true,
       }),
       cwd,
       { provider: "claude", id: providerAccountId ?? "default" },
@@ -219,7 +239,23 @@ function handleLine(session: LiveText, line: string): void {
     session.readyDone = null;
   }
   if (!session.collecting) return;
+  if (type === "control_request" || type === "sdk_control_request") {
+    const control = parseControlRequest(rec);
+    if (control?.subtype === "can_use_tool") {
+      void denyToolRequest(session, control.requestId, control.input ?? {}, control.toolName ?? "unknown");
+    }
+    return;
+  }
   if (type === "assistant") {
+    const message = asRecord(rec.message);
+    const content = Array.isArray(message?.content) ? message.content : [];
+    const attemptedTool = content
+      .map((block) => asRecord(block))
+      .find((block) => stringField(block, "type") === "tool_use");
+    if (attemptedTool) {
+      failToolAttempt(session, stringField(attemptedTool, "name") ?? "tool_use");
+      return;
+    }
     const snapshot = assistantTextBlocks(rec).join("");
     if (snapshot) session.output = mergeStream(session.output, snapshot);
     return;
@@ -243,6 +279,30 @@ function handleLine(session: LiveText, line: string): void {
     session.turnDone = null;
     session.turnFailed = null;
   }
+}
+
+async function denyToolRequest(
+  session: LiveText,
+  requestId: string,
+  input: Record<string, unknown>,
+  toolKind: string,
+): Promise<void> {
+  try {
+    await writeChild(
+      TEXT_CHILD_ID,
+      JSON.stringify(
+        buildControlResponse(requestId, toClaudePermissionResult("deny", input)),
+      ),
+    );
+  } catch {
+    // A closing child may not accept the deny; the tool attempt still fails closed.
+  }
+  failToolAttempt(session, toolKind);
+}
+
+function failToolAttempt(session: LiveText, toolKind: string): void {
+  session.turnFailed?.(new HelperToolAttemptError("claude", toolKind));
+  void dropLive();
 }
 
 function waitForReady(session: LiveText, timeoutMs: number): Promise<void> {

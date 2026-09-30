@@ -1,5 +1,7 @@
 import { ALT, IS_MAC, IS_WIN, MOD, SHIFT } from "../../../platform/tauri/platform";
 import { readFlag, writeFlag } from "./storageFlags";
+import type { HarnessId } from "../../sessions/model/session";
+import { DEFAULT_PROVIDER_ACCOUNT_ID } from "../../providers/model/providerAccounts";
 
 const SECTION_KEY = "monocode.settingsSection";
 
@@ -341,6 +343,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     label: "Model controls",
     keywords:
       "effort thinking reasoning fast service tier model picker composer",
+  },
+  {
+    id: "ai-helper",
+    section: "chat",
+    label: "AI helper",
+    keywords: "title commit pull request pr description helper model fallback",
   },
   {
     id: "composer-mascot",
@@ -700,6 +708,134 @@ export function subscribeModelControls(onStoreChange: () => void) {
   window.addEventListener(MODEL_CONTROLS_CHANGE_EVENT, onStoreChange);
   return () =>
     window.removeEventListener(MODEL_CONTROLS_CHANGE_EVENT, onStoreChange);
+}
+
+export const AI_HELPER_PROVIDERS = [
+  "claude",
+  "codex",
+  "opencode",
+  "antigravity",
+] as const satisfies readonly HarnessId[];
+
+export type AiHelperProvider = (typeof AI_HELPER_PROVIDERS)[number];
+
+export type AiHelperTarget = {
+  provider: AiHelperProvider;
+  accountId?: string;
+  model?: string;
+};
+
+export type AiHelperSettings =
+  | { mode: "automatic" }
+  | { mode: "custom"; primary: AiHelperTarget; fallback: AiHelperTarget | null };
+
+const AI_HELPER_KEY = "monocode.aiHelper";
+
+export const AI_HELPER_CHANGE_EVENT = "monocode:ai-helper-change";
+
+const AUTOMATIC_AI_HELPER: AiHelperSettings = { mode: "automatic" };
+
+function isAiHelperRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isAiHelperProvider(value: unknown): value is AiHelperProvider {
+  return (
+    typeof value === "string" &&
+    AI_HELPER_PROVIDERS.some((candidate) => candidate === value)
+  );
+}
+
+function parseAiHelperTarget(value: unknown): AiHelperTarget | null {
+  if (!isAiHelperRecord(value)) return null;
+  const provider = value.provider;
+  if (!isAiHelperProvider(provider)) return null;
+
+  let accountId: string | undefined;
+  if (Object.prototype.hasOwnProperty.call(value, "accountId")) {
+    if (
+      typeof value.accountId !== "string" ||
+      value.accountId.trim().length === 0 ||
+      value.accountId.length > 200 ||
+      (provider !== "claude" && provider !== "codex")
+    ) {
+      return null;
+    }
+    accountId = value.accountId;
+  }
+
+  let model: string | undefined;
+  if (Object.prototype.hasOwnProperty.call(value, "model")) {
+    if (typeof value.model !== "string") return null;
+    model = value.model.trim();
+    if (!model || model.length > 200) return null;
+  }
+
+  return {
+    provider,
+    ...(accountId === undefined ? {} : { accountId }),
+    ...(model === undefined ? {} : { model }),
+  };
+}
+
+function sameAiHelperTarget(
+  left: AiHelperTarget,
+  right: AiHelperTarget,
+): boolean {
+  return (
+    left.provider === right.provider &&
+    (left.accountId ?? DEFAULT_PROVIDER_ACCOUNT_ID) ===
+      (right.accountId ?? DEFAULT_PROVIDER_ACCOUNT_ID) &&
+    left.model === right.model
+  );
+}
+
+/** Validate the persisted helper preference before any provider is invoked. */
+export function parseAiHelperSettings(raw: unknown): AiHelperSettings {
+  if (!isAiHelperRecord(raw)) return AUTOMATIC_AI_HELPER;
+  if (raw.mode === "automatic") return AUTOMATIC_AI_HELPER;
+  if (raw.mode !== "custom") return AUTOMATIC_AI_HELPER;
+
+  const primary = parseAiHelperTarget(raw.primary);
+  if (!primary) return AUTOMATIC_AI_HELPER;
+
+  const fallback = parseAiHelperTarget(raw.fallback);
+  return {
+    mode: "custom",
+    primary,
+    fallback:
+      fallback && !sameAiHelperTarget(primary, fallback) ? fallback : null,
+  };
+}
+
+export function loadAiHelperSettings(): AiHelperSettings {
+  try {
+    const raw = localStorage.getItem(AI_HELPER_KEY);
+    if (raw == null) return AUTOMATIC_AI_HELPER;
+    return parseAiHelperSettings(JSON.parse(raw));
+  } catch {
+    return AUTOMATIC_AI_HELPER;
+  }
+}
+
+export function saveAiHelperSettings(next: AiHelperSettings): void {
+  try {
+    localStorage.setItem(AI_HELPER_KEY, JSON.stringify(next));
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<AiHelperSettings>(AI_HELPER_CHANGE_EVENT, { detail: next }),
+  );
+}
+
+export function subscribeAiHelperSettings(
+  onStoreChange: () => void,
+): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(AI_HELPER_CHANGE_EVENT, onStoreChange);
+  return () => window.removeEventListener(AI_HELPER_CHANGE_EVENT, onStoreChange);
 }
 
 export const COMPOSER_RUNNER_DEFAULT = true;

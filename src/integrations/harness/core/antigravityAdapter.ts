@@ -9,6 +9,7 @@ import {
   stopAntigravitySession,
 } from "./antigravity";
 import { refreshAntigravityCatalog } from "./antigravityCatalog";
+import { runAntigravityHelperPrompt } from "./antigravityHelper";
 import { registerHarness, type HarnessAdapter } from "./registry";
 
 export const antigravityAdapter: HarnessAdapter = {
@@ -24,6 +25,7 @@ export const antigravityAdapter: HarnessAdapter = {
   stopSession: stopAntigravitySession,
   forgetSession: forgetAntigravitySession,
   bindSession: bindAntigravitySession,
+  runHelperPrompt: runAntigravityHelperPrompt,
 };
 
 let registered = false;

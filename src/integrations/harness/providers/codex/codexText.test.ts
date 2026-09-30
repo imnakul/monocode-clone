@@ -1,0 +1,199 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const state = vi.hoisted(() => ({
+  sent: [] as string[],
+  onLine: null as ((line: string) => void) | null,
+  writeChild: vi.fn(async (_id: string, line: string) => {
+    state.sent.push(line);
+  }),
+}));
+
+vi.mock("../../core/child", () => ({
+  resolveCodexBinary: async () => ({ path: "/fake/codex" }),
+  spawnChild: async () => undefined,
+  killChild: async () => undefined,
+  unwatchChild: () => undefined,
+  watchChild: (_id: string, line: (value: string) => void) => {
+    state.onLine = line;
+  },
+  writeChild: state.writeChild,
+}));
+
+import { HelperToolAttemptError } from "../../core/helperIsolation";
+import { COMMIT_OUTPUT_SCHEMA } from "../../core/helperSchemas";
+import {
+  runCodexTextPrompt,
+  stopCodexTextPrompt,
+} from "./codexText";
+
+function parseSent(): Record<string, unknown>[] {
+  return state.sent.map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+function reply(id: number, result: unknown): void {
+  state.onLine?.(JSON.stringify({ id, result }));
+}
+
+function sendNotification(method: string, params: unknown): void {
+  state.onLine?.(JSON.stringify({ method, params }));
+}
+
+async function waitFor(
+  predicate: () => boolean,
+  label: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  throw new Error("Timed out waiting for " + label + ".");
+}
+
+async function startHelper(): Promise<{ prompt: Promise<string> }> {
+  const prompt = runCodexTextPrompt({
+    cwd: "/repo",
+    model: "gpt-5.4",
+    prompt: "Return a structured commit message.",
+    outputSchema: COMMIT_OUTPUT_SCHEMA,
+    timeoutMs: 5_000,
+  });
+  await waitFor(
+    () => parseSent().some((message) => message.method === "initialize"),
+    "initialize",
+  );
+  const initialize = parseSent().find(
+    (message) => message.method === "initialize",
+  )!;
+  reply(initialize.id as number, {});
+  await waitFor(
+    () => parseSent().some((message) => message.method === "thread/start"),
+    "ephemeral thread",
+  );
+  const threadStart = parseSent().find(
+    (message) => message.method === "thread/start",
+  )!;
+  expect(threadStart.params).toMatchObject({
+    cwd: "/repo",
+    ephemeral: true,
+    approvalPolicy: "untrusted",
+    sandbox: "read-only",
+  });
+  reply(threadStart.id as number, { thread: { id: "helper-thread" } });
+  await waitFor(
+    () => parseSent().some((message) => message.method === "turn/start"),
+    "helper turn",
+  );
+  const turnStart = parseSent().find(
+    (message) => message.method === "turn/start",
+  )!;
+  expect(turnStart.params).toMatchObject({
+    model: "gpt-5.4",
+    outputSchema: COMMIT_OUTPUT_SCHEMA,
+  });
+  reply(turnStart.id as number, { turn: { id: "helper-turn" } });
+  await waitFor(
+    () => parseSent().some((message) => message.method === "turn/start"),
+    "turn response",
+  );
+  return { prompt };
+}
+
+beforeEach(() => {
+  state.sent.length = 0;
+  state.onLine = null;
+  state.writeChild.mockClear();
+});
+
+afterEach(async () => {
+  await stopCodexTextPrompt();
+});
+
+describe("Codex isolated helper runner", () => {
+  it("declines an MCP elicitation before interrupting the turn", async () => {
+    const { prompt } = await startHelper();
+    state.onLine?.(
+      JSON.stringify({
+        id: 90,
+        method: "mcpServer/elicitation/request",
+        params: { message: "Can I use a tool?" },
+      }),
+    );
+
+    await waitFor(
+      () =>
+        parseSent().some(
+          (message) =>
+            message.id === 90 &&
+            (message.result as Record<string, unknown> | undefined)?.action ===
+              "decline",
+        ),
+      "MCP decline response",
+    );
+    await expect(prompt).rejects.toBeInstanceOf(HelperToolAttemptError);
+    expect(
+      parseSent().some((message) => message.method === "turn/interrupt"),
+    ).toBe(true);
+  });
+
+  it.each([
+    "item/commandExecution/requestApproval",
+    "item/fileChange/requestApproval",
+  ])("declines %s before interrupting the turn", async (method) => {
+    const { prompt } = await startHelper();
+    state.onLine?.(
+      JSON.stringify({ id: 91, method, params: { threadId: "helper-thread" } }),
+    );
+    await waitFor(
+      () =>
+        parseSent().some(
+          (message) => message.id === 91 && message.result !== undefined,
+        ),
+      "approval decline response",
+    );
+
+    expect(parseSent().find((message) => message.id === 91)?.result).toEqual({
+      decision: "decline",
+    });
+    await expect(prompt).rejects.toBeInstanceOf(HelperToolAttemptError);
+    expect(
+      parseSent().some((message) => message.method === "turn/interrupt"),
+    ).toBe(true);
+  });
+
+  it.each([
+    "mcpToolCall",
+    "commandExecution",
+    "fileChange",
+    "webSearch",
+    "unknown",
+  ])("stops an item/started tool attempt of type %s", async (itemType) => {
+    const { prompt } = await startHelper();
+    sendNotification("item/started", {
+      item: { id: "tool-1", type: itemType },
+    });
+
+    await expect(prompt).rejects.toBeInstanceOf(HelperToolAttemptError);
+    expect(
+      parseSent().some((message) => message.method === "turn/interrupt"),
+    ).toBe(true);
+  });
+
+  it("allows agent messages and reasoning items and returns the streamed text", async () => {
+    const { prompt } = await startHelper();
+    sendNotification("item/started", {
+      item: { id: "message-1", type: "agentMessage" },
+    });
+    sendNotification("item/started", {
+      item: { id: "reasoning-1", type: "reasoning" },
+    });
+    sendNotification("item/agentMessage/delta", { delta: "hello" });
+    sendNotification("turn/completed", {
+      turn: { id: "helper-turn", status: "completed" },
+    });
+
+    await expect(prompt).resolves.toBe("hello");
+    expect(
+      parseSent().some((message) => message.method === "turn/interrupt"),
+    ).toBe(false);
+  });
+});

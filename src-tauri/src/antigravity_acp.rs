@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use tauri::Manager;
 
 pub(crate) const AUTH_ARG: &str = "--antigravity-auth-url";
 pub(crate) const AUTH_MARKER: &str = "__MONOCODE_ANTIGRAVITY_AUTH_URL__";
@@ -18,6 +19,23 @@ pub(crate) fn executable_name() -> &'static str {
     } else {
         "agy_acp_server.par"
     }
+}
+
+#[tauri::command]
+pub(crate) fn antigravity_helper_directory(app: tauri::AppHandle) -> Result<String, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "Could not locate MonoCode's app data folder.".to_string())?;
+    let directory = ensure_antigravity_helper_directory(&app_data_dir)?;
+    Ok(crate::fs::path_to_js(&directory))
+}
+
+fn ensure_antigravity_helper_directory(app_data_dir: &Path) -> Result<PathBuf, String> {
+    let directory = app_data_dir.join("antigravity-helper");
+    std::fs::create_dir_all(&directory)
+        .map_err(|_| "Could not create MonoCode's Antigravity helper folder.".to_string())?;
+    Ok(directory)
 }
 
 fn helper_name() -> &'static str {
@@ -377,6 +395,25 @@ pub(crate) fn read_initialize_response(mut reader: impl BufRead) -> Result<Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn helper_directory_is_created_inside_app_data_and_starts_empty() {
+        let root = std::env::temp_dir().join(format!(
+            "monocode-antigravity-helper-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+
+        let helper = ensure_antigravity_helper_directory(&root).expect("helper directory");
+
+        assert_eq!(helper, root.join("antigravity-helper"));
+        assert!(helper.is_dir());
+        assert_eq!(std::fs::read_dir(&helper).expect("empty folder").count(), 0);
+        std::fs::remove_dir_all(root).expect("remove test folder");
+    }
     use std::ffi::OsString;
     use std::io::Cursor;
 

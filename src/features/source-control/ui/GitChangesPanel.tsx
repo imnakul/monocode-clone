@@ -68,7 +68,13 @@ import {
   saveChangesView,
   type ChangesView,
 } from "../../settings/model/appearance";
-import { generateCommitMessage, generatePrContent } from "../../../integrations/harness";
+import {
+  generateHelperCommitMessage,
+  generateHelperPrContent,
+  helperFailureMessage,
+  type HelperPrDraft,
+} from "../../../integrations/harness";
+import { PrDetailsDialog } from "./PrDetailsDialog";
 import { invalidateWatchedFiles } from "../../files/model/fileWatch";
 import { MOD } from "../../../platform/tauri/platform";
 import { applyProjectDiffStats } from "../hooks/useProjectDiffStats";
@@ -94,6 +100,11 @@ const indexByCwd = new Map<string, GitDiffIndex>();
 const prByCwd = new Map<string, GitPr | null>();
 
 type AmendTarget = { branch: string | null; head: string | null };
+type PrReviewState = {
+  draft: HelperPrDraft;
+  error: string;
+  pushed: boolean;
+};
 
 type Props = {
   cwd: string;
@@ -363,7 +374,9 @@ function ChangedFiles({
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const menuRef = useRef<HTMLDivElement>(null);
   const messageRef = useRef<HTMLTextAreaElement>(null);
+  const commitGeneration = useRef<AbortController | null>(null);
   const [message, setMessage] = useState("");
+  const [prReview, setPrReview] = useState<PrReviewState | null>(null);
   const [amendTarget, setAmendTarget] = useState<AmendTarget | null>(null);
   const amend = amendTarget !== null;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -403,7 +416,16 @@ function ChangedFiles({
   const canCommitPush =
     canCommit && hasRemote && !diverged && (!amend || !index?.headPushed);
   const canCommitPushPr = canCommitPush && !hasOpenPr && !onDefault;
-  const canEditMessage = (staged.length > 0 || amend) && !busy;
+  const canEditMessage =
+    (staged.length > 0 || amend) && (!busy || busy === "generate");
+
+  useEffect(
+    () => () => {
+      commitGeneration.current?.abort();
+      commitGeneration.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!amendTarget) return;
@@ -525,13 +547,31 @@ function ChangedFiles({
 
   const generate = async () => {
     if (!canGenerate) return;
+    const startText = messageRef.current?.value ?? message;
+    const controller = new AbortController();
+    commitGeneration.current = controller;
     setBusy("generate");
     try {
-      setMessage(await generateCommitMessage(cwd, textHarness));
+      const generated = await generateHelperCommitMessage(
+        cwd,
+        textHarness,
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      if ((messageRef.current?.value ?? message) !== startText) {
+        fail(
+          "A commit message was generated, but you edited the field, so it wasn't applied.",
+        );
+        return;
+      }
+      setMessage(generated);
     } catch (error) {
-      fail(error);
+      if (!controller.signal.aborted) fail(error);
     } finally {
-      setBusy(null);
+      if (commitGeneration.current === controller) {
+        commitGeneration.current = null;
+      }
+      if (!controller.signal.aborted) setBusy(null);
     }
   };
 
@@ -582,7 +622,7 @@ function ChangedFiles({
       setAmendTarget(null);
       onMutated();
       if (createPr) {
-        await openCreatedPr();
+        await openCreatedPr(push, true);
         reloadPr();
       }
     } catch (error) {
@@ -610,9 +650,7 @@ function ChangedFiles({
     }
   };
 
-  const openCreatedPr = async () => {
-    const content = await generatePrContent(cwd, textHarness);
-    if (!content) throw new Error("Could not prepare pull request content");
+  const createPullRequest = async (content: HelperPrDraft) => {
     const url = await gitPrCreate(
       cwd,
       content.title,
@@ -623,6 +661,43 @@ function ChangedFiles({
     const number = Number(/\/pull\/(\d+)(?:[/?#]|$)/.exec(url)?.[1]);
     if (Number.isInteger(number) && number > 0) recordPrActivity(number);
     await openUrl(url.trim());
+    onMutated();
+    reloadPr();
+  };
+
+  const applyPrOutcome = async (
+    outcome: Awaited<ReturnType<typeof generateHelperPrContent>>,
+    pushed: boolean,
+    mutationAlreadyRefreshed = false,
+  ) => {
+    if (outcome.status === "cancelled") {
+      if (pushed && !mutationAlreadyRefreshed) {
+        onMutated();
+        reloadPr();
+      }
+      return;
+    }
+    if (outcome.status === "needs-review") {
+      if (pushed && !mutationAlreadyRefreshed) {
+        onMutated();
+        reloadPr();
+      }
+      setPrReview({
+        draft: outcome.draft,
+        error: helperFailureMessage("pr", outcome.failure),
+        pushed,
+      });
+      return;
+    }
+    await createPullRequest(outcome.content);
+  };
+
+  const openCreatedPr = async (
+    pushed: boolean,
+    mutationAlreadyRefreshed = false,
+  ) => {
+    const outcome = await generateHelperPrContent(cwd, textHarness);
+    await applyPrOutcome(outcome, pushed, mutationAlreadyRefreshed);
   };
 
   const createPr = async () => {
@@ -630,10 +705,9 @@ function ChangedFiles({
     if (!(await confirmDefault("pr"))) return;
     setBusy("pr");
     try {
-      if ((index?.ahead ?? 0) > 0) await gitPush(cwd);
-      await openCreatedPr();
-      onMutated();
-      reloadPr();
+      const pushed = (index?.ahead ?? 0) > 0;
+      if (pushed) await gitPush(cwd);
+      await openCreatedPr(pushed);
     } catch (error) {
       fail(error);
       onMutated();
@@ -643,6 +717,7 @@ function ChangedFiles({
   };
 
   return (
+    <>
     <aside
       className={`flex min-h-0 min-w-0 flex-col ${fill ? "flex-1" : "shrink-0"}`}
     >
@@ -881,6 +956,18 @@ function ChangedFiles({
         )}
       </div>
     </aside>
+    {prReview ? (
+      <PrDetailsDialog
+        cwd={cwd}
+        textHarness={textHarness}
+        draft={prReview.draft}
+        initialError={prReview.error}
+        pushed={prReview.pushed}
+        onCreate={createPullRequest}
+        onCancel={() => setPrReview(null)}
+      />
+    ) : null}
+    </>
   );
 }
 
