@@ -11,6 +11,7 @@ mod cursor_store;
 mod external_editor;
 mod fs;
 mod gitlab;
+mod handoff;
 mod harness;
 mod inbox_media;
 mod jira;
@@ -513,6 +514,14 @@ pub fn run() {
             checkpoint::session_checkpoint_file_diff,
             checkpoint::session_checkpoint_undo,
             checkpoint::session_checkpoint_keep,
+            handoff::handoff_snapshot,
+            handoff::handoff_seed,
+            handoff::handoff_inspect,
+            handoff::handoff_integrate,
+            handoff::handoff_cleanup_safe,
+            handoff::handoff_preview,
+            handoff::handoff_read,
+            handoff::handoff_unexpected_ignored,
             set_traffic_lights_visible,
             set_window_background_blur,
             set_dock_badge,

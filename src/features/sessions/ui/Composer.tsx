@@ -75,6 +75,7 @@ import type {
   RuntimeMode,
   WorkspaceMode,
   ComposerTurnOptions,
+  ComposerSubmitResult,
 } from "../model/session";
 import { HARNESS_TITLE, harnessSupportsAttachments } from "../model/session";
 import type {
@@ -221,10 +222,14 @@ type Props = {
     text: string,
     attachments: Attachment[],
     options?: ComposerTurnOptions,
-  ) => boolean | void;
+  ) => ComposerSubmitResult;
   canSaveDraft?: boolean;
   onSaveDraft?: (text: string, attachments: Attachment[]) => boolean | void;
   onStop?: () => void;
+  /** Accessible name for Stop; a lead says what it stops. */
+  stopLabel?: string;
+  /** Idle send label, for example "Resume and send" on a paused lead. */
+  sendLabel?: string;
   onCompactContext?: () => boolean;
   onPlaceInFolder?: (target: SessionFolderTarget) => void;
   onDeleteQueuedMessage?: (messageId: string) => void;
@@ -545,6 +550,8 @@ export function Composer({
   canSaveDraft = false,
   onSaveDraft,
   onStop,
+  stopLabel,
+  sendLabel,
   onCompactContext,
   onPlaceInFolder,
   onDeleteQueuedMessage,
@@ -634,6 +641,8 @@ export function Composer({
   const [mention, setMention] = useState<MentionToken | null>(null);
   const [mentionActive, setMentionActive] = useState(0);
   const [resendEdited, setResendEdited] = useState(false);
+  const [submissionPending, setSubmissionPending] = useState(false);
+  const submissionPendingRef = useRef(false);
   const [runnerEnabled, setRunnerEnabled] = useState(loadComposerRunner);
   const [runnerLive, setRunnerLive] = useState(
     () => busy && loadComposerRunner(),
@@ -732,7 +741,12 @@ export function Composer({
 
   const addAttachments = useCallback(
     (incoming: Attachment[]) => {
-      if (!harnessSupportsAttachments(harness) || incoming.length === 0) return;
+      if (
+        submissionPendingRef.current ||
+        !harnessSupportsAttachments(harness) ||
+        incoming.length === 0
+      )
+        return;
       const next = mergeAttachments(attachmentsRef.current, incoming);
       attachmentsRef.current = next;
       setAttachments(next);
@@ -745,6 +759,7 @@ export function Composer({
 
   const removeAttachment = useCallback(
     (id: string) => {
+      if (submissionPendingRef.current) return;
       const previous = attachmentsRef.current;
       const removed = previous.find((file) => file.id === id);
       if (removed && !borrowedAttachmentIdsRef.current.delete(removed.id)) {
@@ -1319,7 +1334,7 @@ export function Composer({
     value: string,
     options?: { followUpBehavior?: FollowUpBehavior },
   ): void => {
-    if (worktreeRemoved) return;
+    if (worktreeRemoved || submissionPendingRef.current) return;
     if (draftSelected && onSaveDraft) {
       const files = attachments;
       if (!value.trim() && files.length === 0) return;
@@ -1379,54 +1394,87 @@ export function Composer({
       borrowedAttachmentIdsRef.current,
     );
     onDraftChange?.("");
-    const accepted = onSubmit(text, files, {
-      intent:
-        planSelected || command.planning
-          ? "plan"
-          : orchestrationSelected
-            ? "orchestrate"
-            : "default",
-      followUpBehavior: options?.followUpBehavior,
-      ...(resendEdited
-        ? {
-            resendEdited: true,
-            onResendRejected: ({ providerRewound }) => {
-              if (draftRevisionRef.current !== resendDraftRevision) return;
-              restoreDraft(text, files, resendBorrowedAttachmentIds);
-              setResendEdited(!providerRewound);
-              onEditingLastTurnChange?.(!providerRewound);
-            },
-          }
-        : {}),
-    });
+    const clearDraft = () => {
+      if (ref.current) {
+        ref.current.value = "";
+        ref.current.style.height = "auto";
+      }
+      setDraft("");
+      onDraftChange?.("");
+      borrowedAttachmentIdsRef.current.clear();
+      attachmentsRef.current = [];
+      setAttachments([]);
+      setResendEdited(false);
+      onEditingLastTurnChange?.(false);
+      setPlanSelected(false);
+      setOrchestrationSelected(false);
+      setSessionFolderSelected(false);
+      setSessionFolderOpen(false);
+      setPlusOpen(false);
+      setSlash(null);
+      setMention(null);
+      setCreatingSkill(false);
+      setCreateError(null);
+      syncHasValue("", []);
+    };
+    const restoreRejectedDraft = () => {
+      // A result that settles after the user has edited a newer draft must not
+      // overwrite that newer text or its attachments.
+      if (draftRevisionRef.current === resendDraftRevision) {
+        restoreDraft(text, files, resendBorrowedAttachmentIds);
+        setResendEdited(false);
+        onEditingLastTurnChange?.(false);
+      }
+    };
+    let accepted: ComposerSubmitResult;
+    try {
+      accepted = onSubmit(text, files, {
+        intent:
+          planSelected || command.planning
+            ? "plan"
+            : orchestrationSelected
+              ? "orchestrate"
+              : "default",
+        followUpBehavior: options?.followUpBehavior,
+        ...(resendEdited
+          ? {
+              resendEdited: true,
+              onResendRejected: ({ providerRewound }) => {
+                if (draftRevisionRef.current !== resendDraftRevision) return;
+                restoreDraft(text, files, resendBorrowedAttachmentIds);
+                setResendEdited(!providerRewound);
+                onEditingLastTurnChange?.(!providerRewound);
+              },
+            }
+          : {}),
+      });
+    } catch {
+      restoreRejectedDraft();
+      return;
+    }
     // The app can reject a turn before it is recorded (for example while an
     // orchestration is paused). Keep the user's text, files and selected mode
     // intact so resolving the blocker never destroys their work.
+    if (accepted instanceof Promise) {
+      submissionPendingRef.current = true;
+      setSubmissionPending(true);
+      void accepted
+        .then((result) => {
+          if (result === false) restoreRejectedDraft();
+          else clearDraft();
+        })
+        .catch(() => restoreRejectedDraft())
+        .finally(() => {
+          submissionPendingRef.current = false;
+          setSubmissionPending(false);
+        });
+      return;
+    }
     if (accepted === false) {
       restoreDraft(text, files);
       return;
     }
-    if (ref.current) {
-      ref.current.value = "";
-      ref.current.style.height = "auto";
-    }
-    setDraft("");
-    onDraftChange?.("");
-    borrowedAttachmentIdsRef.current.clear();
-    attachmentsRef.current = [];
-    setAttachments([]);
-    setResendEdited(false);
-    onEditingLastTurnChange?.(false);
-    setPlanSelected(false);
-    setOrchestrationSelected(false);
-    setSessionFolderSelected(false);
-    setSessionFolderOpen(false);
-    setPlusOpen(false);
-    setSlash(null);
-    setMention(null);
-    setCreatingSkill(false);
-    setCreateError(null);
-    syncHasValue("", []);
+    clearDraft();
   };
 
   const executeComposerAction = (
@@ -1448,6 +1496,7 @@ export function Composer({
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (submissionPendingRef.current) return;
     if (isImeComposition(e.nativeEvent)) return;
     if (creatingSkill) return;
 
@@ -1969,6 +2018,7 @@ export function Composer({
               ref={ref}
               data-composer-empty={navigationEmpty ? "true" : undefined}
               rows={1}
+              readOnly={submissionPending}
               spellCheck={false}
               defaultValue={initialDraft}
               placeholder={
@@ -2255,10 +2305,12 @@ export function Composer({
             <div className="flex shrink-0 items-center gap-1">
               <ComposerAction
                 busy={busy}
+                pending={submissionPending}
                 hasValue={hasValue && !worktreeRemoved}
                 actionTooltip={actionTooltip}
                 actionAriaLabel={actionAriaLabel}
-                label={draftSelected ? "Save draft" : "Send"}
+                label={draftSelected ? "Save draft" : (sendLabel ?? "Send")}
+                stopLabel={stopLabel}
                 onSend={handleActionClick}
                 onStop={() => onStop?.()}
               />
@@ -2348,18 +2400,22 @@ function MentionRuns({
 
 export function ComposerAction({
   busy,
+  pending = false,
   hasValue,
   actionTooltip,
   actionAriaLabel,
   label = "Send",
+  stopLabel = "Stop",
   onSend,
   onStop,
 }: {
   busy: boolean;
+  pending?: boolean;
   hasValue: boolean;
   actionTooltip: string;
   actionAriaLabel: string;
   label?: string;
+  stopLabel?: string;
   onSend: () => void;
   onStop: () => void;
 }) {
@@ -2371,6 +2427,7 @@ export function ComposerAction({
             type="button"
             title={actionTooltip}
             aria-label={actionAriaLabel}
+            disabled={pending}
             onClick={onSend}
             className="composer-send grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
           >
@@ -2379,8 +2436,8 @@ export function ComposerAction({
         ) : null}
         <button
           type="button"
-          title="Stop"
-          aria-label="Stop"
+          title={stopLabel}
+          aria-label={stopLabel}
           onClick={onStop}
           className="grid size-6.5 place-items-center rounded-md bg-white text-black hover:bg-white/90"
         >
@@ -2395,7 +2452,7 @@ export function ComposerAction({
       type="button"
       title={label}
       aria-label={label}
-      disabled={!hasValue}
+      disabled={!hasValue || pending}
       onClick={onSend}
       className="composer-send primary-action grid size-6.5 place-items-center rounded-md disabled:cursor-default"
     >

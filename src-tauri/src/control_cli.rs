@@ -23,6 +23,11 @@ Actions, with the JSON object each one takes:
             checkout. "dependsOn" holds taskIds that must be reviewed first.
   get       {"taskId":"..."}
             One task, including its latest result.
+  handoff_read {"taskId":"...","path":"...","side":"baseline"|"lead"|"worker",
+                "offset":0,"expectedHash":"<hash from get>"}
+            Read a declared handoff file in 32 KiB pages. Use the matching
+            hash from get, then repeat with nextOffset until it is null.
+            Text pages return "text"; binary pages return "base64".
   wait      {"timeoutSeconds":20}
             Block until a task changes state, or until the timeout (0-25).
             Returns at once when paused, stopped, or nothing is running or queued.
@@ -78,9 +83,20 @@ MonoCode sets MONOCODE_CONTROL_ENDPOINT and MONOCODE_CONTROL_TOKEN for the lead
 agent's process only. They are already in your environment; never print them.
 "#;
 
-const ACTIONS: [&str; 12] = [
-    "list", "delegate", "get", "steer", "message", "retry", "cancel", "wait", "review", "finish",
-    "respond", "answer",
+const ACTIONS: [&str; 13] = [
+    "list",
+    "delegate",
+    "get",
+    "handoff_read",
+    "steer",
+    "message",
+    "retry",
+    "cancel",
+    "wait",
+    "review",
+    "finish",
+    "respond",
+    "answer",
 ];
 
 /// Quote for the shell the lead agent actually runs commands in, and only when

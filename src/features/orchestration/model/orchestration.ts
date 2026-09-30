@@ -5,6 +5,7 @@ import type { ApprovalDecision, HarnessEvent } from "../../../integrations/harne
 import { pendingApprovalForSession } from "../../notifications/model/approvalToast";
 import type { UserQuestionReply } from "../../sessions/model/userQuestion";
 import {
+  validateHandoffPath,
   validateOrchestrationSettings,
   validateProposedTasks,
   type OrchestrationChoice,
@@ -12,6 +13,10 @@ import {
 } from "./orchestrationPlan";
 import {
   normalizeOrchestrationRun,
+  normalizeSupervision,
+  type HandoffFileState,
+  type HandoffRecord,
+  type SupervisionMode,
   orchestrationCheckoutCwd,
   orchestrationWorkspace,
   workspaceIdentity,
@@ -30,6 +35,9 @@ export {
 export type {
   DispatchStage,
   DispatchState,
+  HandoffFileState,
+  HandoffRecord,
+  SupervisionMode,
   OrchestrationDispatch,
   OrchestrationRun,
   OrchestrationTask,
@@ -107,6 +115,116 @@ const storage: Storage = {
   disable: (sessionId) => invoke("control_disable", { sessionId }),
   scopes: (cwd, files) => invoke("control_scopes", { cwd, files }),
   resolvePath: (path) => invoke("control_write_path", { path }),
+};
+
+export type HandoffInspection = {
+  path: string;
+  before: HandoffFileState;
+  after: HandoffFileState;
+  lead: HandoffFileState;
+  changed: boolean;
+  /** The lead copy is neither the baseline nor the worker's result. */
+  conflict: boolean;
+};
+export type HandoffPreview = {
+  path: string;
+  changed: boolean;
+  conflict: boolean;
+  before: string | null;
+  lead: string | null;
+  after: string | null;
+  beforeHash?: string;
+  leadHash?: string;
+  afterHash?: string;
+  baselineAvailable: boolean;
+  binary: boolean;
+  truncated: boolean;
+  beforeTruncated: boolean;
+  leadTruncated: boolean;
+  afterTruncated: boolean;
+};
+export type HandoffReadSide = "baseline" | "lead" | "worker";
+export type HandoffFilePage = {
+  path: string;
+  side: HandoffReadSide;
+  offset: number;
+  nextOffset: number | null;
+  size: number;
+  hash?: string;
+  text?: string;
+  base64?: string;
+  binary: boolean;
+};
+/**
+ * Exact-path transfer of local, usually Git-ignored files. Every method
+ * validates its paths at the filesystem boundary; none touches Git state.
+ */
+export type HandoffPort = {
+  snapshot(
+    cwd: string,
+    paths: string[],
+  ): Promise<{ path: string; state: HandoffFileState }[]>;
+  inspect(
+    leadCwd: string,
+    workerCwd: string,
+    entries: { path: string; baseline: HandoffFileState }[],
+  ): Promise<HandoffInspection[]>;
+  integrate(
+    leadCwd: string,
+    workerCwd: string,
+    entries: {
+      path: string;
+      baseline: HandoffFileState;
+      after: HandoffFileState;
+    }[],
+  ): Promise<{ path: string; applied: boolean; alreadyApplied: boolean }[]>;
+  /** True when removing the worker checkout would lose no handoff bytes. */
+  cleanupSafe(
+    workerCwd: string,
+    entries: { path: string; allowed: HandoffFileState[] }[],
+  ): Promise<boolean>;
+  preview(
+    leadCwd: string,
+    workerCwd: string,
+    path: string,
+    baseline: HandoffFileState,
+  ): Promise<HandoffPreview>;
+  read(
+    leadCwd: string,
+    workerCwd: string,
+    path: string,
+    baseline: HandoffFileState,
+    side: HandoffReadSide,
+    offset: number,
+    expectedHash?: string,
+  ): Promise<HandoffFilePage>;
+  /** Names of ignored files in the worker that no handoff entry declared. */
+  unexpectedIgnored(workerCwd: string, declared: string[]): Promise<string[]>;
+};
+const tauriHandoff: HandoffPort = {
+  snapshot: (cwd, paths) => invoke("handoff_snapshot", { cwd, paths }),
+  inspect: (leadCwd, workerCwd, entries) =>
+    invoke("handoff_inspect", { leadCwd, workerCwd, entries }),
+  integrate: (leadCwd, workerCwd, entries) =>
+    invoke("handoff_integrate", { leadCwd, workerCwd, entries }),
+  cleanupSafe: (workerCwd, entries) =>
+    invoke("handoff_cleanup_safe", { workerCwd, entries }),
+  preview: (leadCwd, workerCwd, path, baseline) =>
+    invoke("handoff_preview", { leadCwd, workerCwd, path, baseline }),
+  read: (leadCwd, workerCwd, path, baseline, side, offset, expectedHash) =>
+    invoke("handoff_read", {
+      request: {
+        leadCwd,
+        workerCwd,
+        path,
+        baseline,
+        side,
+        offset,
+        expectedHash: expectedHash ?? null,
+      },
+    }),
+  unexpectedIgnored: (workerCwd, declared) =>
+    invoke("handoff_unexpected_ignored", { workerCwd, declared }),
 };
 
 /**
@@ -199,10 +317,22 @@ function strings(value: unknown, label: string, max = 64): string[] {
  */
 const FIELDS = new Map<string, string[]>([
   ["list", []],
-  ["delegate", ["title", "harness", "model", "prompt", "files", "dependsOn"]],
+  [
+    "delegate",
+    [
+      "title",
+      "harness",
+      "model",
+      "prompt",
+      "files",
+      "handoffFiles",
+      "dependsOn",
+    ],
+  ],
   ["get", ["taskId"]],
+  ["handoff_read", ["taskId", "path", "side", "offset", "expectedHash"]],
   ["message", ["taskId", "text"]],
-  ["retry", ["taskId", "text", "files"]],
+  ["retry", ["taskId", "text", "files", "handoffFiles"]],
   ["cancel", ["taskId"]],
   ["wait", ["timeoutSeconds"]],
   ["review", ["taskId"]],
@@ -270,6 +400,37 @@ const listed = (values: string[], max = 12) =>
     ? `${values.slice(0, max).join(", ")} (+${values.length - max} more)`
     : values.join(", ");
 
+/**
+ * The lead's polling policy. Efficient ends the lead's turn after two empty
+ * waits, because `sync()` wakes it again for the next actionable event; Live
+ * keeps the lead watching, which spends more lead model turns.
+ */
+export function supervisionPolicy(mode: SupervisionMode | undefined): string {
+  const pollingPolicy = normalizeSupervision(mode) === "live"
+    ? "Supervision mode: Live. While workers run you may keep making bounded wait calls and report concise milestones when something useful changes. Never repeat unchanged progress. This uses more lead model turns, so stop polling once nothing new is expected."
+    : 'Supervision mode: Efficient. After dispatching, make at most two empty wait calls (a wait that returns no new result, blocker or question), then end your response normally with a one-line status. Do not keep polling, do not repeat unchanged progress, and never press the input-area Stop button or stop the session to wait: MonoCode wakes you automatically when a worker completes, fails, is blocked or asks a question.';
+  return `${pollingPolicy} For a declared local handoff, get returns the first page for the approved baseline, current lead copy and worker result, with a content hash and an explicit truncated flag for each side. If any side is truncated, use handoff_read with the same taskId, path, side, expectedHash and returned nextOffset until nextOffset is null. If a read reports a changed file, run get again before reviewing; if baselineAvailable is false, say the approved baseline bytes cannot be recovered and do not claim a complete conflict review.`;
+}
+
+/**
+ * A dispatch after a message or retry keeps the original baseline while the
+ * lead copy is untouched. An accepted result already lives in the lead
+ * checkout, so its next dispatch takes a fresh baseline instead.
+ */
+function renewedHandoff(task: OrchestrationTask): HandoffRecord[] | undefined {
+  if (!task.handoff || task.accepted) return undefined;
+  return task.handoff.map(({ path, baseline }) => ({ path, baseline }));
+}
+
+function resultSummary(tasks: OrchestrationTask[]): string {
+  return tasks
+    .map(
+      (task) =>
+        `${task.id} — ${task.title}: ${task.status}\n${task.error ?? ""}\n${task.result.slice(-4000)}`,
+    )
+    .join("\n\n");
+}
+
 export class Orchestrator {
   private runs: OrchestrationRun[] = [];
   private listeners = new Set<() => void>();
@@ -291,7 +452,21 @@ export class Orchestrator {
     { signature: string; promise: Promise<unknown> }
   >();
   private host: OrchestrationHost | null = null;
-  constructor(private readonly store: Storage = storage) {}
+  /** Bumped by every "Stop lead response"; a turn captures it when it starts. */
+  private leadGenerations = new Map<string, number>();
+  private leadStops = new Map<string, Promise<void>>();
+  /**
+   * Results that were part of an interrupted lead turn. They wait for a
+   * manual continuation or a new worker event instead of waking the lead again.
+   */
+  private held = new Map<string, Set<string>>();
+  /** Held results a manual lead turn is carrying; settled with that turn. */
+  private manualTurns = new Map<string, string[]>();
+  private resuming = new Set<string>();
+  constructor(
+    private readonly store: Storage = storage,
+    private readonly handoff: HandoffPort = tauriHandoff,
+  ) {}
   bind(host: OrchestrationHost) {
     this.host = host;
   }
@@ -461,6 +636,8 @@ export class Orchestrator {
     if (!run || !task || task.workspacePolicy === "shared" || !task.workspace)
       return true;
     try {
+      // A changed handoff file may be the only copy: never remove it silently.
+      if (!(await this.handoffCleanupSafe(task))) return false;
       const cleaned = await this.host?.cleanupWorker(run, task, true);
       if (!cleaned) return false;
       const current = this.run(leadId);
@@ -567,6 +744,7 @@ export class Orchestrator {
       proposalId: string;
       allowedModels: OrchestrationChoice[];
       tasks: OrchestrationTask[];
+      supervision: SupervisionMode;
     },
   ) {
     if (this.starting.has(leadId))
@@ -621,6 +799,13 @@ export class Orchestrator {
       throw new Error(
         "An assigned model is no longer available. Change that assignment before starting.",
       );
+    // Reject an unsafe handoff path before any process or worktree exists.
+    for (const task of planned)
+      if (task.handoffFiles?.length)
+        await this.handoff.snapshot(
+          lead.worktreeCwd ?? lead.cwd,
+          task.handoffFiles,
+        );
     const ids = new Map(planned.map((task) => [task.id, crypto.randomUUID()]));
     const tasks: OrchestrationTask[] = await Promise.all(
       planned.map(async (task) => ({
@@ -653,18 +838,25 @@ export class Orchestrator {
       leadId,
       [...new Set(allowedModels.map((choice) => choice.harness))],
       settings.maxWorkers,
-      { proposalId, allowedModels, tasks },
+      {
+        proposalId,
+        allowedModels,
+        tasks,
+        supervision: normalizeSupervision(proposal.supervision),
+      },
     );
+    const generation = this.generation(leadId);
     this.host!.submit(
       leadId,
-      `The user confirmed the orchestration card, including any edits. The app has already queued the exact assignments below; do not delegate duplicates. Supervise them through the control CLI, review their changes, request corrections when needed, and finish the original request.\n\nOriginal request:\n${proposal.request}\n\nApproved assignments:\n${JSON.stringify(tasks.map(({ id, title, prompt, harness, model, modelSettings, files, dependsOn }) => ({ taskId: id, title, prompt, harness, model, modelSettings, files, dependsOn })))}`,
+      `The user confirmed the orchestration card, including any edits. The app has already queued the exact assignments below; do not delegate duplicates. Supervise them through the control CLI, review their changes, request corrections when needed, and finish the original request.\n\nOriginal request:\n${proposal.request}\n\nApproved assignments:\n${JSON.stringify(tasks.map(({ id, title, prompt, harness, model, modelSettings, files, handoffFiles, dependsOn }) => ({ taskId: id, title, prompt, harness, model, modelSettings, files, handoffFiles, dependsOn })))}`,
       (outcome) => {
-        if (outcome.status !== "completed")
-          void this.pause(
-            leadId,
-            outcome.error ??
-              "The lead was interrupted. Its agents were stopped; review and resume the run.",
-          ).catch(console.error);
+        void this.leadTurnSettled(
+          leadId,
+          generation,
+          [],
+          outcome,
+          "The lead was interrupted. Its agents were stopped; review and resume the run.",
+        ).catch(console.error);
       },
     );
   }
@@ -676,6 +868,7 @@ export class Orchestrator {
       proposalId: string;
       allowedModels: OrchestrationChoice[];
       tasks: OrchestrationTask[];
+      supervision: SupervisionMode;
     },
   ) {
     const lead = this.host?.session(leadId);
@@ -773,6 +966,10 @@ export class Orchestrator {
           approved?.proposalId ??
           (previous?.status === "paused" ? previous.proposalId : undefined),
         maxWorkers,
+        supervision: normalizeSupervision(
+          approved?.supervision ??
+            (previous?.status === "paused" ? previous.supervision : undefined),
+        ),
         tasks:
           approved?.tasks ??
           (previous?.status === "paused" ? resumedTasks : []),
@@ -830,7 +1027,8 @@ export class Orchestrator {
     const run = this.run(id);
     if (!run || run.status !== "active") return prompt;
     const cli = `${shellPath(run.cli)} control`;
-    return `${prompt}\n\n<monocode_orchestration>\nYou are the lead of a local MonoCode run. Coordinate the user's task using ${cli}. Run \`${cli} --help\` before your first command; it documents every action, its exact JSON fields and the retry rule. Credentials are already in your environment; never print them.\nEach call prints one JSON line and exits non-zero unless "ok" is true; read the "error" text, it says what to do next. Unknown JSON fields are rejected rather than ignored, so fix the field name instead of guessing. If a call fails before reaching MonoCode, retry it with the "requestId" from that response so the work is never queued twice.\nUse list to discover allowed harness/model IDs. Delegate bounded tasks with project-relative files (directories reserve their descendants), self-contained prompts and dependsOn task IDs. Use the checkout selected for this run. You may read and plan; leave project file edits to workers. Never start workers outside this CLI. Workers with overlapping files are queued. For project-wide validation, generators or broad formatting, assign a separate task with files ["."] and wait for other workers to finish. Workers must never commit, push, switch branches or write outside the selected checkout. If the user requested those final operations, review and integrate every worker, call finish, then perform the explicitly authorized finalization yourself from the lead checkout.\nAgents never prompt the user. When one needs an approval or answers a question, list, get and wait report it as needsInput on that task, and you decide with respond or answer; it stays stopped until you do. Judge the request against the task you assigned, and put it to the user in this conversation only when the call is genuinely theirs.\nSteer a running agent with steer to correct its course without losing its work; use message only once it has stopped. Read results with get or wait; completed means a turn finished, not that the work passed review. Review the actual changes, message a worker for fixes, and use review to accept each completed task. A scope-blocked worker is isolated to that task: use message if it should stay within its existing scope, retry with corrected project-relative files if the assignment was too narrow, or cancel it if no longer needed. Never expand scope merely to excuse an unexpected write. Call finish only when required work and combined validation are complete. You receive worker results automatically when idle; use bounded wait calls while supervising. If the run is paused, list/get/wait remain readable and explain the reason. Stop polling, report that reason, and ask the user to click Resume; Resume automatically continues interrupted workers from their retained checkouts. Do not expose credentials, create worktrees, switch branches or silently escalate worker permissions.\n</monocode_orchestration>`;
+    const heldResults = this.heldForManualTurn(run);
+    return `${prompt}${heldResults}\n\n<monocode_orchestration>\nYou are the lead of a local MonoCode run. Coordinate the user's task using ${cli}. Run \`${cli} --help\` before your first command; it documents every action, its exact JSON fields and the retry rule. Credentials are already in your environment; never print them.\nEach call prints one JSON line and exits non-zero unless "ok" is true; read the "error" text, it says what to do next. Unknown JSON fields are rejected rather than ignored, so fix the field name instead of guessing. If a call fails before reaching MonoCode, retry it with the "requestId" from that response so the work is never queued twice.\nUse list to discover allowed harness/model IDs. Delegate bounded tasks with project-relative files (directories reserve their descendants), self-contained prompts and dependsOn task IDs. Use the checkout selected for this run. You may read and plan; leave project file edits to workers. Never start workers outside this CLI. Workers with overlapping files are queued. For project-wide validation, generators or broad formatting, assign a separate task with files ["."] and wait for other workers to finish. Workers must never commit, push, switch branches or write outside the selected checkout. If the user requested those final operations, review and integrate every worker, call finish, then perform the explicitly authorized finalization yourself from the lead checkout.\nAgents never prompt the user. When one needs an approval or answers a question, list, get and wait report it as needsInput on that task, and you decide with respond or answer; it stays stopped until you do. Judge the request against the task you assigned, and put it to the user in this conversation only when the call is genuinely theirs.\nSteer a running agent with steer to correct its course without losing its work; use message only once it has stopped. Read results with get or wait; completed means a turn finished, not that the work passed review. Review the actual changes, message a worker for fixes, and use review to accept each completed task. A scope-blocked worker is isolated to that task: use message if it should stay within its existing scope, retry with corrected project-relative files if the assignment was too narrow, or cancel it if no longer needed. Never expand scope merely to excuse an unexpected write. Call finish only when required work and combined validation are complete. ${supervisionPolicy(run.supervision)} If the run is paused, list/get/wait remain readable and explain the reason. Stop polling, report that reason, and ask the user to click Resume; Resume automatically continues interrupted workers from their retained checkouts. Do not expose credentials, create worktrees, switch branches or silently escalate worker permissions.\n</monocode_orchestration>`;
   }
   async handle(
     leadId: string,
@@ -866,10 +1064,13 @@ export class Orchestrator {
         const run = this.run(leadId);
         if (!run)
           throw new Error("No orchestration run was found for this lead");
-        if (run.status !== "active" && !["list", "get"].includes(action))
+        if (
+          run.status !== "active" &&
+          !["list", "get", "handoff_read"].includes(action)
+        )
           throw new Error(this.inactiveReason(run));
         if (
-          !["list", "get"].includes(action) &&
+          !["list", "get", "handoff_read"].includes(action) &&
           Object.keys(run.requests).length >= 512
         )
           throw new Error(
@@ -893,6 +1094,7 @@ export class Orchestrator {
     return {
       ...run,
       cli: undefined,
+      quietWaitBudget: undefined,
       requests: undefined,
       recovery: run.status === "active" ? undefined : this.inactiveReason(run),
       tasks: run.tasks.map((task) => ({
@@ -1010,6 +1212,7 @@ export class Orchestrator {
         const target = task();
         return {
           ...target,
+          handoffPreview: await this.handoffPreviews(run, target),
           runStatus: run.status,
           recovery:
             run.status === "active" ? undefined : this.inactiveReason(run),
@@ -1017,6 +1220,42 @@ export class Orchestrator {
           waitingFor: this.waitingFor(this.run(run.leadId)!, target),
           needsInput: this.pendingInput(target),
         };
+      }
+      case "handoff_read": {
+        const target = task();
+        const path = text(input.path, "path", 512);
+        const record = target.handoff?.find((entry) => entry.path === path);
+        if (!record || !target.workspace)
+          throw new Error("That file is not an active handoff for this task");
+        const sideValue = text(input.side, "side", 16);
+        const side: HandoffReadSide | undefined =
+          sideValue === "baseline" ||
+          sideValue === "lead" ||
+          sideValue === "worker"
+            ? sideValue
+            : undefined;
+        if (!side) throw new Error("side must be baseline, lead or worker");
+        const offset = input.offset ?? 0;
+        if (
+          typeof offset !== "number" ||
+          !Number.isSafeInteger(offset) ||
+          offset < 0 ||
+          offset > 8 * 1024 * 1024
+        )
+          throw new Error("offset must be between 0 and 8388608");
+        const expectedHash =
+          input.expectedHash == null
+            ? undefined
+            : text(input.expectedHash, "expectedHash", 128);
+        return this.handoff.read(
+          orchestrationCheckoutCwd(run),
+          target.workspace.checkoutCwd,
+          path,
+          record.baseline,
+          side,
+          offset,
+          expectedHash,
+        );
       }
       case "delegate": {
         if (run.tasks.length >= 40)
@@ -1056,6 +1295,10 @@ export class Orchestrator {
           throw new Error(
             "Declare at least one file/directory scope in files, or '.' for exclusive checkout access",
           );
+        const handoffFiles = await this.handoffInput(
+          run,
+          input.handoffFiles,
+        );
         const dependsOn = strings(input.dependsOn ?? [], "dependsOn", 40);
         const missing = dependsOn.filter(
           (id) =>
@@ -1077,6 +1320,7 @@ export class Orchestrator {
           title,
           prompt,
           files,
+          ...(handoffFiles.length ? { handoffFiles } : {}),
           scopes,
           dependsOn,
           harness,
@@ -1128,6 +1372,7 @@ export class Orchestrator {
             delivered: true,
             activeDispatchId: undefined,
             acceptedDispatchId: undefined,
+            handoff: renewedHandoff(target),
           },
           { taskId: target.id, status: "queued" },
         );
@@ -1159,11 +1404,21 @@ export class Orchestrator {
           orchestrationCheckoutCwd(current),
           files,
         );
+        const retryHandoff =
+          input.handoffFiles === undefined
+            ? undefined
+            : await this.handoffInput(current, input.handoffFiles);
         return changeTask(
           target.id,
           {
             prompt: text(input.text, "text"),
             files,
+            ...(retryHandoff
+              ? {
+                  handoffFiles: retryHandoff.length ? retryHandoff : undefined,
+                  handoff: undefined,
+                }
+              : { handoff: renewedHandoff(target) }),
             scopes,
             writeScopes: undefined,
             status: "queued",
@@ -1266,11 +1521,16 @@ export class Orchestrator {
               throw new Error(
                 "This worker's isolated checkout is unavailable. Its changes were not accepted.",
               );
+            // Preflight declared handoff files before anything is applied.
+            if (target.handoff?.length)
+              target = await this.reviewHandoff(run.leadId, target);
             await this.patchDispatch(run.leadId, dispatchId, {
               stage: "integration_started",
               cleanupError: undefined,
             });
             await this.host!.integrateWorker(this.run(run.leadId)!, target);
+            if (target.handoff?.length)
+              target = await this.applyHandoff(run.leadId, target);
           }
           const current = this.run(run.leadId)!;
           await this.commit({
@@ -1303,11 +1563,15 @@ export class Orchestrator {
         let cleanupError: string | undefined;
         if (isolated) {
           try {
-            cleaned = await this.host!.cleanupWorker(
-              this.run(run.leadId)!,
-              target,
-              false,
-            );
+            if (await this.handoffCleanupSafe(target))
+              cleaned = await this.host!.cleanupWorker(
+                this.run(run.leadId)!,
+                target,
+                false,
+              );
+            else
+              cleanupError =
+                "The worker checkout was kept: it holds local handoff files that are not in the lead checkout.";
           } catch (error) {
             cleanupError = messageOf(error);
           }
@@ -1366,11 +1630,13 @@ export class Orchestrator {
           );
           if (dispatch?.stage === "cleaned") continue;
           try {
-            const cleaned = await this.host!.cleanupWorker(
-              this.run(run.leadId)!,
-              retained,
-              false,
-            );
+            const cleaned =
+              (await this.handoffCleanupSafe(retained)) &&
+              (await this.host!.cleanupWorker(
+                this.run(run.leadId)!,
+                retained,
+                false,
+              ));
             if (cleaned) {
               const current = this.run(run.leadId)!;
               await this.commit({
@@ -1415,7 +1681,7 @@ export class Orchestrator {
     }
   }
   private async wait(leadId: string, input: Record<string, unknown>) {
-    const run = this.run(leadId);
+    let run = this.run(leadId);
     if (!run) throw new Error("No orchestration run was found for this lead");
     const seconds = input.timeoutSeconds ?? 20;
     if (
@@ -1425,6 +1691,29 @@ export class Orchestrator {
       seconds > 25
     )
       throw new Error("timeoutSeconds must be 0 to 25");
+    const efficient =
+      run.status === "active" && normalizeSupervision(run.supervision) === "efficient";
+    let period = this.waitPeriod(run);
+    const actionable = this.hasActionableWorkerEvent(run);
+    let budget =
+      run.quietWaitBudget?.period === period
+        ? run.quietWaitBudget
+        : { period, emptyWaits: 0 };
+    if (efficient && actionable) {
+      budget = { period, emptyWaits: 0 };
+      run = { ...run, quietWaitBudget: budget };
+      await this.commit(run);
+      run = this.run(leadId)!;
+      budget = run.quietWaitBudget!;
+    }
+    if (efficient && actionable) return this.view(run);
+    if (efficient && budget.emptyWaits >= 2) {
+      return {
+        ...this.view(run),
+        waitGuidance:
+          "end this lead turn; MonoCode will wake you on an actionable event",
+      };
+    }
     // A worker blocking on the lead changes no run state, so watch for that
     // separately; otherwise the lead sleeps while an agent waits on it.
     const blocked = this.blocked.get(leadId);
@@ -1449,7 +1738,55 @@ export class Orchestrator {
         const timer = setTimeout(finish, seconds * 1000);
       });
     }
-    return this.view(this.run(leadId)!);
+    run = this.run(leadId)!;
+    if (!efficient) return this.view(run);
+    const nextPeriod = this.waitPeriod(run);
+    const nextActionable = this.hasActionableWorkerEvent(run);
+    const nextBudget =
+      nextPeriod === period && !nextActionable
+        ? { period, emptyWaits: budget.emptyWaits + 1 }
+        : { period: nextPeriod, emptyWaits: 0 };
+    if (
+      run.quietWaitBudget?.period !== nextBudget.period ||
+      run.quietWaitBudget.emptyWaits !== nextBudget.emptyWaits
+    ) {
+      run = { ...run, quietWaitBudget: nextBudget };
+      await this.commit(run);
+      run = this.run(leadId)!;
+    }
+    return this.view(run);
+  }
+  /** State-only signature: no prompt, result, path or question text is retained. */
+  private waitPeriod(run: OrchestrationRun): string {
+    return JSON.stringify({
+      status: run.status,
+      tasks: run.tasks.map((task) => {
+        const pending = this.pendingInput(task);
+        return [
+          task.id,
+          task.status,
+          task.activeDispatchId ?? "",
+          task.lastDispatchId ?? "",
+          task.accepted,
+          task.delivered,
+          Boolean(task.error),
+          pending ? [pending.kind, pending.requestId] : null,
+        ];
+      }),
+      blocked: this.blockedKeys(run).sort(),
+    });
+  }
+  private hasActionableWorkerEvent(run: OrchestrationRun): boolean {
+    return (
+      this.blockedKeys(run).length > 0 ||
+      run.tasks.some(
+        (task) =>
+          !task.delivered &&
+          (task.status === "completed" ||
+            task.status === "failed" ||
+            task.status === "blocked"),
+      )
+    );
   }
   private async pump() {
     if (this.pumping) {
@@ -1531,6 +1868,7 @@ export class Orchestrator {
               throw new Error(
                 "The assigned harness/model is no longer available. Review this task before retrying.",
               );
+            await this.ensureHandoffBaseline(run.leadId, task.id);
             const activeRun = this.run(run.leadId)!;
             const activeTask = activeRun.tasks.find(
               (entry) => entry.id === task.id,
@@ -1978,11 +2316,19 @@ export class Orchestrator {
       }
     }
     for (const run of this.runs) {
-      if (run.status !== "active" || this.waking.has(run.leadId)) continue;
+      if (
+        run.status !== "active" ||
+        this.waking.has(run.leadId) ||
+        this.leadStops.has(run.leadId)
+      )
+        continue;
       const lead = this.host?.session(run.leadId);
       if (!lead || lead.busy || lead.queuedMessages?.length) continue;
       const announced = this.announced.get(run.leadId) ?? new Set<string>();
-      const results = run.tasks.filter((task) => !task.delivered);
+      const held = this.held.get(run.leadId);
+      const results = run.tasks.filter(
+        (task) => !task.delivered && !held?.has(task.id),
+      );
       const blocked = this.blockedKeys(run).filter(
         (key) => !announced.has(key),
       );
@@ -1992,6 +2338,7 @@ export class Orchestrator {
       setTimeout(() => {
         void (async () => {
           try {
+            const generation = this.generation(run.leadId);
             const current = this.run(run.leadId);
             const session = this.host?.session(run.leadId);
             if (
@@ -1999,22 +2346,27 @@ export class Orchestrator {
               current.status !== "active" ||
               !session ||
               session.busy ||
-              session.queuedMessages?.length
+              session.queuedMessages?.length ||
+              this.leadStops.has(run.leadId)
             )
               return;
+            const held = this.held.get(run.leadId) ?? new Set<string>();
             const results = current.tasks.filter(
               (task) =>
                 !task.delivered &&
                 !activeTask(task) &&
                 task.status !== "queued",
             );
+            // Results from an interrupted turn ride along with a new event,
+            // but never wake the lead on their own.
+            const fresh = results.filter((task) => !held.has(task.id));
             const seen = this.announced.get(run.leadId) ?? new Set<string>();
             const waiting = current.tasks.flatMap((task) => {
               const pending = this.pendingInput(task);
               const key = pending && `${task.id}:${pending.requestId}`;
               return key && !seen.has(key) ? [{ task, pending, key }] : [];
             });
-            if (!results.length && !waiting.length) return;
+            if (!fresh.length && !waiting.length) return;
             if (current.continuations >= 20) {
               await this.pause(
                 run.leadId,
@@ -2032,16 +2384,26 @@ export class Orchestrator {
                   : task,
               ),
             });
+            // A Stop that landed while the delivery was being recorded wins:
+            // give the results back instead of starting a turn nobody wants.
+            if (
+              this.generation(run.leadId) !== generation ||
+              this.leadStops.has(run.leadId) ||
+              this.run(run.leadId)?.status !== "active"
+            ) {
+              await this.restoreUndelivered(
+                run.leadId,
+                results.map((task) => task.id),
+                false,
+              );
+              return;
+            }
+            for (const task of results) held.delete(task.id);
             this.announced.set(
               run.leadId,
               new Set([...seen, ...waiting.map((entry) => entry.key)]),
             );
-            const summary = results
-              .map(
-                (task) =>
-                  `${task.id} — ${task.title}: ${task.status}\n${task.error ?? ""}\n${task.result.slice(-4000)}`,
-              )
-              .join("\n\n");
+            const summary = resultSummary(results);
             const asks = waiting
               .map(
                 ({ task, pending }) =>
@@ -2066,21 +2428,12 @@ export class Orchestrator {
               .filter(Boolean)
               .join("\n\n");
             this.host!.submit(run.leadId, body, (outcome) => {
-              if (outcome.status !== "completed") {
-                void this.pause(
-                  run.leadId,
-                  outcome.error ??
-                    "Lead continuation was interrupted. Its agents were stopped; review and resume.",
-                  (current) => ({
-                    ...current,
-                    tasks: current.tasks.map((task) =>
-                      results.some((item) => item.id === task.id)
-                        ? { ...task, delivered: false }
-                        : task,
-                    ),
-                  }),
-                ).catch(console.error);
-              } else this.sync();
+              void this.leadTurnSettled(
+                run.leadId,
+                generation,
+                results.map((task) => task.id),
+                outcome,
+              ).catch(console.error);
             });
           } catch (error) {
             console.error("Orchestration continuation failed", error);
@@ -2089,6 +2442,327 @@ export class Orchestrator {
           }
         })();
       }, 0);
+    }
+  }
+  private generation(leadId: string): number {
+    return this.leadGenerations.get(leadId) ?? 0;
+  }
+  /** A lead whose run can still be supervised: its Stop only ends a response. */
+  isLeadRun(leadId: string): boolean {
+    const run = this.run(leadId);
+    return !!run && (run.status === "active" || run.status === "paused");
+  }
+  /**
+   * Interrupt only the lead's current model turn. The run, its workers and
+   * their worktrees, queued user messages and the control grant are untouched;
+   * nothing here writes run state. Bumping the generation first means a late
+   * callback from the stopped turn can neither pause the run nor wake it again.
+   */
+  stopLeadResponse(leadId: string): Promise<void> {
+    if (!this.isLeadRun(leadId)) return Promise.resolve();
+    const stopping = this.leadStops.get(leadId);
+    if (stopping) return stopping;
+    this.leadGenerations.set(leadId, this.generation(leadId) + 1);
+    const stop = (async () => {
+      try {
+        await this.host?.stop(leadId);
+      } finally {
+        this.leadStops.delete(leadId);
+        // Anything that arrived while the stop was unresolved was held back.
+        this.sync();
+      }
+    })();
+    this.leadStops.set(leadId, stop);
+    return stop;
+  }
+  /**
+   * The one place a lead turn's outcome is interpreted. `generation` is what
+   * the turn captured when it started: if it has moved on, the user stopped
+   * this turn on purpose and that must not read as a model failure.
+   */
+  private async leadTurnSettled(
+    leadId: string,
+    generation: number,
+    taskIds: string[],
+    outcome: ControlOutcome,
+    interruption = "Lead continuation was interrupted. Its agents were stopped; review and resume.",
+  ) {
+    if (outcome.status === "completed") {
+      this.sync();
+      return;
+    }
+    const run = this.run(leadId);
+    // A cancelled orchestration settles quietly: no wake, no state change.
+    if (!run || (run.status !== "active" && run.status !== "paused")) return;
+    if (this.generation(leadId) !== generation) {
+      await this.restoreUndelivered(leadId, taskIds, true);
+      return;
+    }
+    await this.pause(leadId, outcome.error ?? interruption, (current) => ({
+      ...current,
+      tasks: current.tasks.map((task) =>
+        taskIds.includes(task.id) ? { ...task, delivered: false } : task,
+      ),
+    }));
+  }
+  /** Give results back after their delivery turn never happened or was stopped. */
+  private async restoreUndelivered(
+    leadId: string,
+    taskIds: string[],
+    hold: boolean,
+  ) {
+    const run = this.run(leadId);
+    if (!run || !taskIds.length) return;
+    if (hold) {
+      const held = this.held.get(leadId) ?? new Set<string>();
+      for (const id of taskIds) held.add(id);
+      this.held.set(leadId, held);
+    }
+    await this.commit({
+      ...run,
+      tasks: run.tasks.map((task) =>
+        taskIds.includes(task.id) ? { ...task, delivered: false } : task,
+      ),
+    });
+  }
+  /** Held results a manual "please continue" turn should see, once. */
+  private heldForManualTurn(run: OrchestrationRun): string {
+    const held = this.held.get(run.leadId);
+    if (!held?.size) return "";
+    const results = run.tasks.filter(
+      (task) =>
+        held.has(task.id) &&
+        !task.delivered &&
+        !activeTask(task) &&
+        task.status !== "queued",
+    );
+    if (!results.length) {
+      this.held.delete(run.leadId);
+      return "";
+    }
+    this.manualTurns.set(
+      run.leadId,
+      results.map((task) => task.id),
+    );
+    return `\n\n<monocode_pending_results>\nThese worker results were ready when your previous turn was stopped and have not been reviewed. Review them now.\n\n${resultSummary(results)}\n</monocode_pending_results>`;
+  }
+  /** Called when a user-initiated lead turn ends; delivers held results once. */
+  async manualLeadTurnSettled(leadId: string, outcome: ControlOutcome) {
+    const ids = this.manualTurns.get(leadId);
+    this.manualTurns.delete(leadId);
+    if (!ids?.length || outcome.status !== "completed") return;
+    const run = this.run(leadId);
+    if (!run) return;
+    const held = this.held.get(leadId);
+    for (const id of ids) held?.delete(id);
+    await this.commit({
+      ...run,
+      tasks: run.tasks.map((task) =>
+        ids.includes(task.id) ? { ...task, delivered: true } : task,
+      ),
+    });
+    this.sync();
+  }
+  /**
+   * Why a lead message cannot resume a paused run right now, or null when it
+   * can. Mirrors the Resume button so both paths refuse the same situations.
+   */
+  resumeSendBlocker(leadId: string): string | null {
+    const run = this.run(leadId);
+    if (!run || run.status !== "paused") return null;
+    if (this.resuming.has(leadId)) return "Resuming is already in progress.";
+    if (this.resumeLeadBusy(leadId))
+      return "Wait for the lead's interrupted turn to finish before resuming.";
+    if (run.tasks.some(activeTask))
+      return "Wait for interrupted agents to stop before resuming.";
+    const lead = this.host?.session(leadId);
+    if (
+      lead &&
+      !sameCheckout(
+        orchestrationCheckoutCwd(run),
+        lead.worktreeCwd ?? lead.cwd,
+      )
+    )
+      return "Return the lead to its original checkout before resuming.";
+    const blocker = this.resumeBlocker(leadId);
+    if (blocker)
+      return `"${blocker.title.trim() || blocker.id}" is still running in this checkout. Stop it before resuming.`;
+    return null;
+  }
+  /**
+   * The same guarded recovery as the Resume button: same run, same task IDs,
+   * same retained worktrees. Never starts a second run.
+   */
+  async resumeRun(leadId: string) {
+    const run = this.run(leadId);
+    if (!run || run.status !== "paused") return;
+    const blocker = this.resumeSendBlocker(leadId);
+    if (blocker) throw new Error(blocker);
+    this.resuming.add(leadId);
+    try {
+      await this.start(leadId, run.allowedHarnesses, run.maxWorkers);
+    } finally {
+      this.resuming.delete(leadId);
+    }
+  }
+  private async handoffInput(
+    run: OrchestrationRun,
+    value: unknown,
+  ): Promise<string[]> {
+    if (value === undefined || value === null) return [];
+    const cwd = orchestrationCheckoutCwd(run);
+    const paths = [
+      ...new Set(
+        strings(value, "handoffFiles", 16).map((path) =>
+          validateHandoffPath(path, cwd, "delegate"),
+        ),
+      ),
+    ];
+    // The filesystem boundary has the final say; unsafe paths stop here.
+    if (paths.length) await this.handoff.snapshot(cwd, paths);
+    return paths;
+  }
+  /** Record the lead copy's state once, before the worker can change anything. */
+  private async ensureHandoffBaseline(leadId: string, taskId: string) {
+    const run = this.run(leadId);
+    const task = run?.tasks.find((entry) => entry.id === taskId);
+    if (!run || !task?.handoffFiles?.length) return;
+    const known = new Set(task.handoff?.map((record) => record.path));
+    const missing = task.handoffFiles.filter((path) => !known.has(path));
+    if (!missing.length) return;
+    const snapshot = await this.handoff.snapshot(
+      orchestrationCheckoutCwd(run),
+      missing,
+    );
+    await this.patchTask(leadId, taskId, {
+      handoff: [
+        ...(task.handoff ?? []),
+        ...snapshot.map((entry) => ({
+          path: entry.path,
+          baseline: entry.state,
+        })),
+      ],
+    });
+  }
+  private async handoffPreviews(
+    run: OrchestrationRun,
+    task: OrchestrationTask,
+  ) {
+    if (
+      !task.handoff?.length ||
+      !task.workspace ||
+      task.status !== "completed" ||
+      task.accepted
+    )
+      return undefined;
+    const workspace = task.workspace;
+    return Promise.all(
+      task.handoff.map((record) =>
+        this.handoff
+          .preview(
+            orchestrationCheckoutCwd(run),
+            workspace.checkoutCwd,
+            record.path,
+            record.baseline,
+          )
+          .catch((error: unknown) => ({
+            path: record.path,
+            error: messageOf(error),
+          })),
+      ),
+    );
+  }
+  /**
+   * Compare each declared file with its baseline, whatever produced the write,
+   * and refuse anything the approved handoff did not cover. Records the exact
+   * result so the later apply can detect an edit made after review.
+   */
+  private async reviewHandoff(
+    leadId: string,
+    task: OrchestrationTask,
+  ): Promise<OrchestrationTask> {
+    const run = this.run(leadId)!;
+    const records = task.handoff ?? [];
+    const workerCwd = task.workspace!.checkoutCwd;
+    const inspections = await this.handoff.inspect(
+      orchestrationCheckoutCwd(run),
+      workerCwd,
+      records.map(({ path, baseline }) => ({ path, baseline })),
+    );
+    const conflicts = inspections.filter((entry) => entry.conflict);
+    if (conflicts.length)
+      throw new Error(
+        `Handoff file conflict: ${listed(conflicts.map((entry) => entry.path))} was edited in the lead checkout after ${task.title} started. Neither copy was changed; reconcile them manually, then review again.`,
+      );
+    const unexpected = await this.handoff.unexpectedIgnored(
+      workerCwd,
+      task.handoffFiles ?? records.map((record) => record.path),
+    );
+    if (unexpected.length)
+      throw new Error(
+        `${task.title} changed local ignored files outside its approved handoff: ${listed(unexpected, 5)}. Nothing was transferred and its checkout was kept. Remove them, or declare them in a new assignment.`,
+      );
+    await this.patchTask(leadId, task.id, {
+      handoff: records.map((record) => ({
+        ...record,
+        after: inspections.find((entry) => entry.path === record.path)?.after,
+      })),
+    });
+    return this.run(leadId)!.tasks.find((entry) => entry.id === task.id)!;
+  }
+  private async applyHandoff(
+    leadId: string,
+    task: OrchestrationTask,
+  ): Promise<OrchestrationTask> {
+    const run = this.run(leadId)!;
+    const records = task.handoff ?? [];
+    await this.handoff.integrate(
+      orchestrationCheckoutCwd(run),
+      task.workspace!.checkoutCwd,
+      records.flatMap((record) =>
+        record.after
+          ? [
+              {
+                path: record.path,
+                baseline: record.baseline,
+                after: record.after,
+              },
+            ]
+          : [],
+      ),
+    );
+    await this.patchTask(leadId, task.id, {
+      handoff: records.map((record) => ({ ...record, applied: true })),
+    });
+    return this.run(leadId)!.tasks.find((entry) => entry.id === task.id)!;
+  }
+  /**
+   * Removing a worktree is safe only when every declared file there is either
+   * still the baseline or already applied to the lead, and no undeclared
+   * ignored file would be lost with it. Errors mean "not proven safe".
+   */
+  private async handoffCleanupSafe(task: OrchestrationTask): Promise<boolean> {
+    if (!task.handoff?.length || !task.workspace) return true;
+    const workerCwd = task.workspace.checkoutCwd;
+    try {
+      const safe = await this.handoff.cleanupSafe(
+        workerCwd,
+        task.handoff.map((record) => ({
+          path: record.path,
+          allowed: [
+            record.baseline,
+            ...(record.applied && record.after ? [record.after] : []),
+          ],
+        })),
+      );
+      if (!safe) return false;
+      const unexpected = await this.handoff.unexpectedIgnored(
+        workerCwd,
+        task.handoffFiles ?? task.handoff.map((record) => record.path),
+      );
+      return unexpected.length === 0;
+    } catch {
+      return false;
     }
   }
   observe(id: string, event: HarnessEvent) {

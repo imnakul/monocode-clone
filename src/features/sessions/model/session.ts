@@ -87,6 +87,9 @@ export type ComposerTurnOptions = {
   draftBlockId?: string;
 };
 
+/** A turn can remain undecided while the app resumes a paused orchestration. */
+export type ComposerSubmitResult = boolean | void | Promise<boolean | void>;
+
 export type PlanStatus = "streaming" | "ready" | "building" | "built";
 
 export type PlanBlockMeta = {

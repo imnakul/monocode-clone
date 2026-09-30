@@ -36,6 +36,11 @@ import {
   Search,
 } from "../../../shared/ui/icons";
 
+const SUPERVISION_CHOICES = [
+  { mode: "efficient", label: "Efficient" },
+  { mode: "live", label: "Live supervision" },
+] as const;
+
 function AssignmentModel({
   task,
   choices,
@@ -462,6 +467,7 @@ export function OrchestrationPreview({
     (entry) =>
       entry.leadId === proposal.leadId && entry.proposalId === block.id,
   );
+  const supervision = run?.supervision ?? proposal.supervision ?? "efficient";
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   const [expanded, setExpanded] = useState<string[]>([]);
@@ -656,6 +662,15 @@ export function OrchestrationPreview({
                     )}
                   </div>
                 </div>
+                {!!task.handoffFiles?.length && (
+                  <p
+                    className="truncate px-3 pb-1.5 pl-8 text-[11px] leading-4 text-content/45"
+                    title={task.handoffFiles.join(", ")}
+                    data-handoff-files={task.id}
+                  >
+                    Local handoff files · {task.handoffFiles.join(", ")}
+                  </p>
+                )}
                 {open && (
                   <div className="space-y-2.5 px-3 pb-3 pl-8 text-[11px] leading-4 text-content/45">
                     {editable ? (
@@ -777,6 +792,49 @@ export function OrchestrationPreview({
                   ? "Awaiting confirmation"
                   : "")}{" "}
             · Shared project folder
+          </span>
+        </div>
+      )}
+      {!planning && !!proposal.tasks.length && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-stroke px-3 py-2 text-[11px] text-content/45">
+          <span>Supervision</span>
+          {editable ? (
+            <div
+              role="radiogroup"
+              aria-label="Lead supervision"
+              className="flex items-center gap-0.5 rounded-md bg-content/5 p-0.5"
+            >
+              {SUPERVISION_CHOICES.map((choice) => (
+                <button
+                  key={choice.mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={supervision === choice.mode}
+                  onClick={() =>
+                    actions?.update(proposal.leadId, block.id, {
+                      ...proposal,
+                      supervision: choice.mode,
+                    })
+                  }
+                  className={`h-5 rounded-[5px] px-2 text-[11px] leading-none ${
+                    supervision === choice.mode
+                      ? "bg-selection-hover font-medium text-content"
+                      : "text-content/45 hover:bg-content/8 hover:text-content"
+                  }`}
+                >
+                  {choice.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <span className="text-content/60">
+              {supervision === "live" ? "Live supervision" : "Efficient"}
+            </span>
+          )}
+          <span className="min-w-0 flex-1 basis-40">
+            {supervision === "live"
+              ? "The lead keeps watching and reports milestones. This uses more lead model turns; worker progress is visible in the worker pane either way."
+              : "The lead waits briefly, then sleeps until a result or blocker wakes it. Worker progress stays visible in the worker pane."}
           </span>
         </div>
       )}

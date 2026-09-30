@@ -60,6 +60,35 @@ export type OrchestrationDispatch = {
   cleanupError?: string;
 };
 
+/** Present/missing state and content hash of one exact local handoff file. */
+export type HandoffFileState = {
+  exists: boolean;
+  size: number;
+  /** SHA-256 hex of the bytes; absent when the file is missing. */
+  hash?: string;
+};
+
+/**
+ * Lifecycle of one declared handoff file. `baseline` is the lead checkout's
+ * state before dispatch; `after` is the worker's state recorded at review.
+ */
+export type HandoffRecord = {
+  path: string;
+  baseline: HandoffFileState;
+  after?: HandoffFileState;
+  /** True once the exact `after` bytes were written to the lead checkout. */
+  applied?: boolean;
+};
+
+/** How closely the lead watches workers between actionable events. */
+export type SupervisionMode = "efficient" | "live";
+
+export const DEFAULT_SUPERVISION: SupervisionMode = "efficient";
+
+export function normalizeSupervision(value: unknown): SupervisionMode {
+  return value === "live" ? "live" : DEFAULT_SUPERVISION;
+}
+
 export type OrchestrationTask = {
   id: string;
   assignmentId?: string;
@@ -70,6 +99,13 @@ export type OrchestrationTask = {
   modelSettings?: Record<string, string>;
   prompt: string;
   files: string[];
+  /**
+   * Exact project-relative local files (often Git-ignored) this task may hand
+   * between the lead and isolated workers. Never a directory or glob.
+   */
+  handoffFiles?: string[];
+  /** Baseline and review state for each declared handoff file. */
+  handoff?: HandoffRecord[];
   /** Logical scopes in the lead checkout, used for scheduling overlap. */
   scopes: string[];
   /** The same scopes resolved inside this worker's isolated checkout. */
@@ -106,6 +142,10 @@ export type OrchestrationRun = {
   allowedModels?: OrchestrationChoice[];
   proposalId?: string;
   maxWorkers: number;
+  /** Chosen on the confirmation card; absent on older saved runs. */
+  supervision?: SupervisionMode;
+  /** Number of empty Efficient waits within the same quiet worker period. */
+  quietWaitBudget?: { period: string; emptyWaits: number };
   cli: string;
   tasks: OrchestrationTask[];
   dispatches?: OrchestrationDispatch[];
@@ -181,6 +221,15 @@ export function normalizeOrchestrationRun(
         (run.version === 1 ? "shared" : "isolated-child"),
     };
   });
+  const quietWaitBudget =
+    run.quietWaitBudget &&
+    typeof run.quietWaitBudget.period === "string" &&
+    run.quietWaitBudget.period.length <= 16_384 &&
+    Number.isInteger(run.quietWaitBudget.emptyWaits) &&
+    run.quietWaitBudget.emptyWaits >= 0 &&
+    run.quietWaitBudget.emptyWaits <= 2
+      ? run.quietWaitBudget
+      : undefined;
   const statusByDispatch = new Map(
     tasks.flatMap((task) =>
       task.lastDispatchId &&
@@ -192,6 +241,8 @@ export function normalizeOrchestrationRun(
   return {
     ...run,
     version: 2,
+    supervision: normalizeSupervision(run.supervision),
+    quietWaitBudget,
     cwd: workspace.projectCwd,
     workspace,
     tasks,

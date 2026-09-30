@@ -5,6 +5,7 @@ import {
   orchestrationRepairPrompt,
   orchestrationPlanningPrompt,
   proposalBlock,
+  restoreOrchestrationProposal,
   validateProposedTasks,
   type OrchestrationProposal,
 } from "./orchestrationPlan";
@@ -318,6 +319,17 @@ describe("orchestration proposals", () => {
       proposal,
     );
   });
+  it.each(["checkout-question", "checkout-applying", "cancelled"])(
+    "makes a saved legacy %s card retryable without asking for a checkout",
+    (status) => {
+      const saved = { ...draft };
+      Reflect.set(saved, "status", status);
+      expect(restoreOrchestrationProposal(saved)).toMatchObject({
+        status: "invalid",
+        error: "Checkout selection was removed. Generate the assignments again.",
+      });
+    },
+  );
   it("makes interrupted planning non-executable on stop and reload", () => {
     const session = {
       ...newSession("claude", "/repo"),
@@ -330,5 +342,85 @@ describe("orchestration proposals", () => {
     expect(
       sanitizeSessionForPersist(session).blocks[0].orchestration?.status,
     ).toBe("invalid");
+  });
+});
+
+
+describe("local handoff file declarations", () => {
+  const settings = draft.settings;
+  const withHandoff = (handoffFiles: unknown) => [{ ...task, handoffFiles }];
+
+  it("keeps exact project-relative files, deduplicated and normalized", () => {
+    const [validated] = validateProposedTasks(
+      withHandoff([
+        "docs/specs/feature.md",
+        "docs\\specs\\feature.md",
+        "/repo/docs/specs/other.md",
+      ]),
+      settings,
+      "/repo",
+    );
+    expect(validated.handoffFiles).toEqual([
+      "docs/specs/feature.md",
+      "docs/specs/other.md",
+    ]);
+  });
+
+  it("omits the field when nothing is declared", () => {
+    expect(
+      "handoffFiles" in validateProposedTasks([task], settings, "/repo")[0],
+    ).toBe(false);
+    expect(
+      "handoffFiles" in
+        validateProposedTasks(withHandoff([]), settings, "/repo")[0],
+    ).toBe(false);
+  });
+
+  it.each([
+    ".env",
+    "config/.ENV.local",
+    "a/.git/config",
+    "node_modules/pkg/index.js",
+    "crate/Target/debug/x",
+    "../outside.md",
+    "docs/*.md",
+    "docs/{a,b}.md",
+    "docs/",
+    ".",
+    "/elsewhere/spec.md",
+  ])("rejects %s", (bad) => {
+    expect(() =>
+      validateProposedTasks(withHandoff([bad]), settings, "/repo"),
+    ).toThrow(/handoff file|outside the selected checkout|file scope/);
+  });
+
+  it("rejects malformed and oversized lists", () => {
+    expect(() =>
+      validateProposedTasks(withHandoff("docs/a.md"), settings, "/repo"),
+    ).toThrow(/handoff files/);
+    expect(() =>
+      validateProposedTasks(
+        withHandoff(Array.from({ length: 17 }, (_, i) => `docs/${i}.md`)),
+        settings,
+        "/repo",
+      ),
+    ).toThrow(/handoff files/);
+  });
+
+  it("tells the planning lead how to declare a handoff and shows it on the card text", () => {
+    expect(orchestrationPlanningPrompt("Do it", settings, "/repo")).toContain(
+      "handoffFiles",
+    );
+    const ready = completeOrchestrationProposal(
+      draft,
+      JSON.stringify({
+        ...payload,
+        tasks: withHandoff(["docs/specs/feature.md"]),
+      }),
+    );
+    expect(ready.status).toBe("ready");
+    expect(proposalBlock("card", ready).text).toContain(
+      "Local handoff files: docs/specs/feature.md",
+    );
   });
 });

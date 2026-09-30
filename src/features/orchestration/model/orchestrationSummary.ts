@@ -1,10 +1,12 @@
-import type { OrchestrationRun, TaskStatus } from "./orchestration";
+import type { OrchestrationRun, SupervisionMode, TaskStatus } from "./orchestration";
 import { sessionNeedsInput, type HarnessId, type Session } from "../../sessions/model/session";
 
 /** Small history projection; never includes prompts, results or credentials. */
 export type OrchestrationSummary = {
   status: OrchestrationRun["status"];
   live?: boolean;
+  /** How closely the lead watches workers; absent for older saved runs. */
+  supervision?: SupervisionMode;
   tasks: {
     sessionId: string;
     title: string;
@@ -23,6 +25,7 @@ export function summarizeOrchestration(
   return {
     status: run.status,
     live: true,
+    supervision: run.supervision,
     tasks: run.tasks.map(({ sessionId, title, harness, model, status }) => ({
       sessionId,
       title,

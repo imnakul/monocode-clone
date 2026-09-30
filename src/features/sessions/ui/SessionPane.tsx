@@ -11,6 +11,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Composer } from "./Composer";
+import { leadComposerLabels } from "../../orchestration/model/leadControls";
 import type { Worktree } from "../../source-control/model/worktrees";
 import {
   orchestrationCheckoutCwd,
@@ -49,6 +50,7 @@ import {
   type Session,
   type WorkspaceMode,
   type ComposerTurnOptions,
+  type ComposerSubmitResult,
 } from "../model/session";
 import { AgentTranscript } from "./AgentTranscript";
 import { PooledTranscript, type TranscriptPool } from "./TranscriptPool";
@@ -129,7 +131,7 @@ type Props = {
     text: string,
     attachments: Attachment[],
     options?: ComposerTurnOptions,
-  ) => boolean | void;
+  ) => ComposerSubmitResult;
   onSaveDraft: (
     sessionId: string,
     text: string,
@@ -569,6 +571,10 @@ export const SessionPane = memo(function SessionPane({
         return onSubmit(session.id, text, attachments, options);
       }}
       onStop={() => onStop(session.id)}
+      {...leadComposerLabels(
+        orchestrationRuns.find((run) => run.leadId === session.id),
+        session.id,
+      )}
       onCompactContext={() => onCompactContext(session.id)}
       onPlaceInFolder={(target) => onPlaceSessionInFolder(session.id, target)}
       queuedMessages={session.queuedMessages}

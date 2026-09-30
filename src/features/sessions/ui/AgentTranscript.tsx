@@ -59,7 +59,7 @@ import {
   stubFilePreview,
 } from "../../../integrations/harness/core/preview";
 import { copyMessage } from "../../../platform/tauri/clipboard";
-import type { Attachment } from "../model/session";
+import type { Attachment, ComposerSubmitResult } from "../model/session";
 import { visibleUserPrompt } from "../../orchestration/model/orchestration";
 import { playCue } from "../../settings/model/sounds";
 import { legacyTaskListFromText } from "../model/taskList";
@@ -162,7 +162,7 @@ type Props = {
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onAddToChat?: (text: string) => void;
   onSaveNote?: (text: string) => void | Promise<void>;
-  onSendDraft?: (block: Block) => boolean | void;
+  onSendDraft?: (block: Block) => ComposerSubmitResult;
   onRemoveDraft?: (block: Block) => boolean | void;
   onSaveSelectionNote?: (text: string) => void | Promise<void>;
   onOpenFile?: (path: string) => void;
@@ -1412,7 +1412,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onReviewFix?: (issue: ReviewIssue) => void;
   onSaveNote?: (text: string) => void | Promise<void>;
-  onSendDraft?: (block: Block) => boolean | void;
+  onSendDraft?: (block: Block) => ComposerSubmitResult;
   onRemoveDraft?: (block: Block) => boolean | void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
@@ -1604,7 +1604,7 @@ function UserMessageBlock({
   editing?: boolean;
   cwd?: string;
   onSaveNote?: (text: string) => void | Promise<void>;
-  onSendDraft?: (block: Block) => boolean | void;
+  onSendDraft?: (block: Block) => ComposerSubmitResult;
   onRemoveDraft?: (block: Block) => boolean | void;
 }) {
   const [expanded, setExpanded] = useState(false);

@@ -24,6 +24,7 @@ vi.mock("../../source-control/hooks/useProjectBranches", () => ({
 import { Composer, ComposerAction } from "./Composer";
 import type { ComposerTurnOptions, Attachment } from "../model/session";
 import type { UserQuestionPrompt } from "../model/userQuestion";
+import { resumeAndSend } from "../../orchestration/model/resumeAndSend";
 
 function renderAction(busy: boolean, hasValue: boolean) {
   return renderToStaticMarkup(
@@ -780,5 +781,193 @@ describe("Composer question focus", () => {
 
     expect(document.activeElement).toBe(searchInput);
     portaledPicker.remove();
+  });
+
+  it("retains the request and attachment while Resume and send is pending and uses the switched model", async () => {
+    let resolveResume: (() => void) | undefined;
+    const resume = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveResume = resolve;
+        }),
+    );
+    const sent: { text: string; attachments: Attachment[]; model: string }[] = [];
+    let model = "model-before";
+    let recallLastTurn: (() => void) | undefined;
+    const imageAttachment: Attachment = {
+      id: "attachment-1",
+      name: "spec.png",
+      mimeType: "image/png",
+      kind: "image",
+      size: 3,
+      data: "YWJj",
+    };
+    const onSubmit = (text: string, attachments: Attachment[]) =>
+      resumeAndSend(
+        resume,
+        () => {
+          sent.push({ text, attachments, model });
+          return true;
+        },
+        vi.fn(),
+      );
+    const renderTurn = async () =>
+      act(async () =>
+        root.render(
+          createElement(
+            "div",
+            null,
+            createElement(
+              "button",
+              {
+                type: "button",
+                onClick: () => {
+                  model = "model-after";
+                },
+              },
+              "Switch lead model",
+            ),
+            createElement(Composer, {
+              focused: false,
+              harness: "codex",
+              model,
+              runtimeMode: "supervised",
+              executionCwd: "/repo",
+              editLastTurnSupported: true,
+              lastTurnRecall: {
+                text: "Keep this request",
+                attachments: [imageAttachment],
+              },
+              onRecallLastTurnReady: (recall) => {
+                recallLastTurn = recall;
+              },
+              hideTopBar: true,
+              onFocus: () => {},
+              onCwdChange: () => {},
+              onModelChange: () => {},
+              onRuntimeModeChange: () => {},
+              onSubmit,
+            }),
+          ),
+        ),
+      );
+
+    await renderTurn();
+    await act(async () => recallLastTurn?.());
+    const textarea = container.querySelector("textarea")!;
+
+    const send = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Send"]',
+    )!;
+    await act(async () => send.click());
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(send.disabled).toBe(true);
+    expect(textarea.value).toBe("Keep this request");
+    expect(
+      container.querySelector('[aria-label="Remove spec.png"]'),
+    ).not.toBeNull();
+
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("button")!.click(),
+    );
+    model = "model-after";
+    await renderTurn();
+    await act(async () => send.click());
+    expect(resume).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveResume?.();
+      await Promise.resolve();
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      text: "Keep this request",
+      model: "model-after",
+    });
+    expect(sent[0].attachments).toHaveLength(1);
+    expect(textarea.value).toBe("");
+    expect(
+      container.querySelector('[aria-label="Remove spec.png"]'),
+    ).toBeNull();
+  });
+
+  it("restores the request and attachment after resume rejection and cancellation", async () => {
+    const failure = vi.fn();
+    let resolveResume: (() => void) | undefined;
+    let rejectResume: ((reason: Error) => void) | undefined;
+    let cancelled = false;
+    let recallLastTurn: (() => void) | undefined;
+    const imageAttachment: Attachment = {
+      id: "retry-attachment",
+      name: "retry.png",
+      mimeType: "image/png",
+      kind: "image",
+      size: 3,
+      data: "YWJj",
+    };
+    const resume = vi.fn(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          resolveResume = resolve;
+          rejectResume = reject;
+        }),
+    );
+    const send = vi.fn(() => true);
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          focused: false,
+          harness: "codex",
+          model: "model-before",
+          runtimeMode: "supervised",
+          executionCwd: "/repo",
+          editLastTurnSupported: true,
+          lastTurnRecall: {
+            text: "Retry this request",
+            attachments: [imageAttachment],
+          },
+          onRecallLastTurnReady: (recall) => {
+            recallLastTurn = recall;
+          },
+          hideTopBar: true,
+          onFocus: () => {},
+          onCwdChange: () => {},
+          onModelChange: () => {},
+          onRuntimeModeChange: () => {},
+          onSubmit: () =>
+            resumeAndSend(
+              resume,
+              () => (cancelled ? false : send()),
+              failure,
+            ),
+        }),
+      ),
+    );
+    await act(async () => recallLastTurn?.());
+    const textarea = container.querySelector("textarea")!;
+    const startResume = () =>
+      act(async () =>
+        container
+          .querySelector<HTMLButtonElement>('button[aria-label="Send"]')!
+          .click(),
+      );
+
+    await startResume();
+    await act(async () => rejectResume?.(new Error("private provider detail")));
+    expect(failure).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("Retry this request");
+    expect(
+      container.querySelector('[aria-label="Remove retry.png"]'),
+    ).not.toBeNull();
+
+    await startResume();
+    cancelled = true;
+    await act(async () => resolveResume?.());
+    expect(send).not.toHaveBeenCalled();
+    expect(textarea.value).toBe("Retry this request");
+    expect(
+      container.querySelector('[aria-label="Remove retry.png"]'),
+    ).not.toBeNull();
   });
 });

@@ -40,6 +40,7 @@ import {
   type Session,
   type WorkspaceMode,
   type ComposerTurnOptions,
+  type ComposerSubmitResult,
 } from "../../sessions/model/session";
 import { FilePane } from "../../files/ui/FilePane";
 import { SessionPane } from "../../sessions/ui/SessionPane";
@@ -90,7 +91,7 @@ type Shared = {
     text: string,
     attachments: Attachment[],
     options?: ComposerTurnOptions,
-  ) => boolean | void;
+  ) => ComposerSubmitResult;
   onSaveDraft: (
     sessionId: string,
     text: string,

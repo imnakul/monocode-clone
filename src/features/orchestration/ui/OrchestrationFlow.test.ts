@@ -44,6 +44,7 @@ vi.mock("../model/orchestration", async (importOriginal) => ({
     resumeLeadBusy: vi.fn(() => false),
     start: vi.fn(async () => {}),
     cancelTask: vi.fn(async () => {}),
+    stopRun: vi.fn(async () => {}),
   },
 }));
 
@@ -932,5 +933,222 @@ describe("orchestration composer and card", () => {
     expect(button("Resume").hasAttribute("disabled")).toBe(true);
     await click(button("Open blocker"));
     expect(open).toHaveBeenCalledWith("investigation");
+  });
+});
+
+
+describe("lead controls and supervision", () => {
+  const leadRun = (
+    status: OrchestrationRun["status"],
+    extra: Partial<OrchestrationRun> = {},
+  ): OrchestrationRun => ({
+    version: 1,
+    leadId: "lead",
+    cwd: "/repo",
+    status,
+    allowedHarnesses: ["codex"],
+    maxWorkers: 2,
+    cli: "monocode",
+    tasks: [],
+    continuations: 0,
+    requests: {},
+    ...extra,
+  });
+  const noop = () => {};
+  const paneProps = (
+    session: ReturnType<typeof newSession>,
+    onStop: (id: string) => void,
+  ) => ({
+    session,
+    visible: true,
+    focused: true,
+    inSplit: false,
+    composerFocused: true,
+    recents: [],
+    onFocus: noop,
+    onClose: noop,
+    onCwdChange: noop,
+    onBranchChange: noop,
+    onModelChange: noop,
+    onModelSettingsChange: noop,
+    onRuntimeModeChange: noop,
+    onSubmit: vi.fn(),
+    onStop,
+    onCompactContext: () => false,
+    onPlaceSessionInFolder: noop,
+    onDeleteQueuedMessage: noop,
+    onEditQueuedMessage: noop,
+    onQueuedMessageEditingChange: noop,
+    onSteerQueuedMessage: noop,
+    onResumeQueue: noop,
+    onApproval: noop,
+    onQuestionReply: noop,
+    onOpenFile: noop,
+    onOpenDiff: noop,
+    onOpenPlan: noop,
+    onBuildPlan: noop,
+    onNewTerminal: noop,
+  });
+  const actionsValue = {
+    update: noop,
+    confirm: async () => {},
+    retry: noop,
+    open: noop,
+  };
+  const renderLead = async (
+    session: ReturnType<typeof newSession>,
+    onStop: (id: string) => void,
+  ) =>
+    act(async () =>
+      root.render(
+        createElement(
+          OrchestrationActions.Provider,
+          { value: actionsValue },
+          createElement(
+            OrchestrationWorkers.Provider,
+            { value: { selectedId: null, inspect: noop } },
+            createElement(SessionPane, paneProps(session, onStop)),
+          ),
+        ),
+      ),
+    );
+  const lead = () => ({
+    ...newSession("codex", "/repo", "codex:one"),
+    id: "lead",
+  });
+
+  it("wires the composer's Stop to the lead-response handler, labelled distinctly", async () => {
+    emptyRuns.push(leadRun("active"));
+    const onStop = vi.fn();
+    await renderLead({ ...lead(), busy: true }, onStop);
+    expect(container.querySelector('button[aria-label="Stop"]')).toBeNull();
+    const stop = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Stop lead response"]',
+    )!;
+    expect(stop).not.toBeNull();
+    expect(stop.title).toBe("Stop lead response");
+    await click(stop);
+    expect(onStop).toHaveBeenCalledOnce();
+    expect(onStop).toHaveBeenCalledWith("lead");
+    expect(orchestrator.stopRun).not.toHaveBeenCalled();
+  });
+
+  it("keeps the plain Stop label for a session that is not an orchestration lead", async () => {
+    emptyRuns.push(leadRun("stopped"));
+    await renderLead({ ...lead(), busy: true }, vi.fn());
+    expect(
+      container.querySelector('button[aria-label="Stop lead response"]'),
+    ).toBeNull();
+    expect(container.querySelector('button[aria-label="Stop"]')).not.toBeNull();
+  });
+
+  it("labels the composer action Resume and send while the run is paused", async () => {
+    emptyRuns.push(leadRun("paused"));
+    await renderLead(lead(), vi.fn());
+    expect(
+      container.querySelector('button[aria-label="Resume and send"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Send"]')).toBeNull();
+  });
+
+  it("offers Cancel orchestration only behind a confirmation, and Keep running changes nothing", async () => {
+    emptyRuns.push(leadRun("active", { supervision: "efficient" }));
+    const summary: OrchestrationSummary = {
+      status: "active",
+      live: true,
+      supervision: "efficient",
+      tasks: [],
+    };
+    await act(async () =>
+      root.render(
+        createElement(
+          OrchestrationActions.Provider,
+          { value: actionsValue },
+          createElement(OrchestrationSidebarAgents, {
+            leadId: "lead",
+            summary,
+          }),
+        ),
+      ),
+    );
+    expect(container.textContent).toContain("Efficient supervision");
+    await click(button("Cancel orchestration"));
+    expect(container.textContent).toContain(
+      "Cancel this orchestration? Running workers will stop. Unintegrated changes will remain in their worktrees.",
+    );
+    expect(orchestrator.stopRun).not.toHaveBeenCalled();
+    await click(button("Keep running"));
+    expect(orchestrator.stopRun).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    await click(button("Cancel orchestration"));
+    await click(button("Yes, cancel orchestration"));
+    expect(orchestrator.stopRun).toHaveBeenCalledOnce();
+    expect(orchestrator.stopRun).toHaveBeenCalledWith("lead");
+  });
+
+  it("shows handoff paths and the supervision choice on the confirmation card", async () => {
+    const choices = [
+      { harness: "codex" as const, model: "codex:one", name: "Worker One" },
+    ];
+    let latest: OrchestrationProposal | undefined;
+    const base: OrchestrationProposal = {
+      version: 1,
+      leadId: "lead",
+      cwd: "/repo",
+      request: "Build",
+      author: choices[0],
+      settings: { choices, maxWorkers: 2 },
+      status: "ready",
+      title: "Spec then build",
+      summary: "Spec first",
+      tasks: [
+        {
+          id: "spec",
+          title: "Write spec",
+          prompt: "Write it",
+          harness: "codex",
+          model: "codex:one",
+          files: ["docs/specs"],
+          handoffFiles: ["docs/specs/feature.md"],
+          dependsOn: [],
+        },
+      ],
+    };
+    function Card() {
+      const [proposal, setProposal] = useState(base);
+      latest = proposal;
+      return createElement(
+        OrchestrationActions.Provider,
+        {
+          value: {
+            ...actionsValue,
+            update: (_id: string, _block: string, edited: OrchestrationProposal) =>
+              setProposal(edited),
+          },
+        },
+        createElement(AgentTranscript, {
+          blocks: [
+            { id: "card", role: "plan", text: "plan", orchestration: proposal },
+          ],
+        }),
+      );
+    }
+    await act(async () => root.render(createElement(Card)));
+    expect(
+      container.querySelector('[data-handoff-files="spec"]')?.textContent,
+    ).toContain("docs/specs/feature.md");
+    const group = container.querySelector('[aria-label="Lead supervision"]')!;
+    const efficient = [...group.querySelectorAll('[role="radio"]')].find(
+      (option) => option.textContent === "Efficient",
+    )!;
+    const live = [...group.querySelectorAll('[role="radio"]')].find(
+      (option) => option.textContent === "Live supervision",
+    )!;
+    expect(efficient.getAttribute("aria-checked")).toBe("true");
+    expect(container.textContent).not.toContain("uses more lead model turns");
+    await click(live);
+    expect(latest?.supervision).toBe("live");
+    expect(live.getAttribute("aria-checked")).toBe("true");
+    expect(container.textContent).toContain("uses more lead model turns");
   });
 });

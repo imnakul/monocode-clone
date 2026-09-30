@@ -6,6 +6,7 @@ import {
   workspaceIdentity,
   type ControlOutcome,
 } from "../features/orchestration/model/orchestration";
+import { resumeAndSend } from "../features/orchestration/model/resumeAndSend";
 import { modelsFor } from "../features/sessions/model/models";
 import { isHarnessAvailable } from "../integrations/harness/core/availability";
 import {
@@ -351,6 +352,7 @@ import {
   type Attachment,
   type Block,
   type ComposerTurnOptions,
+  type ComposerSubmitResult,
   type HarnessId,
   type LinkedWorkItem,
   type ModelTarget,
@@ -594,6 +596,8 @@ type SubmitOptions = ComposerTurnOptions & {
   planBlockId?: string;
   buildTarget?: PlanBuildTarget;
   managed?: boolean;
+  /** Set on the send that follows a message-triggered resume of a paused run. */
+  resumedRun?: boolean;
   orchestrationRetry?: OrchestrationProposal;
   onSettled?: (outcome: ControlOutcome) => void;
   /** Generate a fresh title even when this is not the session's first turn. */
@@ -607,7 +611,7 @@ type Submit = (
   text: string,
   attachments?: Attachment[],
   options?: SubmitOptions,
-) => boolean;
+) => ComposerSubmitResult;
 
 function withPlanStatus(
   session: Session,
@@ -5755,6 +5759,36 @@ export default function App({
       options?: SubmitOptions,
     ) => {
       if (editedResends.isActive(sessionId)) return false;
+      if (
+        !options?.managed &&
+        !options?.resumedRun &&
+        (options?.intent ?? "default") === "default" &&
+        orchestrator.run(sessionId)?.status === "paused"
+      ) {
+        // "Resume and send": the same guarded recovery as the Resume button,
+        // then this message goes out exactly once.
+        const blocker = orchestrator.resumeSendBlocker(sessionId);
+        if (blocker) {
+          enqueueHarnessEvent(sessionId, { type: "status", text: blocker });
+          flushHarnessEvents();
+          return false;
+        }
+        return resumeAndSend(
+          () => orchestrator.resumeRun(sessionId),
+          () =>
+            submitAfterProjectSyncRef.current(sessionId, text, attachments, {
+              ...options,
+              resumedRun: true,
+            }),
+          () => {
+            enqueueHarnessEvent(sessionId, {
+              type: "status",
+              text: "Could not resume this run, so your message was not sent. Your draft is still here; retry when the blocker is resolved.",
+            });
+            flushHarnessEvents();
+          },
+        );
+      }
       const controlError = orchestrator.submissionError(
         sessionId,
         options?.managed,
@@ -6043,7 +6077,7 @@ export default function App({
             () => projectLocationSyncs.current.delete(key),
           );
         }
-        void sync
+        return sync
           .then(async (location) => {
             if (!location) {
               throw new Error(
@@ -6053,10 +6087,16 @@ export default function App({
             if (location.moved) {
               await applyProjectLocationChange(current.cwd, location.path);
             }
-            submitAfterProjectSyncRef.current(sessionId, text, attachments, {
-              ...options,
-              projectLocationReady: true,
-            });
+            const accepted = await submitAfterProjectSyncRef.current(
+              sessionId,
+              text,
+              attachments,
+              {
+                ...options,
+                projectLocationReady: true,
+              },
+            );
+            return accepted !== false;
           })
           .catch((error: unknown) => {
             const message =
@@ -6074,8 +6114,8 @@ export default function App({
               text: "",
               error: message,
             });
+            return false;
           });
-        return true;
       }
 
       const gen = (turnGen.current.get(sessionId) ?? 0) + 1;
@@ -6196,7 +6236,7 @@ export default function App({
                   ...next.blocks,
                   {
                     id: crypto.randomUUID(),
-                    role: "user",
+                    role: "user" as const,
                     text: visibleText,
                     ...(visible.length > 0 ? { attachments: visible } : {}),
                     ...cards,
@@ -6216,16 +6256,12 @@ export default function App({
                 title: titled,
                 pendingSwitch: undefined,
               });
-              return appendUser(
-                appendPreparingHandoff(
-                  sealed,
-                  pendingSwitch.from,
-                  next.harness,
-                ),
-                visibleText,
-                visible,
-                cards,
+              const preparing = appendPreparingHandoff(
+                sealed,
+                pendingSwitch.from,
+                next.harness,
               );
+              return appendUser(preparing, visibleText, visible, cards);
             }
             return appendUser(
               { ...next, title: titled },
@@ -6319,16 +6355,21 @@ export default function App({
 
       if (proposalId && proposalDraft) {
         const draft = proposalDraft;
-        setSessions((prev) =>
-          prev.map((session) =>
-            session.id === sessionId
-              ? {
-                  ...session,
-                  blocks: [...session.blocks, proposalBlock(proposalId, draft)],
-                }
-              : session,
-          ),
+        const nextSessions = sessionsRef.current.map((session) => {
+          if (session.id !== sessionId) return session;
+          return session.blocks.some((block) => block.id === proposalId)
+            ? withOrchestrationProposal(session, proposalId, draft)
+            : {
+                ...session,
+                blocks: [...session.blocks, proposalBlock(proposalId, draft)],
+              };
+        });
+        sessionsRef.current = nextSessions;
+        setSessions(nextSessions);
+        const proposalSession = nextSessions.find(
+          (session) => session.id === sessionId,
         );
+        if (proposalSession) void upsertSession(proposalSession).catch(() => undefined);
       }
 
       let controlOutcome: ControlOutcome = {
@@ -6839,11 +6880,15 @@ export default function App({
         .finally(() => {
           editedResend?.reject();
           if (editedResend) editedResends.finish(sessionId);
-          options?.onSettled?.(
+          const settled: ControlOutcome =
             turnGen.current.get(sessionId) !== gen
               ? { status: "cancelled", text: controlText }
-              : controlOutcome,
-          );
+              : controlOutcome;
+          if (!options?.managed)
+            void orchestrator
+              .manualLeadTurnSettled(sessionId, settled)
+              .catch(console.error);
+          options?.onSettled?.(settled);
         });
       return true;
     },
@@ -7603,6 +7648,12 @@ export default function App({
   const onStop = useCallback(
     (sessionId: string, managed = false) => {
       if (!managed) {
+        // A lead's Stop ends only its current response. Cancelling the whole
+        // orchestration is a separate, confirmed action on the run controls.
+        if (orchestrator.isLeadRun(sessionId)) {
+          void orchestrator.stopLeadResponse(sessionId).catch(console.error);
+          return;
+        }
         const stopping = orchestrator.stopForSession(sessionId);
         if (stopping) {
           void stopping.catch(console.error);
@@ -7895,13 +7946,21 @@ export default function App({
               : await createOrchestrationWorktree(
                   leadCheckoutCwd,
                   orchestrationWorktreeBranchName(task.id),
-                ).then((tree) =>
-                  workspaceIdentity(
+                ).then(async (tree) => {
+                  // Declared local files (often Git-ignored) are copied only
+                  // into a fresh checkout; a retained one keeps its own bytes.
+                  if (task.handoffFiles?.length)
+                    await invoke("handoff_seed", {
+                      fromCwd: leadCheckoutCwd,
+                      toCwd: tree.path,
+                      paths: task.handoffFiles,
+                    });
+                  return workspaceIdentity(
                     projectCwd,
                     tree.path,
                     tree.branch ?? undefined,
-                  ),
-                );
+                  );
+                });
         const checkoutCwd = workspace.checkoutCwd;
         const scratchDir = await invoke<string>("control_attach_worker", {
           leadId: run.leadId,
@@ -8370,6 +8429,7 @@ export default function App({
           ...proposal,
           settings,
           tasks: edited.tasks,
+          supervision: edited.supervision === "live" ? "live" : "efficient",
         });
       },
       confirm: async (leadId: string, blockId: string) => {
@@ -8425,7 +8485,14 @@ export default function App({
           (block) => block.id === blockId,
         )?.orchestration;
         if (!session || session.busy || !proposal) return;
-        onSubmit(leadId, proposal.request, [], {
+        const blockIndex = session.blocks.findIndex(
+          (block) => block.id === blockId,
+        );
+        const attachments =
+          [...session.blocks.slice(0, blockIndex)]
+            .reverse()
+            .find((block) => block.role === "user")?.attachments ?? [];
+        onSubmit(leadId, proposal.request, attachments, {
           intent: "orchestrate",
           orchestrationRetry: proposal,
         });

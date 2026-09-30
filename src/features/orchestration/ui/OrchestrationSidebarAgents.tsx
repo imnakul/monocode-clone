@@ -2,6 +2,10 @@ import { useContext, useEffect, useState, useSyncExternalStore } from "react";
 import { findModel } from "../../sessions/model/models";
 import { orchestrator } from "../model/orchestration";
 import {
+  CANCEL_ORCHESTRATION_CONFIRMATION,
+  CANCEL_ORCHESTRATION_LABEL,
+} from "../model/leadControls";
+import {
   orchestrationTaskLabel,
   type OrchestrationSummary,
 } from "../model/orchestrationSummary";
@@ -30,6 +34,7 @@ export function OrchestrationSidebarAgents({
   );
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   // Rows expand independently, so several agents can be watched side by side.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -243,8 +248,61 @@ export function OrchestrationSidebarAgents({
           {error ?? run?.error}
         </p>
       )}
-      {/* Stopping a run belongs to the composer, which stops the lead and its
-          agents together. Resume has no other home, so it stays. */}
+      {(run?.status === "active" || run?.status === "paused") && (
+        <div className="mt-1.5 space-y-1.5 border-t border-stroke pt-1.5">
+          {summary.supervision && (
+            <p className="px-0.5 text-[11px] leading-relaxed text-content/45">
+              {summary.supervision === "live"
+                ? "Live supervision · uses more lead model turns"
+                : "Efficient supervision · the lead wakes on results"}
+            </p>
+          )}
+          {confirmingCancel ? (
+            <div role="alertdialog" aria-label="Confirm cancelling orchestration">
+              <p className="px-0.5 text-[11px] leading-relaxed text-amber-400">
+                {CANCEL_ORCHESTRATION_CONFIRMATION}
+              </p>
+              <div className="-mr-1.5 mt-1 flex items-center justify-end gap-1">
+                <button
+                  type="button"
+                  className={action}
+                  disabled={pending}
+                  onClick={() => setConfirmingCancel(false)}
+                >
+                  Keep running
+                </button>
+                <button
+                  type="button"
+                  className={solidAction}
+                  disabled={pending}
+                  onClick={() =>
+                    void perform(async () => {
+                      await orchestrator.stopRun(leadId);
+                      setConfirmingCancel(false);
+                    })
+                  }
+                >
+                  Yes, cancel orchestration
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="-mr-1.5 flex items-center justify-end">
+              <button
+                type="button"
+                className={action}
+                disabled={pending}
+                title="Stops every worker and ends this run. The lead's Stop button only ends its current response."
+                onClick={() => setConfirmingCancel(true)}
+              >
+                {CANCEL_ORCHESTRATION_LABEL}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {/* Cancelling is confirmed above; the composer's Stop only ends the
+          lead's response. Resume has no other home, so it stays. */}
       {run?.status === "paused" && (
         <div className="mt-1.5 space-y-1.5 border-t border-stroke pt-1.5">
           <p className="px-0.5 text-[11px] leading-relaxed text-content/45">
