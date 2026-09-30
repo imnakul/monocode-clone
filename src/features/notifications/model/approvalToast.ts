@@ -7,6 +7,7 @@ export type PendingApprovalNotice = {
   requestId: number;
   label: string;
   kind: "approval" | "question";
+  sessionScopeHint?: string;
   block?: Block;
 };
 
@@ -33,6 +34,9 @@ export function pendingApprovalForSession(
       requestId: block.approval.requestId,
       label: toolCallLabel(block, session.cwd),
       kind: "approval",
+      ...(block.approval.sessionScopeHint
+        ? { sessionScopeHint: block.approval.sessionScopeHint }
+        : {}),
       block,
     };
   }

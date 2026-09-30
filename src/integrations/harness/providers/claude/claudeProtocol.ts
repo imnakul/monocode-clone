@@ -47,6 +47,30 @@ export type ClaudeControlRequest = {
   toolName?: string;
   input?: Record<string, unknown>;
   toolUseId?: string;
+  permissionSuggestions?: unknown;
+};
+
+export type ClaudeSessionRule = {
+  toolName: string;
+  ruleContent?: string;
+};
+
+export type ClaudeSessionPermissionUpdate =
+  | {
+      type: "addRules";
+      rules: ClaudeSessionRule[];
+      behavior: "allow";
+      destination: "session";
+    }
+  | {
+      type: "addDirectories";
+      directories: string[];
+      destination: "session";
+    };
+
+export type ClaudeSessionGrant = {
+  updates: ClaudeSessionPermissionUpdate[];
+  rules: ClaudeSessionRule[];
 };
 
 export type ClaudeMappedLine = {
@@ -247,6 +271,7 @@ export function buildClaudeSpawnArgs(input: {
   includePartialMessages?: boolean;
   maxTurns?: number;
   isolated?: boolean;
+  allowedTools?: string[];
 }): string[] {
   const args = [
     "--output-format",
@@ -257,6 +282,9 @@ export function buildClaudeSpawnArgs(input: {
   ];
   if (!input.isolated) {
     args.push("--permission-prompt-tool", "stdio");
+  }
+  if (input.allowedTools?.length) {
+    args.push("--allowedTools", ...input.allowedTools);
   }
   if (input.includePartialMessages !== false) {
     args.push("--include-partial-messages");
@@ -368,9 +396,14 @@ export function isClaudeInitMessage(rec: Record<string, unknown>): boolean {
 export function toClaudePermissionResult(
   decision: ApprovalDecision,
   input: Record<string, unknown>,
+  updatedPermissions?: ClaudeSessionPermissionUpdate[],
 ): Record<string, unknown> {
   if (decision === "allow") {
-    return { behavior: "allow", updatedInput: input };
+    return {
+      behavior: "allow",
+      updatedInput: input,
+      ...(updatedPermissions?.length ? { updatedPermissions } : {}),
+    };
   }
   return {
     behavior: "deny",
@@ -401,11 +434,95 @@ export function parseControlRequest(
     subtype,
     toolName: stringField(nested, "tool_name") ?? stringField(rec, "tool_name"),
     input,
+    permissionSuggestions:
+      nested?.permission_suggestions ?? rec.permission_suggestions,
     toolUseId:
       stringField(nested, "tool_use_id") ??
       stringField(nested, "toolUseID") ??
       stringField(rec, "tool_use_id"),
   };
+}
+
+/** Keep only Claude-suggested allow rules and directories, scoped to this process session. */
+export function claudeSessionRules(
+  toolName: string,
+  suggestions: unknown,
+): ClaudeSessionGrant | null {
+  const updates: ClaudeSessionPermissionUpdate[] = [];
+  const rules: ClaudeSessionRule[] = [];
+
+  if (Array.isArray(suggestions)) {
+    for (const candidate of suggestions) {
+      const suggestion = asRecord(candidate);
+      if (suggestion?.type === "addRules" && suggestion.behavior === "allow") {
+        const suggestedRules = suggestion.rules;
+        if (!Array.isArray(suggestedRules) || suggestedRules.length === 0) {
+          continue;
+        }
+        const parsedRules: ClaudeSessionRule[] = [];
+        for (const candidateRule of suggestedRules) {
+          const rule = asRecord(candidateRule);
+          if (
+            typeof rule?.toolName !== "string" ||
+            rule.toolName.length === 0 ||
+            (rule.ruleContent !== undefined &&
+              typeof rule.ruleContent !== "string")
+          ) {
+            parsedRules.length = 0;
+            break;
+          }
+          parsedRules.push({
+            toolName: rule.toolName,
+            ...(typeof rule.ruleContent === "string"
+              ? { ruleContent: rule.ruleContent }
+              : {}),
+          });
+        }
+        if (parsedRules.length === 0) continue;
+        updates.push({
+          type: "addRules",
+          rules: parsedRules,
+          behavior: "allow",
+          destination: "session",
+        });
+        rules.push(...parsedRules);
+      } else if (suggestion?.type === "addDirectories") {
+        const directories = suggestion.directories;
+        if (
+          !Array.isArray(directories) ||
+          directories.length === 0 ||
+          !directories.every(
+            (directory): directory is string =>
+              typeof directory === "string" && directory.length > 0,
+          )
+        ) {
+          continue;
+        }
+        updates.push({
+          type: "addDirectories",
+          directories,
+          destination: "session",
+        });
+      }
+    }
+  }
+
+  if (updates.length === 0 && toolName.startsWith("mcp__")) {
+    const fallbackRule = { toolName };
+    return {
+      updates: [
+        {
+          type: "addRules",
+          rules: [fallbackRule],
+          behavior: "allow",
+          destination: "session",
+        },
+      ],
+      rules: [fallbackRule],
+    };
+  }
+
+  return updates.length > 0 ? { updates, rules } : null;
 }
 
 export function parseControlCancelId(

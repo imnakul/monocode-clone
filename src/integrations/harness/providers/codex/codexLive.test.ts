@@ -391,6 +391,70 @@ describe("codex live turn sequence", () => {
     await turn;
   });
 
+  it("sends acceptForSession for an explicit command session approval", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    onLine!(
+      JSON.stringify({
+        id: 91,
+        method: "item/commandExecution/requestApproval",
+        params: { itemId: "cmd_1", command: "npm test" },
+      }),
+    );
+    await waitFor(
+      () => events.some((event) => event.type === "approval.requested"),
+      "command approval UI",
+    );
+    const request = events.find((event) => event.type === "approval.requested");
+    if (request?.type !== "approval.requested")
+      throw new Error("missing command approval");
+    expect(request.sessionScope?.hint).toBe(
+      "Stop asking for this command until Codex restarts.",
+    );
+    respondCodexApproval("codex-live", request.requestId, "allow", "session");
+    await waitFor(() => parse().some((message) => message.id === 91), "reply");
+    expect(parse().find((message) => message.id === 91)?.result).toEqual({
+      decision: "acceptForSession",
+    });
+    expect(events).toContainEqual({
+      type: "approval.resolved",
+      requestId: request.requestId,
+      decision: "allow",
+      scope: "session",
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("uses session scope for supervised permission requests only when selected", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    const permissions = { fileSystem: { read: ["/repo/data"] } };
+    onLine!(
+      JSON.stringify({
+        id: 91,
+        method: "item/permissions/requestApproval",
+        params: { itemId: "perm_1", permissions },
+      }),
+    );
+    await waitFor(
+      () => events.some((event) => event.type === "approval.requested"),
+      "permissions approval UI",
+    );
+    const request = events.find((event) => event.type === "approval.requested");
+    if (request?.type !== "approval.requested")
+      throw new Error("missing permissions approval");
+    expect(request.sessionScope?.hint).toBe(
+      "Keep these permissions for the rest of this Codex session.",
+    );
+    respondCodexApproval("codex-live", request.requestId, "allow", "session");
+    await waitFor(() => parse().some((message) => message.id === 91), "reply");
+    expect(parse().find((message) => message.id === 91)?.result).toEqual({
+      scope: "session",
+      permissions,
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
   it.each(["allow", "deny"] as const)(
     "keeps a child approval answerable after a sibling completes: %s",
     async (decision) => {
@@ -929,6 +993,137 @@ describe("codex live turn sequence", () => {
     expect(events.some((e) => e.type === "approval.requested")).toBe(false);
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await turn;
+  });
+
+  it("replays an MCP session grant after a Codex restart and prompts for other tools", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    const sendMcpApproval = (id: number, toolName: string) =>
+      onLine!(
+        JSON.stringify({
+          id,
+          method: "mcpServer/elicitation/request",
+          params: {
+            serverName: "socraticode",
+            mode: "form",
+            message: `Allow ${toolName}?`,
+            requestedSchema: { type: "object", properties: {} },
+            _meta: {
+              codex_approval_kind: "mcp_tool_call",
+              persist: ["session", "always"],
+              tool_name: toolName,
+            },
+          },
+        }),
+      );
+    sendMcpApproval(91, "codebase_search");
+    await waitFor(
+      () => events.some((event) => event.type === "approval.requested"),
+      "MCP approval UI",
+    );
+    const request = events.find((event) => event.type === "approval.requested");
+    if (request?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+    expect(request.sessionScope?.hint).toBe(
+      "Stop asking for this tool until the chat closes.",
+    );
+    respondCodexApproval("codex-live", request.requestId, "allow", "session");
+    await waitFor(() => parse().some((message) => message.id === 91), "reply");
+    expect(parse().find((message) => message.id === 91)?.result).toEqual({
+      action: "accept",
+      content: {},
+      _meta: { persist: "session" },
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+
+    await stopCodexSession("codex-live");
+    sent.length = 0;
+    const resumed = await startTurn("codex-live", { resume: true });
+    sendMcpApproval(92, "codebase_search");
+    await waitFor(() => parse().some((message) => message.id === 92), "replayed reply");
+    expect(parse().find((message) => message.id === 92)?.result).toEqual({
+      action: "accept",
+      content: {},
+      _meta: { persist: "session" },
+    });
+    expect(resumed.events.some((event) => event.type === "approval.requested")).toBe(
+      false,
+    );
+
+    sendMcpApproval(93, "different_tool");
+    await waitFor(
+      () => resumed.events.some((event) => event.type === "approval.requested"),
+      "different MCP tool approval UI",
+    );
+    const different = resumed.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (different?.type !== "approval.requested")
+      throw new Error("missing different MCP approval");
+    respondCodexApproval("codex-live", different.requestId, "allow");
+    await waitFor(() => parse().some((message) => message.id === 93), "one-time reply");
+    expect(parse().find((message) => message.id === 93)?.result).toEqual({
+      action: "accept",
+      content: {},
+      _meta: null,
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await resumed.turn;
+  });
+
+  it("logs only the sanitized Codex MCP elicitation diagnostic", async () => {
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const { turn } = await startTurn("codex-live");
+    onLine!(
+      JSON.stringify({
+        id: 91,
+        method: "mcpServer/elicitation/request",
+        params: {
+          serverName: "socraticode",
+          mode: "form",
+          requestedSchema: { type: "object", properties: {} },
+          _meta: {
+            codex_approval_kind: "mcp_tool_call",
+            persist: ["session", "never-share-this"],
+            tool_name: "secret-tool",
+            arguments: { path: "C:/private/path" },
+          },
+        },
+      }),
+    );
+    await waitFor(
+      () => debug.mock.calls.length === 1,
+      "sanitized elicitation diagnostic",
+    );
+    expect(debug).toHaveBeenCalledWith(
+      "[monocode] codex elicitation",
+      expect.objectContaining({
+        method: "mcpServer/elicitation/request",
+        serverName: "socraticode",
+        metaKeys: expect.arrayContaining([
+          "arguments:object",
+          "tool_name:string",
+        ]),
+        approvalKind: "mcp_tool_call",
+        persist: ["session", "other"],
+        hasSchemaProperties: false,
+      }),
+    );
+    const detail = debug.mock.calls[0][1] as Record<string, unknown>;
+    expect(Object.keys(detail).sort()).toEqual(
+      [
+        "approvalKind",
+        "hasSchemaProperties",
+        "metaKeys",
+        "method",
+        "persist",
+        "serverName",
+      ].sort(),
+    );
+    expect(JSON.stringify(detail)).not.toContain("secret-tool");
+    expect(JSON.stringify(detail)).not.toContain("C:/private/path");
+    await stopCodexSession("codex-live");
+    await turn.catch(() => undefined);
   });
 
   it.each([false, true, undefined])(

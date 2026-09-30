@@ -30,6 +30,7 @@ import {
   buildClaudeUserMessage,
   buildControlRequest,
   buildControlResponse,
+  claudeSessionRules,
   claudeSettingsKey,
   extractAskUserQuestionTitle,
   extractExitPlanModePlan,
@@ -67,6 +68,8 @@ import {
   turnStatusFromResult,
   type ClaudeCliSettings,
   type ClaudeControlRequest,
+  type ClaudeSessionGrant,
+  type ClaudeSessionRule,
 } from "./claudeProtocol";
 import { isAgentToolName } from "../../core/preview";
 import { joinStreamText, snapshotRemainder } from "../../core/streamText";
@@ -77,6 +80,7 @@ import {
 } from "../../../../features/sessions/model/userQuestion";
 import type {
   ApprovalDecision,
+  ApprovalScope,
   CompactContextInput,
   HarnessEvent,
   HarnessSessionInput,
@@ -89,11 +93,14 @@ import type {
  * then cancels the control request out from under us. That is not a rejection,
  * so it gets its own outcome instead of being folded into "deny".
  */
-type ApprovalOutcome = ApprovalDecision | "cancelled";
+type ApprovalOutcome =
+  | { decision: ApprovalDecision; scope?: ApprovalScope }
+  | "cancelled";
 
 type PendingApproval = {
   requestId: string;
   input: Record<string, unknown>;
+  grant?: ClaudeSessionGrant;
   resolve: (decision: ApprovalOutcome) => void;
 };
 
@@ -163,6 +170,14 @@ const INIT_TIMEOUT_MS = 8_000;
 
 const liveByThread = new Map<string, Live>();
 const resumeByThread = new Map<string, Resume>();
+const sessionGrantsByThread = new Map<
+  string,
+  {
+    cwd: string;
+    providerAccountId?: string;
+    rules: ClaudeSessionRule[];
+  }
+>();
 const cancelledThreads = new Set<string>();
 
 let resolveClaudeBinaryImpl: () => Promise<{ path: string }> =
@@ -260,11 +275,12 @@ export function respondClaudeApproval(
   sessionId: string,
   requestId: number,
   decision: ApprovalDecision,
+  scope?: ApprovalScope,
 ): void {
   const live = liveByThread.get(sessionId);
   const pending = live?.approvals.get(requestId);
   if (!pending) return;
-  pending.resolve(decision);
+  pending.resolve({ decision, scope });
 }
 
 export function respondClaudeQuestion(
@@ -286,7 +302,8 @@ export async function cancelClaudeTurn(sessionId: string): Promise<void> {
   }
   live.cancelled = true;
   live.muteUpdates = true;
-  for (const [, pending] of live.approvals) pending.resolve("deny");
+  for (const [, pending] of live.approvals)
+    pending.resolve({ decision: "deny" });
   live.approvals.clear();
   for (const [, pending] of live.questions)
     pending.resolve({ kind: "skipped" });
@@ -307,7 +324,8 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
   liveByThread.delete(sessionId);
   if (live) {
     live.muteUpdates = true;
-    for (const [, pending] of live.approvals) pending.resolve("deny");
+    for (const [, pending] of live.approvals)
+      pending.resolve({ decision: "deny" });
     live.approvals.clear();
     for (const [, pending] of live.questions)
       pending.resolve({ kind: "skipped" });
@@ -325,6 +343,7 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
 
 export async function forgetClaudeSession(sessionId: string): Promise<void> {
   resumeByThread.delete(sessionId);
+  sessionGrantsByThread.delete(sessionId);
   await stopClaudeSession(sessionId);
 }
 
@@ -336,10 +355,29 @@ export function bindClaudeSession(
 ): void {
   const sessionId = providerSessionId.trim();
   if (!threadId || !sessionId || !cwd.trim()) return;
+  const grant = sessionGrantsByThread.get(threadId);
+  if (
+    grant &&
+    (grant.cwd !== cwd ||
+      !sameProviderAccountId(grant.providerAccountId, providerAccountId))
+  ) {
+    sessionGrantsByThread.delete(threadId);
+  }
   resumeByThread.set(threadId, { sessionId, cwd, providerAccountId });
 }
 
 async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+  const sessionGrant = sessionGrantsByThread.get(input.sessionId);
+  if (
+    sessionGrant &&
+    (sessionGrant.cwd !== input.cwd ||
+      !sameProviderAccountId(
+        sessionGrant.providerAccountId,
+        input.providerAccountId,
+      ))
+  ) {
+    sessionGrantsByThread.delete(input.sessionId);
+  }
   const settingsKey = settingsKeyFor(input);
   const planning = input.intent === "plan";
   const existing = liveByThread.get(input.sessionId);
@@ -357,7 +395,10 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     // Model and launch-setting changes require a fresh Claude process, but
     // they must resume the same provider conversation. Only a cwd change
     // invalidates the stored session because Claude sessions are cwd-bound.
-    if (existing.cwd !== input.cwd) resumeByThread.delete(input.sessionId);
+    if (existing.cwd !== input.cwd) {
+      resumeByThread.delete(input.sessionId);
+      sessionGrantsByThread.delete(input.sessionId);
+    }
     await stopClaudeSession(input.sessionId);
   }
 
@@ -372,6 +413,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       !sameProviderAccountId(resume.providerAccountId, input.providerAccountId))
   ) {
     resumeByThread.delete(input.sessionId);
+    sessionGrantsByThread.delete(input.sessionId);
   }
 
   const { path } = await resolveClaudeBinaryImpl();
@@ -937,7 +979,14 @@ async function handleControlRequest(
   }
 
   const uiId = live.nextApprovalUiId++;
-  const pending = waitApproval(live, uiId, control.requestId, input);
+  const grant = claudeSessionRules(toolName, control.permissionSuggestions);
+  const pending = waitApproval(
+    live,
+    uiId,
+    control.requestId,
+    input,
+    grant ?? undefined,
+  );
   live.onEvent({
     type: "approval.requested",
     requestId: uiId,
@@ -945,17 +994,37 @@ async function handleControlRequest(
     kind: toolKindFromName(toolName),
     callId: control.toolUseId,
     preview: previewFromTool(toolName, input),
+    ...(grant
+      ? { sessionScope: { hint: "Stop asking for this in this chat." } }
+      : {}),
   });
-  const decision = await pending;
-  live.onEvent({ type: "approval.resolved", requestId: uiId, decision });
-  if (decision === "cancelled") return;
+  const outcome = await pending;
+  const decision = outcome === "cancelled" ? "cancelled" : outcome.decision;
+  const scope = outcome === "cancelled" ? undefined : outcome.scope;
+  live.onEvent({
+    type: "approval.resolved",
+    requestId: uiId,
+    decision,
+    ...(scope ? { scope } : {}),
+  });
+  if (outcome === "cancelled") return;
+  const approvalDecision = outcome.decision;
   await writeJson(
     sessionId,
     buildControlResponse(
       control.requestId,
-      toClaudePermissionResult(decision, input),
+      toClaudePermissionResult(
+        approvalDecision,
+        input,
+        approvalDecision === "allow" && scope === "session"
+          ? grant?.updates
+          : undefined,
+      ),
     ),
   );
+  if (approvalDecision === "allow" && scope === "session" && grant) {
+    addClaudeSessionRules(sessionId, live, grant.rules);
+  }
 }
 
 function applyKnownToolInput(
@@ -985,9 +1054,10 @@ function waitApproval(
   uiId: number,
   requestId: string,
   input: Record<string, unknown>,
+  grant?: ClaudeSessionGrant,
 ): Promise<ApprovalOutcome> {
   return new Promise<ApprovalOutcome>((resolve) => {
-    live.approvals.set(uiId, { requestId, input, resolve });
+    live.approvals.set(uiId, { requestId, input, grant, resolve });
   }).finally(() => {
     live.approvals.delete(uiId);
   });
@@ -1435,6 +1505,7 @@ function launchOptions(
   resume?: string;
   sessionId?: string;
   settings?: ClaudeCliSettings;
+  allowedTools?: string[];
 } {
   const native = nativeModelId(input.model);
   const effortRaw = input.modelSettings?.effort;
@@ -1462,12 +1533,54 @@ function launchOptions(
     resume,
     sessionId: resume ? undefined : sessionId,
     settings: Object.keys(settings).length > 0 ? settings : undefined,
+    allowedTools: claudeAllowedTools(input),
   };
+}
+
+function claudeAllowedTools(input: HarnessSessionInput): string[] | undefined {
+  const grant = sessionGrantsByThread.get(input.sessionId);
+  if (
+    !grant ||
+    grant.cwd !== input.cwd ||
+    !sameProviderAccountId(grant.providerAccountId, input.providerAccountId)
+  ) {
+    return undefined;
+  }
+  return grant.rules.map((rule) =>
+    rule.ruleContent === undefined
+      ? rule.toolName
+      : `${rule.toolName}(${rule.ruleContent})`,
+  );
+}
+
+function addClaudeSessionRules(
+  sessionId: string,
+  live: Live,
+  rules: ClaudeSessionRule[],
+): void {
+  const entry = sessionGrantsByThread.get(sessionId) ?? {
+    cwd: live.cwd,
+    providerAccountId: live.providerAccountId,
+    rules: [],
+  };
+  const seen = new Set(
+    entry.rules.map(
+      (rule) => `${rule.toolName}\u0000${rule.ruleContent ?? ""}`,
+    ),
+  );
+  for (const rule of rules) {
+    const key = `${rule.toolName}\u0000${rule.ruleContent ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    entry.rules.push(rule);
+  }
+  sessionGrantsByThread.set(sessionId, entry);
 }
 
 /** Exported for tests. */
 export function __claudeTestReset(): void {
   liveByThread.clear();
   resumeByThread.clear();
+  sessionGrantsByThread.clear();
   cancelledThreads.clear();
 }

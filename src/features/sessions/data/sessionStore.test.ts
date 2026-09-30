@@ -580,6 +580,30 @@ describe("persistFingerprint", () => {
     expect(persistFingerprint(after)).not.toBe(persistFingerprint(before));
   });
 
+  it("persists a resolved session scope and caps its hint at 200 characters", () => {
+    const session = base([
+      user,
+      {
+        id: "approval",
+        role: "approval",
+        text: "Run a tool?",
+        approval: {
+          requestId: 1,
+          decided: "allow",
+          scope: "session",
+          sessionScopeHint: "h".repeat(250),
+        },
+      },
+    ]);
+    const persisted = sanitizeSessionForPersist(session);
+    expect(persisted.blocks[1]?.approval).toEqual({
+      requestId: 1,
+      decided: "allow",
+      scope: "session",
+      sessionScopeHint: "h".repeat(200),
+    });
+  });
+
   it("changes when a block is appended", () => {
     const before = base([user]);
     expect(persistFingerprint({ ...before, blocks: [user, answer] })).not.toBe(

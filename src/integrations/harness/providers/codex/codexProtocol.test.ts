@@ -706,6 +706,39 @@ describe("approvals", () => {
   it("translates UI decisions to Codex wire decisions", () => {
     expect(toCodexApprovalDecision("allow", "command")).toBe("accept");
     expect(toCodexApprovalDecision("deny", "file-change")).toBe("decline");
+    expect(toCodexApprovalDecision("allow", "command", "session")).toBe(
+      "acceptForSession",
+    );
+    expect(toCodexApprovalDecision("allow", "file-change", "session")).toBe(
+      "acceptForSession",
+    );
+    expect(toCodexApprovalDecision("allow", "permissions", "session")).toBe(
+      "accept",
+    );
+  });
+
+  it("marks command, file and permissions prompts as session-capable", () => {
+    expect(
+      mapApprovalRequest(
+        "item/commandExecution/requestApproval",
+        { command: "npm test" },
+        1,
+      )?.event.sessionScope?.hint,
+    ).toBe("Stop asking for this command until Codex restarts.");
+    expect(
+      mapApprovalRequest(
+        "item/fileChange/requestApproval",
+        { reason: "Write file" },
+        2,
+      )?.event.sessionScope?.hint,
+    ).toBe("Stop asking for changes to these files until Codex restarts.");
+    expect(
+      mapApprovalRequest(
+        "item/permissions/requestApproval",
+        { permissions: {} },
+        3,
+      )?.event.sessionScope?.hint,
+    ).toBe("Keep these permissions for the rest of this Codex session.");
   });
 });
 

@@ -35,12 +35,14 @@ import {
 import { JsonRpcClient, type JsonRpcId } from "../../core/jsonRpc";
 import { codexQuestions, codexQuestionResponse } from "./codexQuestions";
 import {
+  codexMcpApprovalKindKeys,
   codexMcpConfirmation,
   isCodexComputerUseAccessConfirmation,
 } from "./codexElicitation";
 import { joinStreamText, snapshotRemainder } from "../../core/streamText";
 import type {
   ApprovalDecision,
+  ApprovalScope,
   CompactContextInput,
   HarnessEvent,
   HarnessSessionInput,
@@ -50,12 +52,15 @@ import type {
   SteerTurnInput,
 } from "../../core/types";
 
-type ApprovalOutcome = ApprovalDecision | "cancelled";
+type ApprovalOutcome =
+  | { decision: ApprovalDecision; scope?: ApprovalScope }
+  | "cancelled";
 
 type PendingApproval = {
   rpcId: JsonRpcId;
   threadId: string;
   kind: CodexApprovalKind;
+  grantKey?: string;
   resolve: (decision: ApprovalOutcome) => void;
 };
 
@@ -73,6 +78,7 @@ type PendingQuestion = {
 const QUESTION_AUTO_RESOLVE_MS = 120_000;
 
 type Live = {
+  sessionId: string;
   rpc: JsonRpcClient;
   threadId: string;
   cwd: string;
@@ -117,6 +123,7 @@ type Resume = {
 
 const liveByThread = new Map<string, Live>();
 const resumeByThread = new Map<string, Resume>();
+const mcpGrantsByThread = new Map<string, Set<string>>();
 const cancelledThreads = new Set<string>();
 
 let resolveCodexBinaryImpl: () => Promise<{ path: string }> =
@@ -270,11 +277,12 @@ export function respondCodexApproval(
   sessionId: string,
   requestId: number,
   decision: ApprovalDecision,
+  scope?: ApprovalScope,
 ): void {
   const live = liveByThread.get(sessionId);
   const pending = live?.approvals.get(requestId);
   if (!pending) return;
-  pending.resolve(decision);
+  pending.resolve({ decision, scope });
 }
 
 export function respondCodexQuestion(
@@ -371,6 +379,7 @@ export async function stopCodexSession(sessionId: string): Promise<void> {
 
 export async function forgetCodexSession(sessionId: string): Promise<void> {
   resumeByThread.delete(sessionId);
+  mcpGrantsByThread.delete(sessionId);
   await stopCodexSession(sessionId);
 }
 
@@ -382,6 +391,16 @@ export function bindCodexSession(
 ): void {
   const providerThreadId = providerSessionId.trim();
   if (!threadId || !providerThreadId || !cwd.trim()) return;
+  const grants = mcpGrantsByThread.get(threadId);
+  const existingResume = resumeByThread.get(threadId);
+  if (
+    grants &&
+    existingResume &&
+    (existingResume.cwd !== cwd ||
+      !sameProviderAccountId(existingResume.providerAccountId, providerAccountId))
+  ) {
+    mcpGrantsByThread.delete(threadId);
+  }
   resumeByThread.set(threadId, {
     threadId: providerThreadId,
     cwd,
@@ -401,6 +420,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   }
   if (existing) {
     resumeByThread.delete(input.sessionId);
+    mcpGrantsByThread.delete(input.sessionId);
     await stopCodexSession(input.sessionId);
   }
 
@@ -415,6 +435,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       !sameProviderAccountId(resume.providerAccountId, input.providerAccountId))
   ) {
     resumeByThread.delete(input.sessionId);
+    mcpGrantsByThread.delete(input.sessionId);
   }
 
   const { path } = await resolveCodexBinaryImpl();
@@ -546,6 +567,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     void effort;
 
     const live: Live = {
+      sessionId: input.sessionId,
       rpc,
       threadId,
       cwd: input.cwd,
@@ -1037,6 +1059,7 @@ async function handleServerRequest(
   }
 
   if (method === "mcpServer/elicitation/request") {
+    logCodexElicitation(params);
     const confirmation = codexMcpConfirmation(params);
     if (!confirmation || live.cancelled || live.muteUpdates) {
       if (!live.cancelled && !live.muteUpdates)
@@ -1063,23 +1086,63 @@ async function handleServerRequest(
       });
       return;
     }
+    const grantKey = confirmation.mcpToolGrant?.key;
+    if (
+      grantKey &&
+      mcpGrantsByThread.get(live.sessionId)?.has(grantKey)
+    ) {
+      await live.rpc.respond(id, {
+        action: "accept",
+        content: confirmation.content,
+        _meta: { persist: "session" },
+      });
+      return;
+    }
     const uiId = live.nextApprovalUiId++;
-    const pending = waitApproval(live, uiId, id, "permissions", threadId);
+    const pending = waitApproval(
+      live,
+      uiId,
+      id,
+      "permissions",
+      threadId,
+      grantKey,
+    );
     // Other MCP consent must carry the user's decision, including in Full Access.
     live.onEvent({
       type: "approval.requested",
       requestId: uiId,
       kind: "other",
       title: confirmation.title,
+      ...(confirmation.mcpToolGrant
+        ? {
+            sessionScope: {
+              hint: "Stop asking for this tool until the chat closes.",
+            },
+          }
+        : {}),
     });
-    const decision = await pending;
-    live.onEvent({ type: "approval.resolved", requestId: uiId, decision });
-    if (decision !== "cancelled")
-      await live.rpc.respond(id, {
-        action: decision === "allow" ? "accept" : "decline",
-        content: decision === "allow" ? confirmation.content : null,
-        _meta: null,
-      });
+    const outcome = await pending;
+    const decision = outcome === "cancelled" ? "cancelled" : outcome.decision;
+    const scope = outcome === "cancelled" ? undefined : outcome.scope;
+    live.onEvent({
+      type: "approval.resolved",
+      requestId: uiId,
+      decision,
+      ...(scope ? { scope } : {}),
+    });
+    if (outcome === "cancelled") return;
+    const sessionGrant =
+      decision === "allow" && scope === "session" && grantKey !== undefined;
+    await live.rpc.respond(id, {
+      action: decision === "allow" ? "accept" : "decline",
+      content: decision === "allow" ? confirmation.content : null,
+      _meta: sessionGrant ? { persist: "session" } : null,
+    });
+    if (sessionGrant) {
+      const grants = mcpGrantsByThread.get(live.sessionId) ?? new Set<string>();
+      grants.add(grantKey);
+      mcpGrantsByThread.set(live.sessionId, grants);
+    }
     return;
   }
 
@@ -1128,17 +1191,21 @@ async function handleServerRequest(
     if (live.runtimeMode === "supervised") {
       const pending = waitApproval(live, uiId, id, mapped.kind, threadId);
       live.onEvent(mapped.event);
-      const decision = await pending;
+      const outcome = await pending;
+      const decision = outcome === "cancelled" ? "cancelled" : outcome.decision;
       live.onEvent({
         type: "approval.resolved",
         requestId: uiId,
         decision,
+        ...(outcome !== "cancelled" && outcome.scope
+          ? { scope: outcome.scope }
+          : {}),
       });
-      if (decision === "cancelled") return;
+      if (outcome === "cancelled") return;
       if (decision === "allow") {
         const rec = asRecord(params);
         await live.rpc.respond(id, {
-          scope: "turn",
+          scope: outcome.scope === "session" ? "session" : "turn",
           permissions: rec?.permissions ?? {},
         });
       } else {
@@ -1165,15 +1232,23 @@ async function handleServerRequest(
 
   const pending = waitApproval(live, uiId, id, mapped.kind, threadId);
   live.onEvent(mapped.event);
-  const decision = await pending;
+  const outcome = await pending;
+  const decision = outcome === "cancelled" ? "cancelled" : outcome.decision;
   live.onEvent({
     type: "approval.resolved",
     requestId: uiId,
     decision,
+    ...(outcome !== "cancelled" && outcome.scope
+      ? { scope: outcome.scope }
+      : {}),
   });
-  if (decision === "cancelled") return;
+  if (outcome === "cancelled") return;
   await live.rpc.respond(id, {
-    decision: toCodexApprovalDecision(decision, mapped.kind),
+    decision: toCodexApprovalDecision(
+      outcome.decision,
+      mapped.kind,
+      outcome.scope,
+    ),
   });
 }
 
@@ -1183,12 +1258,63 @@ function waitApproval(
   rpcId: JsonRpcId,
   kind: CodexApprovalKind,
   threadId: string,
+  grantKey?: string,
 ): Promise<ApprovalOutcome> {
   return new Promise<ApprovalOutcome>((resolve) => {
-    live.approvals.set(uiId, { rpcId, threadId, kind, resolve });
+    live.approvals.set(uiId, { rpcId, threadId, kind, grantKey, resolve });
   }).finally(() => {
     live.approvals.delete(uiId);
   });
+}
+
+function logCodexElicitation(params: unknown): void {
+  const rec = asRecord(params);
+  const meta = asRecord(rec?._meta);
+  const schema = asRecord(rec?.requestedSchema);
+  const rawProperties = schema?.properties;
+  const properties = asRecord(rawProperties);
+  const approvalKindKey = codexMcpApprovalKindKeys().find((key) =>
+    Object.prototype.hasOwnProperty.call(meta ?? {}, key),
+  );
+  const approvalKind =
+    approvalKindKey === undefined
+      ? "absent"
+      : meta?.[approvalKindKey] === "mcp_tool_call"
+        ? "mcp_tool_call"
+        : "other";
+  const persist = meta?.persist;
+  const safePersist = Array.isArray(persist)
+    ? persist.map(safeCodexPersistValue)
+    : safeCodexPersistValue(persist);
+  const metaKeys = meta
+    ? Object.keys(meta)
+        .sort()
+        .slice(0, 20)
+        .map((key) => `${key.slice(0, 64)}:${jsonType(meta[key])}`)
+    : [];
+
+  console.debug("[monocode] codex elicitation", {
+    method: "mcpServer/elicitation/request",
+    serverName:
+      typeof rec?.serverName === "string" ? rec.serverName : undefined,
+    metaKeys,
+    approvalKind,
+    persist: safePersist,
+    hasSchemaProperties:
+      properties !== null
+        ? Object.keys(properties).length > 0
+        : rawProperties !== undefined && rawProperties !== null,
+  });
+}
+
+function safeCodexPersistValue(value: unknown): "session" | "always" | "other" {
+  return value === "session" || value === "always" ? value : "other";
+}
+
+function jsonType(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
 }
 
 function autoApproval(
@@ -1210,6 +1336,7 @@ function autoApproval(
 export function __codexTestReset(): void {
   liveByThread.clear();
   resumeByThread.clear();
+  mcpGrantsByThread.clear();
   cancelledThreads.clear();
 }
 

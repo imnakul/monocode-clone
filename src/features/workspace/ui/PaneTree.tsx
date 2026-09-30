@@ -15,7 +15,11 @@ import {
   useExternalPaneDrop,
   type TitleTabDropPosition,
 } from "../model/paneDrop";
-import type { ApprovalDecision, UserQuestionReply } from "../../../integrations/harness";
+import type {
+  ApprovalDecision,
+  ApprovalScope,
+  UserQuestionReply,
+} from "../../../integrations/harness";
 import type { EditorNavigationTarget } from "../../search/model/search";
 import {
   layoutLeaves,
@@ -123,6 +127,7 @@ type Shared = {
     sessionId: string,
     requestId: number,
     decision: ApprovalDecision,
+    scope?: ApprovalScope,
   ) => void;
   onReviewFix?: (sessionId: string, issue: ReviewIssue) => void;
   onQuestionReply: (

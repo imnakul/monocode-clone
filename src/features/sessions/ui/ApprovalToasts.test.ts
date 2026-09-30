@@ -3,6 +3,7 @@ import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { updateNotificationPreferences } from "../../notifications/model/notificationPreferences";
+import { pendingApprovalForSession } from "../../notifications/model/approvalToast";
 import { ApprovalToasts } from "./ApprovalToasts";
 
 type Notice = ComponentProps<typeof ApprovalToasts>["notices"][number];
@@ -72,6 +73,45 @@ it("hides muted project approval popups while another project's controls remain 
   )!;
   act(() => allow.click());
   expect(onApproval).toHaveBeenCalledWith("work", 1, "allow");
+});
+
+it("shows and forwards Allow for session only when the notice has a hint", async () => {
+  const capable = notice("work");
+  capable.session.blocks = [
+    {
+      id: "approval-block",
+      role: "tool",
+      text: "Read source",
+      approval: {
+        requestId: 1,
+        sessionScopeHint: "Stop asking for this in this chat.",
+      },
+    },
+  ];
+  const pending = pendingApprovalForSession(capable.session);
+  expect(pending?.sessionScopeHint).toBe("Stop asking for this in this chat.");
+  await act(async () =>
+    render([{ ...pending!, session: capable.session }]),
+  );
+  const sessionButton = [...document.querySelectorAll("button")].find(
+    (button) => button.textContent === "Allow for session",
+  );
+  expect(sessionButton?.getAttribute("title")).toBe(
+    "Stop asking for this in this chat.",
+  );
+  expect(sessionButton?.getAttribute("aria-description")).toBe(
+    "Stop asking for this in this chat.",
+  );
+  act(() => sessionButton?.click());
+  expect(onApproval).toHaveBeenCalledWith("work", 1, "allow", "session");
+});
+
+it("keeps one-time approvals to Allow and Deny", async () => {
+  await act(async () => render([notice("work")]));
+  const approvalButtons = [...document.querySelectorAll(".approval-toast > div button")]
+    .map((button) => button.textContent);
+  expect(approvalButtons).toEqual(["Allow", "Deny"]);
+  expect(document.body.textContent).not.toContain("Allow for session");
 });
 
 it("immediately hides an existing question when its notification category is disabled", async () => {

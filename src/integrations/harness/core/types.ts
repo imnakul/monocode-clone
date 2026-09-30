@@ -75,12 +75,14 @@ export type HarnessEvent =
       kind?: string;
       callId?: string;
       preview?: ToolPreview;
+      sessionScope?: { hint: string };
     }
   | {
       type: "approval.resolved";
       requestId: number;
       /** "cancelled" = a PermissionRequest hook decided before the user could. */
       decision: "allow" | "deny" | "cancelled";
+      scope?: ApprovalScope;
     }
   | {
       type: "question.asked";
@@ -129,6 +131,7 @@ export type HarnessEvent =
   | ({ type: "turn.metrics" } & TurnMetrics);
 
 export type ApprovalDecision = "allow" | "deny";
+export type ApprovalScope = "once" | "session";
 
 export type HarnessSessionInput = {
   sessionId: string;

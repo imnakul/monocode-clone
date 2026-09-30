@@ -4,7 +4,10 @@ import { createPortal } from "react-dom";
 import { allowsProjectNotification } from "../../notifications/model/notificationPreferences";
 import { knownNotificationProject } from "../../notifications/model/notificationProjects";
 import { useProjectNotificationPreferences } from "../../notifications/hooks/useProjectNotificationPreferences";
-import type { ApprovalDecision } from "../../../integrations/harness";
+import type {
+  ApprovalDecision,
+  ApprovalScope,
+} from "../../../integrations/harness";
 import type { PendingApprovalNotice } from "../../notifications/model/approvalToast";
 import { LAYER } from "../../../shared/lib/layers";
 import {
@@ -24,6 +27,7 @@ type Props = {
     sessionId: string,
     requestId: number,
     decision: ApprovalDecision,
+    scope?: ApprovalScope,
   ) => void;
 };
 
@@ -119,17 +123,30 @@ function ApprovalToastCard({
         <span className="text-[11px] text-content/40">{harness}</span>
       </button>
       {notice.kind === "question" ? null : (
-        <div className="flex gap-2 border-t border-stroke px-3.5 py-2.5">
+        <div className="flex flex-wrap gap-2 border-t border-stroke px-3.5 py-2.5">
           <button
             type="button"
-            className="flex-1 rounded-md bg-content px-2.5 py-1 text-[11px] font-medium text-background-base hover:bg-content/80"
+            className="min-w-16 flex-1 rounded-md bg-content px-2.5 py-1 text-[11px] font-medium text-background-base hover:bg-content/80 max-[319px]:basis-[calc(50%_-_0.25rem)]"
             onClick={() => onApproval(session.id, requestId, "allow")}
           >
             Allow
           </button>
+          {notice.sessionScopeHint ? (
+            <button
+              type="button"
+              title={notice.sessionScopeHint}
+              aria-description={notice.sessionScopeHint}
+              className="min-w-32 flex-1 rounded-md bg-content/10 px-2.5 py-1 text-[11px] font-medium text-content/85 hover:bg-content/20 max-[319px]:basis-[calc(50%_-_0.25rem)]"
+              onClick={() =>
+                onApproval(session.id, requestId, "allow", "session")
+              }
+            >
+              Allow for session
+            </button>
+          ) : null}
           <button
             type="button"
-            className="flex-1 rounded-md bg-content/10 px-2.5 py-1 text-[11px] font-medium text-content/70 hover:bg-content/20"
+            className="min-w-16 flex-1 rounded-md bg-content/10 px-2.5 py-1 text-[11px] font-medium text-content/70 hover:bg-content/20 max-[319px]:basis-[calc(50%_-_0.25rem)]"
             onClick={() => onApproval(session.id, requestId, "deny")}
           >
             Deny

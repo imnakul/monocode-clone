@@ -181,6 +181,7 @@ export {
 } from "./core/registry";
 export type {
   ApprovalDecision,
+  ApprovalScope,
   CompactContextInput,
   HarnessEvent,
   SteerTurnInput,

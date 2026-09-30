@@ -21,7 +21,7 @@ import {
 } from "../../core/preview";
 import { formatShellIntent, inferShellIntent } from "../../core/shellIntent";
 import { streamTextDelta } from "../../core/streamText";
-import type { HarnessEvent } from "../../core/types";
+import type { ApprovalDecision, ApprovalScope, HarnessEvent } from "../../core/types";
 import { type CodexRawUsageRecord } from "../../../../features/sessions/model/tokenAccounting";
 
 /** Codex approval / sandbox settings for thread/start and turn/start. */
@@ -249,12 +249,14 @@ export type CodexApprovalDecisionWire =
   "accept" | "acceptForSession" | "decline" | "cancel";
 
 export function toCodexApprovalDecision(
-  decision: "allow" | "deny",
+  decision: ApprovalDecision,
   kind: CodexApprovalKind,
+  scope?: ApprovalScope,
 ): CodexApprovalDecisionWire {
   if (decision === "deny") return "decline";
-  // Prefer one-shot accept; session-scoped grants can be added later.
-  void kind;
+  if (scope === "session" && (kind === "command" || kind === "file-change")) {
+    return "acceptForSession";
+  }
   return "accept";
 }
 
@@ -1249,6 +1251,9 @@ export function mapApprovalRequest(
         kind: "execute",
         callId,
         preview: presentation.preview,
+        sessionScope: {
+          hint: "Stop asking for this command until Codex restarts.",
+        },
       },
     };
   }
@@ -1265,6 +1270,9 @@ export function mapApprovalRequest(
         title,
         kind: "edit",
         callId,
+        sessionScope: {
+          hint: "Stop asking for changes to these files until Codex restarts.",
+        },
       },
     };
   }
@@ -1280,6 +1288,9 @@ export function mapApprovalRequest(
         title: reason,
         kind: "other",
         callId,
+        sessionScope: {
+          hint: "Keep these permissions for the rest of this Codex session.",
+        },
       },
     };
   }

@@ -225,6 +225,7 @@ import {
   stopStreaming,
   pickTextHarness,
   type ApprovalDecision,
+  type ApprovalScope,
   type HarnessEvent,
   type UserQuestionReply,
 } from "../integrations/harness";
@@ -7802,10 +7803,21 @@ export default function App({
   }, [onStop]);
 
   const onApproval = useCallback(
-    (sessionId: string, requestId: number, decision: ApprovalDecision) => {
+    (
+      sessionId: string,
+      requestId: number,
+      decision: ApprovalDecision,
+      scope?: ApprovalScope,
+    ) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
       if (!session || session.worktreeRemoved) return;
-      respondHarnessApproval(session.harness, sessionId, requestId, decision);
+      respondHarnessApproval(
+        session.harness,
+        sessionId,
+        requestId,
+        decision,
+        scope,
+      );
     },
     [],
   );

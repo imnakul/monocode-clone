@@ -10,6 +10,7 @@ import {
   listHarnesses,
   refreshHarnessCatalogs,
   registerHarness,
+  respondHarnessApproval,
   resetHarnessIdlePark,
   sendHarnessTurn,
   type HarnessAdapter,
@@ -55,6 +56,28 @@ describe("harness registry", () => {
         .filter((id) => id === "claude" || id === "codex" || id === "cursor")
         .sort(),
     ).toEqual(["claude", "codex", "cursor"]);
+  });
+
+  it("lets adapters that do not use session scope keep their approval behavior", () => {
+    const decisions: string[] = [];
+    registerHarness(
+      stub("cursor", {
+        respondApproval(_sessionId, _requestId, decision) {
+          decisions.push(decision);
+        },
+      }),
+    );
+
+    respondHarnessApproval("cursor", "cursor-session", 1, "allow");
+    respondHarnessApproval(
+      "cursor",
+      "cursor-session",
+      2,
+      "allow",
+      "session",
+    );
+
+    expect(decisions).toEqual(["allow", "allow"]);
   });
 
   it("advertises and dispatches compaction only when an adapter supports it", async () => {

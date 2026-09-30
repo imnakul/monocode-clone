@@ -7,6 +7,7 @@ import type { UserQuestionReply } from "../../../features/sessions/model/userQue
 import type { NativeCommandProvider } from "./nativeCommands";
 import type {
   ApprovalDecision,
+  ApprovalScope,
   CompactContextInput,
   RewindLastTurnInput,
   RewindLastTurnResult,
@@ -43,6 +44,7 @@ export type HarnessAdapter = {
     sessionId: string,
     requestId: number,
     decision: ApprovalDecision,
+    scope?: ApprovalScope,
   ): void;
   respondQuestion?(
     sessionId: string,
@@ -292,8 +294,9 @@ export function respondHarnessApproval(
   sessionId: string,
   requestId: number,
   decision: ApprovalDecision,
+  scope?: ApprovalScope,
 ): void {
-  getHarness(harness)?.respondApproval(sessionId, requestId, decision);
+  getHarness(harness)?.respondApproval(sessionId, requestId, decision, scope);
 }
 
 export function respondHarnessQuestion(

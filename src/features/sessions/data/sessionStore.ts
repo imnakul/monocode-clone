@@ -542,6 +542,12 @@ function sanitizeBlock(block: Block): Block | null {
     next.approval = {
       requestId: block.approval.requestId,
       decided: block.approval.decided,
+      ...(typeof block.approval.sessionScopeHint === "string"
+        ? { sessionScopeHint: block.approval.sessionScopeHint.slice(0, 200) }
+        : {}),
+      ...(block.approval.scope === "once" || block.approval.scope === "session"
+        ? { scope: block.approval.scope }
+        : {}),
     };
   } else if (block.approval && !block.approval.decided) {
     // Drop stale live approval prompts; request ids don't survive restarts.

@@ -29,6 +29,7 @@ import {
   canCompactHarnessContext,
   canSteerHarness,
   type ApprovalDecision,
+  type ApprovalScope,
   type UserQuestionReply,
 } from "../../../integrations/harness";
 import {
@@ -162,6 +163,7 @@ type Props = {
     sessionId: string,
     requestId: number,
     decision: ApprovalDecision,
+    scope?: ApprovalScope,
   ) => void;
   onReviewFix?: (sessionId: string, issue: ReviewIssue) => void;
   onQuestionReply: (
@@ -300,8 +302,11 @@ export const SessionPane = memo(function SessionPane({
       } as CSSProperties)
     : undefined;
   const approve = useCallback(
-    (requestId: number, decision: ApprovalDecision) =>
-      onApproval(session.id, requestId, decision),
+    (
+      requestId: number,
+      decision: ApprovalDecision,
+      scope?: ApprovalScope,
+    ) => onApproval(session.id, requestId, decision, scope),
     [onApproval, session.id],
   );
   const fixReviewIssue = useCallback(

@@ -1,6 +1,9 @@
+// @vitest-environment happy-dom
+import { act } from "react";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Block } from "../model/session";
 import { AgentTranscript } from "./AgentTranscript";
 
@@ -24,6 +27,21 @@ function render(
   );
 }
 
+let mountedRoot: Root | undefined;
+let mountedContainer: HTMLDivElement | undefined;
+
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+});
+
+afterEach(() => {
+  if (mountedRoot) act(() => mountedRoot?.unmount());
+  mountedContainer?.remove();
+  mountedRoot = undefined;
+  mountedContainer = undefined;
+  vi.unstubAllGlobals();
+});
+
 describe("AgentTranscript collapsed work", () => {
   it("hides provider authentication errors handled by the sign-in modal", () => {
     const markup = renderToStaticMarkup(
@@ -44,6 +62,51 @@ describe("AgentTranscript collapsed work", () => {
     expect(markup).not.toContain("Sign in to Grok Build");
     expect(markup).not.toContain("<button");
   });
+
+  it("shows the session approval option and forwards its scope", () => {
+    const onApproval = vi.fn();
+    const container = document.createElement("div");
+    document.body.append(container);
+    mountedContainer = container;
+    mountedRoot = createRoot(container);
+    act(() =>
+      mountedRoot?.render(
+        createElement(AgentTranscript, {
+          blocks: [
+            tool("session", {
+              requestId: 7,
+              sessionScopeHint: "Stop asking for this in this chat.",
+            }),
+          ],
+          onApproval,
+        }),
+      ),
+    );
+    const sessionButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Allow for session",
+    );
+    expect(sessionButton?.getAttribute("title")).toBe(
+      "Stop asking for this in this chat.",
+    );
+    expect(sessionButton?.getAttribute("aria-description")).toBe(
+      "Stop asking for this in this chat.",
+    );
+    act(() => sessionButton?.click());
+    expect(onApproval).toHaveBeenCalledWith(7, "allow", "session");
+  });
+
+  it("persists the Allowed for session transcript label", () => {
+    expect(
+      render([
+        tool("granted", {
+          requestId: 8,
+          decided: "allow",
+          scope: "session",
+        }),
+      ]),
+    ).toContain("Allowed for session");
+  });
+
 
   it("reveals an orchestration result after the finished turn and before its action row", () => {
     const card: Block = {

@@ -273,6 +273,8 @@ export type Block = {
   approval?: {
     requestId: number;
     decided?: "allow" | "deny" | "cancelled";
+    sessionScopeHint?: string;
+    scope?: "once" | "session";
   };
   /** Inner activity of a delegated run. Present on Agent/Task tool blocks. */
   agentRun?: AgentRunMeta;

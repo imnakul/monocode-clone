@@ -66,7 +66,11 @@ export function applyHarnessEvent(
         block.approval?.requestId === event.requestId
           ? {
               ...block,
-              approval: { ...block.approval, decided: event.decision },
+              approval: {
+                ...block.approval,
+                decided: event.decision,
+                ...(event.scope ? { scope: event.scope } : {}),
+              },
             }
           : block,
       );
@@ -785,7 +789,12 @@ function attachApproval(
               ...(preview ? { preview } : {}),
             }
           : prev.tool,
-      approval: { requestId: event.requestId },
+      approval: {
+        requestId: event.requestId,
+        ...(event.sessionScope
+          ? { sessionScopeHint: event.sessionScope.hint }
+          : {}),
+      },
     };
     return { ...session, blocks };
   }
@@ -803,7 +812,12 @@ function attachApproval(
       kind: event.kind,
       ...(preview ? { preview } : {}),
     },
-    approval: { requestId: event.requestId },
+    approval: {
+      requestId: event.requestId,
+      ...(event.sessionScope
+        ? { sessionScopeHint: event.sessionScope.hint }
+        : {}),
+    },
   });
 }
 

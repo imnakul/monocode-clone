@@ -150,6 +150,27 @@ describe("approval lifetime", () => {
     });
   });
 
+  it("carries a session hint and resolved scope onto the approval block", () => {
+    const requested = applyHarnessEvent(appendUser(newSession("codex", "/tmp"), "check it"), {
+      type: "approval.requested",
+      requestId: 8,
+      title: "Run npm test",
+      sessionScope: { hint: "Stop asking for this command until Codex restarts." },
+    });
+    const resolved = applyHarnessEvent(requested, {
+      type: "approval.resolved",
+      requestId: 8,
+      decision: "allow",
+      scope: "session",
+    });
+    expect(resolved.blocks.at(-1)?.approval).toEqual({
+      requestId: 8,
+      sessionScopeHint: "Stop asking for this command until Codex restarts.",
+      decided: "allow",
+      scope: "session",
+    });
+  });
+
   it("cancels a stale request before a later turn is appended", () => {
     const stale = { ...waitingForApproval(), busy: false };
     const session = appendUser(stale, "continue");

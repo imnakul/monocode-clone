@@ -64,12 +64,13 @@ async function startTurn(
     runtimeMode?: RuntimeMode;
     intent?: TurnIntent;
     providerAccountId?: string;
+    cwd?: string;
   } = {},
 ) {
   const events: HarnessEvent[] = [];
   const turn = sendClaudeTurn({
     sessionId,
-    cwd: "/repo",
+    cwd: options.cwd ?? "/repo",
     model: "claude:claude-sonnet-5",
     modelSettings: {},
     runtimeMode: options.runtimeMode ?? "supervised",
@@ -153,6 +154,91 @@ describe("claude model switching", () => {
     );
     emit({ type: "result", subtype: "success", session_id: "sess_1" });
     await second;
+  });
+});
+
+describe("Claude session approvals", () => {
+  it("responds with a session MCP rule and replays it only in the same cwd", async () => {
+    const { events, turn } = await startTurn("s1", {
+      providerAccountId: "account-work",
+    });
+    const toolName = "mcp__plugin_socraticode_socraticode__codebase_search";
+    emit({
+      type: "control_request",
+      request_id: "mcp_permission",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: toolName,
+        input: { query: "find the session approval flow" },
+        permission_suggestions: [],
+      },
+    });
+    await waitFor(
+      () => events.some((event) => event.type === "approval.requested"),
+      "MCP approval",
+    );
+    const approval = events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+    expect(approval.sessionScope).toEqual({
+      hint: "Stop asking for this in this chat.",
+    });
+    respondClaudeApproval("s1", approval.requestId, "allow", "session");
+    await waitFor(
+      () =>
+        parse().some(
+          (message) =>
+            (message.response as Record<string, unknown>)?.request_id ===
+            "mcp_permission",
+        ),
+      "Claude MCP response",
+    );
+    const controlResponse = parse().find(
+      (message) =>
+        (message.response as Record<string, unknown>)?.request_id ===
+        "mcp_permission",
+    )?.response as Record<string, unknown>;
+    expect(controlResponse.response).toEqual({
+      behavior: "allow",
+      updatedInput: { query: "find the session approval flow" },
+      updatedPermissions: [
+        {
+          type: "addRules",
+          rules: [{ toolName }],
+          behavior: "allow",
+          destination: "session",
+        },
+      ],
+    });
+    expect(events).toContainEqual({
+      type: "approval.resolved",
+      requestId: approval.requestId,
+      decision: "allow",
+      scope: "session",
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+
+    sent.length = 0;
+    await stopClaudeSession("s1");
+    const resumed = await startTurn("s1", {
+      providerAccountId: "account-work",
+    });
+    expect(spawned[1]).toEqual(
+      expect.arrayContaining(["--allowedTools", toolName]),
+    );
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await resumed.turn;
+
+    sent.length = 0;
+    await stopClaudeSession("s1");
+    await startTurn("s1", {
+      providerAccountId: "account-work",
+      cwd: "/different-repo",
+    });
+    expect(spawned[2]).not.toContain("--allowedTools");
   });
 });
 

@@ -47,7 +47,10 @@ import { NoteMiniCard } from "../../notes/ui";
 import { TerminalSpinner } from "./TerminalSpinner";
 import { Popover } from "../../../shared/ui/Popover";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
-import type { ApprovalDecision } from "../../../integrations/harness";
+import type {
+  ApprovalDecision,
+  ApprovalScope,
+} from "../../../integrations/harness";
 import {
   isHarnessAuthError,
   supportsHarnessLogin,
@@ -159,7 +162,11 @@ type Props = {
   model?: string;
   modelSettings?: Record<string, string>;
   pendingQuestion?: boolean;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: (
+    requestId: number,
+    decision: ApprovalDecision,
+    scope?: ApprovalScope,
+  ) => void;
   onAddToChat?: (text: string) => void;
   onSaveNote?: (text: string) => void | Promise<void>;
   onSendDraft?: (block: Block) => boolean | void;
@@ -1409,7 +1416,11 @@ const TranscriptBlock = memo(function TranscriptBlock({
   /** True when something already sits directly above this in the turn. */
   underLine?: boolean;
   cwd?: string;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: (
+    requestId: number,
+    decision: ApprovalDecision,
+    scope?: ApprovalScope,
+  ) => void;
   onReviewFix?: (issue: ReviewIssue) => void;
   onSaveNote?: (text: string) => void | Promise<void>;
   onSendDraft?: (block: Block) => boolean | void;
@@ -1986,7 +1997,11 @@ type ActivityPhasesProps = {
   done?: boolean;
   /** False inside a nested panel, which supplies its own gutter. */
   padded?: boolean;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: (
+    requestId: number,
+    decision: ApprovalDecision,
+    scope?: ApprovalScope,
+  ) => void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 };
@@ -2111,7 +2126,11 @@ function ActivityPhaseGroup({
   phase: ActivityPhase;
   cwd?: string;
   active: boolean;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: (
+    requestId: number,
+    decision: ApprovalDecision,
+    scope?: ApprovalScope,
+  ) => void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 }) {
@@ -2676,7 +2695,11 @@ function ActivityRow({
   block: Block;
   cwd?: string;
   live?: boolean;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: (
+    requestId: number,
+    decision: ApprovalDecision,
+    scope?: ApprovalScope,
+  ) => void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 }) {
@@ -2967,7 +2990,11 @@ function ActivityToolRow({
   cwd?: string;
   live?: boolean;
   bare?: boolean;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: (
+    requestId: number,
+    decision: ApprovalDecision,
+    scope?: ApprovalScope,
+  ) => void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 }) {
@@ -3005,6 +3032,7 @@ function ActivityToolRow({
             {summary}
           </div>
           <ToolCallStatusIcon state={state} />
+          <SessionApprovalStatus block={block} />
           <button
             type="button"
             aria-expanded={errorOpen}
@@ -3025,6 +3053,7 @@ function ActivityToolRow({
         >
           {bare ? null : <ActivityToolIcon state={state} live={live} />}
           {summary}
+          <SessionApprovalStatus block={block} />
           {pending ? null : <ToolCallStatusIcon state={state} />}
         </div>
       )}
@@ -3146,7 +3175,11 @@ function ToolCall({
 }: {
   block: Block;
   cwd?: string;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: (
+    requestId: number,
+    decision: ApprovalDecision,
+    scope?: ApprovalScope,
+  ) => void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
   embedded?: boolean;
@@ -3158,11 +3191,14 @@ function ToolCall({
   const expanded = detail && detail !== label ? detail : label;
   const state = toolCallState(block);
   const stateLabel =
-    state === "accepted"
-      ? "Accepted"
-      : state === "rejected"
-        ? "Rejected"
-        : "Pending";
+    block.approval?.decided === "allow" &&
+    block.approval.scope === "session"
+      ? "Allowed for session"
+      : state === "accepted"
+        ? "Accepted"
+        : state === "rejected"
+          ? "Rejected"
+          : "Pending";
   const editTool = isEditTool(
     block.tool?.kind,
     block.text || block.tool?.title,
@@ -3197,6 +3233,7 @@ function ToolCall({
               onOpenFile={onOpenFile}
               onOpenDiff={onOpenDiff}
             />
+            <SessionApprovalStatus block={block} />
           </div>
         )}
         <ApprovalControls block={block} onApproval={onApproval} />
@@ -3224,6 +3261,7 @@ function ToolCall({
             failed={state === "rejected"}
             onOpenFile={onOpenFile}
           />
+          <SessionApprovalStatus block={block} />
           <ChevronRight
             className={`size-3.5 shrink-0 text-content/35 transition-transform ${open ? "rotate-90" : ""}`}
             strokeWidth={1.75}
@@ -3433,27 +3471,58 @@ function ApprovalControls({
   onApproval,
 }: {
   block: Block;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: (
+    requestId: number,
+    decision: ApprovalDecision,
+    scope?: ApprovalScope,
+  ) => void;
 }) {
   const approval = block.approval;
   if (!approval || approval.decided || !onApproval) return null;
   return (
-    <div className="mt-1.5 flex gap-2">
+    <div className="mt-1.5 flex flex-wrap gap-2">
       <button
         type="button"
-        className="rounded-md bg-content px-2.5 py-0.5 text-[11px] hover:bg-content/80     text-background-base"
+        className="min-w-16 flex-1 rounded-md bg-content px-2.5 py-0.5 text-[11px] text-background-base hover:bg-content/80 max-[319px]:basis-[calc(50%_-_0.25rem)]"
         onClick={() => onApproval(approval.requestId, "allow")}
       >
         Allow
       </button>
+      {approval.sessionScopeHint ? (
+        <button
+          type="button"
+          title={approval.sessionScopeHint}
+          aria-description={approval.sessionScopeHint}
+          className="min-w-32 flex-1 rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/85 hover:bg-content/20 max-[319px]:basis-[calc(50%_-_0.25rem)]"
+          onClick={() =>
+            onApproval(approval.requestId, "allow", "session")
+          }
+        >
+          Allow for session
+        </button>
+      ) : null}
       <button
         type="button"
-        className="rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/70 hover:bg-content/20"
+        className="min-w-16 flex-1 rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/70 hover:bg-content/20 max-[319px]:basis-[calc(50%_-_0.25rem)]"
         onClick={() => onApproval(approval.requestId, "deny")}
       >
         Deny
       </button>
     </div>
+  );
+}
+
+function SessionApprovalStatus({ block }: { block: Block }) {
+  if (
+    block.approval?.decided !== "allow" ||
+    block.approval.scope !== "session"
+  ) {
+    return null;
+  }
+  return (
+    <span className="shrink-0 text-[10px] text-content/45">
+      Allowed for session
+    </span>
   );
 }
 

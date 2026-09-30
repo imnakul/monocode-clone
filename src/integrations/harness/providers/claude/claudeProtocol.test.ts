@@ -8,6 +8,7 @@ import {
   askUserQuestionAllowInput,
   buildClaudeSpawnArgs,
   buildClaudeUserMessage,
+  claudeSessionRules,
   contextFromResult,
   contextUsedFromAssistant,
   extractExitPlanModePlan,
@@ -156,6 +157,21 @@ describe("buildClaudeSpawnArgs", () => {
     });
     expect(args).toContain("--allow-dangerously-skip-permissions");
   });
+
+  it("puts each replayed tool rule after --allowedTools and before setting sources", () => {
+    const args = buildClaudeSpawnArgs({
+      allowedTools: ["Bash(npm test:*)", "Read"],
+    });
+    const allowedToolsIndex = args.indexOf("--allowedTools");
+    expect(args.slice(allowedToolsIndex, allowedToolsIndex + 3)).toEqual([
+      "--allowedTools",
+      "Bash(npm test:*)",
+      "Read",
+    ]);
+    expect(allowedToolsIndex).toBeLessThan(
+      args.indexOf("--setting-sources=user,project,local"),
+    );
+  });
 });
 
 describe("buildClaudeUserMessage", () => {
@@ -222,6 +238,108 @@ describe("control protocol", () => {
     });
     expect(toClaudePermissionResult("deny", {})).toMatchObject({
       behavior: "deny",
+    });
+  });
+
+  it("preserves suggested permission updates only when supplied", () => {
+    const updates = claudeSessionRules("Bash", [
+      {
+        type: "addRules",
+        rules: [{ toolName: "Bash", ruleContent: "npm test:*" }],
+        behavior: "allow",
+        destination: "localSettings",
+      },
+    ])!.updates;
+    expect(toClaudePermissionResult("allow", { command: "npm test" }, updates))
+      .toEqual({
+        behavior: "allow",
+        updatedInput: { command: "npm test" },
+        updatedPermissions: updates,
+      });
+    expect(toClaudePermissionResult("allow", { command: "npm test" })).toEqual({
+      behavior: "allow",
+      updatedInput: { command: "npm test" },
+    });
+  });
+
+  it("preserves raw permission suggestions from can_use_tool", () => {
+    const permissionSuggestions = [{ type: "setMode", mode: "acceptEdits" }];
+    expect(
+      parseControlRequest({
+        type: "control_request",
+        request_id: "req_2",
+        request: {
+          subtype: "can_use_tool",
+          tool_name: "Bash",
+          permission_suggestions: permissionSuggestions,
+        },
+      })?.permissionSuggestions,
+    ).toBe(permissionSuggestions);
+  });
+});
+
+describe("claudeSessionRules", () => {
+  it("adds a session MCP fallback when Claude offers no suggestions", () => {
+    expect(claudeSessionRules("mcp__plugin_socraticode_socraticode__codebase_search", undefined)).toEqual({
+      updates: [
+        {
+          type: "addRules",
+          rules: [{ toolName: "mcp__plugin_socraticode_socraticode__codebase_search" }],
+          behavior: "allow",
+          destination: "session",
+        },
+      ],
+      rules: [{ toolName: "mcp__plugin_socraticode_socraticode__codebase_search" }],
+    });
+  });
+
+  it("keeps Claude allow rules and drops mode changes", () => {
+    expect(
+      claudeSessionRules("Bash", [
+        {
+          type: "addRules",
+          rules: [{ toolName: "Bash", ruleContent: "npm test:*" }],
+          behavior: "allow",
+          destination: "localSettings",
+        },
+        { type: "setMode", mode: "acceptEdits", destination: "session" },
+      ]),
+    ).toEqual({
+      updates: [
+        {
+          type: "addRules",
+          rules: [{ toolName: "Bash", ruleContent: "npm test:*" }],
+          behavior: "allow",
+          destination: "session",
+        },
+      ],
+      rules: [{ toolName: "Bash", ruleContent: "npm test:*" }],
+    });
+  });
+
+  it.each([
+    [{ type: "addRules", rules: [], behavior: "allow" }],
+    [{ type: "addRules", rules: [{ toolName: "Bash" }], behavior: "deny" }],
+    [{ type: "addRules", rules: [{ toolName: 4 }], behavior: "allow" }],
+    [{ type: "replaceRules", rules: [{ toolName: "Bash" }], behavior: "allow" }],
+  ])("fails closed for unsupported suggestions: %j", (suggestions) => {
+    expect(claudeSessionRules("Bash", suggestions)).toBeNull();
+  });
+
+  it("keeps allowed directory suggestions but does not replay directories", () => {
+    expect(
+      claudeSessionRules("Read", [
+        { type: "addDirectories", directories: ["/repo/shared"] },
+      ]),
+    ).toEqual({
+      updates: [
+        {
+          type: "addDirectories",
+          directories: ["/repo/shared"],
+          destination: "session",
+        },
+      ],
+      rules: [],
     });
   });
 });
