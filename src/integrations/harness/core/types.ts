@@ -9,6 +9,7 @@ import type {
   TurnMetrics,
 } from "../../../features/sessions/model/session";
 import type { UserQuestion } from "../../../features/sessions/model/userQuestion";
+import type { McpFormField } from "../../../features/sessions/model/mcpForm";
 import { type ProcessedUsage } from "../../../features/sessions/model/tokenAccounting";
 
 export type HarnessEvent =
@@ -101,6 +102,18 @@ export type HarnessEvent =
       type: "question.resolved";
       requestId: number;
       decision: "answered" | "skipped" | "cancelled";
+    }
+  | {
+      type: "form.requested";
+      requestId: number;
+      serverName: string;
+      message: string;
+      fields: McpFormField[];
+    }
+  | {
+      type: "form.resolved";
+      requestId: number;
+      decision: "submitted" | "declined" | "cancelled";
     }
   | {
       type: "tasks.updated";

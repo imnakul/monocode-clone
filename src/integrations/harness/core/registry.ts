@@ -4,6 +4,7 @@ import type { GeneratedSessionTitle } from "../../../features/sessions/model/ses
 import type { PrContent } from "../../../features/source-control/model/gitText";
 import { hasLiveCatalog } from "../../../features/sessions/model/models";
 import type { UserQuestionReply } from "../../../features/sessions/model/userQuestion";
+import type { McpFormReply } from "../../../features/sessions/model/mcpForm";
 import type { NativeCommandProvider } from "./nativeCommands";
 import type {
   ApprovalDecision,
@@ -59,6 +60,11 @@ export type HarnessAdapter = {
     sessionId: string,
     requestId: number,
     reply: UserQuestionReply,
+  ): void;
+  respondForm?(
+    sessionId: string,
+    requestId: number,
+    reply: McpFormReply,
   ): void;
   /** Keep a timed question open once the user starts answering it. */
   keepQuestionOpen?(sessionId: string, requestId: number): void;
@@ -317,6 +323,15 @@ export function respondHarnessQuestion(
   reply: UserQuestionReply,
 ): void {
   getHarness(harness)?.respondQuestion?.(sessionId, requestId, reply);
+}
+
+export function respondHarnessForm(
+  harness: HarnessId,
+  sessionId: string,
+  requestId: number,
+  reply: McpFormReply,
+): void {
+  getHarness(harness)?.respondForm?.(sessionId, requestId, reply);
 }
 
 export function keepHarnessQuestionOpen(

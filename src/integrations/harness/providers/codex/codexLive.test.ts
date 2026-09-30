@@ -23,6 +23,7 @@ const {
   cancelCodexTurn,
   keepCodexQuestionOpen,
   respondCodexApproval,
+  respondCodexForm,
   respondCodexQuestion,
   rewindCodexLastTurn,
   sendCodexTurn,
@@ -1288,6 +1289,325 @@ describe("codex live turn sequence", () => {
     },
   );
 
+  it("submits a supported form without exposing its values in events", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    onLine!(
+      JSON.stringify({
+        id: 91,
+        method: "mcpServer/elicitation/request",
+        params: {
+          mode: "form",
+          serverName: "docs",
+          message: "Choose a display name",
+          requestedSchema: {
+            type: "object",
+            properties: { name: { type: "string", title: "Name" } },
+            required: ["name"],
+          },
+        },
+      }),
+    );
+    await waitFor(
+      () => events.some((event) => event.type === "form.requested"),
+      "form UI",
+    );
+    const requested = events.find((event) => event.type === "form.requested");
+    if (requested?.type !== "form.requested")
+      throw new Error("missing MCP form");
+    expect(parse().some((message) => message.id === 91)).toBe(false);
+
+    respondCodexForm("codex-live", requested.requestId, {
+      kind: "submit",
+      content: { name: "Al" },
+    });
+    await waitFor(() => parse().some((message) => message.id === 91), "form reply");
+
+    expect(events.map((event) => event.type)).toContain("form.resolved");
+    expect(events).toContainEqual({
+      type: "status",
+      text: "docs: form submitted (1 field).",
+    });
+    expect(
+      events.findIndex((event) => event.type === "form.requested"),
+    ).toBeLessThan(events.findIndex((event) => event.type === "form.resolved"));
+    expect(
+      events.findIndex((event) => event.type === "form.resolved"),
+    ).toBeLessThan(events.findIndex((event) => event.type === "status"));
+    expect(parse().find((message) => message.id === 91)?.result).toEqual({
+      action: "accept",
+      content: { name: "Al" },
+      _meta: null,
+    });
+    expect(JSON.stringify(events)).not.toContain("Al");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("keeps forms with approval metadata out of slice 1 grants", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    const sendRequest = (id: number, includeProperties: boolean) =>
+      onLine!(
+        JSON.stringify({
+          id,
+          method: "mcpServer/elicitation/request",
+          params: {
+            mode: "form",
+            serverName: "socraticode",
+            message: "Fill in the values",
+            requestedSchema: {
+              type: "object",
+              properties: includeProperties
+                ? { name: { type: "string" }, team: { type: "string" } }
+                : {},
+            },
+            _meta: {
+              codex_approval_kind: "mcp_tool_call",
+              persist: ["session", "always"],
+              tool_name: "codebase_search",
+            },
+          },
+        }),
+      );
+
+    sendRequest(91, true);
+    await waitFor(
+      () => events.some((event) => event.type === "form.requested"),
+      "form request with approval metadata",
+    );
+    const form = events.find((event) => event.type === "form.requested");
+    if (form?.type !== "form.requested") throw new Error("missing form");
+    expect(events.some((event) => event.type === "approval.requested")).toBe(false);
+    respondCodexForm("codex-live", form.requestId, {
+      kind: "submit",
+      content: { name: "Al", team: "docs" },
+    });
+    await waitFor(() => parse().some((message) => message.id === 91), "form reply");
+    expect(parse().find((message) => message.id === 91)?.result).toEqual({
+      action: "accept",
+      content: { name: "Al", team: "docs" },
+      _meta: null,
+    });
+
+    sendRequest(92, false);
+    await waitFor(
+      () => events.some((event) => event.type === "approval.requested"),
+      "confirmation approval",
+    );
+    const approval = events.find((event) => event.type === "approval.requested");
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing confirmation approval");
+    expect(approval.sessionScope?.hint).toBe(
+      "Stop asking for this tool until the chat closes.",
+    );
+    respondCodexApproval("codex-live", approval.requestId, "deny");
+    await waitFor(() => parse().some((message) => message.id === 92), "approval reply");
+    expect(events.some((event) => event.type === "form.requested" && event.requestId === approval.requestId)).toBe(false);
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("queues forms in arrival order and shows one at a time", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    const sendForm = (id: number, key: string) =>
+      onLine!(
+        JSON.stringify({
+          id,
+          method: "mcpServer/elicitation/request",
+          params: {
+            mode: "form",
+            serverName: "docs",
+            message: `Fill ${key}`,
+            requestedSchema: {
+              type: "object",
+              properties: { [key]: { type: "string" } },
+              required: [key],
+            },
+          },
+        }),
+      );
+    sendForm(91, "first");
+    sendForm(92, "second");
+    await waitFor(
+      () => events.filter((event) => event.type === "form.requested").length === 1,
+      "first form",
+    );
+    const first = events.find((event) => event.type === "form.requested");
+    if (first?.type !== "form.requested") throw new Error("missing first form");
+    expect(first.fields[0]?.key).toBe("first");
+    expect(events.filter((event) => event.type === "form.requested")).toHaveLength(1);
+
+    respondCodexForm("codex-live", first.requestId, {
+      kind: "submit",
+      content: { first: "one" },
+    });
+    await waitFor(
+      () => events.filter((event) => event.type === "form.requested").length === 2,
+      "second form",
+    );
+    const requested = events.filter((event) => event.type === "form.requested");
+    const second = requested[1];
+    if (second?.type !== "form.requested") throw new Error("missing second form");
+    expect(second.fields[0]?.key).toBe("second");
+    respondCodexForm("codex-live", second.requestId, {
+      kind: "submit",
+      content: { second: "two" },
+    });
+    await waitFor(() => parse().some((message) => message.id === 92), "second reply");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("declines a form with no content and records only the decision", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    onLine!(
+      JSON.stringify({
+        id: 91,
+        method: "mcpServer/elicitation/request",
+        params: {
+          mode: "form",
+          serverName: "docs",
+          requestedSchema: {
+            type: "object",
+            properties: { name: { type: "string" } },
+          },
+        },
+      }),
+    );
+    await waitFor(() => events.some((event) => event.type === "form.requested"), "form UI");
+    const form = events.find((event) => event.type === "form.requested");
+    if (form?.type !== "form.requested") throw new Error("missing form");
+    respondCodexForm("codex-live", form.requestId, { kind: "decline" });
+    await waitFor(() => parse().some((message) => message.id === 91), "decline reply");
+
+    expect(parse().find((message) => message.id === 91)?.result).toEqual({
+      action: "decline",
+      content: null,
+      _meta: null,
+    });
+    expect(events).toContainEqual({
+      type: "status",
+      text: "docs: form declined.",
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("rejects invalid replies without resolving the form", async () => {
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const { events, turn } = await startTurn("codex-live");
+    onLine!(
+      JSON.stringify({
+        id: 91,
+        method: "mcpServer/elicitation/request",
+        params: {
+          mode: "form",
+          serverName: "docs",
+          requestedSchema: {
+            type: "object",
+            properties: { name: { type: "string" } },
+            required: ["name"],
+          },
+        },
+      }),
+    );
+    await waitFor(() => events.some((event) => event.type === "form.requested"), "form UI");
+    const form = events.find((event) => event.type === "form.requested");
+    if (form?.type !== "form.requested") throw new Error("missing form");
+    respondCodexForm("codex-live", form.requestId, {
+      kind: "submit",
+      content: {},
+    });
+
+    expect(debug).toHaveBeenCalledWith(
+      "[monocode] codex form rejected invalid reply",
+      { requestId: form.requestId },
+    );
+    expect(parse().some((message) => message.id === 91)).toBe(false);
+    expect(events.some((event) => event.type === "form.resolved")).toBe(false);
+    respondCodexForm("codex-live", form.requestId, {
+      kind: "submit",
+      content: { name: "Al" },
+    });
+    await waitFor(() => parse().some((message) => message.id === 91), "valid retry");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("cancels a form when the server resolves its request and ignores late replies", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    onLine!(
+      JSON.stringify({
+        id: 91,
+        method: "mcpServer/elicitation/request",
+        params: {
+          mode: "form",
+          serverName: "docs",
+          requestedSchema: {
+            type: "object",
+            properties: { name: { type: "string" } },
+          },
+        },
+      }),
+    );
+    await waitFor(() => events.some((event) => event.type === "form.requested"), "form UI");
+    const form = events.find((event) => event.type === "form.requested");
+    if (form?.type !== "form.requested") throw new Error("missing form");
+    notify("serverRequest/resolved", { threadId: "thr_1", requestId: 91 });
+    await waitFor(() => events.some((event) => event.type === "form.resolved"), "cancel event");
+    expect(events).toContainEqual({
+      type: "form.resolved",
+      requestId: form.requestId,
+      decision: "cancelled",
+    });
+    respondCodexForm("codex-live", form.requestId, {
+      kind: "submit",
+      content: { name: "late" },
+    });
+    expect(parse().some((message) => message.id === 91)).toBe(false);
+    expect(events.some((event) => event.type === "status")).toBe(false);
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("cancels a visible form when the turn stops", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    onLine!(
+      JSON.stringify({
+        id: 91,
+        method: "mcpServer/elicitation/request",
+        params: {
+          mode: "form",
+          serverName: "docs",
+          requestedSchema: {
+            type: "object",
+            properties: { name: { type: "string" } },
+          },
+        },
+      }),
+    );
+    await waitFor(() => events.some((event) => event.type === "form.requested"), "form UI");
+    const form = events.find((event) => event.type === "form.requested");
+    if (form?.type !== "form.requested") throw new Error("missing form");
+
+    const cancelling = cancelCodexTurn("codex-live");
+    await waitFor(
+      () => parse().some((message) => message.method === "turn/interrupt"),
+      "turn interrupt",
+    );
+    const interrupt = parse().find((message) => message.method === "turn/interrupt");
+    reply(interrupt!.id as number, {});
+    await cancelling;
+    await turn;
+
+    expect(events).toContainEqual({
+      type: "form.resolved",
+      requestId: form.requestId,
+      decision: "cancelled",
+    });
+    expect(parse().some((message) => message.id === 91)).toBe(false);
+    expect(events.some((event) => event.type === "status")).toBe(false);
+  });
+
   it("reports unsupported MCP forms instead of returning an empty success", async () => {
     const { events, turn } = await startTurn("codex-live");
     onLine!(
@@ -1304,12 +1624,11 @@ describe("codex live turn sequence", () => {
         id: 91,
         method: "mcpServer/elicitation/request",
         params: {
-          mode: "form",
-          requestedSchema: {
-            type: "object",
-            properties: { name: { type: "string" } },
-            required: ["name"],
-          },
+          mode: "url",
+          serverName: "github",
+          elicitationId: "e1",
+          message: "Sign in",
+          url: "https://example.com",
         },
       }),
     );
@@ -1321,7 +1640,7 @@ describe("codex live turn sequence", () => {
     });
     expect(events).toContainEqual({
       type: "status",
-      text: expect.stringContaining("does not support yet"),
+      text: expect.stringContaining("browser sign-in"),
     });
     onLine!(
       JSON.stringify({ id: 92, method: "future/requestApproval", params: {} }),

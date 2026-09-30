@@ -882,6 +882,58 @@ describe("clarifying questions", () => {
   });
 });
 
+describe("MCP form prompts", () => {
+  const fields = [
+    {
+      key: "name",
+      label: "Name",
+      kind: "text" as const,
+      required: true,
+    },
+  ];
+
+  it("stores the visible form in memory", () => {
+    const session = applyHarnessEvent(newSession("codex", "/repo"), {
+      type: "form.requested",
+      requestId: 12,
+      serverName: "docs",
+      message: "Choose a name",
+      fields,
+    });
+
+    expect(session.pendingForm).toEqual({
+      requestId: 12,
+      serverName: "docs",
+      message: "Choose a name",
+      fields,
+    });
+    expect(session.blocks).toEqual([]);
+  });
+
+  it("clears only the form with a matching request id", () => {
+    const pending = applyHarnessEvent(newSession("codex", "/repo"), {
+      type: "form.requested",
+      requestId: 12,
+      serverName: "docs",
+      message: "Choose a name",
+      fields,
+    });
+    const otherResolved = applyHarnessEvent(pending, {
+      type: "form.resolved",
+      requestId: 13,
+      decision: "cancelled",
+    });
+    expect(otherResolved.pendingForm).toBe(pending.pendingForm);
+
+    const cleared = applyHarnessEvent(otherResolved, {
+      type: "form.resolved",
+      requestId: 12,
+      decision: "submitted",
+    });
+    expect(cleared.pendingForm).toBeUndefined();
+  });
+});
+
 describe("subagent steps", () => {
   it("keeps model metadata before steps arrive and preserves it through later updates", () => {
     let session = applyHarnessEvent(newSession("codex", "/tmp"), {

@@ -211,6 +211,7 @@ import {
   isLiveHarness,
   registerBuiltinHarnesses,
   respondHarnessApproval,
+  respondHarnessForm,
   respondHarnessQuestion,
   keepHarnessQuestionOpen,
   sendHarnessTurn,
@@ -227,6 +228,7 @@ import {
   type ApprovalDecision,
   type ApprovalScope,
   type HarnessEvent,
+  type McpFormReply,
   type UserQuestionReply,
 } from "../integrations/harness";
 import { supportsHarnessLogin } from "../integrations/harness/core/authSupport";
@@ -4291,6 +4293,7 @@ export default function App({
             busy: false,
             queueStatus: "paused" as const,
             pendingQuestion: undefined,
+            pendingForm: undefined,
           };
           sessionsRef.current = sessionsRef.current.map((entry) =>
             entry.id === id ? stopped : entry,
@@ -7832,6 +7835,15 @@ export default function App({
     [],
   );
 
+  const onFormReply = useCallback(
+    (sessionId: string, requestId: number, reply: McpFormReply) => {
+      const session = sessionsRef.current.find((s) => s.id === sessionId);
+      if (!session || session.worktreeRemoved) return;
+      respondHarnessForm(session.harness, sessionId, requestId, reply);
+    },
+    [],
+  );
+
   const onQuestionInteraction = useCallback(
     (sessionId: string, requestId: number) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
@@ -9411,6 +9423,7 @@ export default function App({
     onDeleteSession: onDeleteHistorySession,
     onApproval,
     onQuestionReply,
+    onFormReply,
     onQuestionInteraction,
     onOpenFile,
     onOpenDiff,

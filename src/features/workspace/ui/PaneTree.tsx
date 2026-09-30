@@ -18,6 +18,7 @@ import {
 import type {
   ApprovalDecision,
   ApprovalScope,
+  McpFormReply,
   UserQuestionReply,
 } from "../../../integrations/harness";
 import type { EditorNavigationTarget } from "../../search/model/search";
@@ -135,6 +136,11 @@ type Shared = {
     requestId: number,
     reply: UserQuestionReply,
   ) => void;
+  onFormReply: (
+    sessionId: string,
+    requestId: number,
+    reply: McpFormReply,
+  ) => void;
   onQuestionInteraction?: (sessionId: string, requestId: number) => void;
   onOpenFile: (path: string) => void;
   editorNavigation?: EditorNavigationTarget | null;
@@ -230,6 +236,7 @@ function PaneTreeComponent({
   onApproval,
   onReviewFix,
   onQuestionReply,
+  onFormReply,
   onQuestionInteraction,
   onOpenFile,
   editorNavigation,
@@ -482,6 +489,7 @@ function PaneTreeComponent({
                 onApproval={onApproval}
                 onReviewFix={onReviewFix}
                 onQuestionReply={onQuestionReply}
+                onFormReply={onFormReply}
                 onQuestionInteraction={onQuestionInteraction}
                 onOpenFile={onOpenFile}
                 onOpenDiff={onOpenDiff}

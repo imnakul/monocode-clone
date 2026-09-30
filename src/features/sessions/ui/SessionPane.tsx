@@ -30,6 +30,7 @@ import {
   canSteerHarness,
   type ApprovalDecision,
   type ApprovalScope,
+  type McpFormReply,
   type UserQuestionReply,
 } from "../../../integrations/harness";
 import {
@@ -171,6 +172,11 @@ type Props = {
     requestId: number,
     reply: UserQuestionReply,
   ) => void;
+  onFormReply: (
+    sessionId: string,
+    requestId: number,
+    reply: McpFormReply,
+  ) => void;
   onQuestionInteraction?: (sessionId: string, requestId: number) => void;
   onOpenFile: (path: string) => void;
   onOpenDiff: (
@@ -241,6 +247,7 @@ export const SessionPane = memo(function SessionPane({
   onApproval,
   onReviewFix,
   onQuestionReply,
+  onFormReply,
   onQuestionInteraction,
   onOpenFile,
   onOpenDiff,
@@ -325,6 +332,11 @@ export const SessionPane = memo(function SessionPane({
     (requestId: number, reply: UserQuestionReply) =>
       onQuestionReply(session.id, requestId, reply),
     [onQuestionReply, session.id],
+  );
+  const replyForm = useCallback(
+    (requestId: number, reply: McpFormReply) =>
+      onFormReply(session.id, requestId, reply),
+    [onFormReply, session.id],
   );
   const openPlan = useCallback(
     (blockId: string) => onOpenPlan(session.id, blockId),
@@ -513,11 +525,13 @@ export const SessionPane = memo(function SessionPane({
       noteCard={session.noteCard}
       handoffCard={session.handoffCard}
       question={session.pendingQuestion}
+      form={session.pendingForm}
       onQuoteRequestConsumed={acknowledgeQuote}
       onInboxCardDismiss={() => onInboxCardDismiss?.(session.id)}
       onNoteCardDismiss={() => onNoteCardDismiss?.(session.id)}
       onHandoffCardDismiss={() => onHandoffCardDismiss?.(session.id)}
       onQuestionReply={replyQuestion}
+      onFormReply={replyForm}
       onQuestionInteraction={(id) => onQuestionInteraction?.(session.id, id)}
       onFocus={() => onFocus(session.id)}
       onCwdChange={(cwd) => onCwdChange(session.id, cwd)}

@@ -169,6 +169,7 @@ export {
   cancelHarnessTurn,
   respondHarnessApproval,
   respondHarnessQuestion,
+  respondHarnessForm,
   keepHarnessQuestionOpen,
   stopHarnessSession,
   forgetHarnessSession,
@@ -189,6 +190,7 @@ export {
 } from "./core/helperText";
 export type { HelperPrDraft, HelperPrOutcome } from "./core/helperText";
 export type { HelperPromptInput } from "./core/registry";
+export type { McpFormReply } from "../../features/sessions/model/mcpForm";
 export type {
   ApprovalDecision,
   ApprovalScope,

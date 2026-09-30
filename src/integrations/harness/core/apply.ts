@@ -102,6 +102,20 @@ export function applyHarnessEvent(
       return session.pendingQuestion?.requestId === event.requestId
         ? { ...session, pendingQuestion: undefined }
         : session;
+    case "form.requested":
+      return {
+        ...session,
+        pendingForm: {
+          requestId: event.requestId,
+          serverName: event.serverName,
+          message: event.message,
+          fields: event.fields,
+        },
+      };
+    case "form.resolved":
+      return session.pendingForm?.requestId === event.requestId
+        ? { ...session, pendingForm: undefined }
+        : session;
     case "context":
       return {
         ...session,

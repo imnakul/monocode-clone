@@ -81,6 +81,7 @@ import type {
   UserQuestionPrompt,
   UserQuestionReply,
 } from "../model/userQuestion";
+import type { McpFormPrompt, McpFormReply } from "../model/mcpForm";
 import { isImeComposition } from "../../../shared/lib/keyboard";
 import {
   createBlankSkill,
@@ -115,6 +116,7 @@ import { NoteMiniCard } from "../../notes/ui";
 import { HandoffMiniCard } from "./HandoffMiniCard";
 import { ModelControlPills, ModelPicker } from "./ModelPicker";
 import { QuestionForm } from "./QuestionForm";
+import { McpForm } from "./McpForm";
 import { SkillPicker } from "../../skills/ui/SkillPicker";
 import { pathKey, projectKey } from "../../../shared/lib/paths";
 import { consumeQuoteRequest, type QuoteRequest } from "../model/quoteDraft";
@@ -189,6 +191,7 @@ type Props = {
   noteCard?: NoteComposerCard;
   handoffCard?: HandoffComposerCard;
   question?: UserQuestionPrompt;
+  form?: McpFormPrompt;
   busy?: boolean;
   canSteer?: boolean;
   editLastTurnSupported?: boolean;
@@ -216,6 +219,7 @@ type Props = {
   onNoteCardDismiss?: () => void;
   onHandoffCardDismiss?: () => void;
   onQuestionReply?: (requestId: number, reply: UserQuestionReply) => void;
+  onFormReply?: (requestId: number, reply: McpFormReply) => void;
   onQuestionInteraction?: (requestId: number) => void;
   onSubmit: (
     text: string,
@@ -540,6 +544,8 @@ export function Composer({
   onNoteCardDismiss,
   onHandoffCardDismiss,
   onQuestionReply,
+  form,
+  onFormReply,
   onQuestionInteraction,
   onSubmit,
   canSaveDraft = false,
@@ -1707,6 +1713,8 @@ export function Composer({
           onReply={onQuestionReply}
           onInteraction={onQuestionInteraction}
         />
+      ) : form && onFormReply ? (
+        <McpForm prompt={form} onReply={onFormReply} />
       ) : null}
       {children}
       <MessageQueue

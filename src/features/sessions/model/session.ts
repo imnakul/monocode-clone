@@ -2,6 +2,7 @@ import type { ContextUsage } from "./contextUsage";
 import type { ProcessedUsage } from "./tokenAccounting";
 import { deriveLocalSessionTitle } from "./sessionTitle";
 import type { UserQuestionPrompt } from "./userQuestion";
+import type { McpFormPrompt } from "./mcpForm";
 import type { HandoffComposerCard } from "./handoff";
 import type { InboxComposerCard } from "../../inbox/model/githubTasks";
 import type { InboxAskContext } from "../../inbox/model/inboxAsk";
@@ -416,6 +417,8 @@ export type Session = {
    * In-memory; request ids do not survive restarts.
    */
   pendingQuestion?: UserQuestionPrompt;
+  /** Live MCP form. In-memory; request ids and values never persist. */
+  pendingForm?: McpFormPrompt;
 };
 
 /**

@@ -3,6 +3,13 @@ import { sameProviderAccountId } from "../../../../features/providers/model/prov
 import type { RuntimeMode } from "../../../../features/sessions/model/session";
 import { questionPromptTitle, type UserQuestionReply } from "../../../../features/sessions/model/userQuestion";
 import {
+  validateMcpForm,
+  type McpFormDraft,
+  type McpFormField,
+  type McpFormReply,
+  type McpFormValue,
+} from "../../../../features/sessions/model/mcpForm";
+import {
   codexUsageToProcessed,
   diffCodexUsage,
   emptyCodexUsage,
@@ -37,7 +44,9 @@ import { codexQuestions, codexQuestionResponse } from "./codexQuestions";
 import {
   codexMcpApprovalKindKeys,
   codexMcpConfirmation,
+  codexMcpForm,
   isCodexComputerUseAccessConfirmation,
+  type McpFormUnsupportedReason,
 } from "./codexElicitation";
 import { joinStreamText, snapshotRemainder } from "../../core/streamText";
 import type {
@@ -73,6 +82,13 @@ type PendingQuestion = {
   resolve: (reply: UserQuestionReply | "cancelled") => void;
 };
 
+type PendingForm = {
+  rpcId: JsonRpcId;
+  threadId: string;
+  event: Extract<HarnessEvent, { type: "form.requested" }>;
+  resolve: (reply: McpFormReply | "cancelled") => void;
+};
+
 // Match Codex's non-blocking question policy: a minute of grace, then a
 // minute of countdown. Interaction keeps the question open for the user.
 const QUESTION_AUTO_RESOLVE_MS = 120_000;
@@ -89,6 +105,8 @@ type Live = {
   approvals: Map<number, PendingApproval>;
   questions: Map<number, PendingQuestion>;
   visibleQuestionId: number | null;
+  forms: Map<number, PendingForm>;
+  visibleFormId: number | null;
   nextApprovalUiId: number;
   cancelled: boolean;
   muteUpdates: boolean;
@@ -293,6 +311,23 @@ export function respondCodexQuestion(
   liveByThread.get(sessionId)?.questions.get(requestId)?.resolve(reply);
 }
 
+export function respondCodexForm(
+  sessionId: string,
+  requestId: number,
+  reply: McpFormReply,
+): void {
+  const pending = liveByThread.get(sessionId)?.forms.get(requestId);
+  if (!pending) return;
+  if (
+    reply.kind === "submit" &&
+    !isValidMcpFormContent(pending.event.fields, reply.content)
+  ) {
+    console.debug("[monocode] codex form rejected invalid reply", { requestId });
+    return;
+  }
+  pending.resolve(reply);
+}
+
 export function keepCodexQuestionOpen(
   sessionId: string,
   requestId: number,
@@ -311,9 +346,12 @@ function clearServerRequests(live: Live): void {
     clearTimeout(pending.timer);
     pending.resolve("cancelled");
   }
+  for (const pending of live.forms.values()) pending.resolve("cancelled");
   live.approvals.clear();
   live.questions.clear();
+  live.forms.clear();
   live.visibleQuestionId = null;
+  live.visibleFormId = null;
 }
 
 function showNextQuestion(live: Live): void {
@@ -335,6 +373,13 @@ function showNextQuestion(live: Live): void {
     }
     live.onEvent(pending.event);
   }
+}
+
+function showNextForm(live: Live): void {
+  if (live.visibleFormId !== null && live.forms.has(live.visibleFormId)) return;
+  const next = live.forms.entries().next().value;
+  live.visibleFormId = next?.[0] ?? null;
+  if (next) live.onEvent(next[1].event);
 }
 
 export async function cancelCodexTurn(sessionId: string): Promise<void> {
@@ -578,6 +623,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       approvals: new Map(),
       questions: new Map(),
       visibleQuestionId: null,
+      forms: new Map(),
+      visibleFormId: null,
       nextApprovalUiId: 1,
       cancelled: false,
       muteUpdates: didResume,
@@ -704,6 +751,13 @@ function handleNotification(live: Live, method: string, params: unknown): void {
         pending.resolve("cancelled");
     }
     for (const pending of live.questions.values()) {
+      if (
+        pending.rpcId === rec?.requestId &&
+        pending.threadId === rec?.threadId
+      )
+        pending.resolve("cancelled");
+    }
+    for (const pending of live.forms.values()) {
       if (
         pending.rpcId === rec?.requestId &&
         pending.threadId === rec?.threadId
@@ -1059,14 +1113,7 @@ async function handleServerRequest(
   }
 
   if (method === "mcpServer/elicitation/request") {
-    logCodexElicitation(params);
-    const confirmation = codexMcpConfirmation(params);
-    if (!confirmation || live.cancelled || live.muteUpdates) {
-      if (!live.cancelled && !live.muteUpdates)
-        live.onEvent({
-          type: "status",
-          text: "This MCP server requested a form or browser sign-in that MonoCode does not support yet. Complete it in the server's own interface.",
-        });
+    if (live.cancelled || live.muteUpdates) {
       await live.rpc.respond(id, {
         action: "cancel",
         content: null,
@@ -1074,74 +1121,146 @@ async function handleServerRequest(
       });
       return;
     }
-    if (
-      !live.planning &&
-      live.runtimeMode === "full-access" &&
-      isCodexComputerUseAccessConfirmation(params)
-    ) {
+    const confirmation = codexMcpConfirmation(params);
+    if (confirmation) {
+      logCodexElicitation(params);
+      if (
+        !live.planning &&
+        live.runtimeMode === "full-access" &&
+        isCodexComputerUseAccessConfirmation(params)
+      ) {
+        await live.rpc.respond(id, {
+          action: "accept",
+          content: confirmation.content,
+          _meta: null,
+        });
+        return;
+      }
+      const grantKey = confirmation.mcpToolGrant?.key;
+      if (
+        grantKey &&
+        mcpGrantsByThread.get(live.sessionId)?.has(grantKey)
+      ) {
+        await live.rpc.respond(id, {
+          action: "accept",
+          content: confirmation.content,
+          _meta: { persist: "session" },
+        });
+        return;
+      }
+      const uiId = live.nextApprovalUiId++;
+      const pending = waitApproval(
+        live,
+        uiId,
+        id,
+        "permissions",
+        threadId,
+        grantKey,
+      );
+      // Other MCP consent must carry the user's decision, including in Full Access.
+      live.onEvent({
+        type: "approval.requested",
+        requestId: uiId,
+        kind: "other",
+        title: confirmation.title,
+        ...(confirmation.mcpToolGrant
+          ? {
+              sessionScope: {
+                hint: "Stop asking for this tool until the chat closes.",
+              },
+            }
+          : {}),
+      });
+      const outcome = await pending;
+      const decision = outcome === "cancelled" ? "cancelled" : outcome.decision;
+      const scope = outcome === "cancelled" ? undefined : outcome.scope;
+      live.onEvent({
+        type: "approval.resolved",
+        requestId: uiId,
+        decision,
+        ...(scope ? { scope } : {}),
+      });
+      if (outcome === "cancelled") return;
+      const sessionGrant =
+        decision === "allow" && scope === "session" && grantKey !== undefined;
       await live.rpc.respond(id, {
-        action: "accept",
-        content: confirmation.content,
+        action: decision === "allow" ? "accept" : "decline",
+        content: decision === "allow" ? confirmation.content : null,
+        _meta: sessionGrant ? { persist: "session" } : null,
+      });
+      if (sessionGrant) {
+        const grants = mcpGrantsByThread.get(live.sessionId) ?? new Set<string>();
+        grants.add(grantKey);
+        mcpGrantsByThread.set(live.sessionId, grants);
+      }
+      return;
+    }
+
+    const parsed = codexMcpForm(params);
+    if (!parsed.ok) {
+      live.onEvent({
+        type: "status",
+        text: unsupportedMcpFormMessage(parsed.serverName, parsed.reason),
+      });
+      await live.rpc.respond(id, {
+        action: "cancel",
+        content: null,
         _meta: null,
       });
       return;
     }
-    const grantKey = confirmation.mcpToolGrant?.key;
-    if (
-      grantKey &&
-      mcpGrantsByThread.get(live.sessionId)?.has(grantKey)
-    ) {
-      await live.rpc.respond(id, {
-        action: "accept",
-        content: confirmation.content,
-        _meta: { persist: "session" },
-      });
-      return;
-    }
+
     const uiId = live.nextApprovalUiId++;
-    const pending = waitApproval(
-      live,
-      uiId,
-      id,
-      "permissions",
-      threadId,
-      grantKey,
-    );
-    // Other MCP consent must carry the user's decision, including in Full Access.
-    live.onEvent({
-      type: "approval.requested",
+    const event: Extract<HarnessEvent, { type: "form.requested" }> = {
+      type: "form.requested",
       requestId: uiId,
-      kind: "other",
-      title: confirmation.title,
-      ...(confirmation.mcpToolGrant
-        ? {
-            sessionScope: {
-              hint: "Stop asking for this tool until the chat closes.",
-            },
-          }
-        : {}),
+      serverName: parsed.serverName,
+      message: parsed.message,
+      fields: parsed.fields,
+    };
+    const outcome = new Promise<McpFormReply | "cancelled">((resolve) => {
+      live.forms.set(uiId, { rpcId: id, threadId, event, resolve });
     });
-    const outcome = await pending;
-    const decision = outcome === "cancelled" ? "cancelled" : outcome.decision;
-    const scope = outcome === "cancelled" ? undefined : outcome.scope;
-    live.onEvent({
-      type: "approval.resolved",
-      requestId: uiId,
-      decision,
-      ...(scope ? { scope } : {}),
-    });
-    if (outcome === "cancelled") return;
-    const sessionGrant =
-      decision === "allow" && scope === "session" && grantKey !== undefined;
-    await live.rpc.respond(id, {
-      action: decision === "allow" ? "accept" : "decline",
-      content: decision === "allow" ? confirmation.content : null,
-      _meta: sessionGrant ? { persist: "session" } : null,
-    });
-    if (sessionGrant) {
-      const grants = mcpGrantsByThread.get(live.sessionId) ?? new Set<string>();
-      grants.add(grantKey);
-      mcpGrantsByThread.set(live.sessionId, grants);
+    showNextForm(live);
+    try {
+      const reply = await outcome;
+      live.onEvent({
+        type: "form.resolved",
+        requestId: uiId,
+        decision:
+          reply === "cancelled"
+            ? "cancelled"
+            : reply.kind === "submit"
+              ? "submitted"
+              : "declined",
+      });
+      if (reply === "cancelled") return;
+      if (reply.kind === "submit") {
+        const count = Object.keys(reply.content).length;
+        live.onEvent({
+          type: "status",
+          text: `${parsed.serverName}: form submitted (${count} ${count === 1 ? "field" : "fields"}).`,
+        });
+        await live.rpc.respond(id, {
+          action: "accept",
+          content: reply.content,
+          _meta: null,
+        });
+      } else {
+        live.onEvent({
+          type: "status",
+          text: `${parsed.serverName}: form declined.`,
+        });
+        await live.rpc.respond(id, {
+          action: "decline",
+          content: null,
+          _meta: null,
+        });
+      }
+    } finally {
+      live.forms.delete(uiId);
+      if (live.visibleFormId === uiId) live.visibleFormId = null;
+      showNextForm(live);
     }
     return;
   }
@@ -1305,6 +1424,77 @@ function logCodexElicitation(params: unknown): void {
         ? Object.keys(properties).length > 0
         : rawProperties !== undefined && rawProperties !== null,
   });
+}
+
+function unsupportedMcpFormMessage(
+  serverName: string,
+  reason: McpFormUnsupportedReason,
+): string {
+  switch (reason) {
+    case "url":
+      return `${serverName} asked for a browser sign-in. MonoCode can't show that here, so the request was cancelled. Complete it in the server's own interface.`;
+    case "secret":
+      return `${serverName} asked for a password or secret. MonoCode doesn't collect secrets in forms, so the request was cancelled. Enter it in the server's own interface.`;
+    case "field-type":
+      return `${serverName} sent a form with a field type MonoCode can't show yet, so the request was cancelled. Complete it in the server's own interface.`;
+    case "too-many":
+      return `${serverName} sent a form with more than 20 fields, so the request was cancelled. Complete it in the server's own interface.`;
+    case "shape":
+      return `${serverName} sent a form MonoCode couldn't read, so the request was cancelled. Complete it in the server's own interface.`;
+  }
+}
+
+function isValidMcpFormContent(
+  fields: McpFormField[],
+  content: Record<string, McpFormValue>,
+): boolean {
+  const fieldKeys = new Set(fields.map((field) => field.key));
+  if (Object.keys(content).some((key) => !fieldKeys.has(key))) return false;
+
+  const draft: McpFormDraft = {};
+  for (const field of fields) {
+    const hasValue = Object.prototype.hasOwnProperty.call(content, field.key);
+    const value = content[field.key];
+    if (!hasValue) {
+      if (field.kind === "boolean") return false;
+      continue;
+    }
+    switch (field.kind) {
+      case "text":
+      case "choice":
+        if (typeof value !== "string") return false;
+        draft[field.key] = value;
+        break;
+      case "number":
+        if (typeof value !== "number" || !Number.isFinite(value)) return false;
+        draft[field.key] = String(value);
+        break;
+      case "boolean":
+        if (typeof value !== "boolean") return false;
+        draft[field.key] = value;
+        break;
+      case "multi":
+        if (!isStringValueArray(value)) return false;
+        draft[field.key] = value;
+        break;
+    }
+  }
+
+  const validated = validateMcpForm(fields, draft);
+  if (!validated.ok) return false;
+  const submittedKeys = Object.keys(content).sort();
+  const validatedKeys = Object.keys(validated.content).sort();
+  return (
+    submittedKeys.length === validatedKeys.length &&
+    submittedKeys.every((key, index) => key === validatedKeys[index]) &&
+    validatedKeys.every(
+      (key) => JSON.stringify(content[key]) === JSON.stringify(validated.content[key]),
+    )
+  );
+}
+
+function isStringValueArray(value: McpFormValue): value is string[] {
+  return Array.isArray(value) && value.every((entry: unknown) => typeof entry === "string");
 }
 
 function safeCodexPersistValue(value: unknown): "session" | "always" | "other" {

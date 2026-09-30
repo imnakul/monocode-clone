@@ -24,6 +24,7 @@ vi.mock("../../source-control/hooks/useProjectBranches", () => ({
 import { Composer, ComposerAction } from "./Composer";
 import type { ComposerTurnOptions, Attachment } from "../model/session";
 import type { UserQuestionPrompt } from "../model/userQuestion";
+import type { McpFormPrompt } from "../model/mcpForm";
 
 function renderAction(busy: boolean, hasValue: boolean) {
   return renderToStaticMarkup(
@@ -91,6 +92,8 @@ describe("Composer question focus", () => {
     busy = false,
     focusToken = 0,
     initialDraft?: string,
+    currentForm?: McpFormPrompt,
+    onFormReply: (requestId: number, reply: unknown) => void = vi.fn(),
   ) {
     await act(async () =>
       root.render(
@@ -110,12 +113,33 @@ describe("Composer question focus", () => {
           onRuntimeModeChange: () => {},
           onSubmit: () => {},
           question: currentQuestion,
+          form: currentForm,
           onQuestionReply,
+          onFormReply,
           busy,
         }),
       ),
     );
   }
+
+  it("shows questions before forms and shows a form when no question is pending", async () => {
+    const form: McpFormPrompt = {
+      requestId: 2,
+      serverName: "Docs",
+      message: "Fill in these details",
+      fields: [{ key: "name", label: "Name", required: true, kind: "text" }],
+    };
+    const onFormReply = vi.fn();
+    await renderComposer(question, vi.fn(), false, 0, undefined, form, onFormReply);
+
+    expect(container.textContent).toContain("Pick one");
+    expect(container.textContent).not.toContain("Fill in these details");
+
+    await renderComposer(undefined, vi.fn(), false, 0, undefined, form, onFormReply);
+
+    expect(container.textContent).toContain("Fill in these details");
+    expect(container.querySelector('input[id="mcp-form-2-0"]')).not.toBeNull();
+  });
 
   it("keeps drafts and blocks sending until a working copy is selected", async () => {
     const onSubmit = vi.fn();

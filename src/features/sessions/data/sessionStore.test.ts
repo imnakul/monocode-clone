@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { newSession, type Block, type Session } from "../model/session";
+import { applyHarnessEvent } from "../../../integrations/harness/core/apply";
 import {
   isPersistableId,
   persistFingerprint,
@@ -623,6 +624,55 @@ describe("persistFingerprint", () => {
     expect(persistFingerprint({ ...before, busy: true })).toBe(
       persistFingerprint(before),
     );
+  });
+
+  it("never persists a pending form or fingerprints its request lifecycle", () => {
+    const before = base();
+    const requested = applyHarnessEvent(before, {
+      type: "form.requested",
+      requestId: 19,
+      serverName: "docs",
+      message: "A private form prompt",
+      fields: [
+        {
+          key: "account_name",
+          label: "Account name",
+          kind: "text",
+          required: true,
+        },
+      ],
+    });
+    const secondPending = {
+      ...requested,
+      pendingForm: {
+        requestId: 20,
+        serverName: "another-server",
+        message: "A different prompt",
+        fields: [
+          {
+            key: "other_secret",
+            label: "Other secret",
+            kind: "text" as const,
+            required: false,
+          },
+        ],
+      },
+    };
+    const persisted = sanitizeSessionForPersist(requested);
+    const serialized = JSON.stringify(persisted);
+    expect(persisted).not.toHaveProperty("pendingForm");
+    expect(serialized).not.toContain("account_name");
+    expect(serialized).not.toContain("A private form prompt");
+    expect(serialized).not.toContain("draft-only-value");
+    expect(persistFingerprint(requested)).toBe(persistFingerprint(before));
+    expect(persistFingerprint(secondPending)).toBe(persistFingerprint(requested));
+
+    const resolved = applyHarnessEvent(requested, {
+      type: "form.resolved",
+      requestId: 19,
+      decision: "submitted",
+    });
+    expect(persistFingerprint(resolved)).toBe(persistFingerprint(before));
   });
 
   it("treats a path-like provider session id as absent", () => {

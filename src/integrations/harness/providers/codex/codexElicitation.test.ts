@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   codexMcpConfirmation,
+  codexMcpForm,
   isCodexComputerUseAccessConfirmation,
+  isSecretField,
   setCodexMcpApprovalKindKeysForTest,
 } from "./codexElicitation";
+import type { McpFormField } from "../../../../features/sessions/model/mcpForm";
 
 const confirmation = {
   mode: "form",
@@ -157,5 +160,197 @@ describe("Codex MCP confirmations", () => {
         message: "Allow this form submission?",
       }),
     ).toBe(false);
+  });
+});
+
+describe("Codex MCP forms", () => {
+  const request = (
+    properties: Record<string, unknown>,
+    required?: unknown,
+    mode = "form",
+  ) => ({
+    mode,
+    serverName: "docs",
+    message: "Fill these in",
+    requestedSchema: {
+      type: "object",
+      properties,
+      ...(required === undefined ? {} : { required }),
+    },
+  });
+
+  it("parses primitive, choice and multi fields in property order", () => {
+    expect(
+      codexMcpForm(
+        request(
+          {
+            name: { type: "string", title: "Name", minLength: 2 },
+            size: {
+              type: "integer",
+              minimum: 1,
+              maximum: 10,
+              default: 3,
+            },
+            color: {
+              type: "string",
+              oneOf: [
+                { const: "r", title: "Red" },
+                { const: "g", title: "Green" },
+              ],
+            },
+            tags: {
+              type: "array",
+              items: { type: "string", enum: ["a", "b", "c"] },
+              maxItems: 2,
+            },
+            notify: { type: "boolean", default: true },
+          },
+          ["name", "color"],
+        ),
+      ),
+    ).toEqual({
+      ok: true,
+      serverName: "docs",
+      message: "Fill these in",
+      fields: [
+        {
+          key: "name",
+          label: "Name",
+          kind: "text",
+          minLength: 2,
+          required: true,
+        },
+        {
+          key: "size",
+          label: "size",
+          kind: "number",
+          integer: true,
+          minimum: 1,
+          maximum: 10,
+          default: 3,
+          required: false,
+        },
+        {
+          key: "color",
+          label: "color",
+          kind: "choice",
+          options: [
+            { value: "r", label: "Red" },
+            { value: "g", label: "Green" },
+          ],
+          required: true,
+        },
+        {
+          key: "tags",
+          label: "tags",
+          kind: "multi",
+          options: [
+            { value: "a", label: "a" },
+            { value: "b", label: "b" },
+            { value: "c", label: "c" },
+          ],
+          maxItems: 2,
+          required: false,
+        },
+        {
+          key: "notify",
+          label: "notify",
+          kind: "boolean",
+          default: true,
+          required: false,
+        },
+      ],
+    });
+  });
+
+  it("uses enumNames only when every label is present", () => {
+    const valid = codexMcpForm(
+      request({
+        color: { type: "string", enum: ["x", "y"], enumNames: ["Ex", "Why"] },
+      }),
+    );
+    const fallback = codexMcpForm(
+      request({
+        color: { type: "string", enum: ["x", "y"], enumNames: ["Ex"] },
+      }),
+    );
+    expect(valid.ok && valid.fields[0]).toMatchObject({
+      options: [
+        { value: "x", label: "Ex" },
+        { value: "y", label: "Why" },
+      ],
+    });
+    expect(fallback.ok && fallback.fields[0]).toMatchObject({
+      options: [
+        { value: "x", label: "x" },
+        { value: "y", label: "y" },
+      ],
+    });
+  });
+
+  it.each([
+    ["url", { ...request({}, []), mode: "url" }, "url"],
+    ["unknown mode", request({ name: { type: "string" } }, [], "other"), "shape"],
+    ["object field", request({ nested: { type: "object" } }), "field-type"],
+    ["unknown constraint", request({ name: { type: "string", pattern: ".*" } }), "field-type"],
+    ["unknown format", request({ phone: { type: "string", format: "phone" } }), "field-type"],
+    ["too many fields", request(Object.fromEntries(Array.from({ length: 21 }, (_, index) => [`f${index}`, { type: "string" }]))), "too-many"],
+    ["missing required key", request({ name: { type: "string" } }, ["missing"]), "shape"],
+    ["invalid length bounds", request({ name: { type: "string", minLength: 5, maxLength: 2 } }), "shape"],
+    ["empty enum", request({ value: { type: "string", enum: [] } }), "shape"],
+    ["secret in key", request({ api_key: { type: "string" } }), "secret"],
+    ["secret in title", request({ field: { type: "string", title: "Your password" } }), "secret"],
+    ["weak secret key", request({ token: { type: "string" } }), "secret"],
+    ["camel case secret key", request({ githubAccessToken: { type: "string" } }), "secret"],
+    ["weak secret title", request({ field: { type: "string", title: "PIN" } }), "secret"],
+    ["secret description", request({ notes: { type: "string", title: "Notes", description: "Enter your password" } }), "secret"],
+    ["unconstrained openai form", request({}, undefined, "openai/form"), "shape"],
+  ] as const)("rejects %s with %s", (_label, params, reason) => {
+    const result = codexMcpForm(params);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe(reason);
+  });
+
+  it.each([
+    ["token_budget", "Token budget", undefined],
+    ["max_tokens", undefined, undefined],
+    ["pin_item", "Pin this item", undefined],
+    ["note", undefined, "Pin this item to the top"],
+    ["tokenizer", undefined, undefined],
+    ["limit", undefined, "Token budget for the reply"],
+  ] as const)("allows benign secret-like text in %s", (key, title, description) => {
+    const field: McpFormField = {
+      key,
+      label: title ?? key,
+      ...(description ? { description } : {}),
+      required: false,
+      kind: "text",
+    };
+    expect(isSecretField(field)).toBe(false);
+    expect(
+      codexMcpForm(
+        request({
+          [key]: {
+            type: "string",
+            ...(title ? { title } : {}),
+            ...(description ? { description } : {}),
+          },
+        }),
+      ).ok,
+    ).toBe(true);
+  });
+
+  it("defaults names and message and rejects a default outside its options", () => {
+    expect(
+      codexMcpForm({
+        mode: "form",
+        requestedSchema: {
+          type: "object",
+          properties: {
+            color: { type: "string", enum: ["red"], default: "blue" },
+          },
+        },
+      }),
+    ).toEqual({ ok: false, reason: "shape", serverName: "MCP server" });
   });
 });
