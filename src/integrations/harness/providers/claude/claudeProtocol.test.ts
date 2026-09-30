@@ -1,3 +1,4 @@
+import { parseClaudeContextUsage } from "./claudeProtocol";
 import { describe, expect, it } from "vitest";
 import type { RuntimeMode } from "../../../../features/sessions/model/session";
 import {
@@ -1149,5 +1150,58 @@ describe("Claude helper spawn arguments", () => {
     const normalArgs = buildClaudeSpawnArgs({ isolated: true });
     expect(normalArgs).not.toContain("--tools");
     expect(normalArgs).not.toContain("--disable-slash-commands");
+  });
+});
+
+describe("Claude context summary", () => {
+  it("parses categories and groups server tools with deferred counts", () => {
+    const result = parseClaudeContextUsage({
+      totalTokens: 100,
+      maxTokens: 200,
+      categories: [
+        { name: "Messages", tokens: 80 },
+        { name: "Deferred", tokens: 5, kind: "deferred" },
+      ],
+      mcpTools: [
+        { serverName: "search", tokens: 10 },
+        { serverName: "search", tokens: 5, isLoaded: false },
+      ],
+      memoryFiles: [{ path: "CLAUDE.md", tokens: 2 }],
+      skills: { includedSkills: 3, tokens: 4 },
+      messageBreakdown: {
+        toolCallTokens: 1,
+        toolResultTokens: 2,
+        attachmentTokens: 3,
+        assistantMessageTokens: 4,
+        userMessageTokens: 5,
+        unattributedTokens: 6,
+      },
+    });
+    expect(result?.categories[0].kind).toBe("used");
+    expect(result?.mcpServers).toEqual([
+      { serverName: "search", tokens: 15, toolCount: 2, deferredTools: 1 },
+    ]);
+    expect(result?.messages?.unattributed).toBe(6);
+    expect(result?.memoryFiles).toEqual([{ path: "CLAUDE.md", tokens: 2 }]);
+    expect(result?.skills).toEqual({ count: 3, tokens: 4 });
+  });
+  it("defaults optional arrays and rejects invalid totals or nested values", () => {
+    expect(
+      parseClaudeContextUsage({ totalTokens: 10, maxTokens: 20 })?.categories,
+    ).toEqual([]);
+    for (const totalTokens of [-1, NaN, Infinity, "10", undefined])
+      expect(
+        parseClaudeContextUsage({ totalTokens, maxTokens: 20 }),
+      ).toBeNull();
+    expect(
+      parseClaudeContextUsage({ totalTokens: 10, maxTokens: -1 }),
+    ).toBeNull();
+    expect(
+      parseClaudeContextUsage({
+        totalTokens: 10,
+        maxTokens: 20,
+        categories: [{ name: "bad", tokens: -1 }],
+      }),
+    ).toBeNull();
   });
 });

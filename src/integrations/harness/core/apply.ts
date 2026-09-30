@@ -116,12 +116,16 @@ export function applyHarnessEvent(
       return session.pendingForm?.requestId === event.requestId
         ? { ...session, pendingForm: undefined }
         : session;
+    case "context.stale":
+      return session.context ? { ...session, context: { ...session.context, stale: true } } : session;
     case "context":
       return {
         ...session,
         context: mergeContextUsage(session.context, {
           used: event.used,
           window: event.window,
+          measuredAtUserBlockId: session.blocks.slice().reverse().find((block) => block.role === "user" && !block.draft)?.id,
+          stale: false,
         }),
       };
     case "usage": {

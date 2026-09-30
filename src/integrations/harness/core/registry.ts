@@ -1,3 +1,4 @@
+import type { NativeContextBreakdown } from "../../../features/sessions/model/contextBreakdown";
 import type { HarnessId } from "../../../features/sessions/model/session";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { GeneratedSessionTitle } from "../../../features/sessions/model/sessionTitle";
@@ -43,6 +44,8 @@ export type HarnessAdapter = {
   /** False when the harness cannot accept a follow-up while a turn is running. Default: same as live. */
   canSteer?: boolean;
   commands?: NativeCommandProvider;
+  /** Read-only inspection; must not spawn or wake a process. */
+  inspectContext?(sessionId: string, signal?: AbortSignal): Promise<NativeContextBreakdown | null>;
   sendTurn(input: SendTurnInput): Promise<void>;
   /** Trigger provider-owned compaction outside MonoCode's normal user-turn path. */
   compactContext?(input: CompactContextInput): Promise<void>;
@@ -458,4 +461,12 @@ export async function warmupHarnessText(
   cwd: string,
 ): Promise<void> {
   await getHarness(harness)?.warmupText?.(cwd);
+}
+
+export async function inspectHarnessContext(
+  harness: HarnessId,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<NativeContextBreakdown | null> {
+  return getHarness(harness)?.inspectContext?.(sessionId, signal) ?? null;
 }

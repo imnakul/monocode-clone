@@ -383,6 +383,8 @@ export function mapCodexNotification(
     return mapFileChangePatch(rec);
   }
 
+  if (method === "thread/compacted") return { events: [{ type: "context.stale" }] };
+
   if (method === "thread/tokenUsage/updated") {
     return mapTokenUsage(rec);
   }

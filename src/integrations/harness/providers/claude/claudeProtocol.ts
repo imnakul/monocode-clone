@@ -1,3 +1,4 @@
+import type { NativeContextBreakdown } from "../../../../features/sessions/model/contextBreakdown";
 import type {
   Attachment,
   RuntimeMode,
@@ -1355,4 +1356,101 @@ export function contextFromResult(
 
   if (!used && !window) return undefined;
   return { used: used > 0 ? used : undefined, window };
+}
+
+/** Summary numbers are reported by Claude Code and may include its local estimates. */
+export function parseClaudeContextUsage(
+  payload: unknown,
+): NativeContextBreakdown | null {
+  const record = (value: unknown): Record<string, unknown> | null =>
+    typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null; // Unknown protocol objects are narrowed before field access.
+  const number = (value: unknown): value is number =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0;
+  const root = record(payload);
+  if (!root || !number(root.totalTokens) || !number(root.maxTokens))
+    return null;
+  const result: NativeContextBreakdown = {
+    source: "claude",
+    totalTokens: root.totalTokens,
+    windowTokens: root.maxTokens,
+    categories: [],
+    mcpServers: [],
+    memoryFiles: [],
+  };
+  if (typeof root.model === "string") result.model = root.model;
+  if (number(root.autoCompactThreshold))
+    result.autoCompactThreshold = root.autoCompactThreshold;
+  for (const key of ["categories", "memoryFiles", "mcpTools"]) {
+    if (root[key] !== undefined && !Array.isArray(root[key])) return null;
+  }
+  for (const value of Array.isArray(root.categories) ? root.categories : []) {
+    const item = record(value);
+    if (!item || typeof item.name !== "string" || !number(item.tokens))
+      return null;
+    const kind = item.kind ?? "used";
+    if (
+      kind !== "used" &&
+      kind !== "free" &&
+      kind !== "buffer" &&
+      kind !== "deferred"
+    )
+      return null;
+    result.categories.push({ name: item.name, tokens: item.tokens, kind });
+  }
+  for (const value of Array.isArray(root.memoryFiles) ? root.memoryFiles : []) {
+    const item = record(value);
+    if (!item || typeof item.path !== "string" || !number(item.tokens))
+      return null;
+    result.memoryFiles.push({ path: item.path, tokens: item.tokens });
+  }
+  for (const value of Array.isArray(root.mcpTools) ? root.mcpTools : []) {
+    const item = record(value);
+    if (!item || typeof item.serverName !== "string" || !number(item.tokens))
+      return null;
+    let server = result.mcpServers.find(
+      (entry) => entry.serverName === item.serverName,
+    );
+    if (!server) {
+      server = {
+        serverName: item.serverName,
+        tokens: 0,
+        toolCount: 0,
+        deferredTools: 0,
+      };
+      result.mcpServers.push(server);
+    }
+    server.tokens += item.tokens;
+    server.toolCount += 1;
+    if (item.isLoaded === false) server.deferredTools += 1;
+  }
+  if (root.skills !== undefined) {
+    const skills = record(root.skills);
+    if (!skills || !number(skills.includedSkills) || !number(skills.tokens))
+      return null;
+    result.skills = { count: skills.includedSkills, tokens: skills.tokens };
+  }
+  if (root.messageBreakdown !== undefined) {
+    const messages = record(root.messageBreakdown);
+    if (!messages) return null;
+    const keys = [
+      "toolCallTokens",
+      "toolResultTokens",
+      "attachmentTokens",
+      "assistantMessageTokens",
+      "userMessageTokens",
+      "unattributedTokens",
+    ];
+    if (keys.some((key) => !number(messages[key]))) return null;
+    result.messages = {
+      toolCalls: Number(messages.toolCallTokens),
+      toolResults: Number(messages.toolResultTokens),
+      attachments: Number(messages.attachmentTokens),
+      assistant: Number(messages.assistantMessageTokens),
+      user: Number(messages.userMessageTokens),
+      unattributed: Number(messages.unattributedTokens),
+    };
+  }
+  return result;
 }

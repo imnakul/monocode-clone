@@ -10,13 +10,12 @@ export type SystemBreakdownMcpServer = {
   name: string;
   command?: string;
   url?: string;
-  tokens: number;
-  weight?: number;
+  tokens: undefined;
 };
 
 export type SystemBreakdownPlugin = {
   name: string;
-  tokens: number;
+  tokens: undefined;
 };
 
 export type SystemBreakdownRule = {
@@ -34,10 +33,7 @@ export type SystemAndToolsBreakdown = {
   builtinTools: SystemBreakdownTool[];
   builtinToolsTotal: number;
   mcpServers: SystemBreakdownMcpServer[];
-  mcpServersTotal: number;
   plugins: SystemBreakdownPlugin[];
-  pluginsTotal: number;
-  overhead: number;
 };
 
 export const CLAUDE_BUILTIN_TOOLS: SystemBreakdownTool[] = [
@@ -62,18 +58,6 @@ export const CODEX_BUILTIN_TOOLS: SystemBreakdownTool[] = [
   { name: "list_directory", tokens: 400, description: "Directory listing" },
   { name: "web_search", tokens: 700, description: "Web browsing" },
 ];
-
-/** Relative token weighting for known high-density MCP servers with multiple tool schemas */
-export function getMcpWeight(name: string): number {
-  const n = name.toLowerCase();
-  if (n.includes("playwright") || n.includes("browser")) return 3.5;
-  if (n.includes("notion") || n.includes("clickup") || n.includes("figma")) return 3.0;
-  if (n.includes("screenpipe")) return 2.2;
-  if (n.includes("supabase") || n.includes("tabularis") || n.includes("sql")) return 1.8;
-  if (n.includes("drive") || n.includes("calendar") || n.includes("gmail")) return 1.6;
-  if (n.includes("second-brain") || n.includes("agentation") || n.includes("pencil")) return 1.2;
-  return 1.0;
-}
 
 export function parseClaudeJsonMcpServers(jsonContent: string): {
   name: string;
@@ -164,69 +148,8 @@ export function computeSystemAndToolsBreakdown(params: {
   const builtinTools = isCodex ? CODEX_BUILTIN_TOOLS : CLAUDE_BUILTIN_TOOLS;
   const builtinToolsTotal = builtinTools.reduce((acc, t) => acc + t.tokens, 0);
 
-  const rawMcpList = params.mcpServers ?? [];
-  const rawPluginsList = params.plugins ?? [];
-
-  const baseStatic = baseInstructions + environment + globalRulesTotal + builtinToolsTotal;
-
-  let mcpServers: SystemBreakdownMcpServer[] = [];
-  let plugins: SystemBreakdownPlugin[] = [];
-  let mcpServersTotal = 0;
-  let pluginsTotal = 0;
-  let overhead = 0;
-
-  if (totalTokens <= baseStatic) {
-    mcpServers = rawMcpList.map((s) => {
-      const weight = getMcpWeight(s.name);
-      const tokens = Math.round(1500 * weight);
-      return { ...s, tokens, weight };
-    });
-    mcpServersTotal = mcpServers.reduce((acc, s) => acc + s.tokens, 0);
-
-    plugins = rawPluginsList.map((p) => ({
-      name: p.name,
-      tokens: 800,
-    }));
-    pluginsTotal = plugins.reduce((acc, p) => acc + p.tokens, 0);
-    overhead = 0;
-  } else {
-    const availableForExtensions = Math.max(0, totalTokens - baseStatic);
-    const hasMcp = rawMcpList.length > 0;
-    const hasPlugins = rawPluginsList.length > 0;
-
-    if (hasMcp || hasPlugins) {
-      const totalMcpWeight = rawMcpList.reduce((acc, s) => acc + getMcpWeight(s.name), 0);
-      const totalPluginWeight = rawPluginsList.length * 0.8;
-      const combinedWeight = totalMcpWeight + totalPluginWeight;
-
-      if (combinedWeight > 0) {
-        const reservedOverhead = Math.min(2500, Math.round(availableForExtensions * 0.04));
-        const allocatable = availableForExtensions - reservedOverhead;
-
-        mcpServers = rawMcpList.map((s) => {
-          const w = getMcpWeight(s.name);
-          const tokens = Math.max(200, Math.round((w / combinedWeight) * allocatable));
-          return { ...s, tokens, weight: w };
-        });
-
-        plugins = rawPluginsList.map((p) => {
-          const w = 0.8;
-          const tokens = Math.max(150, Math.round((w / combinedWeight) * allocatable));
-          return { name: p.name, tokens };
-        });
-
-        mcpServersTotal = mcpServers.reduce((acc, s) => acc + s.tokens, 0);
-        pluginsTotal = plugins.reduce((acc, p) => acc + p.tokens, 0);
-
-        overhead = Math.max(
-          0,
-          totalTokens - (baseStatic + mcpServersTotal + pluginsTotal),
-        );
-      }
-    } else {
-      overhead = availableForExtensions;
-    }
-  }
+  const mcpServers = (params.mcpServers ?? []).map((server) => ({ ...server, tokens: undefined }));
+  const plugins = (params.plugins ?? []).map((plugin) => ({ ...plugin, tokens: undefined }));
 
   return {
     totalTokens,
@@ -237,11 +160,26 @@ export function computeSystemAndToolsBreakdown(params: {
     builtinTools,
     builtinToolsTotal,
     mcpServers,
-    mcpServersTotal,
     plugins,
-    pluginsTotal,
-    overhead,
   };
+}
+
+/** Fixed prompt and built-in tool estimate; never attributes history to extensions. */
+export function estimateSystemBase(
+  harness?: string,
+  globalRules: SystemBreakdownRule[] = [],
+): number {
+  const breakdown = computeSystemAndToolsBreakdown({
+    totalTokens: 0,
+    harness,
+    globalRules,
+  });
+  return (
+    breakdown.baseInstructions +
+    breakdown.environment +
+    breakdown.builtinToolsTotal +
+    breakdown.globalRulesTotal
+  );
 }
 
 export type LoadedSystemConfig = {

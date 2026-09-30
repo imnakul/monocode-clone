@@ -1,3 +1,5 @@
+import { inspectHarnessContext } from "../../../integrations/harness/core/registry";
+import { nativeSegments, type NativeContextBreakdown } from "../model/contextBreakdown";
 import {
   useCallback,
   useEffect,
@@ -7,6 +9,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  contextFreshness,
   contextPercent,
   contextRatio,
   contextTooltip,
@@ -38,6 +41,7 @@ function ringClass(ratio: number): string {
 }
 
 export type ContextMeterProps = {
+  sessionId?: string;
   /** Context window usage. */
   usage?: ContextUsage;
   /** Processed usage for the active (or latest) turn. */
@@ -130,6 +134,7 @@ export const DETAILED_CONTEXT_METER_POPOVER_CLASS: string =
  * Circular gauge and comprehensive inspection popover for context window and costing.
  */
 export function ContextMeter({
+  sessionId,
   usage,
   turnUsage,
   sessionUsage,
@@ -169,8 +174,8 @@ export function ContextMeter({
   );
 
   const root = useRef<HTMLButtonElement>(null);
-  const ratio = contextRatio(usage);
-  const percent = contextPercent(usage);
+  const ratio = usage && usage.used > 0 ? contextRatio(usage) : null;
+  const percent = usage && usage.used > 0 ? contextPercent(usage) : null;
 
   const hasData =
     usage != null ||
@@ -179,6 +184,58 @@ export function ContextMeter({
     (blocks && blocks.length > 0);
 
   const isOpen = hovered || pinned;
+  const freshness = contextFreshness(usage, blocks, busy);
+  const requestToken = useRef(0);
+  const [nativeReading, setNativeReading] = useState<{
+    breakdown: NativeContextBreakdown;
+    forUsage: ContextUsage | undefined;
+    forSessionId: string;
+  } | null>(null);
+  const [inspectionState, setInspectionState] = useState<
+    "idle" | "checking" | "unavailable"
+  >("idle");
+  useEffect(() => {
+    const token = ++requestToken.current;
+    let active = true;
+    setNativeReading(null);
+    setInspectionState("idle");
+    if (
+      !isOpen ||
+      !detailedContext ||
+      harness !== "claude" ||
+      !sessionId ||
+      busy ||
+      freshness !== "current"
+    )
+      return;
+    const controller = new AbortController();
+    setInspectionState("checking");
+    void inspectHarnessContext("claude", sessionId, controller.signal)
+      .then((breakdown) => {
+        if (!active || token !== requestToken.current) return;
+        setNativeReading(
+          breakdown
+            ? { breakdown, forUsage: usage, forSessionId: sessionId }
+            : null,
+        );
+        setInspectionState(breakdown ? "idle" : "unavailable");
+      })
+      .catch(() => {
+        if (active && token === requestToken.current)
+          setInspectionState("unavailable");
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [isOpen, detailedContext, sessionId, harness, usage, busy, freshness]);
+  const native =
+    !busy &&
+    freshness === "current" &&
+    nativeReading?.forUsage === usage &&
+    nativeReading?.forSessionId === sessionId
+      ? nativeReading?.breakdown
+      : undefined;
 
   // Inspect system prompt, tools, memory files and skills for Claude and Codex
   useEffect(() => {
@@ -279,14 +336,40 @@ export function ContextMeter({
   }, [isOpen, detailedContext, harness]);
 
   const messagesTokens = blocks ? estimateBlocksTokens(blocks) : 0;
-  const breakdown = computeContextBreakdown({
-    usedTokens: usage?.used ?? turnUsage?.input ?? messagesTokens,
+  const estimated = computeContextBreakdown({
+    usedTokens: usage?.used,
+    globalRules: systemConfig?.globalRules,
     windowTokens: usage?.window,
     memoryFiles,
     skills,
     messagesTokens,
     harness,
   });
+
+  const breakdown =
+    estimated.state === "known"
+      ? estimated
+      : {
+          usedTokens: 0,
+          windowTokens: 0,
+          percentUsed: 0,
+          segments: [],
+          systemAndTools: 0,
+          memoryFiles: [],
+          memoryFilesTotal: 0,
+          skills: [],
+          skillsTotal: 0,
+        };
+  const segments = native ? nativeSegments(native) : breakdown.segments;
+  const displayedMemory = native
+    ? native.memoryFiles.map((file) => ({
+        name: file.path,
+        path: file.path,
+        tokens: file.tokens,
+      }))
+    : breakdown.memoryFiles;
+  const contextValue = (tokens: number): string =>
+    `${native ? "" : "~"}${formatTokens(tokens)}`;
 
   const systemBreakdown = useMemo(() => {
     return computeSystemAndToolsBreakdown({
@@ -320,28 +403,24 @@ export function ContextMeter({
   }, []);
 
   const title =
-    usage?.window != null && usage?.used != null
+    usage?.window != null && usage.used > 0
       ? `Context window: ${usage.used.toLocaleString()} / ${usage.window.toLocaleString()} tokens (${percent}%)`
       : "Context window & token usage";
 
-  const compactSummary = usage
-    ? contextTooltip(usage)
-    : turnUsage
+  const compactSummary =
+    freshness === "unknown"
       ? {
-          headline: "Latest turn",
-          detail: `${formatTokens(turnUsage.total)} tokens`,
+          headline: "Current context",
+          detail: "No context reading yet. It appears after the first reply.",
         }
-      : sessionUsage
-        ? {
-            headline: "Session tokens",
-            detail: `${formatTokens(sessionUsage.total)} tokens`,
-          }
+      : usage
+        ? contextTooltip(usage)
         : {
-            headline: "Context window",
-            detail: "Usage unavailable",
+            headline: "Current context",
+            detail: "No context reading yet. It appears after the first reply.",
           };
 
-  if (!hasData) return null;
+  if (!hasData && !sessionId) return null;
 
   return (
     <div
@@ -409,7 +488,7 @@ export function ContextMeter({
             {/* Header */}
             <div>
               <div className="flex items-baseline justify-between gap-2">
-                <span className="font-medium text-content">Context window</span>
+                <span className="font-medium text-content">Current context</span>
                 <div className="flex items-center gap-2">
                   {onCompact ? (
                     <button
@@ -424,19 +503,18 @@ export function ContextMeter({
                     </button>
                   ) : null}
                   <span className="tabular-nums text-content/70 text-[11px]">
-                    {formatTokens(breakdown.usedTokens)} /{" "}
-                    {formatTokens(breakdown.windowTokens)} ({breakdown.percentUsed}
-                    %)
+                    {estimated.state === "known" ? `${formatTokens(native?.totalTokens ?? breakdown.usedTokens)} / ${formatTokens(native?.windowTokens ?? breakdown.windowTokens)} (${native ? Math.round(native.totalTokens / Math.max(1, native.windowTokens) * 100) : breakdown.percentUsed}%)` : null}
                   </span>
                 </div>
               </div>
 
+              <ContextReadingStatus freshness={freshness} native={Boolean(native)} inspectionState={inspectionState} />
               {/* Horizontal Stacked Bar */}
-              <div
+              {estimated.state === "known" ? <div
                 className="mt-2 flex h-2 w-full overflow-hidden rounded-full bg-content/10"
                 aria-hidden
               >
-                {breakdown.segments.map((seg) => {
+                {segments.map((seg) => {
                   if (seg.percent <= 0) return null;
                   return (
                     <div
@@ -447,22 +525,19 @@ export function ContextMeter({
                     />
                   );
                 })}
-              </div>
+              </div> : null}
+              {native ? <p className="text-[10px] text-content/60">Some of these numbers are Claude Code's own estimates.</p> : null}
             </div>
 
             {/* Context Segments Legend / Overview */}
             <div className="space-y-1 text-[11px]">
-              {breakdown.segments.map((seg) => {
+              {segments.map((seg) => {
                 if (seg.tokens <= 0 && seg.id !== "free") return null;
-                const isSystem = seg.id === "system" && detailedContext;
                 return (
                   <div
                     key={seg.id}
-                    onClick={isSystem ? () => setSystemExpanded((e) => !e) : undefined}
-                    className={`flex items-center justify-between text-content/70 ${
-                      isSystem ? "cursor-pointer hover:text-content group" : ""
-                    }`}
-                    title={isSystem ? "Click to toggle System & tools breakdown" : undefined}
+                    className="flex items-center justify-between text-content/70"
+                    title={seg.id === "unclassified" ? "Tokens the provider counted that MonoCode can't attribute, usually older tool output and replies." : undefined}
                   >
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span
@@ -470,15 +545,10 @@ export function ContextMeter({
                       />
                       <span className="truncate">
                         {seg.label}
-                        {isSystem ? (
-                          <span className="ml-1 text-[10px] text-content/40 group-hover:text-content/70">
-                            {systemExpanded ? "▴" : "▾"}
-                          </span>
-                        ) : null}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 tabular-nums shrink-0">
-                      <span>{formatTokens(seg.tokens)}</span>
+                      <span>{seg.source === "estimated" ? "~" : ""}{formatTokens(seg.tokens)} <span className="text-content/40 text-[10px]">{seg.source === "estimated" ? "Estimated" : "Reported"}</span></span>
                       <span className="text-content/40 w-9 text-right">
                         {seg.percent.toFixed(1)}%
                       </span>
@@ -489,7 +559,7 @@ export function ContextMeter({
             </div>
 
             {/* Collapsible System & Tools Breakdown */}
-            {breakdown.systemAndTools > 0 && detailedContext ? (
+            {!native && breakdown.systemAndTools > 0 && detailedContext ? (
               <div className="border-t border-content/10 pt-2 space-y-1">
                 <button
                   type="button"
@@ -511,7 +581,7 @@ export function ContextMeter({
                     <span>System & tools</span>
                   </span>
                   <span className="tabular-nums text-content/50">
-                    {formatTokens(systemBreakdown.totalTokens)}
+                    ~{formatTokens(systemBreakdown.totalTokens)}
                   </span>
                 </button>
                 {systemExpanded ? (
@@ -522,7 +592,7 @@ export function ContextMeter({
                         Base prompt ({harness === "codex" ? "Codex" : "Claude"})
                       </span>
                       <span className="tabular-nums shrink-0">
-                        {formatTokens(systemBreakdown.baseInstructions)}
+                        ~{formatTokens(systemBreakdown.baseInstructions)}
                       </span>
                     </div>
 
@@ -539,7 +609,7 @@ export function ContextMeter({
                               {rule.name}
                             </span>
                             <span className="tabular-nums shrink-0">
-                              {formatTokens(rule.tokens)}
+                              ~{formatTokens(rule.tokens)}
                             </span>
                           </div>
                         ))}
@@ -553,7 +623,7 @@ export function ContextMeter({
                           Environment & git context
                         </span>
                         <span className="tabular-nums shrink-0">
-                          {formatTokens(systemBreakdown.environment)}
+                          ~{formatTokens(systemBreakdown.environment)}
                         </span>
                       </div>
                     ) : null}
@@ -582,7 +652,7 @@ export function ContextMeter({
                           </span>
                         </span>
                         <span className="tabular-nums text-content/50 shrink-0">
-                          {formatTokens(systemBreakdown.builtinToolsTotal)}
+                          ~{formatTokens(systemBreakdown.builtinToolsTotal)}
                         </span>
                       </button>
                       {builtinToolsExpanded ? (
@@ -595,7 +665,7 @@ export function ContextMeter({
                             >
                               <span className="truncate">{t.name}</span>
                               <span className="tabular-nums shrink-0">
-                                {formatTokens(t.tokens)}
+                                ~{formatTokens(t.tokens)}
                               </span>
                             </div>
                           ))}
@@ -628,7 +698,7 @@ export function ContextMeter({
                             </span>
                           </span>
                           <span className="tabular-nums text-content/50 shrink-0">
-                            {formatTokens(systemBreakdown.mcpServersTotal)}
+                            size not reported
                           </span>
                         </button>
                         {mcpServersExpanded ? (
@@ -639,9 +709,9 @@ export function ContextMeter({
                                 className="flex items-center justify-between gap-1"
                                 title={s.command || s.url}
                               >
-                                <span className="truncate">{s.name}</span>
+                                <span className="truncate">{s.name}{" · "}</span>
                                 <span className="tabular-nums shrink-0">
-                                  {formatTokens(s.tokens)}
+                                  size not reported
                                 </span>
                               </div>
                             ))}
@@ -675,7 +745,7 @@ export function ContextMeter({
                             </span>
                           </span>
                           <span className="tabular-nums text-content/50 shrink-0">
-                            {formatTokens(systemBreakdown.pluginsTotal)}
+                            size not reported
                           </span>
                         </button>
                         {pluginsExpanded ? (
@@ -685,9 +755,9 @@ export function ContextMeter({
                                 key={p.name}
                                 className="flex items-center justify-between gap-1"
                               >
-                                <span className="truncate">{p.name}</span>
+                                <span className="truncate">{p.name}{" · "}</span>
                                 <span className="tabular-nums shrink-0">
-                                  {formatTokens(p.tokens)}
+                                  size not reported
                                 </span>
                               </div>
                             ))}
@@ -695,25 +765,15 @@ export function ContextMeter({
                         ) : null}
                       </div>
                     ) : null}
-
-                    {/* Dynamic runtime overhead */}
-                    {systemBreakdown.overhead > 0 ? (
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="text-content/50">
-                          Dynamic runtime context
-                        </span>
-                        <span className="tabular-nums text-content/40 shrink-0">
-                          {formatTokens(systemBreakdown.overhead)}
-                        </span>
-                      </div>
-                    ) : null}
                   </div>
                 ) : null}
               </div>
             ) : null}
 
+            {native ? <NativeContextDetails breakdown={native} /> : null}
+
             {/* Collapsible Memory Files */}
-            {breakdown.memoryFiles.length > 0 ? (
+            {displayedMemory.length > 0 ? (
               <div className="border-t border-content/10 pt-2 space-y-1">
                 <button
                   type="button"
@@ -735,13 +795,13 @@ export function ContextMeter({
                     <span>Memory files</span>
                   </span>
                   <span className="tabular-nums text-content/50">
-                    {formatTokens(breakdown.memoryFilesTotal)} (
-                    {breakdown.memoryFiles.length})
+                    {contextValue(native ? displayedMemory.reduce((sum, file) => sum + file.tokens, 0) : breakdown.memoryFilesTotal)} (
+                    {displayedMemory.length})
                   </span>
                 </button>
                 {memoryFilesExpanded ? (
                   <div className="space-y-1 pl-4 text-[11px] text-content/60">
-                    {breakdown.memoryFiles.map((file) => (
+                    {displayedMemory.map((file) => (
                       <div
                         key={file.name}
                         className="flex items-center justify-between gap-1"
@@ -749,7 +809,7 @@ export function ContextMeter({
                       >
                         <span className="truncate">{file.name}</span>
                         <span className="tabular-nums shrink-0">
-                          {formatTokens(file.tokens)}
+                          {contextValue(file.tokens)}
                         </span>
                       </div>
                     ))}
@@ -759,7 +819,7 @@ export function ContextMeter({
             ) : null}
 
             {/* Collapsible Skills */}
-            {breakdown.skills.length > 0 ? (
+            {!native && breakdown.skills.length > 0 ? (
               <div className="border-t border-content/10 pt-2 space-y-1">
                 <button
                   type="button"
@@ -781,7 +841,7 @@ export function ContextMeter({
                     <span>Skills</span>
                   </span>
                   <span className="tabular-nums text-content/50">
-                    {formatTokens(breakdown.skillsTotal)} (
+                    {contextValue(breakdown.skillsTotal)} (
                     {breakdown.skills.length})
                   </span>
                 </button>
@@ -794,7 +854,7 @@ export function ContextMeter({
                       >
                         <span className="truncate">{skill.name}</span>
                         <span className="tabular-nums shrink-0">
-                          {formatTokens(skill.tokens)}
+                          {contextValue(skill.tokens)}
                         </span>
                       </div>
                     ))}
@@ -900,7 +960,7 @@ export function ContextMeter({
                           strokeWidth={1.75}
                         />
                       )}
-                      <span>Latest turn</span>
+                      <span>Processed this turn</span>
                     </span>
                     <div className="flex items-center gap-1.5 tabular-nums">
                       {turnCost.cacheSavings > 0 ? (
@@ -908,7 +968,7 @@ export function ContextMeter({
                           (Saved {formatCurrency(turnCost.cacheSavings)})
                         </span>
                       ) : null}
-                      <span>{formatCurrency(turnCost.totalCost)}</span>
+                      <span>{formatTokens(turnUsage.total)} tokens · {formatCurrency(turnCost.totalCost)}</span>
                     </div>
                   </button>
                   {turnExpanded ? (
@@ -939,7 +999,7 @@ export function ContextMeter({
                           strokeWidth={1.75}
                         />
                       )}
-                      <span>Session total tokens</span>
+                      <span>Processed this chat</span>
                     </span>
                     <span className="tabular-nums text-content/50">
                       {sessionUsage.total.toLocaleString()}
@@ -970,12 +1030,115 @@ export function ContextMeter({
             </div>
           </div>
         ) : (
-          <CompactContextSummary
-            headline={compactSummary.headline}
-            detail={compactSummary.detail}
-          />
+          <div className="space-y-1">
+            <CompactContextSummary headline={compactSummary.headline} detail={compactSummary.detail} />
+            {freshness !== "unknown" ? <ContextReadingStatus freshness={freshness} native={false} inspectionState="idle" /> : null}
+          </div>
         )}
         </Popover>
+      ) : null}
+    </div>
+  );
+}
+
+export function ContextReadingStatus({
+  freshness,
+  native,
+  inspectionState,
+}: {
+  freshness: ReturnType<typeof contextFreshness>;
+  native: boolean;
+  inspectionState: "idle" | "checking" | "unavailable";
+}): React.JSX.Element {
+  return (
+    <div className="mt-1 space-y-1 text-[10px] text-content/60">
+      {freshness === "unknown" ? (
+        <p>No context reading yet. It appears after the first reply.</p>
+      ) : (
+        <>
+          <span className="rounded-full bg-content/10 px-1.5 text-[10px]">
+            {native ? "Reported by Claude Code" : "Estimated"}
+          </span>
+          {freshness === "updating" ? (
+            <span className="rounded-full bg-content/10 px-1.5 text-[10px]">
+              Updating…
+            </span>
+          ) : null}
+          {freshness === "stale" ? (
+            <span className="rounded-full bg-content/10 px-1.5 text-[10px]">
+              Out of date — updates after the next reply
+            </span>
+          ) : null}
+        </>
+      )}
+      {inspectionState === "checking" ? (
+        <p>Checking with Claude Code…</p>
+      ) : inspectionState === "unavailable" ? (
+        <p>Claude Code's breakdown wasn't available.</p>
+      ) : null}
+    </div>
+  );
+}
+
+export function NativeContextDetails({
+  breakdown,
+}: {
+  breakdown: NativeContextBreakdown;
+}): React.JSX.Element {
+  const messageRows = breakdown.messages
+    ? ([
+        ["Tool calls", breakdown.messages.toolCalls],
+        ["Tool results", breakdown.messages.toolResults],
+        ["Attachments", breakdown.messages.attachments],
+        ["Assistant", breakdown.messages.assistant],
+        ["User", breakdown.messages.user],
+        ["Unattributed", breakdown.messages.unattributed],
+      ] satisfies [string, number][])
+    : [];
+  return (
+    <div className="space-y-2 text-[11px] text-content/70">
+      {breakdown.categories
+        .filter((category) => category.kind === "deferred")
+        .map((category, index) => (
+          <div key={index}>
+            Deferred (not in context): {category.name} ·{" "}
+            {formatTokens(category.tokens)}
+          </div>
+        ))}
+      {breakdown.mcpServers.length > 0 ? (
+        <details className="border-t border-content/10 pt-2">
+          <summary className="cursor-pointer">MCP servers</summary>
+          {breakdown.mcpServers.map((server) => (
+            <div key={server.serverName} className="flex justify-between gap-2">
+              <span>
+                {server.serverName}
+                {server.deferredTools > 0
+                  ? ` · ${server.deferredTools} tools deferred`
+                  : ""}
+              </span>
+              <span>{formatTokens(server.tokens)}</span>
+            </div>
+          ))}
+        </details>
+      ) : null}
+      {breakdown.skills ? (
+        <div>
+          Skills ({breakdown.skills.count}) ·{" "}
+          {formatTokens(breakdown.skills.tokens)}
+        </div>
+      ) : null}
+      {breakdown.messages ? (
+        <details className="border-t border-content/10 pt-2">
+          <summary className="cursor-pointer">Messages</summary>
+          {messageRows
+            .filter(([, tokens]) => tokens > 0)
+            .map(([label, tokens]) => (
+              <div key={label} className="flex justify-between">
+                <span>{label}</span>
+                <span>{formatTokens(tokens)}</span>
+              </div>
+            ))}
+        </details>
       ) : null}
     </div>
   );

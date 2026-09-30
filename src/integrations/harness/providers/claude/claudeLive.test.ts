@@ -30,6 +30,7 @@ vi.mock("../../core/child", () => ({
 
 const {
   bindClaudeSession,
+  inspectClaudeContext,
   compactClaudeContext,
   respondClaudeApproval,
   respondClaudeQuestion,
@@ -1222,5 +1223,96 @@ describe("claude manual compaction", () => {
       text: "Compacted context",
     });
     expect(events.some((event) => event.type === "message.delta")).toBe(false);
+  });
+});
+
+describe("native context inspection", () => {
+  async function idle() {
+    const started = await startTurn("s1");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await started.turn;
+    return started;
+  }
+  it("does not spawn or write when absent or busy", async () => {
+    expect(await inspectClaudeContext("s1")).toBeNull();
+    expect(spawned).toHaveLength(0);
+    const started = await startTurn("s1");
+    expect(await inspectClaudeContext("s1")).toBeNull();
+    expect(outgoingControlRequest("get_context_usage")).toBeUndefined();
+    emit({ type: "result", subtype: "success" });
+    await started.turn;
+  });
+  it("writes one summary request and parses its response", async () => {
+    await idle();
+    const inspection = inspectClaudeContext("s1");
+    const request = outgoingControlRequest("get_context_usage");
+    expect(request?.request).toEqual({
+      subtype: "get_context_usage",
+      detail: "summary",
+    });
+    expect(
+      parse().filter(
+        (message) =>
+          (message.request as Record<string, unknown> | undefined)?.subtype ===
+          "get_context_usage",
+      ),
+    ).toHaveLength(1);
+    respondToControl(request?.request_id, { totalTokens: 100, maxTokens: 200 });
+    expect(await inspection).toMatchObject({
+      source: "claude",
+      totalTokens: 100,
+    });
+  });
+  it("returns null on timeout", async () => {
+    await idle();
+    vi.useFakeTimers();
+    const inspection = inspectClaudeContext("s1");
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await inspection).toBeNull();
+  });
+  it("returns null on cancellation and ignores late replies", async () => {
+    await idle();
+    const controller = new AbortController();
+    const inspection = inspectClaudeContext("s1", controller.signal);
+    const request = outgoingControlRequest("get_context_usage");
+    controller.abort();
+    expect(await inspection).toBeNull();
+    respondToControl(request?.request_id, { totalTokens: 100, maxTokens: 200 });
+  });
+  it("rejects responses from a stopped process", async () => {
+    await idle();
+    const inspection = inspectClaudeContext("s1");
+    const request = outgoingControlRequest("get_context_usage");
+    respondToControl(request?.request_id, { totalTokens: 100, maxTokens: 200 });
+    await stopClaudeSession("s1");
+    expect(await inspection).toBeNull();
+  });
+  it.each(["error", "invalid"])(
+    "returns null for %s responses",
+    async (kind) => {
+      await idle();
+      const inspection = inspectClaudeContext("s1");
+      const request = outgoingControlRequest("get_context_usage");
+      if (kind === "error")
+        emit({
+          type: "control_response",
+          response: {
+            subtype: "error",
+            request_id: request?.request_id,
+            error: "unavailable",
+          },
+        });
+      else respondToControl(request?.request_id, { totalTokens: "bad" });
+      expect(await inspection).toBeNull();
+    },
+  );
+  it("emits stale on confirmed compaction", async () => {
+    const started = await idle();
+    emit({
+      type: "system",
+      subtype: "compact_boundary",
+      compact_metadata: { trigger: "auto", pre_tokens: 100 },
+    });
+    expect(started.events).toContainEqual({ type: "context.stale" });
   });
 });

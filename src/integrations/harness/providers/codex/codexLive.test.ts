@@ -136,6 +136,16 @@ describe("codex live turn sequence", () => {
     __codexTestReset();
   });
 
+  it("marks context stale for parent compaction, ignoring child compaction", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    notify("thread/compacted", { threadId: "child" });
+    expect(events).not.toContainEqual({ type: "context.stale" });
+    notify("thread/compacted", { threadId: "thr_1" });
+    expect(events).toContainEqual({ type: "context.stale" });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
   it("reports when the provider accepts a turn", async () => {
     const onAccepted = vi.fn();
     const { turn } = await startTurn("codex-live", { onAccepted });

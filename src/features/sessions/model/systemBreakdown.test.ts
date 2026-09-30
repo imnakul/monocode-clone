@@ -3,7 +3,7 @@ import {
   computeSystemAndToolsBreakdown,
   parseClaudeJsonMcpServers,
   parseCodexConfigToml,
-  getMcpWeight,
+  estimateSystemBase,
   loadSystemAndToolsConfig,
   CLAUDE_BUILTIN_TOOLS,
   CODEX_BUILTIN_TOOLS,
@@ -86,63 +86,19 @@ enabled = false
     ]);
   });
 
-  it("applies higher weights to dense MCP servers like playwright and lower to simple ones", () => {
-    expect(getMcpWeight("playwright")).toBeGreaterThan(getMcpWeight("tabularis"));
-    expect(getMcpWeight("notion")).toBeGreaterThan(getMcpWeight("random-mcp"));
-  });
-
-  it("accurately distributes measured 79,000 tokens among Claude base, tools, rules, and MCP servers", () => {
-    const result = computeSystemAndToolsBreakdown({
-      totalTokens: 79000,
-      harness: "claude",
-      globalRules: [
-        { name: "~/.claude/CLAUDE.md", tokens: 2550, path: "C:/Users/test/.claude/CLAUDE.md" },
-      ],
-      mcpServers: [
-        { name: "playwright" },
-        { name: "screenpipe" },
-        { name: "tabularis" },
-        { name: "second-brain" },
-      ],
-      environmentTokens: 1000,
-    });
-
-    expect(result.totalTokens).toBe(79000);
-    expect(result.baseInstructions).toBe(3500);
-    expect(result.environment).toBe(1000);
-    expect(result.globalRulesTotal).toBe(2550);
+  it("keeps extension names without allocating the history residual", () => {
+    const result = computeSystemAndToolsBreakdown({ totalTokens: 79_000, harness: "claude", mcpServers: [{ name: "playwright" }, { name: "screenpipe" }, { name: "tabularis" }], plugins: [{ name: "plugin" }] });
+    expect(result.mcpServers.map((server) => server.name)).toEqual(["playwright", "screenpipe", "tabularis"]);
+    expect(result.mcpServers.every((server) => server.tokens === undefined)).toBe(true);
+    expect(result.plugins[0].tokens).toBeUndefined();
+    expect(result).not.toHaveProperty("overhead");
     expect(result.builtinTools).toEqual(CLAUDE_BUILTIN_TOOLS);
-    expect(result.builtinToolsTotal).toBeGreaterThan(7000);
-
-    // Playwright with weight 3.5 should have more tokens than tabularis
-    const playwright = result.mcpServers.find((s) => s.name === "playwright");
-    const tabularis = result.mcpServers.find((s) => s.name === "tabularis");
-    expect(playwright).toBeDefined();
-    expect(tabularis).toBeDefined();
-    expect(playwright!.tokens).toBeGreaterThan(tabularis!.tokens);
-
-    // Verify sum of all parts equals totalTokens
-    const totalAccounted =
-      result.baseInstructions +
-      result.environment +
-      result.globalRulesTotal +
-      result.builtinToolsTotal +
-      result.mcpServersTotal +
-      result.pluginsTotal +
-      result.overhead;
-
-    expect(totalAccounted).toBe(79000);
   });
-
-  it("handles empty MCP servers gracefully", () => {
-    const result = computeSystemAndToolsBreakdown({
-      totalTokens: 20000,
-      harness: "claude",
-    });
-
-    expect(result.mcpServers).toHaveLength(0);
-    expect(result.mcpServersTotal).toBe(0);
-    expect(result.overhead).toBeGreaterThan(0);
+  it("uses the existing fixed bases for Claude and Codex", () => {
+    expect(estimateSystemBase("claude")).toBe(13_010);
+    expect(estimateSystemBase("codex")).toBe(7_800);
+    expect(estimateSystemBase("codex", [{ name: "rules", tokens: 123 }])).toBe(7923);
+    expect(computeSystemAndToolsBreakdown({ totalTokens: 1, harness: "codex" }).builtinTools).toEqual(CODEX_BUILTIN_TOOLS);
   });
 
   it("loads Claude config including global rules and MCP servers from disk mock", async () => {

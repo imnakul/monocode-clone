@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  contextFreshness,
   contextPercent,
   contextRatio,
   contextTooltip,
@@ -117,5 +118,55 @@ describe("dropContextWindow", () => {
 
   it("leaves the ring hidden until the next turn re-reports", () => {
     expect(contextRatio(dropContextWindow({ used: 30_000, window: 200_000 }))).toBeNull();
+  });
+});
+
+describe("context freshness", () => {
+  const blocks = [
+    {
+      id: "user-1",
+      role: "user",
+      text: "hello",
+    } satisfies import("./session").Block,
+  ];
+  it("distinguishes unknown, busy, restored, compacted and current readings", () => {
+    expect(contextFreshness(undefined, blocks)).toBe("unknown");
+    expect(contextFreshness({ used: 0 }, blocks, true)).toBe("unknown");
+    expect(contextFreshness({ used: 100 }, blocks, true)).toBe("updating");
+    expect(contextFreshness({ used: 100 }, blocks)).toBe("stale");
+    expect(
+      contextFreshness(
+        { used: 100, measuredAtUserBlockId: "user-1", stale: true },
+        blocks,
+      ),
+    ).toBe("stale");
+    expect(
+      contextFreshness({ used: 100, measuredAtUserBlockId: "user-1" }, blocks),
+    ).toBe("current");
+    expect(
+      contextFreshness({ used: 100, measuredAtUserBlockId: "user-1" }, [
+        ...blocks,
+        { id: "user-2", role: "user", text: "next" },
+      ]),
+    ).toBe("stale");
+    expect(
+      contextFreshness({ used: 100, measuredAtUserBlockId: "user-1" }, [
+        ...blocks,
+        { id: "draft", role: "user", text: "draft", draft: true },
+      ]),
+    ).toBe("current");
+  });
+  it("preserves freshness metadata while merging partial reports", () => {
+    expect(
+      mergeContextUsage(
+        { used: 100, measuredAtUserBlockId: "user-1", stale: true },
+        { window: 200 },
+      ),
+    ).toEqual({
+      used: 100,
+      window: 200,
+      measuredAtUserBlockId: "user-1",
+      stale: true,
+    });
   });
 });

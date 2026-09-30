@@ -1,3 +1,5 @@
+import type { Block } from "./session";
+
 /**
  * How much of the model context window the session is currently occupying.
  *
@@ -11,6 +13,8 @@ export type ContextUsage = {
   used: number;
   /** Context window for the active model, when the harness reports one. */
   window?: number;
+  measuredAtUserBlockId?: string;
+  stale?: boolean;
 };
 
 /** Fraction of the window in use, or null when the window is unknown. */
@@ -63,11 +67,11 @@ export function contextTooltip(usage: ContextUsage): {
  */
 export function mergeContextUsage(
   previous: ContextUsage | undefined,
-  next: { used?: number; window?: number },
+  next: Partial<ContextUsage>,
 ): ContextUsage {
   const used = next.used ?? previous?.used ?? 0;
   const window = next.window ?? previous?.window;
-  return window ? { used, window } : { used };
+  return { ...previous, ...next, used, ...(window ? { window } : {}) };
 }
 
 /**
@@ -82,4 +86,26 @@ export function dropContextWindow(
 ): ContextUsage | undefined {
   if (!usage) return undefined;
   return { used: usage.used };
+}
+
+/** Freshness follows the latest submitted user block; restored readings lack its identity. */
+export function contextFreshness(
+  usage: ContextUsage | undefined,
+  blocks: Block[] = [],
+  busy = false,
+): "unknown" | "updating" | "stale" | "current" {
+  if (!usage || !Number.isFinite(usage.used) || usage.used <= 0)
+    return "unknown";
+  if (busy) return "updating";
+  const latest = blocks
+    .slice()
+    .reverse()
+    .find((block) => block.role === "user" && !block.draft);
+  if (
+    usage.stale ||
+    usage.measuredAtUserBlockId === undefined ||
+    usage.measuredAtUserBlockId !== latest?.id
+  )
+    return "stale";
+  return "current";
 }

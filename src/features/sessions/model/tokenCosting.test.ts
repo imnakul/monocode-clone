@@ -3,6 +3,7 @@ import {
   calculateUsageCost,
   computeContextBreakdown,
   estimateTokens,
+  estimateBlocksTokens,
   formatCurrency,
   resolveModelPricing,
 } from "./tokenCosting";
@@ -84,6 +85,7 @@ describe("tokenCosting", () => {
       harness: "claude",
     });
 
+    if (breakdown.state !== "known") throw new Error("expected known context");
     expect(breakdown.windowTokens).toBe(200_000);
     expect(breakdown.usedTokens).toBe(72_300);
     expect(breakdown.percentUsed).toBe(36);
@@ -91,15 +93,71 @@ describe("tokenCosting", () => {
     expect(breakdown.skillsTotal).toBe(3_000);
     expect(breakdown.messagesTokens).toBe(8);
 
-    // systemAndTools = 72,300 - (3700 + 3000 + 8) = 65,592
-    expect(breakdown.systemAndTools).toBe(65_592);
+    // Fixed system estimate leaves unexplained history in its own segment.
+    expect(breakdown.systemAndTools).toBe(13_010);
     expect(breakdown.autocompactBufferTokens).toBe(33_000);
     expect(breakdown.freeSpaceTokens).toBe(
       200_000 - 72_300 - 33_000,
     );
-    expect(breakdown.segments.length).toBe(6);
+    expect(breakdown.segments.length).toBe(7);
     expect(
       breakdown.segments.find((s) => s.id === "skills")?.colorClass,
     ).toBe("bg-emerald-400");
+  });
+});
+
+describe("context attribution", () => {
+  it("counts tool output, including the repository's preview representation", () => {
+    expect(
+      estimateBlocksTokens([
+        { id: "tool", role: "tool", text: "", output: "x".repeat(38_000) },
+      ]),
+    ).toBe(10_000);
+    expect(
+      estimateBlocksTokens([
+        {
+          id: "tool",
+          role: "tool",
+          text: "",
+          tool: { detail: "x".repeat(38_000) },
+        },
+      ]),
+    ).toBe(10_000);
+  });
+  it.each([40_000, 150_000])(
+    "attributes in order and sums used segments with message estimate %i",
+    (messagesTokens) => {
+      const result = computeContextBreakdown({
+        usedTokens: messagesTokens === 40_000 ? 120_000 : 60_000,
+        messagesTokens,
+        harness: "claude",
+        memoryFiles: [{ name: "memory", tokens: 5000 }],
+        skills: [{ name: "skill", tokens: 3000 }],
+      });
+      if (result.state !== "known") throw new Error("expected known");
+      expect(result.systemAndTools).toBe(13_010);
+      expect(result.memoryFilesTotal).toBe(5000);
+      expect(result.skillsTotal).toBe(3000);
+      expect(result.messagesTokens).toBe(
+        messagesTokens === 40_000 ? 40_000 : 38_990,
+      );
+      expect(result.unclassified).toBe(messagesTokens === 40_000 ? 58_990 : 0);
+      expect(
+        result.segments
+          .filter((segment) => !["free", "autocompact"].includes(segment.id))
+          .reduce((sum, segment) => sum + segment.tokens, 0),
+      ).toBe(result.usedTokens);
+      expect(
+        result.segments.every((segment) => segment.source === "estimated"),
+      ).toBe(true);
+    },
+  );
+  it("returns unknown without a provider level", () => {
+    expect(
+      computeContextBreakdown({
+        usedTokens: undefined,
+        messagesTokens: 50_000,
+      }),
+    ).toEqual({ state: "unknown" });
   });
 });

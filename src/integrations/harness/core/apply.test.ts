@@ -710,14 +710,14 @@ describe("applyHarnessEvent context", () => {
       window: 200_000,
     });
     session = applyHarnessEvent(session, { type: "context", used: 55_000 });
-    expect(session.context).toEqual({ used: 55_000, window: 200_000 });
+    expect(session.context).toEqual({ used: 55_000, window: 200_000, measuredAtUserBlockId: undefined, stale: false });
   });
 
   it("keeps the level when only a window arrives", () => {
     let session = newSession("claude", "/repo");
     session = applyHarnessEvent(session, { type: "context", used: 12_000 });
     session = applyHarnessEvent(session, { type: "context", window: 400_000 });
-    expect(session.context).toEqual({ used: 12_000, window: 400_000 });
+    expect(session.context).toEqual({ used: 12_000, window: 400_000, measuredAtUserBlockId: undefined, stale: false });
   });
 
   it("leaves blocks alone", () => {
@@ -1078,5 +1078,38 @@ describe("subagent steps", () => {
 
     expect(session.blocks[0].tool?.status).toBe("completed");
     expect(session.blocks[0].agentRun?.steps).toHaveLength(1);
+  });
+});
+
+describe("context reading freshness", () => {
+  it("marks provider readings current and invalidates on compaction", () => {
+    const session = appendUser(newSession("claude", "/repo"), "hello");
+    const reading = applyHarnessEvent(session, {
+      type: "context",
+      used: 100,
+      window: 200,
+    });
+    expect(reading.context?.measuredAtUserBlockId).toBe(session.blocks[0].id);
+    expect(reading.context?.stale).toBe(false);
+    const compacted = applyHarnessEvent(reading, { type: "context.stale" });
+    expect(compacted.context?.stale).toBe(true);
+    expect(
+      applyHarnessEvent(compacted, { type: "context", used: 50 }).context
+        ?.stale,
+    ).toBe(false);
+    expect(applyHarnessEvent(session, { type: "context.stale" })).toBe(session);
+  });
+  it("ignores drafts when associating a reading with a user turn", () => {
+    const session = appendUser(newSession("claude", "/repo"), "hello");
+    session.blocks.push({
+      id: "draft",
+      role: "user",
+      text: "draft",
+      draft: true,
+    });
+    expect(
+      applyHarnessEvent(session, { type: "context", used: 100 }).context
+        ?.measuredAtUserBlockId,
+    ).toBe(session.blocks[0].id);
   });
 });

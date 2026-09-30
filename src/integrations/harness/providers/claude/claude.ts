@@ -1,3 +1,5 @@
+import { parseClaudeContextUsage } from "./claudeProtocol";
+import type { NativeContextBreakdown } from "../../../../features/sessions/model/contextBreakdown";
 import { nativeModelId } from "../../../../features/sessions/model/models";
 import { sameProviderAccountId } from "../../../../features/providers/model/providerAccounts";
 import type { RuntimeMode } from "../../../../features/sessions/model/session";
@@ -769,6 +771,7 @@ function handleLine(sessionId: string, live: Live, line: string): void {
     if (text) {
       if ((stringField(rec, "subtype") ?? "").startsWith("compact")) {
         live.compactionConfirmed = true;
+        live.onEvent({ type: "context.stale" });
       }
       live.onEvent({ type: "status", text });
     }
@@ -1865,4 +1868,23 @@ export function __claudeTestReset(): void {
   cancelledThreads.clear();
   nextClaudeGeneration = 0;
   nextClaudeControlId = 0;
+}
+
+/** Inspects only an existing idle process; transport owns cancellation and timeout. */
+export async function inspectClaudeContext(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<NativeContextBreakdown | null> {
+  try {
+    const { payload, generation } = await requestClaudeControl(
+      sessionId,
+      { subtype: "get_context_usage", detail: "summary" },
+      { timeoutMs: 5000, requireIdle: true, signal },
+    );
+    if (liveByThread.get(sessionId)?.generation !== generation) return null;
+    return parseClaudeContextUsage(payload);
+  } catch (error: unknown) {
+    if (error instanceof ClaudeControlError) return null;
+    throw error;
+  }
 }

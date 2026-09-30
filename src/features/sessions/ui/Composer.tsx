@@ -1917,6 +1917,7 @@ export function Composer({
               )}
               <div className="ml-auto flex shrink-0 items-center">
                 <ContextMeter
+                  sessionId={sessionId}
                   usage={context}
                   turnUsage={turnUsage}
                   sessionUsage={sessionUsage}

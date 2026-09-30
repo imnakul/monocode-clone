@@ -134,6 +134,7 @@ export type HarnessEvent =
       streaming?: boolean;
     }
   /** Context-window level after the harness's latest request. */
+  | { type: "context.stale" }
   | { type: "context"; used?: number; window?: number }
   /** Processed token usage for this turn and/or session thread. */
   | {

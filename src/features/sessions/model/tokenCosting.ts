@@ -1,3 +1,4 @@
+import { estimateSystemBase, type SystemBreakdownRule } from "./systemBreakdown";
 import type { Block, HarnessId } from "./session";
 import type { ProcessedUsage } from "./tokenAccounting";
 
@@ -167,9 +168,14 @@ export function estimateTokens(text: string): number {
 /**
  * Estimates tokens occupied by conversation transcript blocks.
  */
-export function estimateBlocksTokens(blocks: Block[]): number {
+export function estimateBlocksTokens(
+  blocks: (Block & { output?: string })[],
+): number {
   let totalChars = 0;
   for (const block of blocks) {
+    const output =
+      block.output ?? block.tool?.preview?.output ?? block.tool?.detail;
+    if (typeof output === "string") totalChars += output.length;
     if (block.text) {
       totalChars += block.text.length;
     }
@@ -189,9 +195,11 @@ export type ContextSegment = {
   tokens: number;
   percent: number;
   colorClass: string;
+  source: "estimated" | "reported";
 };
 
 export type ContextWindowBreakdown = {
+  state: "known";
   usedTokens: number;
   windowTokens: number;
   ratio: number;
@@ -202,40 +210,52 @@ export type ContextWindowBreakdown = {
   skills: ContextBreakdownItem[];
   skillsTotal: number;
   messagesTokens: number;
+  unclassified: number;
   autocompactBufferTokens: number;
   freeSpaceTokens: number;
   segments: ContextSegment[];
 };
 
 export function computeContextBreakdown(params: {
-  usedTokens: number;
+  usedTokens: number | undefined;
+  globalRules?: SystemBreakdownRule[];
   windowTokens?: number;
   memoryFiles?: ContextBreakdownItem[];
   skills?: ContextBreakdownItem[];
   messagesTokens?: number;
   harness?: HarnessId | string;
-}): ContextWindowBreakdown {
+}): ContextWindowBreakdown | { state: "unknown" } {
+  if (
+    params.usedTokens === undefined ||
+    !Number.isFinite(params.usedTokens) ||
+    params.usedTokens <= 0
+  )
+    return { state: "unknown" };
   const windowTokens =
     params.windowTokens && params.windowTokens > 0
       ? params.windowTokens
       : 200_000;
   const usedTokens = Math.max(0, params.usedTokens);
 
-  const memoryFiles = params.memoryFiles ?? [];
-  const memoryFilesTotal = memoryFiles.reduce(
-    (acc, cur) => acc + cur.tokens,
-    0,
+  let remaining = usedTokens;
+  const attribute = (estimate: number): number => {
+    const tokens = Math.min(Math.max(0, estimate), remaining);
+    remaining -= tokens;
+    return tokens;
+  };
+  const systemAndTools = attribute(
+    estimateSystemBase(params.harness, params.globalRules),
   );
-
+  const memoryFiles = params.memoryFiles ?? [];
+  const memoryFilesTotal = attribute(
+    memoryFiles.reduce((sum, file) => sum + file.tokens, 0),
+  );
   const skills = params.skills ?? [];
-  const skillsTotal = skills.reduce((acc, cur) => acc + cur.tokens, 0);
-
-  const messagesTokens = Math.max(0, params.messagesTokens ?? 0);
-
-  // System prompt + tools is what remains from usedTokens after subtracting
-  // memory files, skills, and conversation messages.
-  const staticNonSystem = memoryFilesTotal + skillsTotal + messagesTokens;
-  const systemAndTools = Math.max(0, usedTokens - staticNonSystem);
+  const skillsTotal = attribute(
+    skills.reduce((sum, skill) => sum + skill.tokens, 0),
+  );
+  const messagesTokens = attribute(params.messagesTokens ?? 0);
+  const unclassified = remaining;
 
   // Autocompact buffer: Claude auto-compacts around 83% of 200k (leaving ~33k buffer);
   // for general models, reserve ~15% headroom.
@@ -258,6 +278,7 @@ export function computeContextBreakdown(params: {
       label: "System & tools",
       tokens: systemAndTools,
       percent: (systemAndTools / safeWindow) * 100,
+      source: "estimated",
       colorClass: "bg-sky-400",
     },
     {
@@ -265,6 +286,7 @@ export function computeContextBreakdown(params: {
       label: "Memory files",
       tokens: memoryFilesTotal,
       percent: (memoryFilesTotal / safeWindow) * 100,
+      source: "estimated",
       colorClass: "bg-amber-500",
     },
     {
@@ -272,6 +294,7 @@ export function computeContextBreakdown(params: {
       label: "Skills",
       tokens: skillsTotal,
       percent: (skillsTotal / safeWindow) * 100,
+      source: "estimated",
       colorClass: "bg-emerald-400",
     },
     {
@@ -279,13 +302,23 @@ export function computeContextBreakdown(params: {
       label: "Messages",
       tokens: messagesTokens,
       percent: (messagesTokens / safeWindow) * 100,
+      source: "estimated",
       colorClass: "bg-rose-400",
+    },
+    {
+      id: "unclassified",
+      label: "Unclassified history",
+      tokens: unclassified,
+      percent: (unclassified / safeWindow) * 100,
+      source: "estimated",
+      colorClass: "bg-violet-400",
     },
     {
       id: "autocompact",
       label: "Autocompact buffer",
       tokens: autocompactBufferTokens,
       percent: (autocompactBufferTokens / safeWindow) * 100,
+      source: "estimated",
       colorClass: "bg-content/20",
     },
     {
@@ -293,11 +326,14 @@ export function computeContextBreakdown(params: {
       label: "Free space",
       tokens: freeSpaceTokens,
       percent: (freeSpaceTokens / safeWindow) * 100,
+      source: "estimated",
       colorClass: "bg-content/5",
     },
   ];
 
   return {
+    state: "known",
+    unclassified,
     usedTokens,
     windowTokens,
     ratio,
