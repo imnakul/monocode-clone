@@ -106,33 +106,42 @@ export function parseCodexConfigToml(tomlContent: string): {
   mcpServers: { name: string; command?: string; url?: string }[];
   plugins: { name: string }[];
 } {
-  const mcpServers: { name: string; command?: string; url?: string }[] = [];
-  const plugins: { name: string }[] = [];
+  const mcpEnabled = new Map<string, boolean>();
+  const pluginEnabled = new Map<string, boolean>();
+  let currentSection: { kind: "mcp_servers" | "plugins"; name: string } | null = null;
+  const sectionPattern =
+    /^\s*\[(mcp_servers|plugins)\.(?:"([^"]+)"|'([^']+)'|([a-zA-Z0-9_-]+))\]\s*(?:#.*)?$/;
+  const enabledPattern = /^\s*enabled\s*=\s*(true|false)\s*(?:#.*)?$/;
 
-  // Match [mcp_servers."name"] or [mcp_servers.name]
-  const mcpRegex = /\[mcp_servers\.["']?([^"'\s\]]+)["']?\]/g;
-  let match: RegExpExecArray | null;
-  const seenMcp = new Set<string>();
-  while ((match = mcpRegex.exec(tomlContent)) !== null) {
-    const name = match[1];
-    if (name && !seenMcp.has(name) && !name.includes(".")) {
-      seenMcp.add(name);
-      mcpServers.push({ name });
+  for (const line of tomlContent.split(/\r?\n/)) {
+    if (line.trimStart().startsWith("[")) {
+      currentSection = null;
+      const section = sectionPattern.exec(line);
+      if (!section) continue;
+      const kind = section[1];
+      const name = section[2] ?? section[3] ?? section[4];
+      if ((kind !== "mcp_servers" && kind !== "plugins") || !name) continue;
+      currentSection = { kind, name };
+      const entries = kind === "mcp_servers" ? mcpEnabled : pluginEnabled;
+      if (!entries.has(name)) entries.set(name, true);
+      continue;
     }
+
+    if (!currentSection) continue;
+    const enabled = enabledPattern.exec(line);
+    if (!enabled) continue;
+    const entries = currentSection.kind === "mcp_servers" ? mcpEnabled : pluginEnabled;
+    entries.set(currentSection.name, enabled[1] === "true");
   }
 
-  // Match [plugins."name"] or [plugins.name]
-  const pluginRegex = /\[plugins\.["']?([^"'\s\]]+)["']?\]/g;
-  const seenPlugins = new Set<string>();
-  while ((match = pluginRegex.exec(tomlContent)) !== null) {
-    const name = match[1];
-    if (name && !seenPlugins.has(name)) {
-      seenPlugins.add(name);
-      plugins.push({ name });
-    }
-  }
-
-  return { mcpServers, plugins };
+  return {
+    mcpServers: [...mcpEnabled]
+      .filter(([, enabled]) => enabled)
+      .map(([name]) => ({ name })),
+    plugins: [...pluginEnabled]
+      .filter(([, enabled]) => enabled)
+      .map(([name]) => ({ name })),
+  };
 }
 
 export function computeSystemAndToolsBreakdown(params: {

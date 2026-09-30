@@ -6640,6 +6640,7 @@ export default function App({
               text,
               attachments: turnAttachments,
               ...(editedResend ? { onAccepted: acceptEditedResend } : {}),
+              humanAuthored: !options?.managed,
               onEvent: routeTurnEvent,
             });
           await sendTurn(

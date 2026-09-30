@@ -184,6 +184,16 @@ describe("buildClaudeUserMessage", () => {
       },
     });
   });
+
+  it("marks only user-typed turns with a human origin", () => {
+    expect(
+      buildClaudeUserMessage({ text: "hi", humanAuthored: true }).origin,
+    ).toEqual({ kind: "human" });
+    expect(buildClaudeUserMessage({ text: "hi" })).not.toHaveProperty("origin");
+    expect(
+      buildClaudeUserMessage({ text: "hi", humanAuthored: false }),
+    ).not.toHaveProperty("origin");
+  });
 });
 
 describe("control protocol", () => {

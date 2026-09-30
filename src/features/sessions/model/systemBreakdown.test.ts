@@ -54,6 +54,38 @@ command = "npx"
     expect(mcpServers.map((s) => s.name)).toContain("clickup");
   });
 
+  it("excludes disabled Codex MCP servers and plugins from the context estimate", () => {
+    const toml = `
+[mcp_servers.active]
+command = "active-server"
+
+[mcp_servers.disabled]
+enabled = false
+command = "disabled-server"
+
+[mcp_servers."quoted.name"]
+enabled = true
+
+[mcp_servers.active.env]
+enabled = false
+
+[plugins."active@marketplace"]
+enabled = true
+
+[plugins."disabled@marketplace"]
+enabled = false
+`;
+
+    const { mcpServers, plugins } = parseCodexConfigToml(toml);
+    expect(mcpServers.map((server) => server.name)).toEqual([
+      "active",
+      "quoted.name",
+    ]);
+    expect(plugins.map((plugin) => plugin.name)).toEqual([
+      "active@marketplace",
+    ]);
+  });
+
   it("applies higher weights to dense MCP servers like playwright and lower to simple ones", () => {
     expect(getMcpWeight("playwright")).toBeGreaterThan(getMcpWeight("tabularis"));
     expect(getMcpWeight("notion")).toBeGreaterThan(getMcpWeight("random-mcp"));

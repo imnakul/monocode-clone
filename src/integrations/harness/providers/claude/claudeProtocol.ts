@@ -181,10 +181,17 @@ export function parseJsonLine(line: string): Record<string, unknown> | null {
   }
 }
 
+/**
+ * `humanAuthored` marks a message the user typed. Claude Code reads the
+ * top-level `origin: { kind: "human" }` on stdin messages and reports the turn
+ * as `cc_turn_origin=human` instead of `sdk` in its billing attribution.
+ * Leave it off for app-generated turns so the label stays truthful.
+ */
 export function buildClaudeUserMessage(input: {
   text: string;
   attachments?: Attachment[];
   effort?: string | null;
+  humanAuthored?: boolean;
 }): Record<string, unknown> {
   const text = applyClaudePromptEffortPrefix(input.text.trim(), input.effort);
   const content: Array<Record<string, unknown>> = [];
@@ -205,6 +212,7 @@ export function buildClaudeUserMessage(input: {
       role: "user",
       content,
     },
+    ...(input.humanAuthored ? { origin: { kind: "human" } } : {}),
   };
 }
 

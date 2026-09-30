@@ -482,6 +482,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     text: input.text,
     attachments: input.attachments,
     effort,
+    humanAuthored: input.humanAuthored,
   });
   const content = (message.message as { content: unknown[] }).content;
   if (content.length === 0) return;

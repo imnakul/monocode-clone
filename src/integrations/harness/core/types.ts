@@ -152,6 +152,8 @@ export type SendTurnInput = HarnessSessionInput & {
   attachments?: Attachment[];
   /** Called once the provider has accepted the user turn. */
   onAccepted?: () => void;
+  /** The user typed this turn (not an app-generated or orchestration turn). */
+  humanAuthored?: boolean;
 };
 
 export type CompactContextInput = HarnessSessionInput;

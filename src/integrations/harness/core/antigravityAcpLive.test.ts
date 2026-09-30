@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HarnessEvent, SendTurnInput } from "./types";
 import { asRecord } from "./clineProtocol";
+import { orchestrationPlanningPrompt } from "../../../features/orchestration/model/orchestrationPlan";
 
 const boundary = vi.hoisted(() => ({
   stdout: (_line: string): void => {},
@@ -130,6 +131,84 @@ describe("official Antigravity ACP child boundary", (): void => {
     const p3 = await request("session/prompt"); reply(p3.id, { stopReason: "end_turn" }); await third;
     expect(boundary.writes.some((m) => m.method === "session/new" || m.method === "session/load")).toBe(false);
   });
+  it.each(
+    [
+      { kind: "chat", content: "text", lifecycle: "fresh" },
+      { kind: "chat", content: "image", lifecycle: "fresh" },
+      { kind: "chat", content: "text", lifecycle: "reused" },
+      { kind: "chat", content: "image", lifecycle: "reused" },
+      { kind: "planning", content: "text", lifecycle: "fresh" },
+      { kind: "planning", content: "image", lifecycle: "fresh" },
+      { kind: "planning", content: "text", lifecycle: "reused" },
+      { kind: "planning", content: "image", lifecycle: "reused" },
+    ] as const,
+  )(
+    "serializes $kind $content prompts in a $lifecycle ACP session",
+    async ({ kind, content, lifecycle }): Promise<void> => {
+      const planningText = orchestrationPlanningPrompt(
+        "Summarize this test image and draft the work breakdown.",
+        { choices: [], maxWorkers: 2 },
+        "/workspace",
+      );
+      const intent = kind === "planning" ? ("plan" as const) : undefined;
+      const text =
+        kind === "planning"
+          ? planningText
+          : content === "image"
+            ? "What does this generated test image show?"
+            : "Hello from a text-only chat.";
+      // Deterministic 64x48 sky, sun and ground PNG generated for the ACP
+      // attachment comparison; its decoded size is 255 bytes.
+      const imageData =
+        "iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAYAAAChS3wfAAAAxklEQVR4nO3SwRmCMBAF4TRkETZAC/ZiQRZjFdTgRSoAQswyrJnDXMPb/6M8XvN35Ao9gE4AegCdAPQAurQAn/d9tb8G2Dq8BSIVwJHjaxEEoI+KPL4GQQD6MAEEEEAAAQIR9t4UgD4qEqHmvXQANRBH3kkL0CsB6AF0AtAD6ASgB9AJQA+gE4D8+O05NZUaoPXoKIzTAHof3gujRP1aZx39K0Tp8cgVjm4FWQUYJQHoAXQC0APoBKAH0AlAD6ATgB5ANzzAAgSxGTE4bBrwAAAAAElFTkSuQmCC";
+      const attachments =
+        content === "image"
+          ? [
+              {
+                id: "test-image",
+                name: "ordinary-generated-test.png",
+                kind: "image" as const,
+                mimeType: "image/png",
+                size: 255,
+                data: imageData,
+              },
+            ]
+          : [];
+
+      if (lifecycle === "reused") {
+        const warmup = agy.sendAntigravityTurn({
+          ...input,
+          ...(intent ? { intent } : {}),
+          text: "Start a provider session with a harmless text prompt.",
+        });
+        await openSession();
+        const warmupPrompt = await request("session/prompt");
+        reply(warmupPrompt.id, { stopReason: "end_turn" });
+        await warmup;
+      }
+
+      const turn = agy.sendAntigravityTurn({
+        ...input,
+        ...(intent ? { intent } : {}),
+        text,
+        attachments,
+      });
+      if (lifecycle === "fresh") await openSession();
+      const prompt = await request(
+        "session/prompt",
+        lifecycle === "fresh" ? 1 : 2,
+      );
+      expect(asRecord(prompt.params)?.prompt).toEqual([
+        { type: "text", text },
+        ...(content === "image"
+          ? [{ type: "image", data: imageData, mimeType: "image/png" }]
+          : []),
+      ]);
+      reply(prompt.id, { stopReason: "end_turn" });
+      await turn;
+      expect(boundary.spawn).toHaveBeenCalledTimes(1);
+    },
+  );
   it("answers a deny decision with the reject-kind option instead of trusting ID spelling", async (): Promise<void> => {
     const turn = agy.sendAntigravityTurn(input); await openSession(); const prompt = await request("session/prompt");
     boundary.stdout(JSON.stringify({ id: "deny-native", method: "session/request_permission", params: { sessionId: "S1", toolCall: { toolCallId: "cmd2", title: "Run?", kind: "execute" }, options: [{ optionId: "opaque-yes", kind: "allow_once", name: "Allow" }, { optionId: "opaque-no", kind: "reject_once", name: "Deny" }] } }));
