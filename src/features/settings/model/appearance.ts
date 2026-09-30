@@ -1546,11 +1546,12 @@ export function saveProjectRailOpen(value: boolean) {
   writeFlag(PROJECT_RAIL_OPEN_KEY, value);
 }
 
-export type AppMode = "projects" | "chat";
+export type AppMode = "projects" | "chat" | "hari";
 
 export function loadAppMode(): AppMode {
   try {
-    return localStorage.getItem(APP_MODE_KEY) === "chat" ? "chat" : "projects";
+    const saved = localStorage.getItem(APP_MODE_KEY);
+    return saved === "chat" || saved === "hari" ? saved : "projects";
   } catch {
     return "projects";
   }

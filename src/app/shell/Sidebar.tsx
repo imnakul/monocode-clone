@@ -131,6 +131,7 @@ import { FileTree } from "../../features/files/ui/FileTree";
 import { HarnessIcon } from "../../features/sessions/ui/HarnessIcon";
 import { LiveAgentsPreview } from "../../features/sessions/ui/LiveAgentsPreview";
 import { ProjectRail } from "./ProjectRail";
+import { HariModeAction } from "./HariModeAction";
 import { InboxNotificationMenu } from "../../features/inbox/ui/InboxNotificationMenu";
 import { RailAction } from "./RailAction";
 import { TerminalSpinner } from "../../features/sessions/ui/TerminalSpinner";
@@ -1922,6 +1923,8 @@ function SidebarComponent({
           onTogglePanel={onToggleProjectRail}
           onLeaveActive={onGoBack}
           titleBarAbove={titleBarAbove}
+          mode={mode}
+          onModeChange={onModeChange}
         />
       ) : null}
       {railVisible && onSelectProject && onOpenProject ? (
@@ -1963,7 +1966,11 @@ function SidebarComponent({
           onModeChange={onModeChange}
         />
       ) : null}
-      {(mode === "chat" ? chatVisible : sidebarVisible)
+      {(mode === "hari"
+        ? false
+        : mode === "chat"
+          ? chatVisible
+          : sidebarVisible)
         ? sidebarContent
         : null}
     </div>
@@ -2118,6 +2125,8 @@ function CompactProjectRail({
   onTogglePanel,
   onLeaveActive,
   titleBarAbove,
+  mode,
+  onModeChange,
 }: {
   cwd: string;
   recents: RecentProject[];
@@ -2143,6 +2152,8 @@ function CompactProjectRail({
   onTogglePanel?: () => void;
   onLeaveActive?: () => void;
   titleBarAbove: boolean;
+  mode: AppMode;
+  onModeChange?: (mode: AppMode) => void;
 }) {
   const [inboxMenu, setInboxMenu] = useState<{ x: number; y: number } | null>(
     null,
@@ -2198,6 +2209,13 @@ function CompactProjectRail({
             onOpenProject={onOpenProject}
           />
         ) : null}
+        <HariModeAction
+          compact
+          active={mode === "hari"}
+          onClick={() =>
+            onModeChange?.(mode === "hari" ? "projects" : "hari")
+          }
+        />
         <div
           role="tablist"
           aria-label="Workspace"

@@ -88,6 +88,7 @@ import { ProjectLogoIcon } from "../../features/projects/ui/ProjectLogoIcon";
 import { ProjectBackgroundDialog } from "../../features/projects/ui/ProjectBackgroundDialog";
 import { ProjectMascot } from "../../features/projects/ui/ProjectMascot";
 import { RailAction, RailSearch } from "./RailAction";
+import { HariModeAction } from "./HariModeAction";
 import { RemoveProjectDialog } from "../../features/projects/ui/RemoveProjectDialog";
 import { DevModeSlot, TabVisitNav } from "./TitleBar";
 import { SidebarUpdateFooter } from "./SidebarUpdate";
@@ -253,9 +254,7 @@ type Props = {
   onModeChange?: (mode: AppMode) => void;
 };
 
-/** Projects / Chat lens switcher. Hari enables when its surface lands.
- * Speaks the workspace tab row's visual language (same heights, type and
- * active fill) without its drag-reorder machinery — modes stay fixed. */
+/** Project navigation plus fixed destinations for Chat and Hari. */
 export function ProjectRail({
   cwd,
   recents,
@@ -290,8 +289,8 @@ export function ProjectRail({
   updateNotice = null,
   onOpenWhatsNew,
   onDismissUpdate,
-  mode: _mode = "projects",
-  onModeChange: _onModeChange,
+  mode = "projects",
+  onModeChange,
 }: Props) {
   const resize = useDragResize({
     min: PROJECT_RAIL_WIDTH_MIN,
@@ -711,6 +710,12 @@ export function ProjectRail({
               active={searchActive}
               shortcut={`${MOD}K`}
               ariaLabel={`Search (${MOD}K)`}
+            />
+            <HariModeAction
+              active={mode === "hari"}
+              onClick={() =>
+                onModeChange?.(mode === "hari" ? "projects" : "hari")
+              }
             />
             <div className="mt-0.5" />
             <RailAction

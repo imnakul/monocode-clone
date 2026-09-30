@@ -26,10 +26,17 @@ import {
   releaseOrchestrationWorker,
 } from "../features/orchestration/model/orchestrationWorkspace";
 import {
+  projectHariBoard,
+  selectHariLead,
+  type HariBoardTask,
+  type HariLeadCandidate,
+} from "../features/orchestration/model/hari";
+import {
   OrchestrationActions,
   OrchestrationWorkers,
   type OrchestrationWorkerDetail,
 } from "../features/orchestration/ui/OrchestrationActions";
+import { HariView } from "../features/orchestration/ui/HariView";
 import { flushSync } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -343,6 +350,7 @@ import {
   sessionNeedsInput,
   newDefaultSession,
   newSession,
+  newSessionLike,
   removeSessionDraft,
   sessionDisplayTitle,
   sessionDraftBlock,
@@ -888,6 +896,21 @@ export default function App({
   );
   const [projectRailOpen, setProjectRailOpen] = useState(loadProjectRailOpen);
   const [mode, setMode] = useState<AppMode>(loadAppMode);
+  const [hariSelectedLeads, setHariSelectedLeads] = useState<
+    ReadonlyMap<string, string>
+  >(() => new Map());
+  const hariSelectedLeadsRef = useRef(hariSelectedLeads);
+  hariSelectedLeadsRef.current = hariSelectedLeads;
+  const hariDraftSessions = useRef(new Map<string, Session>());
+  const hariSubmissionLocks = useRef(new Set<string>());
+  const hariLeadLoadRequests = useRef(new Set<string>());
+  const [hariDraftRevision, setHariDraftRevision] = useState(0);
+  const [hariLoadingLeads, setHariLoadingLeads] = useState<
+    ReadonlyMap<string, string>
+  >(() => new Map());
+  const [hariOpenError, setHariOpenError] = useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  );
   const [creatingChat, setCreatingChat] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [sessionSidebarOpen, setSessionSidebarOpen] = useState(
@@ -8487,6 +8510,76 @@ export default function App({
       ),
     [history, projectBranches, sessions, sidebarCwd, orchestrationRuns],
   );
+  const hariLeadCandidates = useMemo(() => {
+    const candidates = new Map<string, HariLeadCandidate>();
+    for (const summary of sidebarHistory) {
+      if (!summary.orchestration) continue;
+      candidates.set(summary.id, {
+        id: summary.id,
+        cwd: summary.cwd,
+        title: summary.title,
+        updatedAt: summary.updatedAt,
+        orchestration: summary.orchestration,
+      });
+    }
+    for (const session of sessions) {
+      if (session.orchestrationLeadId) continue;
+      const current = candidates.get(session.id);
+      const historyRow = sidebarHistory.find((row) => row.id === session.id);
+      const hasProposal = session.blocks.some((block) => block.orchestration);
+      const isPendingGoal =
+        !hasProposal &&
+        hariSelectedLeadsRef.current.get(pathKey(session.cwd)) === session.id &&
+        session.blocks.some(
+          (block) => block.role === "user" && !block.draft,
+        );
+      if (!hasProposal && !isPendingGoal) continue;
+      candidates.set(session.id, {
+        ...current,
+        id: session.id,
+        cwd: session.cwd,
+        title: session.title,
+        updatedAt: historyRow?.updatedAt ?? current?.updatedAt ?? 0,
+        ...(hasProposal ? { hasProposal: true } : { isPendingGoal: true }),
+        ...(historyRow?.orchestration
+          ? { orchestration: historyRow.orchestration }
+          : current?.orchestration
+            ? { orchestration: current.orchestration }
+            : {}),
+      });
+    }
+    for (const draft of hariDraftSessions.current.values()) {
+      const persistedCandidate = candidates.get(draft.id);
+      if (persistedCandidate && !persistedCandidate.isPendingGoal) continue;
+      candidates.set(draft.id, {
+        id: draft.id,
+        cwd: draft.cwd,
+        title: "New goal",
+        updatedAt: 0,
+        isDraft: true,
+      });
+    }
+    return [...candidates.values()];
+  }, [hariDraftRevision, hariSelectedLeads, sessions, sidebarHistory]);
+  const hariBoard = useMemo(
+    () =>
+      projectHariBoard(
+        sidebarCwd,
+        sidebarHistory.flatMap((summary) =>
+          summary.orchestration
+            ? [
+                {
+                  leadId: summary.id,
+                  cwd: summary.cwd,
+                  summary: summary.orchestration,
+                },
+              ]
+            : [],
+        ),
+        sessions,
+      ),
+    [sessions, sidebarCwd, sidebarHistory],
+  );
   const {
     unseen: inboxUnseen,
     linkedSessionUpdateIds,
@@ -8546,10 +8639,311 @@ export default function App({
     [projectBranches, sessions, sidebarCwd],
   );
 
-  const onModeChange = useCallback((next: AppMode) => {
-    setMode(next);
-    saveAppMode(next);
+  const rememberHariLead = useCallback((cwd: string, leadId: string) => {
+    const key = pathKey(cwd);
+    const current = hariSelectedLeadsRef.current;
+    if (current.get(key) === leadId) return;
+    const next = new Map(current);
+    next.set(key, leadId);
+    hariSelectedLeadsRef.current = next;
+    setHariSelectedLeads(next);
   }, []);
+
+  const createHariDraft = useCallback(
+    (cwd: string, seed?: Session): Session => {
+      const key = pathKey(cwd);
+      const existing = hariDraftSessions.current.get(key);
+      if (existing) return existing;
+      const source =
+        seed ??
+        (active && sameProjectPath(active.cwd, cwd) ? active : undefined) ??
+        sessionsRef.current.find(
+          (session) =>
+            !session.inboxAsk &&
+            !session.orchestrationLeadId &&
+            sameProjectPath(session.cwd, cwd),
+        );
+      const draft = newSessionLike(source, cwd);
+      hariDraftSessions.current.set(key, draft);
+      setHariDraftRevision((revision) => revision + 1);
+      return draft;
+    },
+    [active],
+  );
+
+  const openHariLead = useCallback(
+    (cwd: string, leadId: string) => {
+      if (
+        !sameProjectPath(sidebarCwdRef.current, cwd) ||
+        hariSelectedLeadsRef.current.get(pathKey(cwd)) !== leadId ||
+        sessionsRef.current.some((session) => session.id === leadId)
+      ) {
+        return;
+      }
+      const requestKey = `${pathKey(cwd)}:${leadId}`;
+      if (hariLeadLoadRequests.current.has(requestKey)) return;
+      hariLeadLoadRequests.current.add(requestKey);
+      setHariOpenError((current) => {
+        if (!current.has(pathKey(cwd))) return current;
+        const next = new Map(current);
+        next.delete(pathKey(cwd));
+        return next;
+      });
+      setHariLoadingLeads((current) => {
+        const next = new Map(current);
+        next.set(pathKey(cwd), leadId);
+        return next;
+      });
+      void ensureOpenSession(leadId)
+        .then((session) => {
+          if (
+            !session &&
+            sameProjectPath(sidebarCwdRef.current, cwd) &&
+            hariSelectedLeadsRef.current.get(pathKey(cwd)) === leadId
+          ) {
+            setHariOpenError((current) =>
+              new Map(current).set(
+                pathKey(cwd),
+                "This Hari conversation could not be opened.",
+              ),
+            );
+          }
+        })
+        .catch(() => {
+          if (
+            sameProjectPath(sidebarCwdRef.current, cwd) &&
+            hariSelectedLeadsRef.current.get(pathKey(cwd)) === leadId
+          ) {
+            setHariOpenError((current) =>
+              new Map(current).set(
+                pathKey(cwd),
+                "This Hari conversation could not be opened.",
+              ),
+            );
+          }
+        })
+        .finally(() => {
+          hariLeadLoadRequests.current.delete(requestKey);
+          setHariLoadingLeads((current) => {
+            if (current.get(pathKey(cwd)) !== leadId) return current;
+            const next = new Map(current);
+            next.delete(pathKey(cwd));
+            return next;
+          });
+        });
+    },
+    [ensureOpenSession],
+  );
+
+  const ensureHariLeadForProject = useCallback(
+    (cwd: string) => {
+      if (!looksLikeProject(cwd)) return;
+      const key = pathKey(cwd);
+      const selectedId = selectHariLead(
+        cwd,
+        hariLeadCandidates,
+        hariSelectedLeadsRef.current.get(key),
+      );
+      if (selectedId) {
+        rememberHariLead(cwd, selectedId);
+        const candidate = hariLeadCandidates.find(
+          (entry) => entry.id === selectedId,
+        );
+        if (!candidate?.isDraft) openHariLead(cwd, selectedId);
+        return;
+      }
+      const draft = createHariDraft(cwd);
+      rememberHariLead(cwd, draft.id);
+    },
+    [createHariDraft, hariLeadCandidates, openHariLead, rememberHariLead],
+  );
+
+  const onModeChange = useCallback(
+    (next: AppMode) => {
+      if (next === "hari") ensureHariLeadForProject(sidebarCwdRef.current);
+      setMode(next);
+      saveAppMode(next);
+    },
+    [ensureHariLeadForProject],
+  );
+
+  useEffect(() => {
+    if (mode === "hari") ensureHariLeadForProject(sidebarCwd);
+  }, [ensureHariLeadForProject, mode, sidebarCwd]);
+
+  const onSelectHariLead = useCallback(
+    (leadId: string) => {
+      const cwd = sidebarCwdRef.current;
+      if (!looksLikeProject(cwd)) return;
+      const candidate = hariLeadCandidates.find(
+        (entry) =>
+          entry.id === leadId && sameProjectPath(entry.cwd, cwd),
+      );
+      if (!candidate) return;
+      rememberHariLead(cwd, leadId);
+      setHariOpenError((current) => {
+        if (!current.has(pathKey(cwd))) return current;
+        const next = new Map(current);
+        next.delete(pathKey(cwd));
+        return next;
+      });
+      if (!candidate.isDraft) openHariLead(cwd, leadId);
+    },
+    [hariLeadCandidates, openHariLead, rememberHariLead],
+  );
+
+  const onNewHariGoal = useCallback(() => {
+    const cwd = sidebarCwdRef.current;
+    if (!looksLikeProject(cwd)) return;
+    const selectedId = hariSelectedLeadsRef.current.get(pathKey(cwd));
+    const selectedSession = selectedId
+      ? sessionsRef.current.find((session) => session.id === selectedId)
+      : undefined;
+    const selectedCandidate = selectedId
+      ? hariLeadCandidates.find((candidate) => candidate.id === selectedId)
+      : undefined;
+    if (
+      selectedSession &&
+      (selectedCandidate?.orchestration?.status === "finished" ||
+        selectedCandidate?.orchestration?.status === "stopped")
+    ) {
+      const draft = createHariDraft(cwd, selectedSession);
+      rememberHariLead(cwd, draft.id);
+    } else {
+      ensureHariLeadForProject(cwd);
+    }
+    setHariOpenError((current) => {
+      if (!current.has(pathKey(cwd))) return current;
+      const next = new Map(current);
+      next.delete(pathKey(cwd));
+      return next;
+    });
+  }, [
+    createHariDraft,
+    ensureHariLeadForProject,
+    hariLeadCandidates,
+    rememberHariLead,
+  ]);
+
+  const onHariSubmit = useCallback(
+    (
+      sessionId: string,
+      text: string,
+      attachments: Attachment[] = [],
+      options?: ComposerTurnOptions,
+    ) => {
+      const cwd = sidebarCwdRef.current;
+      if (!looksLikeProject(cwd)) return false;
+      const key = pathKey(cwd);
+      const selectedId = hariSelectedLeadsRef.current.get(key);
+      const isSelected = selectedId === sessionId;
+      const draftEntry = [...hariDraftSessions.current.entries()].find(
+        ([, draft]) => draft.id === sessionId,
+      );
+      let target =
+        sessionsRef.current.find((session) => session.id === sessionId) ??
+        draftEntry?.[1];
+      if (!target || !sameProjectPath(target.cwd, cwd)) return false;
+
+      const candidate = hariLeadCandidates.find(
+        (entry) => entry.id === sessionId && sameProjectPath(entry.cwd, cwd),
+      );
+      const runStatus = candidate?.orchestration?.status;
+      const hasClosedRun = runStatus === "finished" || runStatus === "stopped";
+      let isFirstGoal = !!draftEntry;
+      if (hasClosedRun && !draftEntry) {
+        target = createHariDraft(cwd, target);
+        rememberHariLead(cwd, target.id);
+        isFirstGoal = true;
+      }
+      if (!isSelected && !hasClosedRun) return false;
+
+      const proposalStarting = target.blocks.some(
+        (block) =>
+          block.orchestration?.status === "planning" ||
+          block.orchestration?.status === "starting",
+      );
+      if (proposalStarting) return false;
+
+      if (!isFirstGoal) {
+        return onSubmit(sessionId, text, attachments, options);
+      }
+
+      if (hariSubmissionLocks.current.has(key)) return false;
+      hariSubmissionLocks.current.add(key);
+      const previousSessions = sessionsRef.current;
+      const wasStored = previousSessions.some(
+        (session) => session.id === target.id,
+      );
+      if (!wasStored) {
+        const nextSessions = [...previousSessions, target];
+        sessionsRef.current = nextSessions;
+        setSessions(nextSessions);
+      }
+      try {
+        const accepted = onSubmit(target.id, text, attachments, {
+          ...options,
+          intent: "orchestrate",
+        });
+        if (accepted === false) {
+          if (!wasStored) {
+            const nextSessions = sessionsRef.current.filter(
+              (session) => session.id !== target.id,
+            );
+            sessionsRef.current = nextSessions;
+            setSessions(nextSessions);
+          }
+          hariDraftSessions.current.set(key, target);
+          setHariDraftRevision((revision) => revision + 1);
+          setHariOpenError((current) =>
+            new Map(current).set(
+              key,
+              "Hari could not accept that goal. Your draft is still here.",
+            ),
+          );
+          return false;
+        }
+        hariDraftSessions.current.delete(key);
+        setHariDraftRevision((revision) => revision + 1);
+        rememberHariLead(cwd, target.id);
+        setHariOpenError((current) => {
+          if (!current.has(key)) return current;
+          const next = new Map(current);
+          next.delete(key);
+          return next;
+        });
+        return accepted;
+      } catch {
+        if (!wasStored) {
+          const nextSessions = sessionsRef.current.filter(
+            (session) => session.id !== target.id,
+          );
+          sessionsRef.current = nextSessions;
+          setSessions(nextSessions);
+        }
+        hariDraftSessions.current.set(key, target);
+        setHariDraftRevision((revision) => revision + 1);
+        setHariOpenError((current) =>
+          new Map(current).set(
+            key,
+            "Hari could not accept that goal. Your draft is still here.",
+          ),
+        );
+        return false;
+      } finally {
+        hariSubmissionLocks.current.delete(key);
+      }
+    },
+    [createHariDraft, hariLeadCandidates, onSubmit, rememberHariLead],
+  );
+
+  const onOpenHariTask = useCallback(
+    (task: HariBoardTask) => {
+      onModeChange("projects");
+      onOpenWorkerDetails(task);
+    },
+    [onModeChange, onOpenWorkerDetails],
+  );
 
   const chatSessions = useMemo(
     () => scratchChatSummaries(scratchHistory, sessions),
@@ -9363,6 +9757,43 @@ export default function App({
     );
   }, [currentProjectDock, dockVisible]);
 
+  const hariProjectCwd = looksLikeProject(sidebarCwd) ? sidebarCwd : undefined;
+  const selectedHariLeadId = hariProjectCwd
+    ? selectHariLead(
+        hariProjectCwd,
+        hariLeadCandidates,
+        hariSelectedLeads.get(pathKey(hariProjectCwd)),
+      )
+    : undefined;
+  const selectedHariCandidate = selectedHariLeadId
+    ? hariLeadCandidates.find((candidate) => candidate.id === selectedHariLeadId)
+    : undefined;
+  const selectedHariSession = selectedHariLeadId
+    ? (sessions.find((session) => session.id === selectedHariLeadId) ??
+      (hariProjectCwd
+        ? hariDraftSessions.current.get(pathKey(hariProjectCwd))
+        : undefined))
+    : undefined;
+  const hariLeads = hariProjectCwd
+    ? hariLeadCandidates
+        .filter((candidate) => sameProjectPath(candidate.cwd, hariProjectCwd))
+        .map((candidate) => ({
+          id: candidate.id,
+          title: candidate.isDraft
+            ? "New goal"
+            : candidate.title ?? "Hari conversation",
+          status: candidate.orchestration?.status,
+        }))
+    : [];
+  const selectedHariIsLoading =
+    !!hariProjectCwd &&
+    !!selectedHariLeadId &&
+    !selectedHariSession &&
+    hariLoadingLeads.get(pathKey(hariProjectCwd)) === selectedHariLeadId;
+  const hariProposalReady = !!selectedHariSession?.blocks.some(
+    (block) => block.orchestration?.status === "ready",
+  );
+
   const sessionPaneProps = {
     recents,
     hideProjectPicker: true,
@@ -9634,6 +10065,8 @@ export default function App({
                   <div
                     ref={dockGridRef}
                     className="grid h-full min-h-0 min-w-0 flex-1"
+                    aria-hidden={mode === "hari"}
+                    inert={mode === "hari" ? true : undefined}
                   >
                     {projectTerminals.map((dock) => {
                       const show =
@@ -9687,7 +10120,9 @@ export default function App({
                               <PaneTree
                                 {...sessionPaneProps}
                                 visible={
-                                  tab.id === activeTabId && !inboxViewOpen
+                                  tab.id === activeTabId &&
+                                  !inboxViewOpen &&
+                                  mode !== "hari"
                                 }
                                 layout={tab.layout}
                                 sessions={sessions}
@@ -9700,6 +10135,7 @@ export default function App({
                                 focusedId={
                                   tab.id === activeTabId &&
                                   !inboxViewOpen &&
+                                  mode !== "hari" &&
                                   !tab.diffFocused &&
                                   !projectTerminalFocused
                                     ? tab.focusedId
@@ -9711,7 +10147,9 @@ export default function App({
                                     : undefined
                                 }
                                 composerFocused={
-                                  composerFocused && !projectTerminalFocused
+                                  composerFocused &&
+                                  !projectTerminalFocused &&
+                                  mode !== "hari"
                                 }
                                 composerFocusToken={composerFocusToken}
                                 onSelectFile={onSelectFileSurface}
@@ -9737,12 +10175,13 @@ export default function App({
                     </div>
                   </div>
                   {[...linkedWorkItemPanels.values()].map((panel) => (
-                    <LinkedWorkItemPanel
+                  <LinkedWorkItemPanel
                       key={panel.sessionId}
                       target={panel.item}
                       cwd={panel.cwd}
                       recents={recents}
                       visible={
+                        mode !== "hari" &&
                         !searchViewOpen &&
                         !settingsOpen &&
                         !inboxViewOpen &&
@@ -9753,6 +10192,30 @@ export default function App({
                       onClose={() => closeLinkedWorkItemPanel(panel.sessionId)}
                     />
                   ))}
+                  {mode === "hari" ? (
+                    <HariView
+                      projectCwd={hariProjectCwd}
+                      leads={hariLeads}
+                      selectedLeadId={selectedHariLeadId}
+                      session={selectedHariSession}
+                      sessionPaneProps={sessionPaneProps}
+                      sessionSummary={selectedHariCandidate?.orchestration}
+                      board={hariBoard}
+                      loading={selectedHariIsLoading}
+                      error={
+                        hariProjectCwd
+                          ? hariOpenError.get(pathKey(hariProjectCwd))
+                          : undefined
+                      }
+                      isFirstGoal={!!selectedHariCandidate?.isDraft}
+                      proposalReady={hariProposalReady}
+                      onSubmit={onHariSubmit}
+                      onNewGoal={onNewHariGoal}
+                      onSelectLead={onSelectHariLead}
+                      onClose={() => onModeChange("projects")}
+                      onOpenTask={onOpenHariTask}
+                    />
+                  ) : null}
                 </main>
               </div>
               {searchViewOpen ? (

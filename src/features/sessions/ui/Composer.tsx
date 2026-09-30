@@ -178,6 +178,8 @@ type Props = {
   hideProjectPicker?: boolean;
   hideBranchPicker?: boolean;
   hideTopBar?: boolean;
+  forcedIntent?: "orchestrate";
+  placeholder?: string;
   context?: ContextUsage;
   turnUsage?: ProcessedUsage;
   sessionUsage?: ProcessedUsage;
@@ -503,6 +505,8 @@ export function Composer({
   hideProjectPicker = false,
   hideBranchPicker = false,
   hideTopBar = false,
+  forcedIntent,
+  placeholder,
   context,
   turnUsage,
   sessionUsage,
@@ -1381,11 +1385,12 @@ export function Composer({
     onDraftChange?.("");
     const accepted = onSubmit(text, files, {
       intent:
-        planSelected || command.planning
+        forcedIntent ??
+        (planSelected || command.planning
           ? "plan"
           : orchestrationSelected
             ? "orchestrate"
-            : "default",
+            : "default"),
       followUpBehavior: options?.followUpBehavior,
       ...(resendEdited
         ? {
@@ -1971,7 +1976,7 @@ export function Composer({
               rows={1}
               spellCheck={false}
               defaultValue={initialDraft}
-              placeholder={
+              placeholder={placeholder ?? (
                 worktreeRemoved
                   ? "Select a branch or worktree to continue…"
                   : inboxCard
@@ -1983,7 +1988,7 @@ export function Composer({
                         : shell
                           ? "Ask, build, / for commands, @ for references... "
                           : "Ask, build, / for commands, @ for references... "
-              }
+              )}
               className={`composer-field scrollbar-none relative max-h-40 w-full resize-none overflow-x-hidden whitespace-pre-wrap wrap-break-word bg-transparent px-3 text-sm leading-5.5 outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap font-sans ${
                 shell ? "py-4" : "py-3"
               }`}
@@ -2054,32 +2059,34 @@ export function Composer({
                       </span>
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    data-shared-hover-item
-                    aria-pressed={planSelected}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setPlanSelected((selected) => !selected);
-                      setOrchestrationSelected(false);
-                      setDraftSelected(false);
-                      setPlusOpen(false);
-                      ref.current?.focus();
-                    }}
-                    className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
-                  >
-                    <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13px]">Plan mode</span>
-                      <span className="block truncate whitespace-nowrap text-[11px] leading-4 text-content/45">
-                        Review a plan before building
+                  {!forcedIntent ? (
+                    <button
+                      type="button"
+                      data-shared-hover-item
+                      aria-pressed={planSelected}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setPlanSelected((selected) => !selected);
+                        setOrchestrationSelected(false);
+                        setDraftSelected(false);
+                        setPlusOpen(false);
+                        ref.current?.focus();
+                      }}
+                      className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
+                    >
+                      <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px]">Plan mode</span>
+                        <span className="block truncate whitespace-nowrap text-[11px] leading-4 text-content/45">
+                          Review a plan before building
+                        </span>
                       </span>
-                    </span>
-                    {planSelected ? (
-                      <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
-                    ) : null}
-                  </button>
-                  {!hideTopBar && (
+                      {planSelected ? (
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
+                      ) : null}
+                    </button>
+                  ) : null}
+                  {!forcedIntent && !hideTopBar && (
                     <button
                       type="button"
                       aria-pressed={orchestrationSelected}
@@ -2139,7 +2146,7 @@ export function Composer({
                 </Popover>
               ) : null}
             </div>
-            {orchestrationSelected && (
+            {!forcedIntent && orchestrationSelected && (
               <button
                 type="button"
                 title="Turn off Orchestrator mode"
@@ -2156,7 +2163,7 @@ export function Composer({
                 <X className="size-3" />
               </button>
             )}
-            {planSelected ? (
+            {!forcedIntent && planSelected ? (
               <button
                 type="button"
                 title="Turn off Plan mode"

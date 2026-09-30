@@ -228,6 +228,40 @@ describe("Composer question focus", () => {
     expect(textarea.value).toBe("");
   });
 
+  it("uses Hari's typed orchestration intent for a first goal", async () => {
+    const onSubmit = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          focused: true,
+          harness: "claude",
+          model: "claude-sonnet",
+          runtimeMode: "supervised",
+          executionCwd: "/repo",
+          hideProjectPicker: true,
+          hideBranchPicker: true,
+          forcedIntent: "orchestrate",
+          initialDraft: "Add a focused orchestration board",
+          onFocus: vi.fn(),
+          onCwdChange: vi.fn(),
+          onModelChange: vi.fn(),
+          onRuntimeModeChange: vi.fn(),
+          onSubmit,
+        }),
+      ),
+    );
+
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('[aria-label="Send"]')!.click(),
+    );
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      "Add a focused orchestration board",
+      [],
+      { intent: "orchestrate" },
+    );
+  });
+
   it("restores the draft when submit is rejected", async () => {
     let parentDraft = "Blocked while orchestration is paused";
     const onDraftChange = vi.fn((text: string) => {

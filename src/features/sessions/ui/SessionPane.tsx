@@ -103,6 +103,8 @@ type Props = {
   addToChatTarget?: boolean;
   inSplit: boolean;
   composerFocused: boolean;
+  composerIntent?: "orchestrate";
+  composerPlaceholder?: string;
   composerFocusToken?: number;
   recents: RecentProject[];
   hideProjectPicker?: boolean;
@@ -204,6 +206,8 @@ export const SessionPane = memo(function SessionPane({
   addToChatTarget = focused,
   inSplit,
   composerFocused,
+  composerIntent,
+  composerPlaceholder,
   composerFocusToken,
   recents,
   hideProjectPicker,
@@ -472,6 +476,8 @@ export const SessionPane = memo(function SessionPane({
       focused={focused && composerFocused}
       focusToken={composerFocusToken}
       hotkeys={focused}
+      forcedIntent={composerIntent}
+      placeholder={composerPlaceholder}
       shell={!dockComposer}
       harness={session.harness}
       model={session.model}

@@ -28,6 +28,8 @@ import {
   saveThemePreference,
   resolveColorScheme,
   THEME_PREFERENCE_DEFAULT,
+  loadAppMode,
+  saveAppMode,
   loadUiFont,
   saveUiFont,
   UI_FONT_DEFAULT,
@@ -473,5 +475,28 @@ describe("dark theme lightness setting", () => {
     expect(loadThemeDarkLightness()).toBe(0);
     saveThemeDarkLightness(100);
     expect(loadThemeDarkLightness()).toBe(30);
+  });
+});
+
+describe("app mode setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem("monocode.appMode");
+  });
+
+  it("loads Hari while keeping projects as the fallback for unknown values", () => {
+    localStorage.setItem("monocode.appMode", "hari");
+    expect(loadAppMode()).toBe("hari");
+
+    localStorage.setItem("monocode.appMode", "unknown");
+    expect(loadAppMode()).toBe("projects");
+  });
+
+  it("continues to persist the existing Projects and Chat values", () => {
+    for (const mode of ["projects", "chat", "hari"] as const) {
+      saveAppMode(mode);
+      expect(localStorage.getItem("monocode.appMode")).toBe(mode);
+      expect(loadAppMode()).toBe(mode);
+    }
   });
 });

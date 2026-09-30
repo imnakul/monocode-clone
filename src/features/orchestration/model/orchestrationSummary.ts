@@ -11,6 +11,8 @@ export type OrchestrationSummary = {
     harness: HarnessId;
     model: string;
     status: TaskStatus;
+    accepted?: boolean;
+    delivered?: boolean;
     needsInput?: boolean;
   }[];
 };
@@ -23,15 +25,19 @@ export function summarizeOrchestration(
   return {
     status: run.status,
     live: true,
-    tasks: run.tasks.map(({ sessionId, title, harness, model, status }) => ({
-      sessionId,
-      title,
-      harness,
-      model,
-      status,
-      needsInput:
-        !!byId.get(sessionId) && sessionNeedsInput(byId.get(sessionId)!),
-    })),
+    tasks: run.tasks.map(
+      ({ sessionId, title, harness, model, status, accepted, delivered }) => ({
+        sessionId,
+        title,
+        harness,
+        model,
+        status,
+        accepted,
+        delivered,
+        needsInput:
+          !!byId.get(sessionId) && sessionNeedsInput(byId.get(sessionId)!),
+      }),
+    ),
   };
 }
 
