@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { RuntimeMode } from "../../../../features/sessions/model/session";
 import {
   modelsForClaudeVersion,
   modelsFromClaudeListModels,
@@ -7,7 +8,10 @@ import {
   applyClaudePromptEffortPrefix,
   askUserQuestionAllowInput,
   buildClaudeSpawnArgs,
+  buildSetModelRequest,
+  buildSetPermissionModeRequest,
   buildClaudeUserMessage,
+  claudeLiveKey,
   claudeSessionRules,
   contextFromResult,
   contextUsedFromAssistant,
@@ -26,6 +30,7 @@ import {
   parseTaskStarted,
   parseTaskUpdated,
   parseToolProgress,
+  planClaudeLiveSwitch,
   taskListFromTodos,
   resolveClaudeApiModelId,
   runtimeModeToPermission,
@@ -39,6 +44,110 @@ import {
   turnStatusFromResult,
   turnMetricsFromResult,
 } from "./claudeProtocol";
+
+function liveKey(options: {
+  model?: string;
+  effort?: string;
+  fast?: string;
+  thinking?: string;
+  context?: string;
+  runtimeMode?: RuntimeMode;
+  intent?: "chat" | "plan";
+  providerAccountId?: string;
+  hooks?: boolean;
+} = {}) {
+  return claudeLiveKey(
+    {
+      model: options.model ?? "claude:claude-sonnet-4-6",
+      modelSettings: {
+        ...(options.effort === undefined ? {} : { effort: options.effort }),
+        ...(options.fast === undefined ? {} : { fast: options.fast }),
+        ...(options.thinking === undefined
+          ? {}
+          : { thinking: options.thinking }),
+        ...(options.context === undefined ? {} : { context: options.context }),
+      },
+      runtimeMode: options.runtimeMode ?? "supervised",
+      intent: options.intent,
+      providerAccountId: options.providerAccountId,
+    },
+    options.hooks ?? true,
+  );
+}
+
+describe("planClaudeLiveSwitch", () => {
+  it("sends permission mode before the model when both can change live", () => {
+    expect(
+      planClaudeLiveSwitch(liveKey(), liveKey({
+        model: "claude:claude-opus-4-7",
+        runtimeMode: "auto-accept-edits",
+      })),
+    ).toEqual({
+      kind: "switch",
+      steps: [
+        { type: "set_permission_mode", mode: "acceptEdits" },
+        { type: "set_model", model: "claude-opus-4-7" },
+      ],
+    });
+  });
+
+  it("uses plan permission for plan intent and restarts around full access", () => {
+    expect(
+      planClaudeLiveSwitch(liveKey(), liveKey({ intent: "plan" })),
+    ).toEqual({
+      kind: "switch",
+      steps: [{ type: "set_permission_mode", mode: "plan" }],
+    });
+    expect(
+      planClaudeLiveSwitch(
+        liveKey(),
+        liveKey({ runtimeMode: "full-access" }),
+      ),
+    ).toMatchObject({ kind: "restart" });
+    expect(
+      planClaudeLiveSwitch(
+        liveKey({ runtimeMode: "full-access" }),
+        liveKey(),
+      ),
+    ).toMatchObject({ kind: "restart" });
+  });
+
+  it.each([
+    ["account", liveKey({ providerAccountId: "other-account" })],
+    ["hooks", liveKey({ hooks: false })],
+    ["context", liveKey({ context: "1m" })],
+    ["thinking", liveKey({ thinking: "true" })],
+    ["fast", liveKey({ fast: "true" })],
+    ["normalized effort", liveKey({ effort: "low" })],
+  ])("restarts when %s changes", (_label, next) => {
+    expect(planClaudeLiveSwitch(liveKey({ effort: "high" }), next)).toMatchObject({
+      kind: "restart",
+    });
+  });
+
+  it("reuses Claude when raw effort changes without changing its CLI flags", () => {
+    expect(
+      planClaudeLiveSwitch(
+        liveKey({ model: "claude:claude-sonnet-4-6", effort: "high" }),
+        liveKey({ model: "claude:claude-sonnet-4-6", effort: "max" }),
+      ),
+    ).toEqual({ kind: "reuse" });
+    expect(
+      planClaudeLiveSwitch(liveKey(), liveKey({ effort: "ultrathink" })),
+    ).toEqual({ kind: "reuse" });
+  });
+
+  it("builds only the requested read-safe live control bodies", () => {
+    expect(buildSetPermissionModeRequest("plan")).toEqual({
+      subtype: "set_permission_mode",
+      mode: "plan",
+    });
+    expect(buildSetModelRequest("claude-opus-4-7[1m]")).toEqual({
+      subtype: "set_model",
+      model: "claude-opus-4-7[1m]",
+    });
+  });
+});
 
 describe("runtimeModeToPermission", () => {
   it("maps runtime modes onto Claude permission flags", () => {

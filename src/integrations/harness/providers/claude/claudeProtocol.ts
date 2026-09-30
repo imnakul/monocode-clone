@@ -19,7 +19,12 @@ import {
   titleFromToolInput,
 } from "../../core/preview";
 import { streamTextDelta } from "../../core/streamText";
-import type { ApprovalDecision, HarnessEvent } from "../../core/types";
+import { nativeModelId } from "../../../../features/sessions/model/models";
+import type {
+  ApprovalDecision,
+  HarnessEvent,
+  HarnessSessionInput,
+} from "../../core/types";
 
 /** Claude Code versions that first ship Opus 5.5 / Opus 5 / Sonnet 5 / Fable 5 / Opus 4.8 / 4.7. */
 export const MINIMUM_CLAUDE_OPUS_5_5_VERSION = "2.1.280";
@@ -40,6 +45,28 @@ export const SUPPORTED_CLAUDE_IMAGE_MIME_TYPES = new Set([
 
 export type ClaudePermissionMode =
   "default" | "plan" | "acceptEdits" | "auto" | "bypassPermissions";
+
+export type ClaudeLiveKey = {
+  account: string;
+  model: string;
+  cliEffort?: string;
+  ultracode: boolean;
+  fast?: string;
+  thinking?: string;
+  context?: string;
+  runtimeMode: RuntimeMode;
+  planning: boolean;
+  hooks: boolean;
+};
+
+export type ClaudeSwitchStep =
+  | { type: "set_model"; model: string }
+  | { type: "set_permission_mode"; mode: ClaudePermissionMode };
+
+export type ClaudeLiveSwitchPlan =
+  | { kind: "reuse" }
+  | { kind: "switch"; steps: ClaudeSwitchStep[] }
+  | { kind: "restart"; reason: string };
 
 export type ClaudeControlRequest = {
   requestId: string;
@@ -178,6 +205,105 @@ export function isClaudeUltracodeEffort(
   return effort === "ultracode";
 }
 
+export function claudeLiveKey(
+  input: Pick<
+    HarnessSessionInput,
+    "providerAccountId" | "model" | "modelSettings" | "runtimeMode" | "intent"
+  >,
+  hooks: boolean,
+): ClaudeLiveKey {
+  const model = nativeModelId(input.model);
+  const effort = input.modelSettings?.effort;
+  return {
+    account: input.providerAccountId ?? "default",
+    model,
+    cliEffort: normalizeClaudeCliEffort(effort, model),
+    ultracode: isClaudeUltracodeEffort(effort),
+    fast: input.modelSettings?.fast,
+    thinking: input.modelSettings?.thinking,
+    context: input.modelSettings?.context ?? undefined,
+    runtimeMode: input.runtimeMode,
+    planning: input.intent === "plan",
+    hooks,
+  };
+}
+
+function permissionModeForLiveKey(key: ClaudeLiveKey): ClaudePermissionMode {
+  return key.planning ? "plan" : runtimeModeToPermission(key.runtimeMode);
+}
+
+export function planClaudeLiveSwitch(
+  previous: ClaudeLiveKey,
+  next: ClaudeLiveKey,
+): ClaudeLiveSwitchPlan {
+  if (
+    previous.account === next.account &&
+    previous.model === next.model &&
+    previous.cliEffort === next.cliEffort &&
+    previous.ultracode === next.ultracode &&
+    previous.fast === next.fast &&
+    previous.thinking === next.thinking &&
+    previous.context === next.context &&
+    previous.runtimeMode === next.runtimeMode &&
+    previous.planning === next.planning &&
+    previous.hooks === next.hooks
+  ) {
+    return { kind: "reuse" };
+  }
+  if (previous.account !== next.account) {
+    return { kind: "restart", reason: "provider account changed" };
+  }
+  if (previous.hooks !== next.hooks) {
+    return { kind: "restart", reason: "Claude hooks setting changed" };
+  }
+  if (previous.context !== next.context) {
+    return { kind: "restart", reason: "Claude context setting changed" };
+  }
+  if (previous.thinking !== next.thinking) {
+    return { kind: "restart", reason: "Claude thinking setting changed" };
+  }
+  if (previous.fast !== next.fast) {
+    return { kind: "restart", reason: "Claude fast setting changed" };
+  }
+  if (
+    previous.cliEffort !== next.cliEffort ||
+    previous.ultracode !== next.ultracode
+  ) {
+    return { kind: "restart", reason: "Claude CLI effort changed" };
+  }
+  const previousPermission = permissionModeForLiveKey(previous);
+  const nextPermission = permissionModeForLiveKey(next);
+  if (
+    previousPermission !== nextPermission &&
+    (previousPermission === "bypassPermissions" ||
+      nextPermission === "bypassPermissions")
+  ) {
+    return { kind: "restart", reason: "full access requires a spawn flag" };
+  }
+  if (
+    previous.runtimeMode !== next.runtimeMode &&
+    (previous.runtimeMode === "full-access" ||
+      next.runtimeMode === "full-access")
+  ) {
+    return { kind: "restart", reason: "full access requires a spawn flag" };
+  }
+
+  const steps: ClaudeSwitchStep[] = [];
+  if (previousPermission !== nextPermission) {
+    steps.push({
+      type: "set_permission_mode",
+      mode: nextPermission,
+    });
+  }
+  if (previous.model !== next.model) {
+    steps.push({
+      type: "set_model",
+      model: resolveClaudeApiModelId(next.model, next.context),
+    });
+  }
+  return { kind: "switch", steps };
+}
+
 export function applyClaudePromptEffortPrefix(
   text: string,
   effort: string | null | undefined,
@@ -193,6 +319,16 @@ export function resolveClaudeApiModelId(
 ): string {
   if (context === "1m") return `${model}[1m]`;
   return model;
+}
+
+export function buildSetModelRequest(model: string): Record<string, unknown> {
+  return { subtype: "set_model", model };
+}
+
+export function buildSetPermissionModeRequest(
+  mode: ClaudePermissionMode,
+): Record<string, unknown> {
+  return { subtype: "set_permission_mode", mode };
 }
 
 export function parseJsonLine(line: string): Record<string, unknown> | null {

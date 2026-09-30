@@ -44,6 +44,34 @@ function parse() {
   return sent.map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
+function outgoingControlRequest(subtype: string) {
+  return parse().find((message) => {
+    const request = message.request as Record<string, unknown> | undefined;
+    return message.type === "control_request" && request?.subtype === subtype;
+  });
+}
+
+function respondToControl(
+  requestId: unknown,
+  response: Record<string, unknown> = {},
+): void {
+  emit({
+    type: "control_response",
+    response: { subtype: "success", request_id: requestId, response },
+  });
+}
+
+async function flushMicrotasksUntil(
+  predicate: () => boolean,
+  label: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    await Promise.resolve();
+    if (predicate()) return;
+  }
+  throw new Error(`timed out waiting for ${label}; sent=${JSON.stringify(parse())}`);
+}
+
 function emit(rec: Record<string, unknown>) {
   onLine!(JSON.stringify(rec));
 }
@@ -65,18 +93,22 @@ async function startTurn(
     intent?: TurnIntent;
     providerAccountId?: string;
     cwd?: string;
+    model?: string;
+    modelSettings?: Record<string, string>;
+    text?: string;
   } = {},
 ) {
   const events: HarnessEvent[] = [];
+  const userCount = parse().filter((message) => message.type === "user").length;
   const turn = sendClaudeTurn({
     sessionId,
     cwd: options.cwd ?? "/repo",
-    model: "claude:claude-sonnet-5",
-    modelSettings: {},
+    model: options.model ?? "claude:claude-sonnet-5",
+    modelSettings: options.modelSettings ?? {},
     runtimeMode: options.runtimeMode ?? "supervised",
     intent: options.intent,
     providerAccountId: options.providerAccountId,
-    text: "explore the codebase",
+    text: options.text ?? "explore the codebase",
     attachments: [],
     onEvent: (event) => events.push(event),
   });
@@ -89,12 +121,41 @@ async function startTurn(
       }),
     "initialize",
   );
+  const initialize = outgoingControlRequest("initialize");
   emit({ type: "system", subtype: "init", session_id: "sess_1" });
-  emit({
-    type: "control_response",
-    response: { subtype: "success", request_id: "monocode_1" },
+  respondToControl(initialize?.request_id);
+  await waitFor(
+    () => parse().filter((message) => message.type === "user").length > userCount,
+    "user prompt",
+  );
+  return { events, turn };
+}
+
+function sendFollowup(
+  sessionId: string,
+  options: {
+    runtimeMode?: RuntimeMode;
+    intent?: TurnIntent;
+    providerAccountId?: string;
+    cwd?: string;
+    model?: string;
+    modelSettings?: Record<string, string>;
+    text?: string;
+  } = {},
+) {
+  const events: HarnessEvent[] = [];
+  const turn = sendClaudeTurn({
+    sessionId,
+    cwd: options.cwd ?? "/repo",
+    model: options.model ?? "claude:claude-sonnet-5",
+    modelSettings: options.modelSettings ?? {},
+    runtimeMode: options.runtimeMode ?? "supervised",
+    intent: options.intent,
+    providerAccountId: options.providerAccountId,
+    text: options.text ?? "continue the conversation",
+    attachments: [],
+    onEvent: (event) => events.push(event),
   });
-  await waitFor(() => parse().some((m) => m.type === "user"), "user prompt");
   return { events, turn };
 }
 
@@ -108,14 +169,16 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   await stopClaudeSession("s1");
   __claudeTestReset();
 });
 
 describe("claude model switching", () => {
-  it("restarts a named account with the new model while resuming the provider conversation", async () => {
+  it("restarts for a non-live setting while resuming the provider conversation", async () => {
     const first = await startTurn("s1", {
       providerAccountId: "account-work",
+      modelSettings: { thinking: "true" },
     });
     emit({ type: "result", subtype: "success", session_id: "sess_1" });
     await first.turn;
@@ -154,6 +217,283 @@ describe("claude model switching", () => {
     );
     emit({ type: "result", subtype: "success", session_id: "sess_1" });
     await second;
+  });
+
+  it("waits for the matching model response before sending the next user message", async () => {
+    const first = await startTurn("s1");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await first.turn;
+    const userCount = parse().filter((message) => message.type === "user").length;
+
+    const second = sendFollowup("s1", { model: "claude:claude-opus-5" });
+    const requestMessage = outgoingControlRequest("set_model");
+    const request = requestMessage?.request as Record<string, unknown> | undefined;
+    expect(request).toEqual({ subtype: "set_model", model: "claude-opus-5" });
+    expect(requestMessage?.request_id).toMatch(/^monocode_\d+$/);
+    expect(spawned).toHaveLength(1);
+    expect(parse().filter((message) => message.type === "user")).toHaveLength(
+      userCount,
+    );
+
+    respondToControl("foreign_request", { ignored: true });
+    await Promise.resolve();
+    expect(parse().filter((message) => message.type === "user")).toHaveLength(
+      userCount,
+    );
+    respondToControl(requestMessage?.request_id, { model: "claude-opus-5" });
+    await waitFor(
+      () => parse().filter((message) => message.type === "user").length > userCount,
+      "user message after matching model response",
+    );
+    expect(spawned).toHaveLength(1);
+
+    emit({
+      type: "assistant",
+      session_id: "sess_1",
+      message: { model: "claude-opus-5", content: [{ type: "text", text: "ready" }] },
+    });
+    expect(second.events.some((event) => event.type === "status")).toBe(false);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await second.turn;
+  });
+
+  it("applies runtime permission and plan-mode changes live", async () => {
+    const first = await startTurn("s1");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await first.turn;
+
+    const autoEdits = sendFollowup("s1", { runtimeMode: "auto-accept-edits" });
+    const autoEditsRequest = outgoingControlRequest("set_permission_mode");
+    expect(autoEditsRequest?.request).toEqual({
+      subtype: "set_permission_mode",
+      mode: "acceptEdits",
+    });
+    respondToControl(autoEditsRequest?.request_id);
+    await waitFor(() => parse().filter((message) => message.type === "user").length === 2, "auto-edits message");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await autoEdits.turn;
+
+    const plan = sendFollowup("s1", {
+      runtimeMode: "auto-accept-edits",
+      intent: "plan",
+    });
+    const planRequest = parse().filter((message) => {
+      const request = message.request as Record<string, unknown> | undefined;
+      return request?.subtype === "set_permission_mode";
+    }).at(-1);
+    expect(planRequest?.request).toEqual({
+      subtype: "set_permission_mode",
+      mode: "plan",
+    });
+    respondToControl(planRequest?.request_id);
+    await waitFor(() => parse().filter((message) => message.type === "user").length === 3, "plan-mode message");
+    expect(spawned).toHaveLength(1);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await plan.turn;
+  });
+
+  it("reuses the child for ultrathink and keeps its prompt prefix", async () => {
+    const first = await startTurn("s1");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await first.turn;
+
+    const second = sendFollowup("s1", { modelSettings: { effort: "ultrathink" } });
+    await waitFor(() => parse().filter((message) => message.type === "user").length === 2, "ultrathink message");
+    const userMessage = parse().filter((message) => message.type === "user").at(-1);
+    expect(JSON.stringify(userMessage)).toContain("Ultrathink:\\ncontinue the conversation");
+    expect(outgoingControlRequest("set_model")).toBeUndefined();
+    expect(outgoingControlRequest("set_permission_mode")).toBeUndefined();
+    expect(spawned).toHaveLength(1);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await second.turn;
+  });
+
+  it("restarts when full access changes the required spawn flags", async () => {
+    const first = await startTurn("s1");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await first.turn;
+
+    const second = sendFollowup("s1", { runtimeMode: "full-access" });
+    await waitFor(() => spawned.length === 2, "full-access replacement process");
+    expect(outgoingControlRequest("set_permission_mode")).toBeUndefined();
+    expect(spawned[1]).toContain("--allow-dangerously-skip-permissions");
+    const initialize = parse().filter((message) => {
+      const request = message.request as Record<string, unknown> | undefined;
+      return request?.subtype === "initialize";
+    }).at(-1);
+    emit({ type: "system", subtype: "init", session_id: "sess_1" });
+    respondToControl(initialize?.request_id);
+    await waitFor(() => parse().filter((message) => message.type === "user").length === 2, "full-access message");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await second.turn;
+  });
+
+  it("restarts once when a live model control request returns an error", async () => {
+    const first = await startTurn("s1");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await first.turn;
+    const userCount = parse().filter((message) => message.type === "user").length;
+    const second = sendFollowup("s1", { model: "claude:claude-opus-5" });
+    const request = outgoingControlRequest("set_model");
+    emit({
+      type: "control_response",
+      response: {
+        subtype: "error",
+        request_id: request?.request_id,
+        error: "unsupported model",
+      },
+    });
+    await waitFor(() => spawned.length === 2, "fallback Claude process");
+    const initialize = parse().filter((message) => {
+      const control = message.request as Record<string, unknown> | undefined;
+      return control?.subtype === "initialize";
+    }).at(-1);
+    emit({ type: "system", subtype: "init", session_id: "sess_1" });
+    respondToControl(initialize?.request_id);
+    await waitFor(
+      () => parse().filter((message) => message.type === "user").length === userCount + 1,
+      "single message after fallback",
+    );
+    expect(spawned).toHaveLength(2);
+    expect(second.events.filter((event) => event.type === "status")).toEqual([
+      {
+        type: "status",
+        text: "Claude couldn't switch live, so it restarted with the new settings.",
+      },
+    ]);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await second.turn;
+  });
+
+  it("times out a live model switch and sends the user message once after restart", async () => {
+    const first = await startTurn("s1");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await first.turn;
+    const userCount = parse().filter((message) => message.type === "user").length;
+    vi.useFakeTimers();
+    const second = sendFollowup("s1", { model: "claude:claude-opus-5" });
+    expect(outgoingControlRequest("set_model")).toBeDefined();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await flushMicrotasksUntil(() => spawned.length === 2, "fallback spawn after timeout");
+    const initialize = parse().filter((message) => {
+      const control = message.request as Record<string, unknown> | undefined;
+      return control?.subtype === "initialize";
+    }).at(-1);
+    emit({ type: "system", subtype: "init", session_id: "sess_1" });
+    respondToControl(initialize?.request_id);
+    await flushMicrotasksUntil(
+      () => parse().filter((message) => message.type === "user").length === userCount + 1,
+      "single user message after timeout fallback",
+    );
+    expect(second.events.filter((event) => event.type === "status")).toEqual([
+      {
+        type: "status",
+        text: "Claude couldn't switch live, so it restarted with the new settings.",
+      },
+    ]);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await second.turn;
+  });
+
+  it("restarts on a model mismatch and ignores the requested 1m suffix", async () => {
+    const first = await startTurn("s1", {
+      modelSettings: { context: "1m" },
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await first.turn;
+    const second = sendFollowup("s1", {
+      model: "claude:claude-opus-5",
+      modelSettings: { context: "1m" },
+    });
+    const request = outgoingControlRequest("set_model");
+    expect(request?.request).toEqual({
+      subtype: "set_model",
+      model: "claude-opus-5[1m]",
+    });
+    respondToControl(request?.request_id);
+    await waitFor(() => parse().filter((message) => message.type === "user").length === 2, "first live model message");
+    emit({
+      type: "assistant",
+      session_id: "sess_1",
+      message: { model: "claude-opus-5", content: [{ type: "text", text: "ok" }] },
+    });
+    expect(second.events.some((event) => event.type === "status")).toBe(false);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await second.turn;
+
+    const mismatch = sendFollowup("s1", {
+      model: "claude:claude-opus-4-7",
+      modelSettings: { context: "1m" },
+    });
+    const mismatchRequest = parse().filter((message) => {
+      const control = message.request as Record<string, unknown> | undefined;
+      return control?.subtype === "set_model";
+    }).at(-1);
+    expect(mismatchRequest?.request).toEqual({
+      subtype: "set_model",
+      model: "claude-opus-4-7[1m]",
+    });
+    respondToControl(mismatchRequest?.request_id);
+    await waitFor(() => parse().filter((message) => message.type === "user").length === 3, "mismatch model message");
+    emit({
+      type: "assistant",
+      session_id: "sess_1",
+      message: { model: "claude-sonnet-5", content: [{ type: "text", text: "wrong" }] },
+    });
+    expect(mismatch.events).toContainEqual({
+      type: "status",
+      text: "Claude answered with claude-sonnet-5 instead of claude-opus-4-7[1m]. The next message restarts Claude with the selected model.",
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await mismatch.turn;
+
+    const setModelCount = parse().filter((message) => {
+      const control = message.request as Record<string, unknown> | undefined;
+      return control?.subtype === "set_model";
+    }).length;
+    const final = sendFollowup("s1", {
+      model: "claude:claude-opus-4-7",
+      modelSettings: { context: "1m" },
+    });
+    await waitFor(() => spawned.length === 2, "restart after model mismatch");
+    const initialize = parse().filter((message) => {
+      const control = message.request as Record<string, unknown> | undefined;
+      return control?.subtype === "initialize";
+    }).at(-1);
+    emit({ type: "system", subtype: "init", session_id: "sess_1" });
+    respondToControl(initialize?.request_id);
+    await waitFor(() => parse().filter((message) => message.type === "user").length === 4, "selected model after mismatch");
+    expect(parse().filter((message) => {
+      const control = message.request as Record<string, unknown> | undefined;
+      return control?.subtype === "set_model";
+    })).toHaveLength(setModelCount);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await final.turn;
+  });
+
+  it("falls back immediately when the child exits during a live switch", async () => {
+    const first = await startTurn("s1");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await first.turn;
+    const second = sendFollowup("s1", { model: "claude:claude-opus-5" });
+    expect(outgoingControlRequest("set_model")).toBeDefined();
+    onExit!(1);
+    await waitFor(() => spawned.length === 2, "fallback after child exit");
+    const initialize = parse().filter((message) => {
+      const control = message.request as Record<string, unknown> | undefined;
+      return control?.subtype === "initialize";
+    }).at(-1);
+    emit({ type: "system", subtype: "init", session_id: "sess_1" });
+    respondToControl(initialize?.request_id);
+    await waitFor(() => parse().filter((message) => message.type === "user").length === 2, "user message after child exit");
+    expect(second.events.filter((event) => event.type === "status")).toEqual([
+      {
+        type: "status",
+        text: "Claude couldn't switch live, so it restarted with the new settings.",
+      },
+    ]);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await second.turn;
   });
 });
 

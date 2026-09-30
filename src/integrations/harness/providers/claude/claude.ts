@@ -30,6 +30,9 @@ import {
   buildClaudeUserMessage,
   buildControlRequest,
   buildControlResponse,
+  buildSetModelRequest,
+  buildSetPermissionModeRequest,
+  claudeLiveKey,
   claudeSessionRules,
   claudeSettingsKey,
   extractAskUserQuestionTitle,
@@ -43,6 +46,7 @@ import {
   normalizeClaudeCliEffort,
   parseBackgroundAgentTasks,
   parseControlCancelId,
+  parseControlResponse,
   parseControlRequest,
   parseJsonLine,
   parseTaskNotification,
@@ -54,6 +58,7 @@ import {
   previewFromTool,
   resolveClaudeApiModelId,
   runtimeModeToPermission,
+  planClaudeLiveSwitch,
   sessionIdFromMessage,
   statusTextFromSystem,
   streamDeltaFromEvent,
@@ -67,6 +72,7 @@ import {
   tryParseJsonRecord,
   turnStatusFromResult,
   type ClaudeCliSettings,
+  type ClaudeLiveKey,
   type ClaudeControlRequest,
   type ClaudeSessionGrant,
   type ClaudeSessionRule,
@@ -104,6 +110,13 @@ type PendingApproval = {
   resolve: (decision: ApprovalOutcome) => void;
 };
 
+type PendingControl = {
+  resolve: (payload: Record<string, unknown>) => void;
+  reject: (error: ClaudeControlError) => void;
+  timer: ReturnType<typeof setTimeout>;
+  cleanup: () => void;
+};
+
 type PendingQuestion = {
   requestId: string;
   event: Extract<HarnessEvent, { type: "question.asked" }>;
@@ -126,18 +139,22 @@ type LiveAgentTask = {
 };
 
 type Live = {
+  sessionId: string;
   cwd: string;
   claudeSessionId: string;
   providerAccountId?: string;
   runtimeMode: RuntimeMode;
   planning: boolean;
   settingsKey: string;
+  liveKey: ClaudeLiveKey;
+  pendingControls: Map<string, PendingControl>;
+  generation: number;
+  expectModel?: string;
   onEvent: (event: HarnessEvent) => void;
   approvals: Map<number, PendingApproval>;
   questions: Map<number, PendingQuestion>;
   visibleQuestionId: number | null;
   nextApprovalUiId: number;
-  nextControlId: number;
   toolsByIndex: Map<number, InFlightTool>;
   toolsById: Map<string, InFlightTool>;
   agentTasks: Map<string, LiveAgentTask>;
@@ -167,6 +184,25 @@ type Resume = {
 };
 
 const INIT_TIMEOUT_MS = 8_000;
+const CONTROL_TIMEOUT_MS = 5_000;
+
+export type ClaudeControlFailure =
+  | "error"
+  | "timeout"
+  | "cancelled"
+  | "stopped"
+  | "write-failed"
+  | "unavailable";
+
+export class ClaudeControlError extends Error {
+  constructor(
+    readonly reason: ClaudeControlFailure,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ClaudeControlError";
+  }
+}
 
 const liveByThread = new Map<string, Live>();
 const resumeByThread = new Map<string, Resume>();
@@ -179,6 +215,10 @@ const sessionGrantsByThread = new Map<
   }
 >();
 const cancelledThreads = new Set<string>();
+let nextClaudeGeneration = 0;
+// Keep control IDs unique across child generations so late lines cannot match
+// a request issued after Claude has respawned.
+let nextClaudeControlId = 0;
 
 let resolveClaudeBinaryImpl: () => Promise<{ path: string }> =
   resolveClaudeBinary;
@@ -310,7 +350,7 @@ export async function cancelClaudeTurn(sessionId: string): Promise<void> {
   live.questions.clear();
   await writeJson(
     sessionId,
-    buildControlRequest(nextControlId(live), { subtype: "interrupt" }),
+    buildControlRequest(nextControlId(), { subtype: "interrupt" }),
   ).catch(() => undefined);
   finishActiveTurn(live, [
     { type: "message.completed" },
@@ -324,6 +364,10 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
   liveByThread.delete(sessionId);
   if (live) {
     live.muteUpdates = true;
+    rejectPendingControls(
+      live,
+      new ClaudeControlError("stopped", "Claude Code stopped"),
+    );
     for (const [, pending] of live.approvals)
       pending.resolve({ decision: "deny" });
     live.approvals.clear();
@@ -379,17 +423,52 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     sessionGrantsByThread.delete(input.sessionId);
   }
   const settingsKey = settingsKeyFor(input);
+  const liveKey = claudeLiveKey(input, loadClaudeHooks());
   const planning = input.intent === "plan";
   const existing = liveByThread.get(input.sessionId);
-  if (
-    existing &&
-    existing.cwd === input.cwd &&
-    existing.settingsKey === settingsKey &&
-    existing.planning === planning
-  ) {
+  const switchPlan = existing
+    ? existing.settingsKey === "stale"
+      ? { kind: "restart" as const, reason: "Claude model did not match" }
+      : planClaudeLiveSwitch(existing.liveKey, liveKey)
+    : null;
+  if (existing && existing.cwd === input.cwd && switchPlan?.kind === "reuse") {
+    existing.settingsKey = settingsKey;
+    existing.liveKey = liveKey;
+    existing.planning = planning;
     existing.onEvent = input.onEvent;
     existing.runtimeMode = input.runtimeMode;
     return existing;
+  }
+  let liveSwitchFallback = false;
+  if (
+    existing &&
+    existing.cwd === input.cwd &&
+    switchPlan?.kind === "switch" &&
+    existing.initialized &&
+    !existing.activeTurn &&
+    !existing.turnEndPending &&
+    existing.approvals.size === 0 &&
+    existing.questions.size === 0 &&
+    !existing.manualCompaction
+  ) {
+    try {
+      for (const step of switchPlan.steps) {
+        if (step.type === "set_permission_mode") {
+          await sendControl(existing, buildSetPermissionModeRequest(step.mode));
+        } else {
+          await sendControl(existing, buildSetModelRequest(step.model));
+          existing.expectModel = step.model;
+        }
+      }
+      existing.settingsKey = settingsKey;
+      existing.liveKey = liveKey;
+      existing.planning = planning;
+      existing.onEvent = input.onEvent;
+      existing.runtimeMode = input.runtimeMode;
+      return existing;
+    } catch {
+      liveSwitchFallback = true;
+    }
   }
   if (existing) {
     // Model and launch-setting changes require a fresh Claude process, but
@@ -427,18 +506,21 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   );
 
   const live: Live = {
+    sessionId: input.sessionId,
     cwd: input.cwd,
     claudeSessionId,
     providerAccountId: input.providerAccountId,
     runtimeMode: input.runtimeMode,
     planning,
     settingsKey,
+    liveKey,
+    pendingControls: new Map(),
+    generation: ++nextClaudeGeneration,
     onEvent: input.onEvent,
     approvals: new Map(),
     questions: new Map(),
     visibleQuestionId: null,
     nextApprovalUiId: 1,
-    nextControlId: 1,
     toolsByIndex: new Map(),
     toolsById: new Map(),
     agentTasks: new Map(),
@@ -470,8 +552,16 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       handleLine(input.sessionId, current, line);
     },
     (code) => {
-      liveByThread.delete(input.sessionId);
       const current = liveRef.current;
+      if (current && liveByThread.get(input.sessionId) === current) {
+        liveByThread.delete(input.sessionId);
+      }
+      if (current) {
+        rejectPendingControls(
+          current,
+          new ClaudeControlError("stopped", "Claude Code stopped"),
+        );
+      }
       if (!current?.muteUpdates) {
         (current?.onEvent ?? input.onEvent)({ type: "session.ended", code });
       }
@@ -503,7 +593,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   try {
     await writeJson(
       input.sessionId,
-      buildControlRequest(nextControlId(live), { subtype: "initialize" }),
+      buildControlRequest(nextControlId(), { subtype: "initialize" }),
     );
     await waitForInit(live, INIT_TIMEOUT_MS);
     live.onEvent({
@@ -511,6 +601,12 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       providerSessionId: live.claudeSessionId,
     });
     live.onEvent({ type: "session.started" });
+    if (liveSwitchFallback) {
+      live.onEvent({
+        type: "status",
+        text: "Claude couldn't switch live, so it restarted with the new settings.",
+      });
+    }
     return live;
   } catch (error) {
     await stopClaudeSession(input.sessionId);
@@ -629,6 +725,16 @@ function handleLine(sessionId: string, live: Live, line: string): void {
   }
 
   if (type === "control_response") {
+    const response = parseControlResponse(rec);
+    if (response?.ok) {
+      resolvePendingControl(live, response.requestId, response.payload ?? {});
+    } else if (response) {
+      rejectPendingControl(
+        live,
+        response.requestId,
+        new ClaudeControlError("error", response.error ?? "control request failed"),
+      );
+    }
     markInitialized(live);
     return;
   }
@@ -751,6 +857,19 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
   }
 
   const msg = asRecord(rec.message);
+  const expectedModel = live.expectModel;
+  if (expectedModel) {
+    live.expectModel = undefined;
+    const actualModel = stringField(msg, "model");
+    const requestedModel = expectedModel.replace(/\[1m\]$/, "");
+    if (actualModel && actualModel !== requestedModel) {
+      live.onEvent({
+        type: "status",
+        text: `Claude answered with ${actualModel} instead of ${expectedModel}. The next message restarts Claude with the selected model.`,
+      });
+      live.settingsKey = "stale";
+    }
+  }
   const messageId = stringField(msg, "id");
   const usageRec = asRecord(msg?.usage);
   const reqUsage = parseClaudeUsage(usageRec);
@@ -1470,9 +1589,9 @@ function waitForInit(live: Live, timeoutMs: number): Promise<void> {
   });
 }
 
-function nextControlId(live: Live): string {
-  live.nextControlId += 1;
-  return `monocode_${live.nextControlId}`;
+function nextControlId(): string {
+  nextClaudeControlId += 1;
+  return `monocode_${nextClaudeControlId}`;
 }
 
 function writeJson(
@@ -1480,6 +1599,167 @@ function writeJson(
   payload: Record<string, unknown>,
 ): Promise<void> {
   return writeChild(sessionId, JSON.stringify(payload));
+}
+
+function takePendingControl(
+  live: Live,
+  requestId: string,
+): PendingControl | undefined {
+  const pending = live.pendingControls.get(requestId);
+  if (!pending) return undefined;
+  live.pendingControls.delete(requestId);
+  clearTimeout(pending.timer);
+  pending.cleanup();
+  return pending;
+}
+
+function resolvePendingControl(
+  live: Live,
+  requestId: string,
+  payload: Record<string, unknown>,
+): void {
+  takePendingControl(live, requestId)?.resolve(payload);
+}
+
+function rejectPendingControl(
+  live: Live,
+  requestId: string,
+  error: ClaudeControlError,
+): void {
+  takePendingControl(live, requestId)?.reject(error);
+}
+
+function rejectPendingControls(live: Live, error: ClaudeControlError): void {
+  for (const requestId of live.pendingControls.keys()) {
+    rejectPendingControl(live, requestId, error);
+  }
+}
+
+function sendControl(
+  live: Live,
+  request: Record<string, unknown>,
+  opts?: { timeoutMs?: number; signal?: AbortSignal },
+): Promise<Record<string, unknown>> {
+  const signal = opts?.signal;
+  if (signal?.aborted) {
+    return Promise.reject(
+      new ClaudeControlError("cancelled", "Claude control request cancelled"),
+    );
+  }
+
+  const requestId = nextControlId();
+  return new Promise((resolve, reject) => {
+    let abortHandler: (() => void) | undefined;
+    const pending: PendingControl = {
+      resolve,
+      reject,
+      timer: setTimeout(
+        () =>
+          rejectPendingControl(
+            live,
+            requestId,
+            new ClaudeControlError(
+              "timeout",
+              "Claude Code control request timed out",
+            ),
+          ),
+        opts?.timeoutMs ?? CONTROL_TIMEOUT_MS,
+      ),
+      cleanup: () => {
+        if (signal && abortHandler) {
+          signal.removeEventListener("abort", abortHandler);
+        }
+      },
+    };
+    live.pendingControls.set(requestId, pending);
+
+    if (signal) {
+      abortHandler = () =>
+        rejectPendingControl(
+          live,
+          requestId,
+          new ClaudeControlError(
+            "cancelled",
+            "Claude control request cancelled",
+          ),
+        );
+      signal.addEventListener("abort", abortHandler, { once: true });
+      if (signal.aborted) {
+        abortHandler();
+        return;
+      }
+    }
+
+    try {
+      void writeJson(
+        live.sessionId,
+        buildControlRequest(requestId, request),
+      ).catch((error: unknown) => {
+        rejectPendingControl(
+          live,
+          requestId,
+          new ClaudeControlError(
+            "write-failed",
+            error instanceof Error ? error.message : String(error),
+          ),
+        );
+      });
+    } catch (error) {
+      rejectPendingControl(
+        live,
+        requestId,
+        new ClaudeControlError(
+          "write-failed",
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+    }
+  });
+}
+
+const READ_ONLY_CLAUDE_CONTROL_SUBTYPES = new Set([
+  "get_context_usage",
+  "get_settings",
+]);
+
+export function requestClaudeControl(
+  sessionId: string,
+  request: Record<string, unknown>,
+  opts?: {
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    requireIdle?: boolean;
+  },
+): Promise<{ payload: Record<string, unknown>; generation: number }> {
+  const live = liveByThread.get(sessionId);
+  if (!live || !live.initialized) {
+    return Promise.reject(
+      new ClaudeControlError("unavailable", "Claude Code is not initialized"),
+    );
+  }
+  const subtype = stringField(request, "subtype");
+  if (!subtype || !READ_ONLY_CLAUDE_CONTROL_SUBTYPES.has(subtype)) {
+    return Promise.reject(
+      new ClaudeControlError("unavailable", "Unsupported Claude control request"),
+    );
+  }
+  if (
+    opts?.requireIdle &&
+    (live.activeTurn ||
+      live.turnEndPending ||
+      live.manualCompaction ||
+      live.approvals.size > 0 ||
+      live.questions.size > 0)
+  ) {
+    return Promise.reject(
+      new ClaudeControlError("unavailable", "Claude Code is busy"),
+    );
+  }
+  const generation = live.generation;
+  return sendControl(live, request, opts).then((payload) => ({
+    payload,
+    generation,
+  }));
 }
 
 function settingsKeyFor(input: HarnessSessionInput): string {
@@ -1583,4 +1863,6 @@ export function __claudeTestReset(): void {
   resumeByThread.clear();
   sessionGrantsByThread.clear();
   cancelledThreads.clear();
+  nextClaudeGeneration = 0;
+  nextClaudeControlId = 0;
 }
