@@ -1,7 +1,14 @@
 import { nativeModelId } from "../../../../features/sessions/model/models";
 import { sameProviderAccountId } from "../../../../features/providers/model/providerAccounts";
+import {
+  exhaustedWindowResetAt,
+  parseCodexRateLimits,
+} from "../../../../features/providers/model/rateLimits";
 import type { RuntimeMode } from "../../../../features/sessions/model/session";
-import { questionPromptTitle, type UserQuestionReply } from "../../../../features/sessions/model/userQuestion";
+import {
+  questionPromptTitle,
+  type UserQuestionReply,
+} from "../../../../features/sessions/model/userQuestion";
 import {
   validateMcpForm,
   type McpFormDraft,
@@ -40,6 +47,10 @@ import {
   type CodexApprovalKind,
 } from "./codexProtocol";
 import { JsonRpcClient, type JsonRpcId } from "../../core/jsonRpc";
+import {
+  deleteGeneratedImages,
+  saveGeneratedImage,
+} from "../../../../platform/tauri/fs";
 import { codexQuestions, codexQuestionResponse } from "./codexQuestions";
 import {
   codexMcpApprovalKindKeys,
@@ -49,7 +60,7 @@ import {
   type CodexInProgressMcpTool,
   type McpFormUnsupportedReason,
 } from "./codexElicitation";
-import { joinStreamText, snapshotRemainder } from "../../core/streamText";
+import { snapshotRemainder } from "../../core/streamText";
 import { NativeForkError } from "../../core/types";
 import { buildThreadForkParams } from "./codexProtocol";
 import type {
@@ -65,8 +76,7 @@ import type {
 } from "../../core/types";
 
 type ApprovalOutcome =
-  | { decision: ApprovalDecision; scope?: ApprovalScope }
-  | "cancelled";
+  { decision: ApprovalDecision; scope?: ApprovalScope } | "cancelled";
 
 type PendingApproval = {
   rpcId: JsonRpcId;
@@ -102,6 +112,8 @@ type Live = {
   threadId: string;
   cwd: string;
   providerAccountId?: string;
+  /** Thread-level network policy used when this app-server opened the thread. */
+  controlsAgents: boolean;
   runtimeMode: RuntimeMode;
   planning: boolean;
   onEvent: (event: HarnessEvent) => void;
@@ -122,21 +134,36 @@ type Live = {
   turnFailed: ((error: Error) => void) | null;
   /** turn/completed arrived before runTurn registered turnDone. */
   turnEndPending: boolean;
-  emittedAssistant: string;
-  emittedReasoning: string;
   /** Cumulative thread usage baseline established before the active turn started. */
   threadBaseline?: CodexRawUsageRecord;
   /** Cumulative thread usage snapshot last seen from Codex. */
   lastThreadTotal?: CodexRawUsageRecord;
   /** Processed usage for the active turn. */
   turnUsage?: ProcessedUsage;
+  /** Completed snapshots describe one item, not all text in the turn. */
+  emittedAssistantByItem: Map<string, string>;
+  emittedReasoningByItem: Map<string, string>;
+  emittedGeneratedImages: Set<string>;
+  turnGeneration: number;
+  notificationQueue: Promise<void> | null;
   /** Child thread id -> the agent tool row that spawned it. */
   subagentThreads: Map<string, string>;
   /** Child notifications that arrived before their row was known. */
   pendingSubagent: Map<string, Array<{ method: string; params: unknown }>>;
   /** Agent rows still running, by call id, with the name to settle them under. */
   openAgentRows: Map<string, string>;
+  /** Latest rate-limit windows by limit id, merged from sparse updates. */
+  rateLimits: Map<string, Record<string, unknown>>;
+  /** The active turn failed on a spent usage limit. */
+  usageLimited: boolean;
 };
+
+function trackNotificationQueue(live: Live, queued: Promise<void>): void {
+  live.notificationQueue = queued;
+  void queued.then(() => {
+    if (live.notificationQueue === queued) live.notificationQueue = null;
+  });
+}
 
 type Resume = {
   threadId: string;
@@ -327,7 +354,9 @@ export function respondCodexForm(
     reply.kind === "submit" &&
     !isValidMcpFormContent(pending.event.fields, reply.content)
   ) {
-    console.debug("[monocode] codex form rejected invalid reply", { requestId });
+    console.debug("[monocode] codex form rejected invalid reply", {
+      requestId,
+    });
     return;
   }
   pending.resolve(reply);
@@ -417,6 +446,7 @@ export async function stopCodexSession(sessionId: string): Promise<void> {
   liveByThread.delete(sessionId);
   if (live) {
     live.muteUpdates = true;
+    live.turnGeneration += 1;
     clearServerRequests(live);
     live.turnDone?.();
     live.turnDone = null;
@@ -447,7 +477,10 @@ export function bindCodexSession(
     grants &&
     existingResume &&
     (existingResume.cwd !== cwd ||
-      !sameProviderAccountId(existingResume.providerAccountId, providerAccountId))
+      !sameProviderAccountId(
+        existingResume.providerAccountId,
+        providerAccountId,
+      ))
   ) {
     mcpGrantsByThread.delete(threadId);
   }
@@ -460,17 +493,33 @@ export function bindCodexSession(
 
 async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   const existing = liveByThread.get(input.sessionId);
+  const controlsAgents = input.controlsAgents === true;
   if (
     existing &&
     existing.cwd === input.cwd &&
-    sameProviderAccountId(existing.providerAccountId, input.providerAccountId)
+    sameProviderAccountId(
+      existing.providerAccountId,
+      input.providerAccountId,
+    ) &&
+    existing.controlsAgents === controlsAgents
   ) {
     existing.onEvent = input.onEvent;
     return existing;
   }
   if (existing) {
-    resumeByThread.delete(input.sessionId);
-    mcpGrantsByThread.delete(input.sessionId);
+    // Codex may retain the thread's sandbox network policy across turns.
+    // Switch it when this session gains /operator access or loses agent
+    // control, so its local CLI socket matches the current policy.
+    if (
+      existing.cwd !== input.cwd ||
+      !sameProviderAccountId(
+        existing.providerAccountId,
+        input.providerAccountId,
+      )
+    ) {
+      resumeByThread.delete(input.sessionId);
+      mcpGrantsByThread.delete(input.sessionId);
+    }
     await stopCodexSession(input.sessionId);
   }
 
@@ -497,7 +546,32 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       onNotification: (method, params) => {
         const live = liveRef.current;
         if (!live || live.muteUpdates) return;
-        handleNotification(live, method, params);
+        if (live.notificationQueue) {
+          const turnGeneration = live.turnGeneration;
+          const queued = live.notificationQueue
+            .catch(() => undefined)
+            .then(() => {
+              if (
+                live.muteUpdates ||
+                live.cancelled ||
+                turnGeneration !== live.turnGeneration
+              ) {
+                return;
+              }
+              return handleNotification(live, method, params);
+            });
+          trackNotificationQueue(
+            live,
+            queued.catch(() => undefined),
+          );
+          return;
+        }
+        const result = handleNotification(live, method, params);
+        if (!result) return;
+        trackNotificationQueue(
+          live,
+          result.catch(() => undefined),
+        );
       },
       onRequest: (id, method, params) => {
         const live = liveRef.current;
@@ -547,10 +621,17 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     },
   );
 
-  await spawnChild(input.sessionId, path, ["app-server"], input.cwd, {
-    provider: "codex",
-    id: input.providerAccountId ?? "default",
-  });
+  await spawnChild(
+    input.sessionId,
+    path,
+    ["app-server"],
+    input.cwd,
+    {
+      provider: "codex",
+      id: input.providerAccountId ?? "default",
+    },
+    "codex",
+  );
 
   try {
     await rpc.request("initialize", {
@@ -599,14 +680,27 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
 
     if (!canResume && input.fork) {
       try {
-        const opened = await rpc.request<{ thread?: { id?: string } }>("thread/fork", buildThreadForkParams({
-          threadId: input.fork.sourceProviderSessionId, lastTurnId: input.fork.forkPoint,
-          cwd: input.cwd, runtimeMode: input.runtimeMode, controlsAgents: input.controlsAgents, model, serviceTier,
-        }));
+        const opened = await rpc.request<{ thread?: { id?: string } }>(
+          "thread/fork",
+          buildThreadForkParams({
+            threadId: input.fork.sourceProviderSessionId,
+            lastTurnId: input.fork.forkPoint,
+            cwd: input.cwd,
+            runtimeMode: input.runtimeMode,
+            controlsAgents: input.controlsAgents,
+            model,
+            serviceTier,
+          }),
+        );
         threadId = opened.thread?.id?.trim();
-        if (!threadId) throw new Error("Codex did not return a forked thread id");
+        if (!threadId)
+          throw new Error("Codex did not return a forked thread id");
       } catch (error) {
-        throw new NativeForkError(error instanceof Error ? error.message : "Codex could not open the original conversation.");
+        throw new NativeForkError(
+          error instanceof Error
+            ? error.message
+            : "Codex could not open the original conversation.",
+        );
       }
     }
     if (!threadId) {
@@ -634,6 +728,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       threadId,
       cwd: input.cwd,
       providerAccountId: input.providerAccountId,
+      controlsAgents,
       runtimeMode: input.runtimeMode,
       planning: input.intent === "plan",
       onEvent: input.onEvent,
@@ -651,11 +746,16 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       turnDone: null,
       turnFailed: null,
       turnEndPending: false,
-      emittedAssistant: "",
-      emittedReasoning: "",
+      emittedAssistantByItem: new Map(),
+      emittedReasoningByItem: new Map(),
+      emittedGeneratedImages: new Set(),
+      turnGeneration: 0,
+      notificationQueue: null,
       subagentThreads: new Map(),
       pendingSubagent: new Map(),
       openAgentRows: new Map(),
+      rateLimits: new Map(),
+      usageLimited: false,
     };
     liveRef.current = live;
     liveByThread.set(input.sessionId, live);
@@ -698,11 +798,13 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     return;
   }
 
-  live.emittedAssistant = "";
-  live.emittedReasoning = "";
   live.inProgressMcpTools.clear();
   live.threadBaseline = live.lastThreadTotal;
   live.turnUsage = undefined;
+  live.emittedAssistantByItem.clear();
+  live.emittedReasoningByItem.clear();
+  live.emittedGeneratedImages.clear();
+  live.turnGeneration += 1;
 
   const turnPromise = new Promise<void>((resolve, reject) => {
     live.turnDone = resolve;
@@ -739,8 +841,9 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
 }
 
 async function runCompaction(live: Live): Promise<void> {
-  live.emittedAssistant = "";
-  live.emittedReasoning = "";
+  live.emittedAssistantByItem.clear();
+  live.emittedReasoningByItem.clear();
+  live.emittedGeneratedImages.clear();
   const turnPromise = new Promise<void>((resolve, reject) => {
     live.turnDone = resolve;
     live.turnFailed = reject;
@@ -759,7 +862,12 @@ async function runCompaction(live: Live): Promise<void> {
   }
 }
 
-function handleNotification(live: Live, method: string, params: unknown): void {
+function handleNotification(
+  live: Live,
+  method: string,
+  params: unknown,
+): void | Promise<void> {
+  if (live.muteUpdates || live.cancelled) return;
   const rec = asRecord(params);
   if (method === "serverRequest/resolved") {
     for (const pending of live.approvals.values()) {
@@ -794,8 +902,7 @@ function handleNotification(live: Live, method: string, params: unknown): void {
       ? stringField(asRecord(rec?.thread), "id")
       : undefined);
   if (threadId && threadId !== live.threadId) {
-    handleSubagentNotification(live, threadId, method, params);
-    return;
+    return handleSubagentNotification(live, threadId, method, params);
   }
   if (method === "item/started" || method === "item/completed") {
     const item = asRecord(rec?.item);
@@ -804,7 +911,8 @@ function handleNotification(live: Live, method: string, params: unknown): void {
       if (method === "item/started") {
         const server = stringField(item, "server");
         const tool = stringField(item, "tool");
-        if (server && tool) live.inProgressMcpTools.set(itemId, { server, tool });
+        if (server && tool)
+          live.inProgressMcpTools.set(itemId, { server, tool });
       } else {
         live.inProgressMcpTools.delete(itemId);
       }
@@ -826,58 +934,165 @@ function handleNotification(live: Live, method: string, params: unknown): void {
   // would otherwise stand up a second agent that never does anything.
   const duplicate = bindSubagentThreads(live, method, rec);
   const snapshot = method === "item/completed";
+  const itemId = snapshot
+    ? stringField(asRecord(rec?.item), "id")
+    : stringField(rec, "itemId");
+  let pending: Promise<void> | undefined;
   for (const event of mapped.events) {
     if (duplicate && duplicateAgentRow(event)) continue;
+    if (event.type === "image.generated") {
+      if (live.emittedGeneratedImages.has(event.itemId)) continue;
+      live.emittedGeneratedImages.add(event.itemId);
+      if ("data" in event) {
+        const save = () => materializeGeneratedImage(live, event);
+        pending = pending ? pending.then(save) : save();
+        continue;
+      }
+      live.onEvent(event);
+      continue;
+    }
     trackAgentRow(live, event);
     if (event.type === "message.delta") {
-      publishCodexText(live, "assistant", event.text, snapshot);
+      publishCodexText(live, "assistant", event.text, snapshot, itemId);
       continue;
     }
     if (event.type === "reasoning.delta") {
-      publishCodexText(live, "reasoning", event.text, snapshot);
+      publishCodexText(live, "reasoning", event.text, snapshot, itemId);
       continue;
     }
     live.onEvent(event);
   }
   // Metadata and steps can arrive before the spawn. Create its row first.
+  let replay: Promise<void> | undefined;
   for (const childId of codexSubagentThreadIds(asRecord(rec?.item) ?? {})) {
     const owner = live.subagentThreads.get(childId);
     if (!owner) continue;
     const backlog = live.pendingSubagent.get(childId);
     live.pendingSubagent.delete(childId);
-    for (const pending of backlog ?? [])
-      emitSubagentSteps(live, owner, pending.method, pending.params);
-  }
-  settleSubagentRows(live, rec);
-  if (mapped.activeTurnId !== undefined) {
-    live.activeTurnId = mapped.activeTurnId;
-  }
-  if (mapped.tokenUsage?.total) {
-    const total = mapped.tokenUsage.total;
-    const last = mapped.tokenUsage.last;
-    if (live.threadBaseline === undefined) {
-      if (last && total.totalTokens >= last.totalTokens) {
-        live.threadBaseline = subtractCodexUsage(total, last);
+    for (const pendingStep of backlog ?? []) {
+      const emit = () =>
+        emitSubagentSteps(live, owner, pendingStep.method, pendingStep.params);
+      if (replay) {
+        replay = replay.then(emit);
       } else {
+        const result = emit();
+        if (result) replay = result;
+      }
+    }
+  }
+  const finish = () => {
+    if (mapped.tokenUsage?.total) {
+      const total = mapped.tokenUsage.total;
+      const last = mapped.tokenUsage.last;
+      if (live.threadBaseline === undefined) {
+        if (last && total.totalTokens >= last.totalTokens) {
+          live.threadBaseline = subtractCodexUsage(total, last);
+        } else {
+          live.threadBaseline = emptyCodexUsage();
+        }
+      } else if (total.totalTokens < live.threadBaseline.totalTokens) {
+        // Counter reset (e.g. compaction reset or thread reconnected)
         live.threadBaseline = emptyCodexUsage();
       }
-    } else if (total.totalTokens < live.threadBaseline.totalTokens) {
-      // Counter reset (e.g. compaction reset or thread reconnected)
-      live.threadBaseline = emptyCodexUsage();
+      const turnUsage = diffCodexUsage(total, live.threadBaseline);
+      live.turnUsage = turnUsage;
+      live.lastThreadTotal = total;
+      const sessionUsage = codexUsageToProcessed(total);
+      live.onEvent({
+        type: "usage",
+        turn: turnUsage,
+        session: sessionUsage,
+      });
     }
-    const turnUsage = diffCodexUsage(total, live.threadBaseline);
-    live.turnUsage = turnUsage;
-    live.lastThreadTotal = total;
-    const sessionUsage = codexUsageToProcessed(total);
+    settleSubagentRows(live, rec);
+    if (mapped.rateLimits) noteRateLimits(live, mapped.rateLimits);
+    if (mapped.usageLimited) live.usageLimited = true;
+    if (mapped.activeTurnId !== undefined) {
+      live.activeTurnId = mapped.activeTurnId;
+    }
+    if (mapped.turnCompleted) {
+      // Report the limit before the turn settles so queued follow-ups hold.
+      if (live.usageLimited && !live.cancelled) {
+        const resetsAt = usageLimitResetAt(live);
+        live.onEvent({
+          type: "usage.limited",
+          ...(resetsAt != null ? { resetsAt } : {}),
+        });
+      }
+      live.usageLimited = false;
+      finishActiveTurn(live);
+    }
+  };
+  const afterImages = () => {
+    if (live.muteUpdates || live.cancelled) return;
+    if (replay) return replay.then(finish);
+    finish();
+  };
+  if (pending) return pending.then(afterImages);
+  return afterImages();
+}
+
+async function materializeGeneratedImage(
+  live: Live,
+  event: Extract<HarnessEvent, { type: "image.generated"; data: string }>,
+): Promise<void> {
+  const turnGeneration = live.turnGeneration;
+  try {
+    const asset = await saveGeneratedImage({
+      data: event.data,
+      name: event.name,
+    });
+    if (
+      live.cancelled ||
+      live.muteUpdates ||
+      turnGeneration !== live.turnGeneration
+    ) {
+      void deleteGeneratedImages([asset.path]).catch(() => undefined);
+      return;
+    }
     live.onEvent({
-      type: "usage",
-      turn: turnUsage,
-      session: sessionUsage,
+      type: "image.generated",
+      itemId: event.itemId,
+      path: asset.path,
+      name: event.name,
+      mimeType: asset.mimeType,
+      size: asset.size,
+      ...(event.alt ? { alt: event.alt } : {}),
+    });
+  } catch (cause) {
+    if (
+      live.cancelled ||
+      live.muteUpdates ||
+      turnGeneration !== live.turnGeneration
+    ) {
+      return;
+    }
+    live.onEvent({
+      type: "session.error",
+      message: `Could not save generated image: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
     });
   }
-  if (mapped.turnCompleted) {
-    finishActiveTurn(live);
+}
+
+/** Rate-limit updates are sparse: a missing window keeps its last reading. */
+function noteRateLimits(live: Live, update: Record<string, unknown>): void {
+  const id = stringField(update, "limitId") ?? "";
+  const current = live.rateLimits.get(id) ?? {};
+  live.rateLimits.set(id, {
+    primary: update.primary ?? current.primary,
+    secondary: update.secondary ?? current.secondary,
+  });
+}
+
+function usageLimitResetAt(live: Live): number | null {
+  let latest: number | null = null;
+  for (const windows of live.rateLimits.values()) {
+    const resetsAt = exhaustedWindowResetAt(parseCodexRateLimits(windows));
+    if (resetsAt != null) latest = Math.max(latest ?? 0, resetsAt);
   }
+  return latest;
 }
 
 /**
@@ -951,12 +1166,12 @@ function handleSubagentNotification(
   threadId: string,
   method: string,
   params: unknown,
-): void {
+): void | Promise<void> {
   const callId = live.subagentThreads.get(threadId);
   if (callId) {
-    emitSubagentSteps(live, callId, method, params);
-    return;
+    return emitSubagentSteps(live, callId, method, params);
   }
+  if (!live.activeTurnId) return;
   if (
     method !== "item/started" &&
     method !== "item/completed" &&
@@ -974,7 +1189,18 @@ function emitSubagentSteps(
   callId: string,
   method: string,
   params: unknown,
-): void {
+): void | Promise<void> {
+  const image = mapCodexNotification(method, params).events.find(
+    (event): event is Extract<HarnessEvent, { type: "image.generated" }> =>
+      event.type === "image.generated",
+  );
+  if (image) {
+    if (live.emittedGeneratedImages.has(image.itemId)) return;
+    live.emittedGeneratedImages.add(image.itemId);
+    if ("data" in image) return materializeGeneratedImage(live, image);
+    live.onEvent(image);
+    return;
+  }
   for (const event of mapCodexSubagentSteps(callId, method, params)) {
     live.onEvent(event);
   }
@@ -1040,17 +1266,24 @@ function publishCodexText(
   role: "assistant" | "reasoning",
   text: string,
   snapshot: boolean,
+  itemId: string | undefined,
 ): void {
-  const already =
-    role === "assistant" ? live.emittedAssistant : live.emittedReasoning;
+  const emitted =
+    role === "assistant"
+      ? live.emittedAssistantByItem
+      : live.emittedReasoningByItem;
+  // Keep id-less notifications compatible without mixing them into known items.
+  const key = itemId ?? "";
+  const already = emitted.get(key) ?? "";
   const emit = snapshot ? snapshotRemainder(already, text) : text;
   if (!emit) return;
+  // These are deltas (or a snapshot's missing suffix), so repeated tokens count.
+  // Retain completed items until the turn ends to ignore repeated completions.
+  emitted.set(key, already + emit);
   if (role === "assistant") {
-    live.emittedAssistant = joinStreamText(already, emit);
     live.onEvent({ type: "message.delta", text: emit });
     return;
   }
-  live.emittedReasoning = joinStreamText(already, emit);
   live.onEvent({ type: "reasoning.delta", text: emit });
 }
 
@@ -1058,10 +1291,14 @@ function finishActiveTurn(live: Live, extraEvents: HarnessEvent[] = []): void {
   clearServerRequests(live);
   closeOpenAgentRows(live);
   live.turnEndPending = false;
+  live.turnGeneration += 1;
   live.activeTurnId = null;
-  live.emittedAssistant = "";
-  live.emittedReasoning = "";
   live.inProgressMcpTools.clear();
+  live.emittedAssistantByItem.clear();
+  live.emittedReasoningByItem.clear();
+  live.emittedGeneratedImages.clear();
+  live.subagentThreads.clear();
+  live.pendingSubagent.clear();
   for (const event of extraEvents) {
     live.onEvent(event);
   }
@@ -1230,7 +1467,8 @@ async function handleServerRequest(
         liveByThread.get(live.sessionId) === live &&
         !live.cancelled
       ) {
-        const grants = mcpGrantsByThread.get(live.sessionId) ?? new Set<string>();
+        const grants =
+          mcpGrantsByThread.get(live.sessionId) ?? new Set<string>();
         grants.add(grantKey);
         mcpGrantsByThread.set(live.sessionId, grants);
       }
@@ -1529,13 +1767,17 @@ function isValidMcpFormContent(
     submittedKeys.length === validatedKeys.length &&
     submittedKeys.every((key, index) => key === validatedKeys[index]) &&
     validatedKeys.every(
-      (key) => JSON.stringify(content[key]) === JSON.stringify(validated.content[key]),
+      (key) =>
+        JSON.stringify(content[key]) === JSON.stringify(validated.content[key]),
     )
   );
 }
 
 function isStringValueArray(value: McpFormValue): value is string[] {
-  return Array.isArray(value) && value.every((entry: unknown) => typeof entry === "string");
+  return (
+    Array.isArray(value) &&
+    value.every((entry: unknown) => typeof entry === "string")
+  );
 }
 
 function safeCodexPersistValue(value: unknown): "session" | "always" | "other" {

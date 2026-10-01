@@ -1,12 +1,81 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  killPty,
   markUnsupportedNotified,
   PTY_SUPPORTED,
   PTY_UNSUPPORTED_MESSAGE,
+  subscribePty,
   trimReplay,
 } from "./pty";
+import { decodePtyChunk } from "./pty";
+
+const { listeners } = vi.hoisted(() => ({
+  listeners: new Map<string, (event: { payload: unknown }) => void>(),
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async () => undefined),
+}));
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: async (
+    eventName: string,
+    handler: (event: { payload: unknown }) => void,
+  ) => {
+    listeners.set(eventName, handler);
+    return () => listeners.delete(eventName);
+  },
+}));
+
+afterEach(() => {
+  listeners.clear();
+  vi.useRealTimers();
+});
 
 const KB = 1024;
+
+describe("decodePtyChunk", () => {
+  it("decodes a valid base64 payload", () => {
+    // "hi" in base64
+    const chunk = decodePtyChunk("aGk=");
+    expect(chunk).not.toBeNull();
+    expect(Array.from(chunk!)).toEqual([104, 105]);
+  });
+
+  it("returns null instead of throwing on a malformed payload", () => {
+    expect(() => decodePtyChunk("not valid base64!!!")).not.toThrow();
+    expect(decodePtyChunk("not valid base64!!!")).toBeNull();
+  });
+});
+
+describe("PTY output offsets and lazy replay", () => {
+  it("preserves byte offsets across live delivery and an unmounted view", async () => {
+    const id = `term-${Date.now()}-${Math.random()}`;
+    const live: number[] = [];
+    const unsubscribe = subscribePty(
+      id,
+      (_chunk, start) => live.push(start),
+      () => undefined,
+    );
+    const emit = listeners.get("pty-data");
+    expect(emit).toBeTypeOf("function");
+    emit?.({ payload: { id, data: "aGk=" } }); // "hi", bytes 0–1
+    unsubscribe();
+    emit?.({ payload: { id, data: "eHk=" } }); // "xy", bytes 2–3
+
+    const replay: number[] = [];
+    const stopReplay = subscribePty(
+      id,
+      (_chunk, start) => replay.push(start),
+      () => undefined,
+    );
+
+    expect(live).toEqual([0]);
+    expect(replay).toEqual([2]);
+    stopReplay();
+    await killPty(id);
+  });
+});
 
 describe("trimReplay", () => {
   it("keeps a small buffer whole", () => {

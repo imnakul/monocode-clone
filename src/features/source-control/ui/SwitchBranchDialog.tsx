@@ -1,5 +1,6 @@
-import { Loader, WandSparkles } from "../../../shared/ui/icons";
-import { useEffect, useRef, useState } from "react";
+import { NativePopupHost } from "../../../shared/ui/NativePopupHost";
+import { Loader, WandSparkles, X } from "../../../shared/ui/icons";
+import { useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { generateHelperCommitMessage } from "../../../integrations/harness";
 import { LAYER } from "../../../shared/lib/layers";
@@ -28,16 +29,28 @@ export function SwitchBranchDialog({
   onCommit,
   onCancel,
 }: Props) {
+  const host = useContext(NativePopupHost);
   const [message, setMessage] = useState("");
   const [generating, setGenerating] = useState(false);
+  const generateAbortRef = useRef<AbortController | null>(null);
   const messageRef = useRef<HTMLTextAreaElement>(null);
-  const generationController = useRef<AbortController | null>(null);
   const trimmed = message.trim();
   const canCommit = trimmed.length > 0 && !busy && !generating;
 
   useEffect(() => {
     messageRef.current?.focus();
   }, []);
+
+  useEffect(
+    () => () => {
+      if (generateAbortRef.current) {
+        generateAbortRef.current.abort();
+        generateAbortRef.current = null;
+        setGenerating(false);
+      }
+    },
+    [cwd],
+  );
 
   useEffect(() => {
     const el = messageRef.current;
@@ -57,19 +70,11 @@ export function SwitchBranchDialog({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [busy, generating, onCancel]);
 
-  useEffect(
-    () => () => {
-      generationController.current?.abort();
-      generationController.current = null;
-    },
-    [],
-  );
-
   const generate = async () => {
-    if (busy || generating) return;
+    if (busy || generating || generateAbortRef.current) return;
     const startText = messageRef.current?.value ?? message;
     const controller = new AbortController();
-    generationController.current = controller;
+    generateAbortRef.current = controller;
     setGenerating(true);
     try {
       const generated = await generateHelperCommitMessage(
@@ -90,18 +95,26 @@ export function SwitchBranchDialog({
         window.alert(err instanceof Error ? err.message : String(err));
       }
     } finally {
-      if (generationController.current === controller) {
-        generationController.current = null;
-      }
-      if (!controller.signal.aborted) {
+      if (generateAbortRef.current === controller) {
+        generateAbortRef.current = null;
         setGenerating(false);
         messageRef.current?.focus();
       }
     }
   };
 
+  const cancelGenerate = () => {
+    generateAbortRef.current?.abort();
+    generateAbortRef.current = null;
+    setGenerating(false);
+    messageRef.current?.focus();
+  };
+
   return createPortal(
-    <div className="fixed inset-0" style={{ zIndex: LAYER.dialog }}>
+    <div
+      className={host ? "relative" : "fixed inset-0"}
+      style={{ zIndex: LAYER.dialog }}
+    >
       <div
         className="absolute inset-0 bg-black/30"
         onMouseDown={() => {
@@ -114,7 +127,7 @@ export function SwitchBranchDialog({
         aria-busy={Boolean(busy) || generating}
         aria-label={creating ? `Create ${branch}` : `Switch to ${branch}`}
         onMouseDown={(event) => event.stopPropagation()}
-        className="absolute left-1/2 top-[22%] flex w-[min(420px,calc(100vw-24px))] -translate-x-1/2 flex-col gap-3 rounded-lg border border-content/10 bg-content/5 p-4 shadow-xl backdrop-blur-xl"
+        className={`${host ? "relative w-full" : "absolute left-1/2 top-[22%] w-[min(420px,calc(100vw-24px))] -translate-x-1/2"} flex flex-col gap-3 rounded-lg border border-content/10 bg-content/5 p-4 shadow-xl backdrop-blur-xl`}
       >
         <div className="flex flex-col gap-1">
           <h2 className="text-[13px] font-medium leading-tight text-content">
@@ -150,14 +163,31 @@ export function SwitchBranchDialog({
           />
           <button
             type="button"
-            title="Generate commit message"
-            aria-label="Generate commit message"
-            disabled={Boolean(busy) || generating}
-            onClick={() => void generate()}
-            className="absolute top-1 right-1 grid size-5 place-items-center rounded-md bg-content/10 text-content hover:bg-content/20 hover:text-content disabled:opacity-40"
+            title={
+              generating
+                ? "Cancel commit message generation"
+                : "Generate commit message"
+            }
+            aria-label={
+              generating
+                ? "Cancel commit message generation"
+                : "Generate commit message"
+            }
+            disabled={Boolean(busy)}
+            onClick={() => (generating ? cancelGenerate() : void generate())}
+            className="group absolute top-1 right-1 grid size-5 place-items-center rounded-md bg-content/10 text-content hover:bg-content/20 hover:text-content disabled:opacity-40"
           >
             {generating ? (
-              <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />
+              <>
+                <Loader
+                  className="size-3.5 animate-spin group-hover:hidden group-focus-visible:hidden"
+                  strokeWidth={1.75}
+                />
+                <X
+                  className="hidden size-3.5 group-hover:block group-focus-visible:block"
+                  strokeWidth={1.75}
+                />
+              </>
             ) : (
               <WandSparkles className="size-3" strokeWidth={1} />
             )}
@@ -204,6 +234,6 @@ export function SwitchBranchDialog({
         </div>
       </div>
     </div>,
-    document.body,
+    host ?? document.body,
   );
 }

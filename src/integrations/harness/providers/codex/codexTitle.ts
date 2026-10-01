@@ -16,6 +16,7 @@ export async function generateCodexSessionTitle(input: {
 }): Promise<GeneratedSessionTitle | null> {
   try {
     const output = await runCodexTextPrompt({
+      helperOnly: true,
       cwd: input.cwd,
       providerAccountId: input.providerAccountId,
       prompt: buildThreadTitlePrompt(input.message),

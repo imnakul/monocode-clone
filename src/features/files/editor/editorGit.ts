@@ -1,4 +1,4 @@
-import { Chunk } from "@codemirror/merge";
+import { Chunk, type DiffConfig } from "@codemirror/merge";
 import {
   EditorState,
   Facet,
@@ -334,12 +334,21 @@ export function stageChunkText(
   current: string,
   pos: number,
   selection?: GitTextRange | null,
+  /** Must match the config that produced `pos`, so the same hunk is found. */
+  diffConfig: DiffConfig = DIFF_CONFIG,
 ): string | null {
   const origEnding = detectLineEnding(original);
   const lineEnding = origEnding ?? detectLineEnding(current) ?? "\n";
   const orig = textFromString(original);
   const doc = textFromString(current);
-  const changes = stageChunkChanges(orig, doc, pos, selection, "\n");
+  const changes = stageChunkChanges(
+    orig,
+    doc,
+    pos,
+    selection,
+    "\n",
+    diffConfig,
+  );
   if (!changes) return null;
   return encodeLineEndings(
     orig.replace(changes.from, changes.to, changes.insert).toString(),
@@ -386,9 +395,13 @@ export function findChunk(
   });
 }
 
-function chunksFor(original: Text | null, current: Text): readonly Chunk[] {
+function chunksFor(
+  original: Text | null,
+  current: Text,
+  diffConfig: DiffConfig = DIFF_CONFIG,
+): readonly Chunk[] {
   if (!original) return [];
-  return Chunk.build(original, current, DIFF_CONFIG);
+  return Chunk.build(original, current, diffConfig);
 }
 
 function replacesEntireDoc(tr: Transaction): boolean {
@@ -429,8 +442,9 @@ function stageChunkChanges(
   pos: number,
   selection: GitTextRange | null | undefined,
   lineBreak: string,
+  diffConfig?: DiffConfig,
 ): { from: number; to: number; insert: Text } | null {
-  const range = actionChunkRange(original, doc, pos, selection);
+  const range = actionChunkRange(original, doc, pos, selection, diffConfig);
   if (!range) return null;
   return applySide(
     doc,
@@ -474,8 +488,9 @@ function actionChunkRange(
   doc: Text,
   pos: number,
   selection: GitTextRange | null | undefined,
+  diffConfig?: DiffConfig,
 ): ChunkRange | null {
-  const chunk = findChunk(doc, chunksFor(original, doc), pos);
+  const chunk = findChunk(doc, chunksFor(original, doc, diffConfig), pos);
   if (!chunk) return null;
   return narrowChunk(original, doc, chunk, selection);
 }

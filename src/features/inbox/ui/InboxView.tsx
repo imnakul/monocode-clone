@@ -1,7 +1,11 @@
+import { useGithubPrChecks } from "../hooks/useGithubPrChecks";
+import { summarizePrChecks } from "../model/githubPrChecks";
+import type { CiRepairRequest } from "../model/ciRepair";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Check,
   CheckCheck,
+  CheckCircle,
   ChevronDown,
   CircleDot,
   CircleX,
@@ -189,6 +193,10 @@ import {
 } from "./InboxComments";
 import { InboxPrDiff } from "./InboxPrDiff";
 import {
+  InboxPrChecks,
+  PrChecksTab,
+} from "./InboxPrChecks";
+import {
   InboxDiscussionPanel,
   type InboxSessionPortal,
 } from "./InboxDiscussionPanel";
@@ -344,6 +352,15 @@ function InboxDetailTab({
   );
 }
 
+type CiRepairProps = {
+  repairSessions?: readonly SessionSummary[];
+  onRepairChecks?: (
+    item: InboxItem,
+    request: CiRepairRequest,
+    sessionId?: string,
+  ) => Promise<void>;
+};
+
 type Props = {
   onAsk: (item: InboxItem) => Promise<string>;
   onAskRestart: (item: InboxItem) => Promise<string>;
@@ -356,6 +373,8 @@ type Props = {
   onToggleSidebar?: () => void;
   onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
   onPullReview?: (item: InboxItem, report: CodeReviewReport) => void;
+  repairSessions?: CiRepairProps["repairSessions"];
+  onRepairChecks?: CiRepairProps["onRepairChecks"];
   sessions?: readonly SessionSummary[];
   onOpenSession?: (sessionId: string) => void | Promise<void>;
   /** Session-card destination to reveal after the Inbox list loads. */
@@ -376,6 +395,8 @@ export function InboxView({
   onToggleSidebar,
   onStart,
   onPullReview,
+  repairSessions,
+  onRepairChecks,
   sessions = [],
   onOpenSession,
   target = null,
@@ -1171,6 +1192,8 @@ export function InboxView({
               }
               onDiscuss={() => setDiscussionOpen(true)}
               onStart={onStart}
+              repairSessions={repairSessions}
+              onRepairChecks={onRepairChecks}
               onOpenSession={onOpenSession}
               onPullReview={onPullReview}
               onItemChange={updateInboxItem}
@@ -1195,12 +1218,18 @@ export function InboxView({
 }
 
 export function LinkedWorkItemPanel({
+  repairSessions,
+  onRepairChecks,
+  onOpenSession,
   target,
   cwd,
   recents,
   visible = true,
   onClose,
 }: {
+  repairSessions?: CiRepairProps["repairSessions"];
+  onRepairChecks?: CiRepairProps["onRepairChecks"];
+  onOpenSession?: (sessionId: string) => void | Promise<void>;
   target: LinkedWorkItem;
   cwd: string;
   recents: RecentProject[];
@@ -1325,6 +1354,10 @@ export function LinkedWorkItemPanel({
             revision={0}
             relatedSessions={[]}
             mode="panel"
+            visible={visible}
+            repairSessions={repairSessions}
+            onRepairChecks={onRepairChecks}
+            onOpenSession={onOpenSession}
             onItemChange={setItem}
           />
         ) : error ? (
@@ -1361,6 +1394,8 @@ function InboxDetailBody({
   onDiscuss,
   onStart,
   onPullReview,
+  repairSessions,
+  onRepairChecks,
   onOpenSession,
   onItemChange,
 }: {
@@ -1372,6 +1407,8 @@ function InboxDetailBody({
   onDiscuss?: () => void;
   onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
   onPullReview?: (item: InboxItem, report: CodeReviewReport) => void;
+  repairSessions?: CiRepairProps["repairSessions"];
+  onRepairChecks?: CiRepairProps["onRepairChecks"];
   onOpenSession?: (sessionId: string) => void | Promise<void>;
   onItemChange?: (item: InboxItem) => void;
 }) {
@@ -1394,6 +1431,8 @@ function InboxDetailBody({
       onDiscuss={onDiscuss}
       onStart={onStart}
       onPullReview={onPullReview}
+      repairSessions={repairSessions}
+      onRepairChecks={onRepairChecks}
       onOpenSession={onOpenSession}
       onItemChange={onItemChange}
     />
@@ -1407,7 +1446,7 @@ type InboxStatusMark = {
 };
 
 /** Status reads from the glyph first and the color second, so it survives color blindness. */
-function inboxStatusMark(item: InboxItem): InboxStatusMark {
+export function inboxStatusMark(item: InboxItem): InboxStatusMark {
   const label = inboxItemStatus(item);
   const pr = item.kind === "pr";
   if (label === "Draft") {
@@ -1421,6 +1460,13 @@ function inboxStatusMark(item: InboxItem): InboxStatusMark {
     return { Icon: GitMerge, className: "text-violet-400/90", label };
   }
   if (label === "Closed") {
+    if (
+      item.provider === "github" &&
+      item.kind === "issue" &&
+      item.stateReason?.trim().toLowerCase() === "completed"
+    ) {
+      return { Icon: CheckCircle, className: "text-violet-400/90", label };
+    }
     return {
       Icon: pr ? GitPullRequestClosed : CircleX,
       className: "text-rose-400/90",
@@ -1937,9 +1983,12 @@ export function InboxDetail({
   revision,
   relatedSessions,
   mode = "inbox",
+  visible = true,
   onDiscuss,
   onStart,
   onPullReview,
+  repairSessions,
+  onRepairChecks,
   onOpenSession,
   onItemChange,
 }: {
@@ -1949,9 +1998,12 @@ export function InboxDetail({
   revision: number;
   relatedSessions: readonly SessionSummary[];
   mode?: "inbox" | "panel";
+  visible?: boolean;
   onDiscuss?: () => void;
   onStart?: (item: InboxItem, body?: string) => void | Promise<void>;
   onPullReview?: (item: InboxItem, report: CodeReviewReport) => void;
+  repairSessions?: CiRepairProps["repairSessions"];
+  onRepairChecks?: CiRepairProps["onRepairChecks"];
   onOpenSession?: (sessionId: string) => void | Promise<void>;
   onItemChange?: (item: InboxItem) => void;
 }) {
@@ -2030,7 +2082,7 @@ export function InboxDetail({
   const [details, setDetails] = useState<GithubWorkItemDetails | null>(cached);
   const [loading, setLoading] = useState(cached == null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"summary" | "code">("summary");
+  const [tab, setTab] = useState<"summary" | "code" | "checks">("summary");
   const [diffMode, setDiffMode] = useState<"hunks" | "full">("hunks");
   const fullFile = inboxShowsFullFileDiff(item) && diffMode === "full";
   const [prDiff, setPrDiff] = useState<GithubPrDiff | null>(cachedDiff);
@@ -2105,6 +2157,26 @@ export function InboxDetail({
         item.repo || projectName(item.projectPath),
         item.number,
       )
+    : null;
+
+  // Checks load as soon as a GitHub PR is open, whatever tab is active. The
+  // panel passes revision 0, so its loads ride on mount and the identity key.
+  const prChecksEnabled = githubKind === "pr";
+  const prChecksView = useGithubPrChecks({
+    cwd: item.projectPath || cwd,
+    repo: item.repo,
+    number: item.number,
+    enabled: prChecksEnabled,
+    open: isPr && item.state.trim().toLowerCase() === "open",
+    poll: visible,
+    revision,
+  });
+  const prChecksOverall = prChecksEnabled
+    ? summarizePrChecks({
+        loading: prChecksView.loading,
+        error: prChecksView.error,
+        checks: prChecksView.checks?.checks ?? null,
+      })
     : null;
 
   useEffect(() => {
@@ -2801,6 +2873,13 @@ export function InboxDetail({
                     selected={tab === "code"}
                     onSelect={() => setTab("code")}
                   />
+                  {prChecksOverall ? (
+                    <PrChecksTab
+                      overall={prChecksOverall}
+                      selected={tab === "checks"}
+                      onSelect={() => setTab("checks")}
+                    />
+                  ) : null}
                 </div>
                 {tab === "code" && inboxShowsFullFileDiff(item) ? (
                   <div
@@ -2928,6 +3007,31 @@ export function InboxDetail({
               ) : (
                 <p className="text-[13px] text-content/45">No file changes</p>
               )
+            ) : isPr && tab === "checks" ? (
+              <InboxPrChecks
+                view={prChecksView}
+                onRefresh={prChecksView.refresh}
+                cwd={item.projectPath || cwd}
+                repo={item.repo}
+                repair={
+                  onRepairChecks &&
+                  item.provider === "github" &&
+                  item.projectPath
+                    ? {
+                        number: item.number,
+                        onOpenSession,
+                        sessions: (repairSessions ?? []).filter(
+                          (session) =>
+                            !session.archived &&
+                            !session.orchestrationLeadId &&
+                            sameProjectPath(session.cwd, item.projectPath),
+                        ),
+                        onStart: (request, sessionId) =>
+                          onRepairChecks(item, request, sessionId),
+                      }
+                    : undefined
+                }
+              />
             ) : loading ? (
               <div className="flex justify-center py-10 text-content/40">
                 <LoaderCircle

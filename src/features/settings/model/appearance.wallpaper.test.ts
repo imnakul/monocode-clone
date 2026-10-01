@@ -13,6 +13,7 @@ vi.mock("../../../platform/tauri/platform", () => ({
   HAS_NATIVE_GLASS: false,
   IS_MAC: false,
   IS_WINDOWS: true,
+  IS_LINUX: false,
 }));
 vi.mock("./newThreadBackgroundEffects", () => ({
   applyPreparedNewThreadBackground: vi.fn(),

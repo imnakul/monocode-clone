@@ -4,9 +4,11 @@ import {
   buildThreadForkParams,
   buildTurnStartParams,
   buildTurnSteerParams,
+  codexCommandText,
   isRecoverableThreadResumeError,
   mapApprovalRequest,
   mapCodexNotification,
+  mapCodexSubagentSteps,
   runtimeModeToCodexConfig,
   toCodexApprovalDecision,
 } from "./codexProtocol";
@@ -14,10 +16,41 @@ import { codexModelPage, parseCodexModelList } from "./codexCatalog";
 
 describe("runtimeModeToCodexConfig", () => {
   it("builds fork parameters with an inclusive turn and no sandboxPolicy", () => {
-    expect(buildThreadForkParams({ threadId: "source", lastTurnId: "turn-2", cwd: "/repo", runtimeMode: "auto", controlsAgents: true, model: "gpt-5.4", serviceTier: "fast" })).toEqual({
-      threadId: "source", lastTurnId: "turn-2", excludeTurns: true, cwd: "/repo", approvalPolicy: "on-request", approvalsReviewer: "auto_review", sandbox: "workspace-write", model: "gpt-5.4", serviceTier: "fast",
+    expect(
+      buildThreadForkParams({
+        threadId: "source",
+        lastTurnId: "turn-2",
+        cwd: "/repo",
+        runtimeMode: "auto",
+        controlsAgents: true,
+        model: "gpt-5.4",
+        serviceTier: "fast",
+      }),
+    ).toEqual({
+      threadId: "source",
+      lastTurnId: "turn-2",
+      excludeTurns: true,
+      cwd: "/repo",
+      approvalPolicy: "on-request",
+      approvalsReviewer: "auto_review",
+      sandbox: "workspace-write",
+      model: "gpt-5.4",
+      serviceTier: "fast",
     });
-    expect(buildThreadForkParams({ threadId: "source", cwd: "/repo", runtimeMode: "supervised" })).toEqual({ threadId: "source", excludeTurns: true, cwd: "/repo", approvalPolicy: "untrusted", approvalsReviewer: "user", sandbox: "read-only" });
+    expect(
+      buildThreadForkParams({
+        threadId: "source",
+        cwd: "/repo",
+        runtimeMode: "supervised",
+      }),
+    ).toEqual({
+      threadId: "source",
+      excludeTurns: true,
+      cwd: "/repo",
+      approvalPolicy: "untrusted",
+      approvalsReviewer: "user",
+      sandbox: "read-only",
+    });
   });
   it("maps supervised to untrusted read-only", () => {
     expect(runtimeModeToCodexConfig("supervised")).toEqual({
@@ -31,16 +64,18 @@ describe("runtimeModeToCodexConfig", () => {
   it("opens loopback for a lead, since every sandbox denies network by default", () => {
     // Without this an orchestration lead cannot reach its own control CLI.
     for (const mode of ["supervised", "auto-accept-edits", "auto"] as const)
-      expect(
-        runtimeModeToCodexConfig(mode, true).sandboxPolicy,
-      ).toMatchObject({ networkAccess: true });
+      expect(runtimeModeToCodexConfig(mode, true).sandboxPolicy).toMatchObject({
+        networkAccess: true,
+      });
     // Ordinary sessions keep the default, and full access needs no flag.
     expect(runtimeModeToCodexConfig("auto").sandboxPolicy).not.toHaveProperty(
       "networkAccess",
     );
-    expect(runtimeModeToCodexConfig("full-access", true).sandboxPolicy).toEqual({
-      type: "dangerFullAccess",
-    });
+    expect(runtimeModeToCodexConfig("full-access", true).sandboxPolicy).toEqual(
+      {
+        type: "dangerFullAccess",
+      },
+    );
   });
 
   it("maps auto-accept-edits to workspace-write with user reviewer", () => {
@@ -72,9 +107,11 @@ describe("runtimeModeToCodexConfig", () => {
       });
     }
     // full-access already permits it, and its policy takes no such field.
-    expect(runtimeModeToCodexConfig("full-access", true).sandboxPolicy).toEqual({
-      type: "dangerFullAccess",
-    });
+    expect(runtimeModeToCodexConfig("full-access", true).sandboxPolicy).toEqual(
+      {
+        type: "dangerFullAccess",
+      },
+    );
   });
 
   it("carries the lead's network grant onto the turn, including a plan turn", () => {
@@ -285,6 +322,39 @@ describe("mapCodexNotification", () => {
     expect(mapped.events).toEqual([{ type: "message.delta", text: "\n\n" }]);
   });
 
+  it("maps completed image generation items as image events", () => {
+    const item = {
+      id: "image_1",
+      type: "imageGeneration",
+      result: "aW1hZ2U=",
+      revisedPrompt: "A clean product photo",
+      savedPath: "/tmp/image_1.png",
+    };
+
+    expect(mapCodexNotification("item/started", { item }).events).toEqual([]);
+    expect(mapCodexNotification("item/completed", { item }).events).toEqual([
+      {
+        type: "image.generated",
+        itemId: "image_1",
+        data: "aW1hZ2U=",
+        name: "generated-image",
+        alt: "A clean product photo",
+      },
+    ]);
+  });
+
+  it("does not map an empty image generation result", () => {
+    expect(
+      mapCodexNotification("item/completed", {
+        item: {
+          id: "image_2",
+          type: "imageGeneration",
+          result: "",
+        },
+      }).events,
+    ).toEqual([]);
+  });
+
   it("maps reasoning summary deltas", () => {
     const mapped = mapCodexNotification("item/reasoning/summaryTextDelta", {
       delta: "thinking…",
@@ -345,6 +415,131 @@ describe("mapCodexNotification", () => {
       status: "completed",
       detail: "ok",
     });
+  });
+
+  it("recovers the command from the argv a shell launcher sends", () => {
+    const mapped = mapCodexNotification("item/started", {
+      item: {
+        id: "cmd_arr",
+        type: "commandExecution",
+        command: ["/usr/bin/zsh", "-lc", "rg --files -g AGENTS.md"],
+        status: "inProgress",
+      },
+    });
+    expect(mapped.events[0]).toMatchObject({
+      type: "tool.started",
+      callId: "cmd_arr",
+      kind: "execute",
+    });
+    const event = mapped.events[0] as {
+      title: string;
+      preview?: { title?: string };
+    };
+    expect(event.title).not.toBe("Shell");
+    expect(event.preview?.title).toBe("rg --files -g AGENTS.md");
+  });
+
+  it("finds the command flag past an intervening option", () => {
+    const mapped = mapCodexNotification("item/started", {
+      item: {
+        id: "cmd_pwsh",
+        type: "commandExecution",
+        command: [
+          "pwsh.exe",
+          "-NoProfile",
+          "-Command",
+          "Get-Content package.json",
+        ],
+        status: "inProgress",
+      },
+    });
+    expect(
+      (mapped.events[0] as { preview?: { title?: string } }).preview?.title,
+    ).toBe("Get-Content package.json");
+  });
+
+  it("matches command flags for the launcher, not unrelated options", () => {
+    expect(
+      codexCommandText({
+        command: [
+          "pwsh.exe",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-Command",
+          "Get-Content package.json",
+        ],
+      }),
+    ).toBe("Get-Content package.json");
+    expect(
+      codexCommandText({
+        command: ["pwsh.exe", "-File", "build.ps1", "-Command", "ignored"],
+      }),
+    ).toBe("pwsh.exe -File build.ps1 -Command ignored");
+    expect(
+      codexCommandText({ command: ["git", "-c", "core.editor=vim", "status"] }),
+    ).toBe("git -c core.editor=vim status");
+    expect(codexCommandText({ command: ["cmd.exe", "/c", "dir /b"] })).toBe(
+      "dir /b",
+    );
+    expect(codexCommandText({ command: ["bash", "-aEc", "echo x"] })).toBe(
+      "echo x",
+    );
+    expect(codexCommandText({ command: ["bash", "--command", "echo x"] })).toBe(
+      "echo x",
+    );
+    expect(codexCommandText({ command: ["bash", "-C", "script.sh"] })).toBe(
+      "bash -C script.sh",
+    );
+    expect(
+      codexCommandText({
+        command: [
+          '"C:\\Program Files\\PowerShell\\7\\pwsh.exe"',
+          "-Command",
+          "Get-Date",
+        ],
+      }),
+    ).toBe("Get-Date");
+  });
+
+  it("falls back to commandActions when the command field is missing", () => {
+    const mapped = mapCodexNotification("item/started", {
+      item: {
+        id: "cmd_actions",
+        type: "commandExecution",
+        status: "inProgress",
+        commandActions: [{ type: "unknown", command: "gh auth status" }],
+      },
+    });
+    expect((mapped.events[0] as { title: string }).title).toBe(
+      "gh auth status",
+    );
+  });
+
+  it("falls back to the older snake_case spelling of the parsed actions", () => {
+    expect(
+      codexCommandText({
+        parsed_cmd: [{ type: "unknown", cmd: "gh auth status" }],
+      }),
+    ).toBe("gh auth status");
+  });
+
+  // The reported "Shell" row: Codex labels `rg --files` a path-less
+  // `listFiles`, which used to derive a bare "List" that the transcript then
+  // collapsed to "Shell" because no path was left to show.
+  it("keeps the command when a path-less listing would hide the row", () => {
+    const mapped = mapCodexNotification("item/started", {
+      item: {
+        id: "cmd_rg",
+        type: "commandExecution",
+        command: `/usr/bin/zsh -lc "rg --files -g AGENTS.md"`,
+        cwd: "/home/me/proj",
+        status: "inProgress",
+        commandActions: [
+          { type: "listFiles", command: "rg --files -g AGENTS.md", path: null },
+        ],
+      },
+    });
+    expect((mapped.events[0] as { title: string }).title).toBe("Find files");
   });
 
   it("uses Codex command actions for readable command rows", () => {
@@ -636,6 +831,40 @@ describe("mapCodexNotification", () => {
     });
   });
 
+  it("flags turns that failed on a spent usage limit", () => {
+    const mapped = mapCodexNotification("turn/completed", {
+      turn: {
+        id: "turn_1",
+        status: "failed",
+        error: {
+          message: "You've hit your usage limit.",
+          codexErrorInfo: "usageLimitExceeded",
+        },
+      },
+    });
+    expect(mapped.usageLimited).toBe(true);
+    expect(
+      mapCodexNotification("turn/completed", {
+        turn: {
+          id: "turn_1",
+          status: "failed",
+          error: { message: "overloaded", codexErrorInfo: "serverOverloaded" },
+        },
+      }).usageLimited,
+    ).toBeUndefined();
+  });
+
+  it("passes rate-limit snapshots through", () => {
+    const rateLimits = {
+      limitId: "codex",
+      primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: 1_900 },
+      secondary: null,
+    };
+    expect(
+      mapCodexNotification("account/rateLimits/updated", { rateLimits }),
+    ).toEqual({ events: [], rateLimits });
+  });
+
   it("does not silently complete a failed turn with no error payload", () => {
     const mapped = mapCodexNotification("turn/completed", {
       turn: { id: "turn_1", status: "failed" },
@@ -814,13 +1043,10 @@ describe("parseCodexModelList", () => {
       { model: "gpt-5.6-sol", displayName: "GPT-5.6-Sol" },
       { model: "gpt-5.2", displayName: "GPT-5.2", hidden: true },
     ]);
-    expect(models.map((m) => m.nativeId)).toEqual([
-      "gpt-5.6-sol",
-      "gpt-5.2",
-    ]);
-    expect(
-      models.find((m) => m.nativeId === "gpt-5.2")?.name,
-    ).toBe("GPT-5.2 (legacy)");
+    expect(models.map((m) => m.nativeId)).toEqual(["gpt-5.6-sol", "gpt-5.2"]);
+    expect(models.find((m) => m.nativeId === "gpt-5.2")?.name).toBe(
+      "GPT-5.2 (legacy)",
+    );
   });
 });
 
@@ -990,5 +1216,37 @@ describe("Codex helper protocol options", () => {
         prompt: "Hello",
       }),
     ).not.toHaveProperty("outputSchema");
+  });
+});
+
+describe("mapCodexSubagentSteps", () => {
+  const subagentBash = (status: string, output?: string) =>
+    mapCodexSubagentSteps("agent-1", "item/completed", {
+      threadId: "thr_1",
+      item: {
+        id: "cmd_1",
+        type: "commandExecution",
+        command: "npm test",
+        status,
+        ...(output ? { aggregatedOutput: output } : {}),
+      },
+    });
+
+  it("keeps a failed child tool's output on its step, where it can be read", () => {
+    expect(
+      subagentBash("failed", "Tests failed: assertion error"),
+    ).toMatchObject([
+      {
+        type: "agent.step",
+        stepId: "cmd_1",
+        status: "failed",
+        detail: "Tests failed: assertion error",
+      },
+    ]);
+  });
+
+  it("leaves a settled child's result off its step", () => {
+    const steps = subagentBash("completed", "12 passed");
+    expect(steps[0]).not.toHaveProperty("detail");
   });
 });

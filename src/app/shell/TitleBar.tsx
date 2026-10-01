@@ -2,6 +2,7 @@ import {
   CheckCircle,
   ChevronLeft,
   ChevronRight,
+  DashboardSquare,
   Inbox,
   PanelLeft,
   Plus,
@@ -74,6 +75,8 @@ export type Tab = {
   groupId?: string;
   dirty?: boolean;
   terminal?: boolean;
+  /** File id when the whole tab is one preview file; double-click pins it. */
+  previewFileId?: string;
 };
 
 type Props = {
@@ -97,9 +100,12 @@ type Props = {
   onOpenNotes?: () => void;
   onClose: (id: string) => void;
   onCloseMany: (ids: string[], fallbackId: string) => void;
+  onArchiveTab?: (id: string) => void;
+  onDeleteTab?: (id: string) => void;
   onReorder: (ids: string[], movedId?: string) => void;
   onPlaceOnPane?: (tabId: string, targetId: string, edge: PaneEdge) => void;
   onGoToFile?: () => void;
+  onPinFile?: (fileId: string) => void;
   recents?: RecentProject[];
   onSelectProject?: (path: string) => void;
 };
@@ -278,6 +284,7 @@ function TitleTabItem({
   sortable,
   onSelect,
   onClose,
+  onPinFile,
   onContextMenu,
   itemRef,
 }: {
@@ -288,6 +295,7 @@ function TitleTabItem({
   sortable: SortableApi;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
+  onPinFile?: (fileId: string) => void;
   onContextMenu: (id: string, event: ReactMouseEvent<HTMLDivElement>) => void;
   itemRef?: (el: HTMLDivElement | null) => void;
 }) {
@@ -337,6 +345,9 @@ function TitleTabItem({
           if (sortable.consumeClick()) return;
           onSelect(tab.id);
         }}
+        onDoubleClick={() => {
+          if (tab.previewFileId) onPinFile?.(tab.previewFileId);
+        }}
         className={`relative flex h-7.5 min-w-0 flex-1 cursor-default items-center gap-1.5 self-center rounded-md px-2 text-left ${
           closable ? "pr-7" : "pr-2.5"
         } ${
@@ -368,7 +379,7 @@ function TitleTabItem({
         <span className="flex min-w-0 flex-1 flex-col justify-center">
           <span className="flex min-w-0 items-center gap-1">
             <span
-              className={`min-w-0 truncate leading-tight ${
+              className={`min-w-0 truncate leading-tight ${tab.previewFileId ? "italic" : ""} ${
                 meta
                   ? "text-[13px] @min-[11rem]:text-[10px] @min-[11rem]:font-medium"
                   : "text-[13px]"
@@ -626,9 +637,12 @@ function TitleBarComponent({
   onOpenNotes,
   onClose,
   onCloseMany,
+  onArchiveTab,
+  onDeleteTab,
   onReorder,
   onPlaceOnPane,
   onGoToFile,
+  onPinFile,
   recents = [],
   onSelectProject,
 }: Props) {
@@ -790,6 +804,38 @@ function TitleBarComponent({
           label: "Close Tabs to the Left",
           disabled: contextCloseIds?.left.length === 0,
         },
+        ...(contextTab.sessionCount > 0 && (onArchiveTab || onDeleteTab)
+          ? [
+              { kind: "sep" as const },
+              ...(onArchiveTab
+                ? [
+                    {
+                      kind: "item" as const,
+                      id: "archive",
+                      label: "Archive",
+                      description:
+                        contextTab.sessionCount > 1
+                          ? `All ${contextTab.sessionCount} conversations in this tab`
+                          : undefined,
+                    },
+                  ]
+                : []),
+              ...(onDeleteTab
+                ? [
+                    {
+                      kind: "item" as const,
+                      id: "delete",
+                      label: "Delete",
+                      description:
+                        contextTab.sessionCount > 1
+                          ? `Permanently delete all ${contextTab.sessionCount} conversations in this tab`
+                          : undefined,
+                      danger: true,
+                    },
+                  ]
+                : []),
+            ]
+          : []),
       ]
     : [];
 
@@ -798,6 +844,14 @@ function TitleBarComponent({
     setTabMenu(null);
     if (id === "close") {
       onClose(contextTab.id);
+      return;
+    }
+    if (id === "archive") {
+      onArchiveTab?.(contextTab.id);
+      return;
+    }
+    if (id === "delete") {
+      onDeleteTab?.(contextTab.id);
       return;
     }
     if (id === "others" || id === "right" || id === "left") {
@@ -902,7 +956,7 @@ function TitleBarComponent({
             label={`Toggle Session Sidebar (${MOD}${SHIFT}B)`}
             onClick={onToggleSessionSidebar}
           >
-            <PanelLeft className="size-3.5" strokeWidth={1.75} />
+            <DashboardSquare className="size-3.5" strokeWidth={1.75} />
           </IconButton>
         </div>
       ) : null}
@@ -975,6 +1029,7 @@ function TitleBarComponent({
                     sortable={sortable}
                     onSelect={onSelect}
                     onClose={onClose}
+                    onPinFile={onPinFile}
                     onContextMenu={(tabId, event) =>
                       setTabMenu({
                         tabId,

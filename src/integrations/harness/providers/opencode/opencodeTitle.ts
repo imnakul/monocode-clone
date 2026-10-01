@@ -14,6 +14,7 @@ export async function generateOpenCodeSessionTitle(input: {
 }): Promise<GeneratedSessionTitle | null> {
   try {
     const output = await runOpenCodeTextPrompt({
+      helperOnly: true,
       cwd: input.cwd,
       prompt: buildThreadTitlePrompt(input.message),
       timeoutMs: TITLE_TIMEOUT_MS,

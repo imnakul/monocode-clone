@@ -1,21 +1,23 @@
 import type { HarnessId } from "../../../features/sessions/model/session";
 import { HARNESSES } from "../../../features/sessions/model/session";
-import {
-  probeHarnessBinary,
-  resolveAntigravityBinary,
-  resolveClaudeBinary,
-  resolveCodexBinary,
-  resolveCursorBinary,
-  resolveFxBinary,
-  resolveGrokBinary,
-  resolveHermesBinary,
-  resolveOmpBinary,
-  resolveOpenCodeBinary,
-  resolvePiBinary,
-} from "./child";
+import { probeHarnessBinary } from "./child";
 import { isLiveHarness } from "./registry";
+import {
+  harnessAvailabilityProbedAt,
+  markHarnessAvailabilityProbed,
+  resetHarnessAvailabilityState,
+  setHarnessAvailability,
+  type HarnessAvailability,
+} from "./availabilityState";
 
-export type HarnessAvailability = Record<HarnessId, boolean>;
+export type { HarnessAvailability } from "./availabilityState";
+export {
+  getHarnessAvailabilitySnapshot,
+  hasHarnessEvidence,
+  hasProbedHarnessAvailability,
+  isHarnessAvailable,
+  subscribeHarnessAvailability,
+} from "./availabilityState";
 
 /**
  * We only ever check whether the binary exists, never whether it is
@@ -33,38 +35,22 @@ const CLI: Record<HarnessId, { name: string; install?: string }> = {
   pi: { name: "Pi CLI", install: "npm i -g @earendil-works/pi-coding-agent" },
   omp: { name: "omp CLI", install: "curl -fsSL https://omp.sh/install | sh" },
   fx: { name: "fx CLI", install: "curl -fsSL https://fx.sh/setup.sh | bash" },
-  cline: {
-    name: "Cline CLI",
-    install: "npm i -g cline",
-  },
+  antigravity: { name: "Antigravity ACP server (agy_acp_server.par)" },
+  cline: { name: "Cline CLI", install: "npm i -g cline" },
   hermes: {
     name: "Hermes Agent CLI",
-    install:
-      "Install from hermes-agent.nousresearch.com, then run hermes model",
+    install: "Install from hermes-agent.nousresearch.com, then run hermes model",
   },
-  antigravity: { name: "Antigravity ACP server (agy_acp_server.par)" },
 };
 
-let availability: HarnessAvailability = {
-  claude: false,
-  codex: false,
-  cursor: false,
-  grok: false,
-  opencode: false,
-  pi: false,
-  omp: false,
-  fx: false,
-  antigravity: false,
-  cline: false,
-  hermes: false,
-};
-let version = 0;
-let inflight: Promise<void> | null = null;
-let probedAt = 0;
-/** Harnesses with backend-authoritative evidence (a probe or catalog run). */
-const evidenced = new Set<HarnessId>();
+/**
+ * Probing Antigravity directly performs a slow ACP handshake. Catalog discovery
+ * on the shared local runtime is authoritative and avoids racing a second
+ * process, so callers can defer that one provider until discovery completes.
+ */
 let antigravityProbeError: string | null = null;
-const listeners = new Set<() => void>();
+let inflight: Promise<void> | null = null;
+let probeGeneration = 0;
 
 /**
  * A probe stats ~100 paths across the resolvers. The model picker and the
@@ -74,210 +60,85 @@ const listeners = new Set<() => void>();
  */
 const PROBE_TTL_MS = 30_000;
 
-function emit() {
-  version += 1;
-  for (const listener of listeners) listener();
-}
-
-export function subscribeHarnessAvailability(onStoreChange: () => void): () => void {
-  listeners.add(onStoreChange);
-  return () => {
-    listeners.delete(onStoreChange);
-  };
-}
-
-export function getHarnessAvailabilitySnapshot(): number {
-  return version;
-}
-
-export function hasProbedHarnessAvailability(): boolean {
-  return probedAt > 0;
-}
-
-/**
- * True once this harness has backend-authoritative evidence in this session
- * (a completed probe, or catalog discovery that proved the runtime answers).
- * Before that the UI must render "not checked yet" — never "not installed".
- */
-export function hasHarnessEvidence(id: HarnessId): boolean {
-  return evidenced.has(id);
-}
-
-export function isHarnessAvailable(id: HarnessId): boolean {
-  return availability[id];
-}
-
-/**
- * Record availability evidence without running a probe. Used when catalog
- * discovery already proved the runtime answers, so the expensive Antigravity
- * ACP handshake and the shared-runtime acquisition never run side by side.
- */
-export function noteHarnessEvidence(
-  id: HarnessId,
-  ok: boolean,
-  error?: string,
-): void {
-  availability = { ...availability, [id]: ok };
-  evidenced.add(id);
-  if (id === "antigravity") {
-    antigravityProbeError = ok ? null : (error ?? antigravityProbeError);
-  }
-  emit();
-}
-
 export function harnessUnavailableHint(id: HarnessId): string {
   if (id === "antigravity") {
-    return antigravityProbeError ?? "Antigravity ACP runtime not found. Download the official ACP executable and matching helper, then choose the ACP binary in Providers.";
+    return (
+      antigravityProbeError ??
+      "Antigravity ACP runtime not found. Download the official ACP executable and matching helper, then choose the ACP binary in Providers."
+    );
   }
   const { name, install } = CLI[id];
   const how = install ? ` (\`${install}\`)` : "";
   return `${name} not found${how}. Install it, or restart MonoCode if it is already installed.`;
 }
 
+/** Record catalog evidence without running a second ACP handshake. */
+export function noteHarnessEvidence(
+  id: HarnessId,
+  ok: boolean,
+  error?: string,
+): void {
+  setHarnessAvailability({ [id]: ok });
+  if (id === "antigravity") {
+    antigravityProbeError = ok ? null : (error ?? antigravityProbeError);
+  }
+}
+
 /** Test seam. */
 export function resetHarnessAvailability(): void {
-  availability = {
-    claude: false,
-    codex: false,
-    cursor: false,
-    grok: false,
-    opencode: false,
-    pi: false,
-    omp: false,
-    fx: false,
-    antigravity: false,
-    cline: false,
-    hermes: false,
-  };
-  evidenced.clear();
+  probeGeneration += 1;
+  inflight = null;
   antigravityProbeError = null;
-  probedAt = 0;
-  emit();
+  resetHarnessAvailabilityState();
 }
 
 export function probeHarnessAvailability(
   options?: { force?: boolean; exclude?: HarnessId[] },
 ): Promise<void> {
   if (inflight) return inflight;
-  if (!options?.force && probedAt > 0 && Date.now() - probedAt < PROBE_TTL_MS) {
+  const lastProbe = harnessAvailabilityProbedAt();
+  if (!options?.force && lastProbe > 0 && Date.now() - lastProbe < PROBE_TTL_MS) {
     return Promise.resolve();
   }
-  // Excluded harnesses keep their current status: the Antigravity ACP probe
-  // is a ~30 s PyInstaller handshake, so blanket probes (picker open,
-  // Providers page) skip it — catalog discovery on the shared runtime
-  // reports its evidence via noteHarnessEvidence instead.
+
+  // Excluded harnesses keep their current status and evidence. This is used
+  // for Antigravity while the shared ACP catalog is still being discovered.
   const excluded = new Set(options?.exclude ?? []);
-  inflight = Promise.all(
+  const generation = probeGeneration;
+  const pending = Promise.all(
     HARNESSES.map(async (id) => {
       if (excluded.has(id)) return null;
       if (!isLiveHarness(id)) return [id, false] as const;
       try {
         await probeHarnessBinary(id);
-        if (id === "antigravity") antigravityProbeError = null;
         return [id, true] as const;
       } catch (error: unknown) {
-        if (id === "antigravity") {
-          antigravityProbeError = error instanceof Error ? error.message : String(error);
-        }
-        return [id, false] as const;
+        return [
+          id,
+          false,
+          error instanceof Error ? error.message : String(error),
+        ] as const;
       }
-      if (id === "cursor") {
-        try {
-          await resolveCursorBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "claude") {
-        try {
-          await resolveClaudeBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "codex") {
-        try {
-          await resolveCodexBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "opencode") {
-        try {
-          await resolveOpenCodeBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "pi") {
-        try {
-          await resolvePiBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "omp") {
-        try {
-          await resolveOmpBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "fx") {
-        try {
-          await resolveFxBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "grok") {
-        try {
-          await resolveGrokBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "hermes") {
-        try {
-          await resolveHermesBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      if (id === "antigravity") {
-        try {
-          await resolveAntigravityBinary();
-          return [id, true] as const;
-        } catch {
-          return [id, false] as const;
-        }
-      }
-      return [id, false] as const;
     }),
   )
     .then((entries) => {
-      const next = { ...availability };
+      if (generation !== probeGeneration) return;
+      const updates: Partial<HarnessAvailability> = {};
       for (const entry of entries) {
         if (!entry) continue;
-        const [id, ok] = entry;
-        next[id] = ok;
-        evidenced.add(id);
+        const [id, ok, error] = entry;
+        updates[id] = ok;
+        if (id === "antigravity") {
+          antigravityProbeError = ok ? null : (error ?? antigravityProbeError);
+        }
       }
-      availability = next;
-      emit();
+      setHarnessAvailability(updates);
     })
     .finally(() => {
-      probedAt = Date.now();
+      if (generation !== probeGeneration) return;
+      markHarnessAvailabilityProbed();
       inflight = null;
     });
-  return inflight;
+  inflight = pending;
+  return pending;
 }

@@ -19,8 +19,16 @@ import {
 } from "./codexGit";
 import { refreshCodexCatalog } from "./codexCatalog";
 import { generateCodexSessionTitle } from "./codexTitle";
-import { runCodexTextPrompt, warmupCodexText } from "./codexText";
-import { registerHarness, type HarnessAdapter } from "../../core/registry";
+import {
+  runCodexTextPrompt,
+  stopCodexTextPrompt,
+  warmupCodexText,
+} from "./codexText";
+import {
+  getHarness,
+  registerHarness,
+  type HarnessAdapter,
+} from "../../core/registry";
 
 export const codexAdapter: HarnessAdapter = {
   id: "codex",
@@ -58,13 +66,16 @@ export const codexAdapter: HarnessAdapter = {
       providerAccountId,
       model,
       outputSchema,
+      helperOnly: true,
     }),
+  runTextPrompt: runCodexTextPrompt,
+  stopTextPrompt: stopCodexTextPrompt,
 };
 
 let registered = false;
 
 export function ensureCodexRegistered(): void {
-  if (registered) return;
+  if (registered && getHarness("codex") === codexAdapter) return;
   registerHarness(codexAdapter);
   registered = true;
 }

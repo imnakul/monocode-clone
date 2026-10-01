@@ -196,7 +196,9 @@ describe("OpenCode CLI inventory parsers", () => {
       ].join("\n"),
     );
     const [model] = flattenOpenCodeModels(parsed, []);
-    const variant = model?.settings?.find((setting) => setting.id === "variant");
+    const variant = model?.settings?.find(
+      (setting) => setting.id === "variant",
+    );
     expect(variant?.options.map((option) => option.value)).toEqual([
       "minimal",
       "low",
@@ -279,13 +281,9 @@ describe("OpenCode helpers", () => {
   });
 
   it("sorts variants from lowest to highest effort", () => {
-    expect(sortOpenCodeVariants(["high", "minimal", "xhigh", "low", "medium"])).toEqual([
-      "minimal",
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-    ]);
+    expect(
+      sortOpenCodeVariants(["high", "minimal", "xhigh", "low", "medium"]),
+    ).toEqual(["minimal", "low", "medium", "high", "xhigh"]);
   });
 });
 

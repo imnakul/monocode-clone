@@ -1,5 +1,10 @@
 import type { NativeContextBreakdown } from "../../../features/sessions/model/contextBreakdown";
-import type { HarnessId } from "../../../features/sessions/model/session";
+import type {
+  Block,
+  HarnessId,
+  TaskListMeta,
+  TurnIntent,
+} from "../../../features/sessions/model/session";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { GeneratedSessionTitle } from "../../../features/sessions/model/sessionTitle";
 import type { PrContent } from "../../../features/source-control/model/gitText";
@@ -11,6 +16,7 @@ import type {
   ApprovalDecision,
   ApprovalScope,
   CompactContextInput,
+  HarnessEvent,
   RewindLastTurnInput,
   RewindLastTurnResult,
   SendTurnInput,
@@ -31,6 +37,21 @@ export type HelperPromptInput = {
   providerAccountId?: string;
   model?: string;
   outputSchema?: Record<string, unknown>;
+};
+
+/** One-shot, isolated text generation shared by titles and side questions. */
+export type TextPromptInput = {
+  cwd: string;
+  providerAccountId?: string;
+  model?: string;
+  modelSettings?: Record<string, string>;
+  threadId?: string;
+  onThreadId?: (threadId: string) => void;
+  intent?: TurnIntent;
+  prompt: string;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  onEvent?: (event: HarnessEvent) => void;
 };
 
 /**
@@ -82,12 +103,14 @@ export type HarnessAdapter = {
     cwd: string,
     providerAccountId?: string,
   ): void;
+  /** Seed provider task state from a restored session's persisted panels. */
+  restoreTaskLists?(threadId: string, lists: TaskListMeta[]): void;
   /** Refresh the model catalog overlay when supported. */
   refreshCatalog?(): Promise<void>;
   /** Optional LLM tab title for the first turn. */
   generateTitle?(input: TitleInput): Promise<GeneratedSessionTitle | null>;
   /** Optional LLM commit message from staged changes. */
-  generateCommitMessage?(cwd: string): Promise<string>;
+  generateCommitMessage?(cwd: string, signal?: AbortSignal): Promise<string>;
   /** Optional LLM pull request title/body from branch diff context. */
   generatePrContent?(
     cwd: string,
@@ -98,6 +121,10 @@ export type HarnessAdapter = {
   warmupText?(cwd: string): Promise<void>;
   /** Isolated text generation used by user-selected AI helpers. */
   runHelperPrompt?(input: HelperPromptInput): Promise<string>;
+  /** Run an isolated, read-only prompt without mutating the main session. */
+  runTextPrompt?(input: TextPromptInput): Promise<string>;
+  /** Stop an isolated text-generation backend. */
+  stopTextPrompt?(): Promise<void>;
 };
 
 const adapters = new Map<HarnessId, HarnessAdapter>();
@@ -217,6 +244,7 @@ export function sendHarnessTurn(input: SendTurnInput & { harness: HarnessId }) {
       await invoke("control_authorize_turn", {
         sessionId: input.sessionId,
         cwd: input.cwd,
+        appAccess: input.appAccess === true,
       });
     activeTurnSessions.add(input.sessionId);
     try {
@@ -371,13 +399,16 @@ export function bindHarnessSession(
   providerSessionId: string,
   cwd: string,
   providerAccountId?: string,
+  /** Restored transcript, so the adapter can reseed its task state. */
+  blocks?: Block[],
 ): void {
-  getHarness(harness)?.bindSession(
-    threadId,
-    providerSessionId,
-    cwd,
-    providerAccountId,
+  const adapter = getHarness(harness);
+  adapter?.bindSession(threadId, providerSessionId, cwd, providerAccountId);
+  if (!blocks || !adapter?.restoreTaskLists) return;
+  const lists = blocks.flatMap((block) =>
+    block.role === "tasks" && block.taskList ? [block.taskList] : [],
   );
+  if (lists.length > 0) adapter.restoreTaskLists(threadId, lists);
 }
 
 /**
@@ -385,6 +416,7 @@ export function bindHarnessSession(
  * Boot used to refresh every adapter; that spawned unused CLIs (Pi with
  * extensions can sit at ~1GB) even when the workspace never touched them.
  */
+/** `force` re-reads a catalog that already loaded, e.g. after a CLI update. */
 export async function refreshHarnessCatalogs(
   ids: Iterable<HarnessId>,
   options?: { force?: boolean },
@@ -429,12 +461,14 @@ export async function runHarnessHelperPrompt(
 export async function generateHarnessCommitMessage(
   harness: HarnessId,
   cwd: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const adapter = requireHarness(harness);
   if (!adapter.generateCommitMessage) {
     throw new Error(`${harness} does not support commit message generation`);
   }
-  return adapter.generateCommitMessage(cwd);
+  signal?.throwIfAborted();
+  return adapter.generateCommitMessage(cwd, signal);
 }
 
 export async function generateHarnessPrContent(
@@ -469,4 +503,94 @@ export async function inspectHarnessContext(
   signal?: AbortSignal,
 ): Promise<NativeContextBreakdown | null> {
   return getHarness(harness)?.inspectContext?.(sessionId, signal) ?? null;
+}
+
+export function canRunHarnessTextPrompt(harness: HarnessId): boolean {
+  const adapter = getHarness(harness);
+  return adapter?.live === true && adapter.runTextPrompt != null;
+}
+
+function stopTextPrompt(adapter: HarnessAdapter): Promise<void> {
+  return adapter.stopTextPrompt
+    ? adapter.stopTextPrompt().catch(() => undefined)
+    : Promise.resolve();
+}
+
+const activeTextPromptOwners = new Map<HarnessAdapter, Set<symbol>>();
+
+function beginTextPrompt(adapter: HarnessAdapter): symbol {
+  const owner = Symbol("text-prompt");
+  const owners = activeTextPromptOwners.get(adapter) ?? new Set<symbol>();
+  owners.add(owner);
+  activeTextPromptOwners.set(adapter, owners);
+  return owner;
+}
+
+function finishTextPrompt(
+  adapter: HarnessAdapter,
+  owner: symbol,
+  stopIfLast: boolean,
+): void {
+  const owners = activeTextPromptOwners.get(adapter);
+  if (!owners?.delete(owner)) return;
+  if (owners.size > 0) return;
+  activeTextPromptOwners.delete(adapter);
+  if (stopIfLast) void stopTextPrompt(adapter);
+}
+
+function cancelledTextPrompt(): Error {
+  return new Error("By-the-way request cancelled");
+}
+
+export async function runHarnessTextPrompt(
+  input: TextPromptInput & { harness: HarnessId },
+): Promise<string> {
+  const adapter = requireHarness(input.harness);
+  if (!adapter.live) {
+    throw new Error(`${input.harness} is not connected yet`);
+  }
+  if (!adapter.runTextPrompt) {
+    throw new Error(`${input.harness} does not support isolated text prompts`);
+  }
+
+  const signal = input.signal;
+  if (signal?.aborted) {
+    throw cancelledTextPrompt();
+  }
+
+  const owner = beginTextPrompt(adapter);
+  let run: Promise<string>;
+  try {
+    run = adapter.runTextPrompt(input);
+  } catch (error) {
+    finishTextPrompt(adapter, owner, false);
+    throw error;
+  }
+  if (!signal) {
+    try {
+      return await run;
+    } finally {
+      finishTextPrompt(adapter, owner, false);
+    }
+  }
+
+  let abortHandler: (() => void) | undefined;
+  const abortPromise = new Promise<never>((_, reject) => {
+    abortHandler = () => {
+      finishTextPrompt(adapter, owner, false);
+      reject(cancelledTextPrompt());
+    };
+    signal.addEventListener("abort", abortHandler, { once: true });
+    if (signal.aborted) abortHandler();
+  });
+  try {
+    return await Promise.race([run, abortPromise]);
+  } finally {
+    if (abortHandler) signal.removeEventListener("abort", abortHandler);
+    finishTextPrompt(adapter, owner, false);
+  }
+}
+
+export async function stopHarnessTextPrompts(): Promise<void> {
+  await Promise.all([...adapters.values()].map(stopTextPrompt));
 }

@@ -137,6 +137,68 @@ describe("SwitchBranchDialog commit message generation", () => {
       await Promise.resolve();
     });
 
-    expect(document.body.querySelector('[aria-label="Commit message"]')).toBeNull();
+    expect(
+      document.body.querySelector('[aria-label="Commit message"]'),
+    ).toBeNull();
   });
+});
+
+it("lets the switch dialog cancel generation and ignores its late result", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  let resolveGeneration!: (message: string) => void;
+  mocks.generateHelperCommitMessage.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveGeneration = resolve;
+      }),
+  );
+  const mount = document.createElement("div");
+  document.body.append(mount);
+  const root = createRoot(mount);
+  const onCancel = vi.fn();
+  try {
+    await act(async () =>
+      root.render(
+        createElement(SwitchBranchDialog, {
+          cwd: "/repo",
+          branch: "other",
+          busy: null,
+          onStash: vi.fn(),
+          onCommit: vi.fn(),
+          onCancel,
+        }),
+      ),
+    );
+
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Generate commit message"]',
+        )!
+        .click();
+    });
+    const signal = mocks.generateHelperCommitMessage.mock.calls[0]?.[2];
+    expect(signal?.aborted).toBe(false);
+
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Cancel commit message generation"]',
+        )!
+        .click();
+    });
+    expect(signal?.aborted).toBe(true);
+    expect(
+      document.querySelector<HTMLButtonElement>(
+        '[aria-label="Generate commit message"]',
+      )?.disabled,
+    ).toBe(false);
+
+    await act(async () => resolveGeneration("Late message"));
+    expect(document.querySelector("textarea")?.value).toBe("");
+    expect(onCancel).not.toHaveBeenCalled();
+  } finally {
+    act(() => root.unmount());
+    mount.remove();
+  }
 });

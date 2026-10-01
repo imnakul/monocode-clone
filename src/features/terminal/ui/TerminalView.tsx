@@ -19,6 +19,10 @@ import {
 } from "../../../platform/tauri/pty";
 import { isOscColorQuery, oscColorReply } from "../model/terminalChrome";
 import {
+  isMacTerminalClearShortcut,
+  macTerminalShortcutData,
+} from "../model/terminalKeys";
+import {
   defaultTerminalTitle,
   scanOscCwd,
   type TerminalMetaPatch,
@@ -257,6 +261,24 @@ function LiveTerminalView({ id, cwd, active, onMetaChange }: Props) {
     host.addEventListener("paste", onPaste);
 
     term.attachCustomKeyEventHandler((event) => {
+      const shortcutData = IS_MAC ? macTerminalShortcutData(event) : null;
+      if (shortcutData) {
+        if (event.type === "keydown") {
+          event.preventDefault();
+          event.stopPropagation();
+          term.input(shortcutData);
+        }
+        return false;
+      }
+      if (IS_MAC && isMacTerminalClearShortcut(event)) {
+        if (event.isComposing) return false;
+        if (event.type === "keydown") {
+          event.preventDefault();
+          term.clear();
+        }
+        return false;
+      }
+
       const mod = event.metaKey || event.ctrlKey;
       if (!mod || event.altKey) return true;
       const key = event.key.toLowerCase();

@@ -4,7 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newTerminalFile } from "../../workspace/model/layout";
 import { createProjectTerminal } from "../../projects/model/projectTerminal";
-import { resetTerminalLifecycle, startTerminal } from "../model/terminalLifecycle";
+import {
+  resetTerminalLifecycle,
+  startTerminal,
+} from "../model/terminalLifecycle";
 import { FilePane } from "../../files/ui/FilePane";
 import { ProjectTerminalDock } from "../../terminal/ui/ProjectTerminalDock";
 
@@ -14,10 +17,7 @@ const pty = vi.hoisted(() => ({
   getPtyStatus: vi.fn(async (): Promise<{ foreground: string | null }> => ({
     foreground: null,
   })),
-  subscribePty: vi.fn(
-    (): (() => void) =>
-      () => undefined,
-  ),
+  subscribePty: vi.fn((): (() => void) => () => undefined),
   ptyReplayFrom: vi.fn(
     async (): Promise<{ start: number; total: number; data: Uint8Array }> => ({
       start: 0,
@@ -37,9 +37,8 @@ vi.mock("../../../platform/tauri/pty", () => ({
   killPty: (...args: unknown[]): Promise<void> => pty.killPty(...args),
   getPtyStatus: (...args: unknown[]): Promise<{ foreground: string | null }> =>
     pty.getPtyStatus(...args),
-  subscribePty: (
-    ...args: [string, unknown, unknown]
-  ): (() => void) => pty.subscribePty(...args),
+  subscribePty: (...args: [string, unknown, unknown]): (() => void) =>
+    pty.subscribePty(...args),
   ptyReplayFrom: (...args: unknown[]) => pty.ptyReplayFrom(...args),
 }));
 
@@ -123,7 +122,11 @@ afterEach(() => {
 });
 
 async function flush(): Promise<void> {
-  await act(async () => {});
+  // Upstream defers the terminal surface import until it is first mounted.
+  // Wait for that module before asserting the local dormant/start behavior.
+  await act(async () => {
+    await import("../../terminal/ui/TerminalView");
+  });
 }
 
 function paneProps(fileId: string, cwd = "/repo") {

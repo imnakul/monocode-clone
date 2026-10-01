@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invokeWorkspace as invoke } from "../../../platform/tauri/fs";
 import type { AgentModel } from "../../../features/sessions/model/models";
 import type { Attachment, RuntimeMode } from "../../../features/sessions/model/session";
 import { asRecord, eventsFromAcpUpdate } from "./clineProtocol";

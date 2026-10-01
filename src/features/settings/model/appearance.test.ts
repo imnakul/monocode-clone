@@ -391,6 +391,7 @@ describe("chat background setting", () => {
       "ascii",
       "halftone",
       "scanlines",
+      "gradient-blur",
     ] as const) {
       saveNewThreadBackgroundEffect(effect);
       expect(loadNewThreadBackgroundEffect()).toBe(effect);

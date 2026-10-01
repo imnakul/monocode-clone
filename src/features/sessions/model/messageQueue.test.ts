@@ -61,6 +61,12 @@ describe("canDispatchQueuedHead", () => {
     );
   });
 
+  it("holds while the last turn is stopped at a usage limit", () => {
+    expect(
+      canDispatchQueuedHead(chat({ usageLimit: { resetsAt: 1_000 } })),
+    ).toBe(false);
+  });
+
   it("holds the queue after a failed turn until the user resumes", () => {
     expect(canDispatchQueuedHead(chat({ queueStatus: "held" }))).toBe(false);
   });

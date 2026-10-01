@@ -11,12 +11,11 @@ type Props = {
   selectedSha?: string;
   onOpenFile: (
     path: string,
-    options?:
-      | GitFileDiffKind
-      | { kind?: "staged" | "unstaged"; status?: string },
+    options?: GitFileDiffKind | { kind?: GitFileDiffKind; status?: string },
+    pin?: boolean,
   ) => void;
-  onOpenAllChanges?: () => void;
-  onOpenCommit: (commit: GitHistoryCommit) => void;
+  onOpenAllChanges: (kind: GitFileDiffKind) => void;
+  onOpenCommit: (commit: GitHistoryCommit, pin?: boolean) => void;
 };
 
 export function SourceControl({

@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Undo2,
   WandSparkles,
+  X,
 } from "../../../shared/ui/icons";
 import {
   useCallback,
@@ -48,6 +49,7 @@ import {
   gitPrStatus,
   gitPull,
   gitPush,
+  gitRangeContext,
   gitStageAll,
   gitStageFile,
   gitSync,
@@ -79,6 +81,7 @@ import { invalidateWatchedFiles } from "../../files/model/fileWatch";
 import { MOD } from "../../../platform/tauri/platform";
 import { applyProjectDiffStats } from "../hooks/useProjectDiffStats";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
+import { isRemoteProjectPath } from "../../projects/model/recents";
 
 const GIT_POLL_MS = 2000;
 
@@ -115,12 +118,11 @@ type Props = {
   selectedSha?: string;
   onOpenFile: (
     path: string,
-    options?:
-      | GitFileDiffKind
-      | { kind?: "staged" | "unstaged"; status?: string },
+    options?: GitFileDiffKind | { kind?: GitFileDiffKind; status?: string },
+    pin?: boolean,
   ) => void;
-  onOpenAllChanges?: () => void;
-  onOpenCommit: (commit: GitHistoryCommit) => void;
+  onOpenAllChanges: (kind: GitFileDiffKind) => void;
+  onOpenCommit: (commit: GitHistoryCommit, pin?: boolean) => void;
 };
 
 export function GitChangesPanel({
@@ -264,7 +266,10 @@ export function GitChangesPanel({
                   className="flex h-7 w-full items-center gap-2 px-3 text-left text-[12px] text-content hover:bg-content/10 disabled:opacity-40"
                 >
                   {busy === "pull" ? (
-                    <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />
+                    <Loader
+                      className="size-3.5 animate-spin"
+                      strokeWidth={1.75}
+                    />
                   ) : (
                     <RefreshCw className="size-3.5" strokeWidth={1.75} />
                   )}
@@ -298,22 +303,19 @@ export function GitChangesPanel({
         }}
       />
       {graphExpanded ? (
-      <GraphResizeSash
-        height={graphHeight}
-        onHeightPaint={setGraphHeight}
-        onHeightCommit={(next) => {
-          setGraphHeight(next);
-          saveGraphPanelHeight(next);
-        }}
-        maxHeight={() => {
-          const pane = paneRef.current;
-          if (!pane) return GRAPH_PANEL_DEFAULT * 2;
-          return Math.max(
-            GRAPH_PANEL_MIN,
-            pane.clientHeight - 160,
-          );
-        }}
-      />
+        <GraphResizeSash
+          height={graphHeight}
+          onHeightPaint={setGraphHeight}
+          onHeightCommit={(next) => {
+            setGraphHeight(next);
+            saveGraphPanelHeight(next);
+          }}
+          maxHeight={() => {
+            const pane = paneRef.current;
+            if (!pane) return GRAPH_PANEL_DEFAULT * 2;
+            return Math.max(GRAPH_PANEL_MIN, pane.clientHeight - 160);
+          }}
+        />
       ) : null}
       <div
         className={`shrink-0 overflow-hidden border-t border-stroke ${
@@ -364,11 +366,10 @@ function ChangedFiles({
   setBusy: (value: string | null) => void;
   onOpenFile: (
     path: string,
-    options?:
-      | GitFileDiffKind
-      | { kind?: "staged" | "unstaged"; status?: string },
+    options?: GitFileDiffKind | { kind?: GitFileDiffKind; status?: string },
+    pin?: boolean,
   ) => void;
-  onOpenAllChanges?: () => void;
+  onOpenAllChanges: (kind: GitFileDiffKind) => void;
   onMutated: (paths?: string[]) => void;
 }) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
@@ -396,11 +397,13 @@ function ChangedFiles({
     !!index?.branch &&
     !!index.defaultBranch &&
     index.branch === index.defaultBranch;
-  const canGenerate = files.length > 0 && !busy;
+  const canGenerate = files.length > 0 && !busy && !isRemoteProjectPath(cwd);
   const canCommit =
     (staged.length > 0 || amend) && message.trim().length > 0 && !busy;
   const canCreatePr =
     hasRemote &&
+    !!index?.branch &&
+    !!index.defaultBranch &&
     !hasOpenPr &&
     !onDefault &&
     !diverged &&
@@ -429,7 +432,10 @@ function ChangedFiles({
 
   useEffect(() => {
     if (!amendTarget) return;
-    if (amendTarget.branch === index?.branch && amendTarget.head === index?.head) {
+    if (
+      amendTarget.branch === index?.branch &&
+      amendTarget.head === index?.head
+    ) {
       return;
     }
     setAmendTarget(null);
@@ -546,7 +552,7 @@ function ChangedFiles({
   };
 
   const generate = async () => {
-    if (!canGenerate) return;
+    if (!canGenerate || commitGeneration.current) return;
     const startText = messageRef.current?.value ?? message;
     const controller = new AbortController();
     commitGeneration.current = controller;
@@ -573,6 +579,12 @@ function ChangedFiles({
       }
       if (!controller.signal.aborted) setBusy(null);
     }
+  };
+
+  const cancelGenerate = () => {
+    commitGeneration.current?.abort();
+    commitGeneration.current = null;
+    setBusy(null);
   };
 
   const toggleAmend = async () => {
@@ -696,6 +708,11 @@ function ChangedFiles({
     pushed: boolean,
     mutationAlreadyRefreshed = false,
   ) => {
+    if (isRemoteProjectPath(cwd)) {
+      const content = await remotePrContent(cwd);
+      await createPullRequest(content);
+      return;
+    }
     const outcome = await generateHelperPrContent(cwd, textHarness);
     await applyPrOutcome(outcome, pushed, mutationAlreadyRefreshed);
   };
@@ -748,14 +765,33 @@ function ChangedFiles({
           />
           <button
             type="button"
-            title="Generate commit message"
-            aria-label="Generate commit message"
-            disabled={!canGenerate}
-            onClick={() => void generate()}
-            className="absolute top-1 right-1 grid size-5 place-items-center rounded-md text-content bg-content/10 hover:bg-content/20 hover:text-content disabled:opacity-40"
+            title={
+              busy === "generate"
+                ? "Cancel commit message generation"
+                : "Generate commit message"
+            }
+            aria-label={
+              busy === "generate"
+                ? "Cancel commit message generation"
+                : "Generate commit message"
+            }
+            disabled={busy !== "generate" && !canGenerate}
+            onClick={() =>
+              busy === "generate" ? cancelGenerate() : void generate()
+            }
+            className="group absolute top-1 right-1 grid size-5 place-items-center rounded-md bg-content/10 text-content hover:bg-content/20 hover:text-content disabled:opacity-40"
           >
             {busy === "generate" ? (
-              <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />
+              <>
+                <Loader
+                  className="size-3.5 animate-spin group-hover:hidden group-focus-visible:hidden"
+                  strokeWidth={1.75}
+                />
+                <X
+                  className="hidden size-3.5 group-hover:block group-focus-visible:block"
+                  strokeWidth={1.75}
+                />
+              </>
             ) : (
               <WandSparkles className="size-3" strokeWidth={1} />
             )}
@@ -879,15 +915,11 @@ function ChangedFiles({
                 view={view}
                 onToggleView={toggleView}
                 headerActions={[
-                  ...(onOpenAllChanges
-                    ? [
-                        {
-                          title: "Open All Changes",
-                          icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
-                          onClick: onOpenAllChanges,
-                        },
-                      ]
-                    : []),
+                  {
+                    title: "Open All Changes",
+                    icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
+                    onClick: () => onOpenAllChanges("staged"),
+                  },
                   {
                     title: "Unstage All Changes",
                     icon: <Minus className="size-3.5" strokeWidth={1.75} />,
@@ -919,15 +951,11 @@ function ChangedFiles({
                 view={view}
                 onToggleView={toggleView}
                 headerActions={[
-                  ...(onOpenAllChanges
-                    ? [
-                        {
-                          title: "Open All Changes",
-                          icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
-                          onClick: onOpenAllChanges,
-                        },
-                      ]
-                    : []),
+                  {
+                    title: "Open All Changes",
+                    icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
+                    onClick: () => onOpenAllChanges("unstaged"),
+                  },
                   {
                     title: "Discard All Changes",
                     icon: <Undo2 className="size-3.5" strokeWidth={1.75} />,
@@ -1174,7 +1202,7 @@ function GitSyncActions({
   );
 }
 
-function FileSection({
+export function FileSection({
   title,
   count,
   open,
@@ -1254,6 +1282,23 @@ type ChangeDir = {
   status: string | null;
 };
 
+async function remotePrContent(cwd: string) {
+  const range = await gitRangeContext(cwd);
+  const commits = range.commitSummary.trim();
+  const firstCommit = commits
+    .split(/\r?\n/, 1)[0]
+    ?.replace(/^[0-9a-f]+\s+/i, "")
+    .trim();
+  const title = firstCommit || `Changes on ${range.head}`;
+  const body = [
+    commits && `## Commits\n\n${commits}`,
+    range.diffSummary.trim() && `## Changes\n\n${range.diffSummary.trim()}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  return { title, body: body || title, base: range.base, head: range.head };
+}
+
 type ChangeRowProps = {
   files: GitChangedFile[];
   view: ChangesView;
@@ -1263,9 +1308,8 @@ type ChangeRowProps = {
   busy: string | null;
   onOpenFile: (
     path: string,
-    options?:
-      | GitFileDiffKind
-      | { kind?: "staged" | "unstaged"; status?: string },
+    options?: GitFileDiffKind | { kind?: GitFileDiffKind; status?: string },
+    pin?: boolean,
   ) => void;
   onAction: (
     file: GitChangedFile,
@@ -1273,7 +1317,7 @@ type ChangeRowProps = {
   ) => void;
 };
 
-function ChangeList({ files, view, ...rest }: ChangeRowProps) {
+export function ChangeList({ files, view, ...rest }: ChangeRowProps) {
   const tree = useMemo(() => buildChangeTree(files), [files]);
   if (view === "tree") {
     return <ChangeDirChildren dir={tree} depth={0} {...rest} />;
@@ -1471,9 +1515,8 @@ export function ChangeRow({
   depth?: number;
   onOpenFile: (
     path: string,
-    options?:
-      | GitFileDiffKind
-      | { kind?: "staged" | "unstaged"; status?: string },
+    options?: GitFileDiffKind | { kind?: GitFileDiffKind; status?: string },
+    pin?: boolean,
   ) => void;
   onAction: (
     file: GitChangedFile,
@@ -1503,7 +1546,10 @@ export function ChangeRow({
           onClick={() => {
             onOpenFile(file.path, { kind, status: file.status });
           }}
-          className="flex h-full w-full min-w-0 items-center gap-1.5 px-2 text-left rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+          className="flex h-full w-full min-w-0 flex-1 items-center gap-1.5 rounded-sm px-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+          onDoubleClick={() => {
+            onOpenFile(file.path, { kind, status: file.status }, true);
+          }}
         >
           {tree ? <span className="size-4 shrink-0" /> : null}
           <FileTypeIcon name={name} isDir={false} size={16} />
@@ -1622,8 +1668,8 @@ function useDiffIndex(
   index: GitDiffIndex | null;
   reload: () => void;
 } {
-  const [index, setIndex] = useState<GitDiffIndex | null>(
-    () => cachedIndex(cwd),
+  const [index, setIndex] = useState<GitDiffIndex | null>(() =>
+    cachedIndex(cwd),
   );
   const [nonce, setNonce] = useState(0);
   const reload = useCallback(() => setNonce((value) => value + 1), []);

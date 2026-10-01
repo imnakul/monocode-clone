@@ -41,19 +41,21 @@ function parse(): Record<string, unknown>[] {
   return sent.map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
-function emit(
-  childIndex: number,
-  record: Record<string, unknown>,
-): void {
+function emit(childIndex: number, record: Record<string, unknown>): void {
   children[childIndex]?.onLine(JSON.stringify(record));
 }
 
-const waitFor = async (predicate: () => boolean, label: string): Promise<void> => {
+const waitFor = async (
+  predicate: () => boolean,
+  label: string,
+): Promise<void> => {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
-  throw new Error(`timed out waiting for ${label}; sent=${JSON.stringify(parse())}`);
+  throw new Error(
+    `timed out waiting for ${label}; sent=${JSON.stringify(parse())}`,
+  );
 };
 
 async function startTurn(sessionId: string) {
@@ -71,10 +73,11 @@ async function startTurn(sessionId: string) {
     onEvent: (event) => events.push(event),
   });
   await waitFor(
-    () => parse().some((message) => {
-      const request = message.request as Record<string, unknown> | undefined;
-      return request?.subtype === "initialize";
-    }),
+    () =>
+      parse().some((message) => {
+        const request = message.request as Record<string, unknown> | undefined;
+        return request?.subtype === "initialize";
+      }),
     "Claude initialize request",
   );
   const initialize = parse().find((message) => {
@@ -91,22 +94,29 @@ async function startTurn(sessionId: string) {
     },
   });
   await waitFor(
-    () => parse().filter((message) => message.type === "user").length > userCount,
+    () =>
+      parse().filter((message) => message.type === "user").length > userCount,
     "user prompt",
   );
   return { childIndex, events, turn };
 }
 
 async function finishTurn(turn: Promise<void>, childIndex = 0): Promise<void> {
-  emit(childIndex, { type: "result", subtype: "success", session_id: "sess_1" });
+  emit(childIndex, {
+    type: "result",
+    subtype: "success",
+    session_id: "sess_1",
+  });
   await turn;
 }
 
 function controlRequest(subtype: string): Record<string, unknown> | undefined {
-  return parse().filter((message) => {
-    const request = message.request as Record<string, unknown> | undefined;
-    return request?.subtype === subtype;
-  }).at(-1);
+  return parse()
+    .filter((message) => {
+      const request = message.request as Record<string, unknown> | undefined;
+      return request?.subtype === subtype;
+    })
+    .at(-1);
 }
 
 function respondControl(
@@ -167,7 +177,10 @@ describe("Claude control transport", () => {
     const initialize = controlRequest("initialize");
     emit(0, { type: "system", subtype: "init", session_id: "sess_1" });
     respondControl(0, initialize?.request_id);
-    await waitFor(() => parse().some((message) => message.type === "user"), "prompt");
+    await waitFor(
+      () => parse().some((message) => message.type === "user"),
+      "prompt",
+    );
     await expect(
       requestClaudeControl(
         "s1",
@@ -228,7 +241,8 @@ describe("Claude control transport", () => {
     await waitFor(
       () =>
         parse().some((message) => {
-          const response = message.response as Record<string, unknown> | undefined;
+          const response = message.response as
+            Record<string, unknown> | undefined;
           return response?.request_id === "pending_permission";
         }),
       "permission response",
@@ -334,12 +348,16 @@ describe("Claude control transport", () => {
     const latestRequest = requestClaudeControl("s1", {
       subtype: "get_settings",
     });
-    const requestOnSecond = parse().filter((message) => {
-      const request = message.request as Record<string, unknown> | undefined;
-      return request?.subtype === "get_settings";
-    }).at(-1);
+    const requestOnSecond = parse()
+      .filter((message) => {
+        const request = message.request as Record<string, unknown> | undefined;
+        return request?.subtype === "get_settings";
+      })
+      .at(-1);
     let settled = false;
-    void latestRequest.then(() => { settled = true; });
+    void latestRequest.then(() => {
+      settled = true;
+    });
     respondControl(second.childIndex, requestB?.request_id);
     await Promise.resolve();
     expect(settled).toBe(false);

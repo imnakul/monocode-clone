@@ -6,6 +6,7 @@ import {
   forgetClaudeSession,
   respondClaudeApproval,
   respondClaudeQuestion,
+  restoreClaudeTaskLists,
   sendClaudeTurn,
   steerClaudeTurn,
   stopClaudeSession,
@@ -17,7 +18,11 @@ import {
   generateClaudePrContent,
 } from "./claudeGit";
 import { generateClaudeSessionTitle } from "./claudeTitle";
-import { runClaudeTextPrompt, warmupClaudeText } from "./claudeText";
+import {
+  runClaudeTextPrompt,
+  stopClaudeTextPrompt,
+  warmupClaudeText,
+} from "./claudeText";
 import { registerHarness, type HarnessAdapter } from "../../core/registry";
 
 export const claudeAdapter: HarnessAdapter = {
@@ -33,6 +38,7 @@ export const claudeAdapter: HarnessAdapter = {
   stopSession: stopClaudeSession,
   forgetSession: forgetClaudeSession,
   bindSession: bindClaudeSession,
+  restoreTaskLists: restoreClaudeTaskLists,
   refreshCatalog: refreshClaudeCatalog,
   generateTitle: generateClaudeSessionTitle,
   generateCommitMessage: generateClaudeCommitMessage,
@@ -40,7 +46,16 @@ export const claudeAdapter: HarnessAdapter = {
   generateBranchName: generateClaudeBranchName,
   warmupText: warmupClaudeText,
   runHelperPrompt: ({ cwd, prompt, timeoutMs, providerAccountId, model }) =>
-    runClaudeTextPrompt({ cwd, prompt, timeoutMs, providerAccountId, model }),
+    runClaudeTextPrompt({
+      cwd,
+      prompt,
+      timeoutMs,
+      providerAccountId,
+      model,
+      helperOnly: true,
+    }),
+  runTextPrompt: runClaudeTextPrompt,
+  stopTextPrompt: stopClaudeTextPrompt,
 };
 
 let registered = false;

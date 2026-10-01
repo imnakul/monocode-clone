@@ -137,8 +137,7 @@ describe("Codex MCP confirmations", () => {
     },
     {
       title: "multiple quoted tools",
-      message:
-        'Allow "codebase_status" or "codebase_search" for socraticode?',
+      message: 'Allow "codebase_status" or "codebase_search" for socraticode?',
       tools: [
         { server: "socraticode", tool: "codebase_status" },
         { server: "socraticode", tool: "codebase_search" },
@@ -188,7 +187,9 @@ describe("Codex MCP confirmations", () => {
       ...(shape.requestedSchema !== undefined
         ? { requestedSchema: shape.requestedSchema }
         : {}),
-      ...(shape.serverName !== undefined ? { serverName: shape.serverName } : {}),
+      ...(shape.serverName !== undefined
+        ? { serverName: shape.serverName }
+        : {}),
       _meta: meta,
     };
     expect(codexMcpConfirmation(invalid)?.mcpToolGrant).toBeUndefined();
@@ -209,7 +210,9 @@ describe("Codex MCP confirmations", () => {
     ).toBeUndefined();
 
     setCodexMcpApprovalKindKeysForTest([]);
-    expect(codexMcpConfirmation(sessionConfirmation)?.mcpToolGrant).toBeUndefined();
+    expect(
+      codexMcpConfirmation(sessionConfirmation)?.mcpToolGrant,
+    ).toBeUndefined();
   });
 
   it.each([
@@ -237,7 +240,6 @@ describe("Codex MCP confirmations", () => {
   it("does not treat browser authorization as a confirmation", () => {
     expect(codexMcpConfirmation({ ...confirmation, mode: "url" })).toBeNull();
   });
-
   it("identifies computer-use app access without matching other confirmations", () => {
     expect(
       isCodexComputerUseAccessConfirmation({
@@ -384,21 +386,78 @@ describe("Codex MCP forms", () => {
 
   it.each([
     ["url", { ...request({}, []), mode: "url" }, "url"],
-    ["unknown mode", request({ name: { type: "string" } }, [], "other"), "shape"],
+    [
+      "unknown mode",
+      request({ name: { type: "string" } }, [], "other"),
+      "shape",
+    ],
     ["object field", request({ nested: { type: "object" } }), "field-type"],
-    ["unknown constraint", request({ name: { type: "string", pattern: ".*" } }), "field-type"],
-    ["unknown format", request({ phone: { type: "string", format: "phone" } }), "field-type"],
-    ["too many fields", request(Object.fromEntries(Array.from({ length: 21 }, (_, index) => [`f${index}`, { type: "string" }]))), "too-many"],
-    ["missing required key", request({ name: { type: "string" } }, ["missing"]), "shape"],
-    ["invalid length bounds", request({ name: { type: "string", minLength: 5, maxLength: 2 } }), "shape"],
+    [
+      "unknown constraint",
+      request({ name: { type: "string", pattern: ".*" } }),
+      "field-type",
+    ],
+    [
+      "unknown format",
+      request({ phone: { type: "string", format: "phone" } }),
+      "field-type",
+    ],
+    [
+      "too many fields",
+      request(
+        Object.fromEntries(
+          Array.from({ length: 21 }, (_, index) => [
+            `f${index}`,
+            { type: "string" },
+          ]),
+        ),
+      ),
+      "too-many",
+    ],
+    [
+      "missing required key",
+      request({ name: { type: "string" } }, ["missing"]),
+      "shape",
+    ],
+    [
+      "invalid length bounds",
+      request({ name: { type: "string", minLength: 5, maxLength: 2 } }),
+      "shape",
+    ],
     ["empty enum", request({ value: { type: "string", enum: [] } }), "shape"],
     ["secret in key", request({ api_key: { type: "string" } }), "secret"],
-    ["secret in title", request({ field: { type: "string", title: "Your password" } }), "secret"],
+    [
+      "secret in title",
+      request({ field: { type: "string", title: "Your password" } }),
+      "secret",
+    ],
     ["weak secret key", request({ token: { type: "string" } }), "secret"],
-    ["camel case secret key", request({ githubAccessToken: { type: "string" } }), "secret"],
-    ["weak secret title", request({ field: { type: "string", title: "PIN" } }), "secret"],
-    ["secret description", request({ notes: { type: "string", title: "Notes", description: "Enter your password" } }), "secret"],
-    ["unconstrained openai form", request({}, undefined, "openai/form"), "shape"],
+    [
+      "camel case secret key",
+      request({ githubAccessToken: { type: "string" } }),
+      "secret",
+    ],
+    [
+      "weak secret title",
+      request({ field: { type: "string", title: "PIN" } }),
+      "secret",
+    ],
+    [
+      "secret description",
+      request({
+        notes: {
+          type: "string",
+          title: "Notes",
+          description: "Enter your password",
+        },
+      }),
+      "secret",
+    ],
+    [
+      "unconstrained openai form",
+      request({}, undefined, "openai/form"),
+      "shape",
+    ],
   ] as const)("rejects %s with %s", (_label, params, reason) => {
     const result = codexMcpForm(params);
     expect(result.ok).toBe(false);
@@ -412,27 +471,30 @@ describe("Codex MCP forms", () => {
     ["note", undefined, "Pin this item to the top"],
     ["tokenizer", undefined, undefined],
     ["limit", undefined, "Token budget for the reply"],
-  ] as const)("allows benign secret-like text in %s", (key, title, description) => {
-    const field: McpFormField = {
-      key,
-      label: title ?? key,
-      ...(description ? { description } : {}),
-      required: false,
-      kind: "text",
-    };
-    expect(isSecretField(field)).toBe(false);
-    expect(
-      codexMcpForm(
-        request({
-          [key]: {
-            type: "string",
-            ...(title ? { title } : {}),
-            ...(description ? { description } : {}),
-          },
-        }),
-      ).ok,
-    ).toBe(true);
-  });
+  ] as const)(
+    "allows benign secret-like text in %s",
+    (key, title, description) => {
+      const field: McpFormField = {
+        key,
+        label: title ?? key,
+        ...(description ? { description } : {}),
+        required: false,
+        kind: "text",
+      };
+      expect(isSecretField(field)).toBe(false);
+      expect(
+        codexMcpForm(
+          request({
+            [key]: {
+              type: "string",
+              ...(title ? { title } : {}),
+              ...(description ? { description } : {}),
+            },
+          }),
+        ).ok,
+      ).toBe(true);
+    },
+  );
 
   it("defaults names and message and rejects a default outside its options", () => {
     expect(

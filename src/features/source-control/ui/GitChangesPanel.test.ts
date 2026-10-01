@@ -27,6 +27,7 @@ vi.mock("../../../platform/tauri/fs", () => ({
   gitUnstageFile: vi.fn(async () => {}),
   gitDiscardFile: vi.fn(async () => {}),
   gitPrCreate: vi.fn(async () => ""),
+  gitRangeContext: vi.fn(),
   notifyGitChanged: vi.fn(),
   subscribeGitChanged: () => () => {},
   basename: (path: string) => path.split("/").pop() ?? path,
@@ -55,9 +56,14 @@ import {
   gitPull,
   gitPush,
   gitPrCreate,
+  gitRangeContext,
 } from "../../../platform/tauri/fs";
+import {
+  generateHelperCommitMessage,
+  generateHelperPrContent,
+} from "../../../integrations/harness";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { GitDiffIndex } from "../../../platform/tauri/fs";
-import { generateHelperPrContent } from "../../../integrations/harness";
 
 function index(overrides: Partial<GitDiffIndex> = {}): GitDiffIndex {
   return {
@@ -100,9 +106,78 @@ beforeEach(() => {
   mocks.openUrl.mockReset();
   vi.mocked(gitPush).mockReset();
   vi.mocked(gitPrCreate).mockReset();
+  vi.mocked(generateHelperCommitMessage).mockReset();
+  mocks.invalidateWatchedFiles.mockReset();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
+});
+
+describe("GitChangesPanel commit message generation", () => {
+  it("cancels promptly and ignores a late result after a retry", async () => {
+    vi.mocked(gitDiffIndex).mockResolvedValue(
+      index({
+        files: [
+          {
+            path: "/repo/change.ts",
+            relative: "change.ts",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            staged: true,
+            unstaged: false,
+          },
+        ],
+      }),
+    );
+    let resolveFirst!: (message: string) => void;
+    vi.mocked(generateHelperCommitMessage)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce("New message");
+    await renderPanel();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Generate commit message"]',
+        )!
+        .click();
+    });
+    const signal = vi.mocked(generateHelperCommitMessage).mock.calls[0]?.[2];
+    expect(signal?.aborted).toBe(false);
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Cancel commit message generation"]',
+        )!
+        .click();
+    });
+    expect(signal?.aborted).toBe(true);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Generate commit message"]',
+      )?.disabled,
+    ).toBe(false);
+    expect(container.querySelector("textarea")?.disabled).toBe(false);
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Generate commit message"]',
+        )!
+        .click();
+    });
+    expect(container.querySelector("textarea")?.value).toBe("New message");
+
+    await act(async () => resolveFirst("Old message"));
+    expect(container.querySelector("textarea")?.value).toBe("New message");
+  });
 });
 
 afterEach(() => {
@@ -114,11 +189,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function renderPanel() {
+async function renderPanel(cwd = "/repo") {
   act(() =>
     root.render(
       createElement(GitChangesPanel, {
-        cwd: "/repo",
+        cwd,
         enabled: true,
         onOpenFile: vi.fn(),
         onOpenAllChanges: vi.fn(),
@@ -135,9 +210,7 @@ async function openBranchMenu() {
   )!;
   await act(async () => toggle.click());
   await act(async () => {});
-  return document.querySelector<HTMLButtonElement>(
-    '[role="menuitem"]',
-  )!;
+  return document.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
 }
 
 describe("GitChangesPanel pull action", () => {
@@ -226,7 +299,7 @@ describe("GitChangesPanel custom PR recovery", () => {
     await showCreatePr(1);
 
     expect(gitPush).toHaveBeenCalledWith("/repo");
-    expect(generateHelperPrContent).toHaveBeenCalledWith("/repo", undefined);
+    expect(mocks.generateHelperPrContent).toHaveBeenCalledWith("/repo", undefined);
     expect(gitPush.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.generateHelperPrContent.mock.invocationCallOrder[0]!,
     );
@@ -376,5 +449,49 @@ describe("GitChangesPanel custom PR recovery", () => {
     expect(
       container.querySelector<HTMLTextAreaElement>("textarea")!.value,
     ).toBe("generated message");
+  });
+});
+
+describe("GitChangesPanel remote pull request", () => {
+  it("creates it from the host Git range without calling a local harness", async () => {
+    const cwd = "remote://machine/home/user/repo";
+    vi.mocked(gitDiffIndex).mockResolvedValue(
+      index({
+        remote: "origin",
+        upstream: "origin/feature/pull",
+        ahead: 1,
+        aheadOfDefault: 1,
+      }),
+    );
+    vi.mocked(gitRangeContext).mockResolvedValue({
+      base: "main",
+      head: "feature/pull",
+      commitSummary: "abc123 Fix remote flow\ndef456 Add coverage",
+      diffSummary: "2 files changed, 4 insertions(+)\n",
+      diffPatch: "",
+    });
+    vi.mocked(gitPrCreate).mockResolvedValue("https://example.test/pull/42");
+    await renderPanel(cwd);
+
+    const button = [
+      ...container.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((candidate) => candidate.textContent?.trim() === "Create PR");
+    expect(button?.disabled).toBe(false);
+    await act(async () => {
+      button!.click();
+      await Promise.resolve();
+    });
+
+    expect(gitPush).toHaveBeenCalledWith(cwd);
+    expect(gitRangeContext).toHaveBeenCalledWith(cwd);
+    expect(mocks.generateHelperPrContent).not.toHaveBeenCalled();
+    expect(gitPrCreate).toHaveBeenCalledWith(
+      cwd,
+      "Fix remote flow",
+      expect.stringContaining("## Changes\n\n2 files changed"),
+      "main",
+      "feature/pull",
+    );
+    expect(openUrl).toHaveBeenCalledWith("https://example.test/pull/42");
   });
 });

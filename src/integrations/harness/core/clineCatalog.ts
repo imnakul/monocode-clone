@@ -39,7 +39,7 @@ export function refreshClineCatalog(): Promise<void> {
   return inflight;
 }
 
-async function discoverClineModels(): Promise<AgentModel[]> {
+export async function discoverClineModels(): Promise<AgentModel[]> {
   return discoverViaAcp();
 }
 

@@ -5,6 +5,14 @@ let onLine: ((line: string) => void) | undefined;
 const writeChild = vi.fn(async (_id: string, line: string) => {
   sent.push(line);
 });
+const saveGeneratedImage = vi.hoisted(() =>
+  vi.fn(async () => ({
+    path: "/app-data/generated-images/image.png",
+    mimeType: "image/png",
+    size: 8,
+  })),
+);
+const deleteGeneratedImages = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../../core/child", () => ({
   resolveCodexBinary: async () => ({ path: "/fake/codex" }),
@@ -15,6 +23,11 @@ vi.mock("../../core/child", () => ({
     onLine = line;
   },
   writeChild,
+}));
+
+vi.mock("../../../../platform/tauri/fs", () => ({
+  saveGeneratedImage,
+  deleteGeneratedImages,
 }));
 
 const {
@@ -32,7 +45,11 @@ const {
 } = await import("./codex");
 import type { HarnessEvent } from "../../core/types";
 import { NativeForkError, type NativeForkRequest } from "../../core/types";
-import { newSession, type RuntimeMode, type TurnIntent } from "../../../../features/sessions/model/session";
+import {
+  newSession,
+  type RuntimeMode,
+  type TurnIntent,
+} from "../../../../features/sessions/model/session";
 import { applyHarnessEvent } from "../../core/apply";
 
 function parse() {
@@ -123,7 +140,7 @@ async function startTurn(
     expectResume?: boolean;
     beforeThreadReply?: () => Promise<void>;
     onAccepted?: () => void;
-    fork?: NativeForkRequest;
+    controlsAgents?: boolean;
   } = {},
 ) {
   const events: HarnessEvent[] = [];
@@ -143,6 +160,7 @@ async function startTurn(
     modelSettings: {},
     providerAccountId: options.providerAccountId,
     runtimeMode: options.runtimeMode ?? "supervised",
+    controlsAgents: options.controlsAgents,
     intent: options.intent,
     text: "summarize the changelog",
     attachments: [],
@@ -156,7 +174,11 @@ async function startTurn(
   );
   reply(parse().find((m) => m.method === "initialize")!.id as number, {});
   const threadMethod =
-    (options.expectResume ?? options.resume) ? "thread/resume" : options.fork ? "thread/fork" : "thread/start";
+    (options.expectResume ?? options.resume)
+      ? "thread/resume"
+      : options.fork
+        ? "thread/fork"
+        : "thread/start";
   await waitFor(
     () => parse().some((m) => m.method === threadMethod),
     threadMethod,
@@ -198,32 +220,95 @@ function sendFollowupTurn(
 
 describe("codex live turn sequence", () => {
   it("forks without starting a fresh thread, then resumes the fork on the next send", async () => {
-    const { events, turn } = await startTurn("codex-live", { fork: { sourceProviderSessionId: "source", forkPoint: "turn-2" } });
-    expect(parse().find(message => message.method === "thread/fork")?.params).toEqual({ threadId: "source", lastTurnId: "turn-2", excludeTurns: true, cwd: "/repo", approvalPolicy: "untrusted", approvalsReviewer: "user", sandbox: "read-only", model: "gpt-5.4" });
-    expect(parse().some(message => message.method === "thread/start" || message.method === "thread/resume")).toBe(false);
-    expect(events).toContainEqual({ type: "session.providerBound", providerSessionId: "thr_1" });
-    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } }); await turn;
-    await stopCodexSession("codex-live"); sent.length = 0;
-    const next = await startTurn("codex-live", { expectResume: true, fork: { sourceProviderSessionId: "source" } });
-    expect(parse().find(message => message.method === "thread/resume")?.params).toMatchObject({ threadId: "thr_1" });
-    expect(parse().some(message => message.method === "thread/fork")).toBe(false);
-    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } }); await next.turn;
+    const { events, turn } = await startTurn("codex-live", {
+      fork: { sourceProviderSessionId: "source", forkPoint: "turn-2" },
+    });
+    expect(
+      parse().find((message) => message.method === "thread/fork")?.params,
+    ).toEqual({
+      threadId: "source",
+      lastTurnId: "turn-2",
+      excludeTurns: true,
+      cwd: "/repo",
+      approvalPolicy: "untrusted",
+      approvalsReviewer: "user",
+      sandbox: "read-only",
+      model: "gpt-5.4",
+    });
+    expect(
+      parse().some(
+        (message) =>
+          message.method === "thread/start" ||
+          message.method === "thread/resume",
+      ),
+    ).toBe(false);
+    expect(events).toContainEqual({
+      type: "session.providerBound",
+      providerSessionId: "thr_1",
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+    await stopCodexSession("codex-live");
+    sent.length = 0;
+    const next = await startTurn("codex-live", {
+      expectResume: true,
+      fork: { sourceProviderSessionId: "source" },
+    });
+    expect(
+      parse().find((message) => message.method === "thread/resume")?.params,
+    ).toMatchObject({ threadId: "thr_1" });
+    expect(parse().some((message) => message.method === "thread/fork")).toBe(
+      false,
+    );
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await next.turn;
   });
-  it.each(["reject", "missing-id"] as const)("proves a %s fork failure precedes turn/start", async outcome => {
-    const pending = sendCodexTurn({ sessionId: "codex-live", cwd: "/repo", model: "codex:gpt-5.4", runtimeMode: "supervised", text: "hello", fork: { sourceProviderSessionId: "source" }, onEvent: () => {} });
-    const rejected = expect(pending).rejects.toBeInstanceOf(NativeForkError);
-    await waitFor(() => parse().some(message => message.method === "initialize"), "initialize");
-    reply(parse().find(message => message.method === "initialize")!.id as number, {});
-    await waitFor(() => parse().some(message => message.method === "thread/fork"), "fork");
-    const id = parse().find(message => message.method === "thread/fork")!.id;
-    if (outcome === "reject") onLine?.(JSON.stringify({ id, error: { code: -1, message: "fork rejected" } }));
-    else reply(id as number, {});
-    await rejected; expect(parse().some(message => message.method === "turn/start")).toBe(false);
-  });
+  it.each(["reject", "missing-id"] as const)(
+    "proves a %s fork failure precedes turn/start",
+    async (outcome) => {
+      const pending = sendCodexTurn({
+        sessionId: "codex-live",
+        cwd: "/repo",
+        model: "codex:gpt-5.4",
+        runtimeMode: "supervised",
+        text: "hello",
+        fork: { sourceProviderSessionId: "source" },
+        onEvent: () => {},
+      });
+      const rejected = expect(pending).rejects.toBeInstanceOf(NativeForkError);
+      await waitFor(
+        () => parse().some((message) => message.method === "initialize"),
+        "initialize",
+      );
+      reply(
+        parse().find((message) => message.method === "initialize")!
+          .id as number,
+        {},
+      );
+      await waitFor(
+        () => parse().some((message) => message.method === "thread/fork"),
+        "fork",
+      );
+      const id = parse().find(
+        (message) => message.method === "thread/fork",
+      )!.id;
+      if (outcome === "reject")
+        onLine?.(
+          JSON.stringify({ id, error: { code: -1, message: "fork rejected" } }),
+        );
+      else reply(id as number, {});
+      await rejected;
+      expect(parse().some((message) => message.method === "turn/start")).toBe(
+        false,
+      );
+    },
+  );
   beforeEach(() => {
     sent.length = 0;
     onLine = undefined;
     writeChild.mockClear();
+    saveGeneratedImage.mockClear();
+    deleteGeneratedImages.mockClear();
   });
 
   afterEach(async () => {
@@ -251,6 +336,346 @@ describe("codex live turn sequence", () => {
     expect(onAccepted).toHaveBeenCalledOnce();
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await turn;
+  });
+
+  it("reopens a thread when app access changes its network policy", async () => {
+    const first = await startTurn("codex-live", { runtimeMode: "auto" });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await first.turn;
+
+    sent.length = 0;
+    const appTurn = await startTurn("codex-live", {
+      runtimeMode: "auto",
+      controlsAgents: true,
+      expectResume: true,
+    });
+    expect(
+      parse().find((message) => message.method === "thread/resume")?.params,
+    ).toMatchObject({ sandboxPolicy: { networkAccess: true } });
+    expect(
+      parse().find((message) => message.method === "turn/start")?.params,
+    ).toMatchObject({ sandboxPolicy: { networkAccess: true } });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await appTurn.turn;
+
+    sent.length = 0;
+    const ordinaryTurn = await startTurn("codex-live", {
+      runtimeMode: "auto",
+      expectResume: true,
+    });
+    expect(
+      parse().find((message) => message.method === "thread/resume")?.params,
+    ).toMatchObject({ sandboxPolicy: { type: "workspaceWrite" } });
+    expect(
+      (
+        parse().find((message) => message.method === "thread/resume")
+          ?.params as {
+          sandboxPolicy: Record<string, unknown>;
+        }
+      ).sandboxPolicy,
+    ).not.toHaveProperty("networkAccess");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await ordinaryTurn.turn;
+  });
+
+  it("materializes image generations before completing the turn", async () => {
+    const { events, turn } = await startTurn("codex-live");
+
+    notify("item/completed", {
+      item: {
+        id: "image_1",
+        type: "imageGeneration",
+        result: "aW1hZ2U=",
+        revisedPrompt: "A clean product photo",
+      },
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+
+    expect(saveGeneratedImage).toHaveBeenCalledWith({
+      data: "aW1hZ2U=",
+      name: "generated-image",
+    });
+    expect(events).toContainEqual({
+      type: "image.generated",
+      itemId: "image_1",
+      path: "/app-data/generated-images/image.png",
+      name: "generated-image",
+      mimeType: "image/png",
+      size: 8,
+      alt: "A clean product photo",
+    });
+    expect(
+      events.reduce(applyHarnessEvent, newSession("codex", "/repo")).blocks,
+    ).toMatchObject([
+      {
+        role: "image",
+        image: {
+          path: "/app-data/generated-images/image.png",
+          mimeType: "image/png",
+        },
+      },
+    ]);
+  });
+
+  it("keeps later notifications ordered after delayed image materialization", async () => {
+    let release: (() => void) | undefined;
+    saveGeneratedImage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              path: "/app-data/generated-images/image.png",
+              mimeType: "image/png",
+              size: 8,
+            });
+        }),
+    );
+    const { events, turn } = await startTurn("codex-live");
+    notify("item/completed", {
+      item: { id: "image_1", type: "imageGeneration", result: "aW1hZ2U=" },
+    });
+    notify("item/agentMessage/delta", {
+      itemId: "after_image",
+      delta: "after image",
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await Promise.resolve();
+
+    expect(
+      events.some(
+        (event) =>
+          event.type === "message.delta" && event.text === "after image",
+      ),
+    ).toBe(false);
+    release?.();
+    await turn;
+    await Promise.resolve();
+    notify("item/agentMessage/delta", {
+      itemId: "post_turn",
+      delta: "post turn",
+    });
+
+    expect(
+      events.some(
+        (event) => event.type === "message.delta" && event.text === "post turn",
+      ),
+    ).toBe(true);
+  });
+
+  it("cleans up an image that finishes saving after cancellation", async () => {
+    let release: (() => void) | undefined;
+    saveGeneratedImage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              path: "/app-data/generated-images/image.png",
+              mimeType: "image/png",
+              size: 8,
+            });
+        }),
+    );
+    const { turn } = await startTurn("codex-live");
+    notify("item/completed", {
+      item: { id: "image_1", type: "imageGeneration", result: "aW1hZ2U=" },
+    });
+    const cancelling = cancelCodexTurn("codex-live");
+    await waitFor(
+      () => parse().some((message) => message.method === "turn/interrupt"),
+      "interrupt",
+    );
+    reply(
+      parse().find((message) => message.method === "turn/interrupt")!
+        .id as number,
+      {},
+    );
+    await cancelling;
+    release?.();
+    await turn;
+
+    expect(deleteGeneratedImages).toHaveBeenCalledWith([
+      "/app-data/generated-images/image.png",
+    ]);
+  });
+
+  it("does not flush queued notifications after the session stops", async () => {
+    let release: (() => void) | undefined;
+    saveGeneratedImage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              path: "/app-data/generated-images/image.png",
+              mimeType: "image/png",
+              size: 8,
+            });
+        }),
+    );
+    const { events, turn } = await startTurn("codex-live");
+    notify("item/completed", {
+      item: { id: "image_1", type: "imageGeneration", result: "aW1hZ2U=" },
+    });
+    notify("item/agentMessage/delta", {
+      itemId: "after_image",
+      delta: "after image",
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await stopCodexSession("codex-live");
+    release?.();
+    await turn;
+    await Promise.resolve();
+
+    expect(
+      events.some(
+        (event) =>
+          event.type === "message.delta" && event.text === "after image",
+      ),
+    ).toBe(false);
+    expect(events.some((event) => event.type === "image.generated")).toBe(
+      false,
+    );
+    expect(deleteGeneratedImages).toHaveBeenCalledWith([
+      "/app-data/generated-images/image.png",
+    ]);
+  });
+
+  it.each([
+    { name: "fully streamed", chunks: ["Here is the ", "final answer."] },
+    { name: "partially streamed", chunks: ["Here is the "] },
+    { name: "completion only", chunks: [] },
+  ])("emits a $name final answer once after commentary", async ({ chunks }) => {
+    const { events, turn } = await startTurn("codex-live");
+    const commentary = "I'll inspect the workspace first.\n\n";
+    const answer = "Here is the final answer.";
+    notify("item/agentMessage/delta", {
+      itemId: "commentary",
+      delta: commentary,
+    });
+    notify("item/completed", {
+      item: { id: "commentary", type: "agentMessage", text: commentary },
+    });
+    for (const delta of chunks) {
+      notify("item/agentMessage/delta", { itemId: "final", delta });
+    }
+    // A repeated completion must also be harmless.
+    for (let i = 0; i < 2; i++) {
+      notify("item/completed", {
+        item: { id: "final", type: "agentMessage", text: answer },
+      });
+    }
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+
+    expect(
+      events
+        .filter((event) => event.type === "message.delta")
+        .map((event) => event.text)
+        .join(""),
+    ).toBe(commentary + answer);
+    const session = events.reduce(
+      applyHarnessEvent,
+      newSession("codex", "/repo"),
+    );
+    expect(session.blocks).toMatchObject([
+      { role: "assistant", text: commentary, streaming: false },
+      { role: "assistant", text: answer, streaming: false },
+    ]);
+  });
+
+  it("keeps completion history for separate items and preserves repeated tokens", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    const complete = (id: string, text: string) =>
+      notify("item/completed", {
+        item: { id, type: "agentMessage", text },
+      });
+    complete("first", "Earlier commentary.\n\n");
+    for (const delta of ["very ", "very ", "good."]) {
+      notify("item/agentMessage/delta", { itemId: "second", delta });
+    }
+    complete("first", "Earlier commentary.\n\n");
+    complete("second", "very very good.");
+    // The same text in a different item is real new output.
+    complete("third", "Earlier commentary.\n\n");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+    expect(
+      events
+        .filter((event) => event.type === "message.delta")
+        .map((event) => event.text),
+    ).toEqual([
+      "Earlier commentary.\n\n",
+      "very ",
+      "very ",
+      "good.",
+      "Earlier commentary.\n\n",
+    ]);
+  });
+
+  it("deduplicates reasoning completions per item", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    for (const [itemId, text] of [
+      ["reason_1", "First thought."],
+      ["reason_2", "Next thought."],
+    ]) {
+      notify("item/reasoning/summaryTextDelta", {
+        itemId,
+        summaryIndex: 0,
+        delta: text,
+      });
+      notify("item/completed", {
+        item: {
+          id: itemId,
+          type: "reasoning",
+          summary: [{ type: "summary_text", text }],
+        },
+      });
+    }
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+    expect(
+      events
+        .filter((event) => event.type === "reasoning.delta")
+        .map((event) => event.text),
+    ).toEqual(["First thought.", "Next thought."]);
+  });
+
+  it("resets text tracking between turns when an item id is reused", async () => {
+    const itemId = "reused_item";
+    const { events, turn } = await startTurn("codex-live");
+    const text = "The answer.";
+    const complete = () =>
+      notify("item/completed", {
+        item: { id: itemId, type: "agentMessage", text },
+      });
+    notify("item/agentMessage/delta", { itemId, delta: text });
+    complete();
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+
+    const nextTurn = sendCodexTurn({
+      sessionId: "codex-live",
+      cwd: "/repo",
+      model: "codex:gpt-5.4",
+      runtimeMode: "supervised",
+      text: "Repeat the answer",
+      onEvent: (event) => events.push(event),
+    });
+    await waitFor(
+      () => parse().filter((m) => m.method === "turn/start").length === 2,
+      "next turn",
+    );
+    const request = parse().filter((m) => m.method === "turn/start")[1];
+    reply(request.id as number, { turn: { id: "turn_2" } });
+    notify("turn/started", { turn: { id: "turn_2" } });
+    complete();
+    notify("turn/completed", { turn: { id: "turn_2", status: "completed" } });
+    await nextTurn;
+    expect(
+      events
+        .filter((event) => event.type === "message.delta")
+        .map((event) => event.text),
+    ).toEqual([text, text]);
   });
 
   it("keeps retries and HTTP fallback out of a successful turn's transcript", async () => {
@@ -1024,14 +1449,9 @@ describe("codex live turn sequence", () => {
     await turn;
   });
 
-  it.each([
-    { decision: "allow", boolean: false },
-    { decision: "deny", boolean: false },
-    { decision: "allow", boolean: true },
-    { decision: "deny", boolean: true },
-  ] as const)(
-    "shows other MCP confirmation in Full Access and sends $decision, boolean=$boolean",
-    async ({ decision, boolean }) => {
+  it.each([false, true])(
+    "keeps general MCP confirmations explicit in Full Access, boolean=%s",
+    async (boolean) => {
       const { events, turn } = await startTurn("codex-live", {
         runtimeMode: "full-access",
       });
@@ -1054,51 +1474,64 @@ describe("codex live turn sequence", () => {
         }),
       );
       await waitFor(
-        () => events.some((e) => e.type === "approval.requested"),
-        "MCP approval UI",
+        () => events.some((event) => event.type === "approval.requested"),
+        "MCP approval",
       );
-      expect(parse().some((m) => m.id === 91)).toBe(false);
-      const approval = events.find((e) => e.type === "approval.requested")!;
-      respondCodexApproval("codex-live", approval.requestId, decision);
+      expect(parse().some((message) => message.id === 91)).toBe(false);
+      const approval = events.find(
+        (event) => event.type === "approval.requested",
+      )!;
+      respondCodexApproval("codex-live", approval.requestId, "allow");
       await waitFor(() => parse().some((m) => m.id === 91), "MCP response");
       expect(parse().find((m) => m.id === 91)?.result).toEqual({
-        action: decision === "allow" ? "accept" : "decline",
-        content:
-          decision === "allow" ? (boolean ? { approved: true } : {}) : null,
+        action: "accept",
+        content: boolean ? { approved: true } : {},
         _meta: null,
       });
+      expect(events.some((e) => e.type === "approval.requested")).toBe(true);
       notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
       await turn;
     },
   );
 
-  it("auto-approves computer-use app access in Full Access", async () => {
+  it("keeps plan MCP confirmations explicit in Full Access", async () => {
     const { events, turn } = await startTurn("codex-live", {
       runtimeMode: "full-access",
+      intent: "plan",
     });
     onLine!(
       JSON.stringify({
         id: 91,
         method: "mcpServer/elicitation/request",
         params: {
-          serverName: "cua_repl",
+          serverName: "example",
           mode: "form",
-          message: 'Allow Computer Use to use "QuickTime Player"?',
+          message: "Read this source?",
           requestedSchema: {
             type: "object",
-            properties: {},
-            required: [],
+            properties: { approved: { type: "boolean" } },
+            required: ["approved"],
           },
         },
       }),
     );
-    await waitFor(() => parse().some((m) => m.id === 91), "MCP response");
-    expect(parse().find((m) => m.id === 91)?.result).toEqual({
+    await waitFor(
+      () => events.some((event) => event.type === "approval.requested"),
+      "plan MCP approval UI",
+    );
+    const approval = events.find(
+      (event) => event.type === "approval.requested",
+    )!;
+    respondCodexApproval("codex-live", approval.requestId, "allow");
+    await waitFor(
+      () => parse().some((message) => message.id === 91),
+      "MCP response",
+    );
+    expect(parse().find((message) => message.id === 91)?.result).toEqual({
       action: "accept",
-      content: {},
+      content: { approved: true },
       _meta: null,
     });
-    expect(events.some((e) => e.type === "approval.requested")).toBe(false);
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await turn;
   });
@@ -1140,15 +1573,18 @@ describe("codex live turn sequence", () => {
     sent.length = 0;
     const resumed = await startTurn("codex-live", { resume: true });
     sendMcpToolRequest(92, "codebase_status");
-    await waitFor(() => parse().some((message) => message.id === 92), "replayed reply");
+    await waitFor(
+      () => parse().some((message) => message.id === 92),
+      "replayed reply",
+    );
     expect(parse().find((message) => message.id === 92)?.result).toEqual({
       action: "accept",
       content: {},
       _meta: { persist: "session" },
     });
-    expect(resumed.events.some((event) => event.type === "approval.requested")).toBe(
-      false,
-    );
+    expect(
+      resumed.events.some((event) => event.type === "approval.requested"),
+    ).toBe(false);
 
     sendMcpToolRequest(93, "codebase_search");
     await waitFor(
@@ -1161,7 +1597,10 @@ describe("codex live turn sequence", () => {
     if (different?.type !== "approval.requested")
       throw new Error("missing different MCP approval");
     respondCodexApproval("codex-live", different.requestId, "allow");
-    await waitFor(() => parse().some((message) => message.id === 93), "one-time reply");
+    await waitFor(
+      () => parse().some((message) => message.id === 93),
+      "one-time reply",
+    );
     expect(parse().find((message) => message.id === 93)?.result).toEqual({
       action: "accept",
       content: {},
@@ -1178,7 +1617,9 @@ describe("codex live turn sequence", () => {
       () => events.some((event) => event.type === "approval.requested"),
       "MCP approval without an item",
     );
-    const approval = events.find((event) => event.type === "approval.requested");
+    const approval = events.find(
+      (event) => event.type === "approval.requested",
+    );
     if (approval?.type !== "approval.requested")
       throw new Error("missing MCP approval");
     expect(approval.sessionScope).toBeUndefined();
@@ -1195,7 +1636,9 @@ describe("codex live turn sequence", () => {
       () => events.some((event) => event.type === "approval.requested"),
       "MCP approval after item completion",
     );
-    const approval = events.find((event) => event.type === "approval.requested");
+    const approval = events.find(
+      (event) => event.type === "approval.requested",
+    );
     if (approval?.type !== "approval.requested")
       throw new Error("missing MCP approval");
     expect(approval.sessionScope).toBeUndefined();
@@ -1236,7 +1679,9 @@ describe("codex live turn sequence", () => {
       () => parse().some((message) => message.method === "turn/start"),
       "second turn start",
     );
-    const turnStart = parse().find((message) => message.method === "turn/start");
+    const turnStart = parse().find(
+      (message) => message.method === "turn/start",
+    );
     if (typeof turnStart?.id !== "number")
       throw new Error("missing second turn request id");
     reply(turnStart.id, { turn: { id: "turn_2", status: "inProgress" } });
@@ -1247,7 +1692,9 @@ describe("codex live turn sequence", () => {
       () => events.some((event) => event.type === "approval.requested"),
       "MCP approval in the next turn",
     );
-    const approval = events.find((event) => event.type === "approval.requested");
+    const approval = events.find(
+      (event) => event.type === "approval.requested",
+    );
     if (approval?.type !== "approval.requested")
       throw new Error("missing MCP approval");
     expect(approval.sessionScope).toBeUndefined();
@@ -1266,7 +1713,9 @@ describe("codex live turn sequence", () => {
       () => events.some((event) => event.type === "approval.requested"),
       "parent MCP approval",
     );
-    const approval = events.find((event) => event.type === "approval.requested");
+    const approval = events.find(
+      (event) => event.type === "approval.requested",
+    );
     if (approval?.type !== "approval.requested")
       throw new Error("missing MCP approval");
     expect(approval.sessionScope).toBeUndefined();
@@ -1294,7 +1743,10 @@ describe("codex live turn sequence", () => {
       "allow",
       "session",
     );
-    await waitFor(() => parse().some((message) => message.id === 91), "grant reply");
+    await waitFor(
+      () => parse().some((message) => message.id === 91),
+      "grant reply",
+    );
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await first.turn;
 
@@ -1304,7 +1756,9 @@ describe("codex live turn sequence", () => {
       () => parse().some((message) => message.method === "turn/start"),
       "Plan turn start",
     );
-    const turnStart = parse().find((message) => message.method === "turn/start");
+    const turnStart = parse().find(
+      (message) => message.method === "turn/start",
+    );
     if (typeof turnStart?.id !== "number")
       throw new Error("missing Plan turn request id");
     reply(turnStart.id, { turn: { id: "turn_2", status: "inProgress" } });
@@ -1322,7 +1776,10 @@ describe("codex live turn sequence", () => {
       throw new Error("missing Plan MCP approval");
     expect(parse().some((message) => message.id === 92)).toBe(false);
     respondCodexApproval("codex-live", approval.requestId, "deny");
-    await waitFor(() => parse().some((message) => message.id === 92), "Plan reply");
+    await waitFor(
+      () => parse().some((message) => message.id === 92),
+      "Plan reply",
+    );
     notify("turn/completed", { turn: { id: "turn_2", status: "completed" } });
     await plan.turn;
   });
@@ -1360,7 +1817,10 @@ describe("codex live turn sequence", () => {
 
     await stopCodexSession("codex-live");
     releaseWrite?.();
-    await waitFor(() => parse().some((message) => message.id === 91), "late reply");
+    await waitFor(
+      () => parse().some((message) => message.id === 91),
+      "late reply",
+    );
     await first.turn;
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -1377,7 +1837,10 @@ describe("codex live turn sequence", () => {
     if (nextApproval?.type !== "approval.requested")
       throw new Error("missing MCP approval after stop");
     respondCodexApproval("codex-live", nextApproval.requestId, "deny");
-    await waitFor(() => parse().some((message) => message.id === 92), "new reply");
+    await waitFor(
+      () => parse().some((message) => message.id === 92),
+      "new reply",
+    );
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await resumed.turn;
   });
@@ -1630,7 +2093,10 @@ describe("codex live turn sequence", () => {
       kind: "submit",
       content: { name: "Al" },
     });
-    await waitFor(() => parse().some((message) => message.id === 91), "form reply");
+    await waitFor(
+      () => parse().some((message) => message.id === 91),
+      "form reply",
+    );
 
     expect(events.map((event) => event.type)).toContain("form.resolved");
     expect(events).toContainEqual({
@@ -1686,12 +2152,17 @@ describe("codex live turn sequence", () => {
     );
     const form = events.find((event) => event.type === "form.requested");
     if (form?.type !== "form.requested") throw new Error("missing form");
-    expect(events.some((event) => event.type === "approval.requested")).toBe(false);
+    expect(events.some((event) => event.type === "approval.requested")).toBe(
+      false,
+    );
     respondCodexForm("codex-live", form.requestId, {
       kind: "submit",
       content: { name: "Al", team: "docs" },
     });
-    await waitFor(() => parse().some((message) => message.id === 91), "form reply");
+    await waitFor(
+      () => parse().some((message) => message.id === 91),
+      "form reply",
+    );
     expect(parse().find((message) => message.id === 91)?.result).toEqual({
       action: "accept",
       content: { name: "Al", team: "docs" },
@@ -1703,15 +2174,26 @@ describe("codex live turn sequence", () => {
       () => events.some((event) => event.type === "approval.requested"),
       "confirmation approval",
     );
-    const approval = events.find((event) => event.type === "approval.requested");
+    const approval = events.find(
+      (event) => event.type === "approval.requested",
+    );
     if (approval?.type !== "approval.requested")
       throw new Error("missing confirmation approval");
     expect(approval.sessionScope?.hint).toBe(
       "Stop asking for this tool until the chat closes.",
     );
     respondCodexApproval("codex-live", approval.requestId, "deny");
-    await waitFor(() => parse().some((message) => message.id === 92), "approval reply");
-    expect(events.some((event) => event.type === "form.requested" && event.requestId === approval.requestId)).toBe(false);
+    await waitFor(
+      () => parse().some((message) => message.id === 92),
+      "approval reply",
+    );
+    expect(
+      events.some(
+        (event) =>
+          event.type === "form.requested" &&
+          event.requestId === approval.requestId,
+      ),
+    ).toBe(false);
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await turn;
   });
@@ -1738,31 +2220,39 @@ describe("codex live turn sequence", () => {
     sendForm(91, "first");
     sendForm(92, "second");
     await waitFor(
-      () => events.filter((event) => event.type === "form.requested").length === 1,
+      () =>
+        events.filter((event) => event.type === "form.requested").length === 1,
       "first form",
     );
     const first = events.find((event) => event.type === "form.requested");
     if (first?.type !== "form.requested") throw new Error("missing first form");
     expect(first.fields[0]?.key).toBe("first");
-    expect(events.filter((event) => event.type === "form.requested")).toHaveLength(1);
+    expect(
+      events.filter((event) => event.type === "form.requested"),
+    ).toHaveLength(1);
 
     respondCodexForm("codex-live", first.requestId, {
       kind: "submit",
       content: { first: "one" },
     });
     await waitFor(
-      () => events.filter((event) => event.type === "form.requested").length === 2,
+      () =>
+        events.filter((event) => event.type === "form.requested").length === 2,
       "second form",
     );
     const requested = events.filter((event) => event.type === "form.requested");
     const second = requested[1];
-    if (second?.type !== "form.requested") throw new Error("missing second form");
+    if (second?.type !== "form.requested")
+      throw new Error("missing second form");
     expect(second.fields[0]?.key).toBe("second");
     respondCodexForm("codex-live", second.requestId, {
       kind: "submit",
       content: { second: "two" },
     });
-    await waitFor(() => parse().some((message) => message.id === 92), "second reply");
+    await waitFor(
+      () => parse().some((message) => message.id === 92),
+      "second reply",
+    );
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await turn;
   });
@@ -1783,11 +2273,17 @@ describe("codex live turn sequence", () => {
         },
       }),
     );
-    await waitFor(() => events.some((event) => event.type === "form.requested"), "form UI");
+    await waitFor(
+      () => events.some((event) => event.type === "form.requested"),
+      "form UI",
+    );
     const form = events.find((event) => event.type === "form.requested");
     if (form?.type !== "form.requested") throw new Error("missing form");
     respondCodexForm("codex-live", form.requestId, { kind: "decline" });
-    await waitFor(() => parse().some((message) => message.id === 91), "decline reply");
+    await waitFor(
+      () => parse().some((message) => message.id === 91),
+      "decline reply",
+    );
 
     expect(parse().find((message) => message.id === 91)?.result).toEqual({
       action: "decline",
@@ -1820,7 +2316,10 @@ describe("codex live turn sequence", () => {
         },
       }),
     );
-    await waitFor(() => events.some((event) => event.type === "form.requested"), "form UI");
+    await waitFor(
+      () => events.some((event) => event.type === "form.requested"),
+      "form UI",
+    );
     const form = events.find((event) => event.type === "form.requested");
     if (form?.type !== "form.requested") throw new Error("missing form");
     respondCodexForm("codex-live", form.requestId, {
@@ -1838,7 +2337,10 @@ describe("codex live turn sequence", () => {
       kind: "submit",
       content: { name: "Al" },
     });
-    await waitFor(() => parse().some((message) => message.id === 91), "valid retry");
+    await waitFor(
+      () => parse().some((message) => message.id === 91),
+      "valid retry",
+    );
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await turn;
   });
@@ -1859,11 +2361,17 @@ describe("codex live turn sequence", () => {
         },
       }),
     );
-    await waitFor(() => events.some((event) => event.type === "form.requested"), "form UI");
+    await waitFor(
+      () => events.some((event) => event.type === "form.requested"),
+      "form UI",
+    );
     const form = events.find((event) => event.type === "form.requested");
     if (form?.type !== "form.requested") throw new Error("missing form");
     notify("serverRequest/resolved", { threadId: "thr_1", requestId: 91 });
-    await waitFor(() => events.some((event) => event.type === "form.resolved"), "cancel event");
+    await waitFor(
+      () => events.some((event) => event.type === "form.resolved"),
+      "cancel event",
+    );
     expect(events).toContainEqual({
       type: "form.resolved",
       requestId: form.requestId,
@@ -1895,7 +2403,10 @@ describe("codex live turn sequence", () => {
         },
       }),
     );
-    await waitFor(() => events.some((event) => event.type === "form.requested"), "form UI");
+    await waitFor(
+      () => events.some((event) => event.type === "form.requested"),
+      "form UI",
+    );
     const form = events.find((event) => event.type === "form.requested");
     if (form?.type !== "form.requested") throw new Error("missing form");
 
@@ -1904,7 +2415,9 @@ describe("codex live turn sequence", () => {
       () => parse().some((message) => message.method === "turn/interrupt"),
       "turn interrupt",
     );
-    const interrupt = parse().find((message) => message.method === "turn/interrupt");
+    const interrupt = parse().find(
+      (message) => message.method === "turn/interrupt",
+    );
     reply(interrupt!.id as number, {});
     await cancelling;
     await turn;
@@ -2382,6 +2895,39 @@ describe("codex subagents", () => {
       ["tool", "npm test"],
       ["message", "No regressions found."],
     ]);
+  });
+
+  it("materializes images generated by child threads", async () => {
+    const { events, turn } = await startTurn("s1");
+    notify("item/started", {
+      threadId: "thr_1",
+      item: {
+        id: "collab_1",
+        type: "collabAgentToolCall",
+        tool: "spawnAgent",
+        status: "inProgress",
+        agentsStates: { thr_child: { status: "running" } },
+      },
+    });
+    notify("item/completed", {
+      threadId: "thr_child",
+      item: {
+        id: "child_image",
+        type: "imageGeneration",
+        result: "aW1hZ2U=",
+      },
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+
+    expect(events).toContainEqual({
+      type: "image.generated",
+      itemId: "child_image",
+      path: "/app-data/generated-images/image.png",
+      name: "generated-image",
+      mimeType: "image/png",
+      size: 8,
+    });
   });
 
   it("banks a child's opening moves until its row is known", async () => {

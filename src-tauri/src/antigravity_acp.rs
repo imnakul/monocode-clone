@@ -202,7 +202,9 @@ pub(crate) fn configure(
         .env("PYTHONUNBUFFERED", "1")
         .env("BROWSER", browser);
     #[cfg(target_os = "linux")]
-    cmd.arg("--uid=");
+    if !cmd.get_args().any(|arg| arg == "--uid=") {
+        cmd.arg("--uid=");
+    }
     Ok(())
 }
 
@@ -520,6 +522,9 @@ mod tests {
         }
         let profile = root.join("profile");
         let mut cmd = Command::new(&runtime);
+        // Configured-path resolution can already include upstream's Linux flag.
+        #[cfg(target_os = "linux")]
+        cmd.arg("--uid=");
         cmd.env("gEmInI_aPi_KeY", "do-not-inherit");
         cmd.env("GOOGLE_APPLICATION_CREDENTIALS", "do-not-inherit");
         cmd.env("ANTIGRAVITY_HARNESS_PATH", "wrong-helper");
@@ -637,6 +642,7 @@ mod tests {
         assert!(root.join("_MEIother").exists(), "unmarked folders stay");
         #[cfg(windows)]
         assert!(root.join("_MEIlive").exists(), "live folder stays");
+        #[cfg(windows)]
         drop(_guard);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -681,6 +687,7 @@ mod tests {
             !root.join("tmp/_MEIdead").exists(),
             "abandoned extraction must go"
         );
+        #[cfg(windows)]
         drop(_guard);
         sweep_stale_extractions_before(&root.join("tmp"), future);
         assert!(

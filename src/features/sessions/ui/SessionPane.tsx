@@ -52,6 +52,8 @@ import {
   type WorkspaceMode,
   type ComposerTurnOptions,
 } from "../model/session";
+import { sessionHasBtwThreads, supportsBtwHarness } from "../model/btw";
+import { BtwSheet, useBtwConversation } from "./BtwSheet";
 import { AgentTranscript } from "./AgentTranscript";
 import { PooledTranscript, type TranscriptPool } from "./TranscriptPool";
 import { TranscriptFind } from "./TranscriptFind";
@@ -89,15 +91,20 @@ import {
   subscribeProjectChatBackground,
 } from "../../projects/model/projectChatBackground";
 import { useProjectBackgroundEffect } from "../../projects/ui/useProjectBackgroundEffect";
+import { GradientBlurBackground } from "../../settings/ui/GradientBlurBackground";
 import {
   loadChatBackgroundPath,
+  loadNewThreadBackgroundEffect,
   subscribeChatBackgroundPath,
 } from "../../settings/model/appearance";
 import type { SessionFolderTarget } from "../model/sessionFolders";
 import { markLinkedSessionUpdateSeen } from "../../inbox/model/linkedSessionSeen";
 import { type ReviewIssue } from "../../inbox/model/githubTasks";
+import { RemoteSession } from "../../connections/ui/RemoteSession";
+import { isRemoteProjectPath } from "../../projects/model/recents";
+import type { HostSession } from "../../connections/model/protocol";
 
-type Props = {
+export type SessionPaneProps = {
   session: Session;
   reviewUndoLocked?: boolean;
   visible: boolean;
@@ -113,6 +120,7 @@ type Props = {
   onCwdChange: (sessionId: string, cwd: string) => void;
   onBranchChange: (sessionId: string) => void;
   onWorktreeChange?: (sessionId: string, tree: Worktree) => Promise<void>;
+  onRemoteSnapshot?: (shellId: string, snapshot?: HostSession) => void;
   onWorkspaceModeChange: (
     sessionId: string,
     mode: WorkspaceMode,
@@ -153,6 +161,9 @@ type Props = {
   onQueuedMessageEditingChange: (sessionId: string, messageId?: string) => void;
   onSteerQueuedMessage: (sessionId: string, messageId: string) => void;
   onResumeQueue: (sessionId: string) => void;
+  onUsageLimitResume: (sessionId: string) => void;
+  onUsageLimitResumeAtReset: (sessionId: string, enabled: boolean) => void;
+  onUsageLimitDismiss: (sessionId: string) => void;
   onInboxCardDismiss?: (sessionId: string) => void;
   onLinkedWorkItemUpdateCardDismiss?: (sessionId: string) => void;
   onNoteCardDismiss?: (sessionId: string) => void;
@@ -198,13 +209,66 @@ type Props = {
   onSidechat?: (sessionId: string, turn: Block[]) => void;
 
   onHandoff?: (sessionId: string, target: ModelTarget, turn: Block[]) => void;
+  onBtwSubmit?: (
+    sessionId: string,
+    turn: Block[],
+    threadId: string,
+    messageId: string,
+    text: string,
+    model?: string,
+    modelSettings?: Record<string, string>,
+  ) => boolean | void;
+  onBtwRetry?: (sessionId: string, turn: Block[], threadId: string) => void;
+  onBtwDelete?: (sessionId: string, turn: Block[], threadId: string) => void;
+  onBtwStop?: (sessionId: string, turn: Block[], threadId: string) => void;
+  onBtwModelChange?: (
+    sessionId: string,
+    turn: Block[],
+    threadId: string,
+    model: string,
+    modelSettings: Record<string, string>,
+  ) => void;
   onNewTerminal: (sessionId: string) => void;
+
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
   /** Keeps this transcript mounted after the pane closes. */
   transcriptPool?: TranscriptPool;
 };
 
-export const SessionPane = memo(function SessionPane({
+type Props = SessionPaneProps & {
+  /** The session runtime is on another machine. */
+  remoteSession?: boolean;
+  remoteFeatures?: { attachments: boolean; plan: boolean; draft: boolean };
+  /** An opened host conversation whose transcript has not arrived yet. */
+  remoteSessionLoading?: boolean;
+  remoteSessionStarted?: boolean;
+  allowedModelHarnesses?: readonly HarnessId[];
+};
+
+export const SessionPane = memo(function SessionPane(props: SessionPaneProps) {
+  // Sessions in a project on another machine render this same pane, backed by
+  // the host instead of this computer's session runtime.
+  if (isRemoteProjectPath(props.session.cwd))
+    return (
+      <RemoteSession
+        shell={props.session}
+        visible={props.visible}
+        onSnapshot={props.onRemoteSnapshot}
+        onOpenFile={props.onOpenFile}
+        onOpenDiff={props.onOpenDiff}
+        onOpenPlan={props.onOpenPlan}
+        render={(remote) => <LocalSessionPane {...props} {...remote} />}
+      />
+    );
+  return <LocalSessionPane {...props} />;
+});
+
+const LocalSessionPane = memo(function LocalSessionPane({
+  remoteSession = false,
+  remoteFeatures,
+  remoteSessionLoading = false,
+  remoteSessionStarted = false,
+  allowedModelHarnesses,
   session,
   reviewUndoLocked = false,
   visible,
@@ -237,6 +301,9 @@ export const SessionPane = memo(function SessionPane({
   onQueuedMessageEditingChange,
   onSteerQueuedMessage,
   onResumeQueue,
+  onUsageLimitResume,
+  onUsageLimitResumeAtReset,
+  onUsageLimitDismiss,
   onInboxCardDismiss,
   onLinkedWorkItemUpdateCardDismiss,
   onNoteCardDismiss,
@@ -257,6 +324,11 @@ export const SessionPane = memo(function SessionPane({
   onHandoff,
   onBranch,
   onSidechat,
+  onBtwSubmit,
+  onBtwRetry,
+  onBtwDelete,
+  onBtwStop,
+  onBtwModelChange,
   onNewTerminal,
   onPaneDragStart,
   transcriptPool,
@@ -274,7 +346,8 @@ export const SessionPane = memo(function SessionPane({
   const title = sessionDisplayTitle(session.title, session.harness);
   const isEmpty = session.blocks.length === 0;
   const recallLastTurnRef = useRef<(() => void) | null>(null);
-  const editLastTurnSupported = canEditLastTurn(session);
+  const remote = remoteSession;
+  const editLastTurnSupported = !remote && canEditLastTurn(session);
   const turnRecall = editLastTurnSupported ? lastTurnRecall(session) : null;
   const draftBlock = sessionDraftBlock(session);
   useSyncExternalStore(
@@ -286,6 +359,11 @@ export const SessionPane = memo(function SessionPane({
     subscribeChatBackgroundPath,
     loadChatBackgroundPath,
     loadChatBackgroundPath,
+  );
+  const globalBackgroundEffect = useSyncExternalStore(
+    subscribeChatBackgroundPath,
+    loadNewThreadBackgroundEffect,
+    loadNewThreadBackgroundEffect,
   );
   const projectBackground = loadProjectChatBackgroundSettings(
     projectKey(session.cwd),
@@ -372,10 +450,42 @@ export const SessionPane = memo(function SessionPane({
   }, [visible]);
   // Restore a saved run for this lead; its agents render on the sidebar card.
   useEffect(() => {
-    if (!session.inboxAsk && !session.worktreeRemoved)
+    if (!remote && !session.inboxAsk && !session.worktreeRemoved)
       void orchestrator.hydrate(session.id).catch(console.error);
-  }, [session.id, session.inboxAsk, session.worktreeRemoved]);
+  }, [remote, session.id, session.inboxAsk, session.worktreeRemoved]);
   const [quoteRequest, setQuoteRequest] = useState<QuoteRequest>();
+  const btw = useBtwConversation({
+    available:
+      !remote &&
+      !isEmpty &&
+      !managed &&
+      !session.inboxAsk &&
+      !session.worktreeRemoved &&
+      !!onBtwSubmit &&
+      !!onBtwRetry &&
+      (supportsBtwHarness(session.harness) ||
+        sessionHasBtwThreads(session.blocks)),
+    blocks: session.blocks,
+    harness: session.harness,
+    managed,
+    model: session.model,
+    modelSettings: session.modelSettings,
+    onSubmit: (turn, threadId, messageId, text, model, modelSettings) =>
+      onBtwSubmit?.(
+        session.id,
+        turn,
+        threadId,
+        messageId,
+        text,
+        model,
+        modelSettings,
+      ),
+    onRetry: (turn, threadId) => onBtwRetry?.(session.id, turn, threadId),
+    onDelete: (turn, threadId) => onBtwDelete?.(session.id, turn, threadId),
+    onStop: (turn, threadId) => onBtwStop?.(session.id, turn, threadId),
+    onModelChange: (turn, threadId, model, modelSettings) =>
+      onBtwModelChange?.(session.id, turn, threadId, model, modelSettings),
+  });
   const onJumpToBottomReady = useCallback((jump: () => void) => {
     jumpToBottomRef.current = jump;
   }, []);
@@ -472,7 +582,8 @@ export const SessionPane = memo(function SessionPane({
   const workCwd = sessionWorkCwd(session);
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
   const dockComposer =
-    !draftBlock && (!isEmpty || inSplit || !!session.inboxAsk);
+    remoteSessionLoading ||
+    (!draftBlock && (!isEmpty || inSplit || !!session.inboxAsk));
   const composerDockMotion = useComposerDockMotion(dockComposer);
   const draftRef = useRef<string | undefined>(getComposerDraft(session.id));
   const turnUsage = useMemo(
@@ -485,10 +596,14 @@ export const SessionPane = memo(function SessionPane({
   );
   const composer = (
     <Composer
+      key={session.id}
+      remoteSession={remoteSession}
+      remoteFeatures={remoteFeatures}
+      allowedModelHarnesses={allowedModelHarnesses}
       enabled={visible}
-      focused={focused && composerFocused}
+      focused={focused && composerFocused && !btw.open}
       focusToken={composerFocusToken}
-      hotkeys={focused}
+      hotkeys={focused && !btw.open}
       shell={!dockComposer}
       harness={session.harness}
       model={session.model}
@@ -545,8 +660,9 @@ export const SessionPane = memo(function SessionPane({
         !session.inboxAsk &&
         !session.worktreeRemoved &&
         !managed &&
-        ((isEmpty && !session.worktreeCwd) ||
-          (!!session.workspaceMode && !session.worktreeCwd))
+        (remote
+          ? !remoteSessionStarted
+          : (isEmpty || !!session.workspaceMode) && !session.worktreeCwd)
       }
       workspaceMode={session.workspaceMode}
       worktreeBase={session.worktreeBase}
@@ -573,6 +689,7 @@ export const SessionPane = memo(function SessionPane({
       }
       onRuntimeModeChange={(mode) => onRuntimeModeChange(session.id, mode)}
       canSaveDraft={
+        (!remote || !!remoteFeatures?.draft) &&
         !session.busy &&
         !draftBlock &&
         !session.inboxAsk &&
@@ -587,6 +704,7 @@ export const SessionPane = memo(function SessionPane({
         if (!dockComposer) composerDockMotion.captureLaunch();
         return onSubmit(session.id, text, attachments, options);
       }}
+      onBtwCommand={btw.openWith}
       onStop={() => onStop(session.id)}
       onCompactContext={() => onCompactContext(session.id)}
       onPlaceInFolder={(target) => onPlaceSessionInFolder(session.id, target)}
@@ -605,6 +723,12 @@ export const SessionPane = memo(function SessionPane({
         onSteerQueuedMessage(session.id, messageId)
       }
       onResumeQueue={() => onResumeQueue(session.id)}
+      usageLimit={session.usageLimit}
+      onUsageLimitResume={() => onUsageLimitResume(session.id)}
+      onUsageLimitResumeAtReset={(enabled) =>
+        onUsageLimitResumeAtReset(session.id, enabled)
+      }
+      onUsageLimitDismiss={() => onUsageLimitDismiss(session.id)}
       onOpenFile={onOpenFile}
       busy={!!session.busy}
       editLastTurnSupported={editLastTurnSupported}
@@ -621,11 +745,18 @@ export const SessionPane = memo(function SessionPane({
       data-session-drop={session.id}
       data-session-empty={isEmpty}
       data-project-chat-background={!!projectBackground}
+      data-project-background-effect={projectBackground?.effect}
       data-project-background-scope={projectBackground?.scope}
       style={projectBackgroundStyle}
       className="chat-pane-background relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col"
       onMouseDown={() => onFocus(session.id)}
     >
+      {projectBackground?.effect === "gradient-blur" ||
+      (!projectBackground &&
+        globalBackgroundPath &&
+        globalBackgroundEffect === "gradient-blur") ? (
+        <GradientBlurBackground />
+      ) : null}
       {modelWelcome && visible ? (
         modelWelcome.kind === "astra" ? (
           <AstraWelcome key={modelWelcome.run} onDone={dismissModelWelcome} />
@@ -680,7 +811,7 @@ export const SessionPane = memo(function SessionPane({
           </button>
         </div>
       ) : null}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         <div
           ref={transcriptScope}
           className="@container relative min-h-0 flex-1"
@@ -712,7 +843,7 @@ export const SessionPane = memo(function SessionPane({
               }
             />
           ) : null}
-          {isEmpty ? (
+          {remoteSessionLoading ? null : isEmpty ? (
             session.inboxAsk ? (
               <div className="scrollbar-none h-full min-h-0 overflow-y-auto">
                 <DiscussionEmpty message="Explore this item with your agent." />
@@ -751,6 +882,7 @@ export const SessionPane = memo(function SessionPane({
                   model={session.model}
                   modelSettings={session.modelSettings}
                   pendingQuestion={!!session.pendingQuestion}
+                  backgroundTasks={session.backgroundTasks}
                   onApproval={session.worktreeRemoved ? undefined : approve}
                   onReviewFix={onReviewFix ? fixReviewIssue : undefined}
                   onAddToChat={addSelectionToChat}
@@ -764,7 +896,12 @@ export const SessionPane = memo(function SessionPane({
                             session.id,
                             block.text,
                             block.attachments ?? [],
-                            { draftBlockId: block.id },
+                            {
+                              draftBlockId: block.id,
+                              ...(block.appRequestId
+                                ? { appRequestId: block.appRequestId }
+                                : {}),
+                            },
                           )
                       : undefined
                   }
@@ -780,6 +917,7 @@ export const SessionPane = memo(function SessionPane({
                   onOpenDiff={onOpenDiff}
                   onOpenPlan={openPlan}
                   onBuildPlan={session.worktreeRemoved ? undefined : buildPlan}
+                  planBuildTargets={!remote}
                   onSecondOpinion={
                     !session.inboxAsk &&
                     !session.worktreeRemoved &&
@@ -808,6 +946,7 @@ export const SessionPane = memo(function SessionPane({
                       : undefined
                   }
                   latestTurnAccessory={
+                    remote ||
                     session.inboxAsk ||
                     session.worktreeRemoved ||
                     draftBlock ? undefined : (
@@ -876,11 +1015,25 @@ export const SessionPane = memo(function SessionPane({
           <div
             ref={composerDockMotion.dockedRef}
             data-session-composer
+            inert={btw.open}
             className="mx-auto w-full max-w-4xl shrink-0"
           >
             {composer}
           </div>
         ) : null}
+        <BtwSheet
+          btw={btw}
+          cwd={workCwd}
+          visible={visible}
+          origin={() =>
+            composerDockMotion.dockedRef.current?.querySelector<HTMLElement>(
+              "[data-composer-box]",
+            ) ?? null
+          }
+          onSaveNote={notesEnabled ? saveNote : undefined}
+          onOpenFile={onOpenFile}
+          onOpenDiff={onOpenDiff}
+        />
       </div>
     </div>
   );

@@ -10,11 +10,16 @@ import {
   asRecord,
   buildThreadStartParams,
   buildTurnStartParams,
+  isRecoverableThreadResumeError,
+  mapCodexNotification,
   stringField,
 } from "./codexProtocol";
-import { JsonRpcClient, type JsonRpcId } from "../../core/jsonRpc";
-import { mergeStream, streamTextDelta } from "../../core/streamText";
+import type { HarnessEvent } from "../../core/types";
 import { HelperToolAttemptError } from "../../core/helperIsolation";
+import { JsonRpcClient, type JsonRpcId } from "../../core/jsonRpc";
+import type { TurnIntent } from "../../../../features/sessions/model/session";
+
+import { mergeStream, streamTextDelta } from "../../core/streamText";
 
 const TEXT_CHILD_ID = "monocode-codex-text";
 const INIT_TIMEOUT_MS = 60_000;
@@ -24,24 +29,29 @@ const TEXT_MODEL = "gpt-5.6-luna";
 const TEXT_EFFORT = "low";
 
 type LiveText = {
+  helperOnly: boolean;
+  toolAttempting: boolean;
   rpc: JsonRpcClient;
   cwd: string;
   providerAccountId?: string;
   threadId: string;
   model: string;
   effort: string;
+  serviceTier?: string;
   collecting: boolean;
   output: string;
   closed: boolean;
   turnDone: (() => void) | null;
   turnFailed: ((error: Error) => void) | null;
-  toolAttempting: boolean;
+  onEvent?: (event: HarnessEvent) => void;
 };
 
 let live: LiveText | null = null;
 let turns: Promise<void> = Promise.resolve();
 
-function pickTextModel(): string {
+function pickTextModel(requested?: string): string {
+  const selected = requested?.trim();
+  if (selected) return selected;
   const models = modelsFor("codex");
   const luna = models.find((model) =>
     /5\.6-luna/i.test(`${model.nativeId ?? ""} ${model.name} ${model.id}`),
@@ -49,14 +59,31 @@ function pickTextModel(): string {
   return luna?.nativeId ?? TEXT_MODEL;
 }
 
-function pickTextEffort(modelId: string): string {
+function pickTextEffort(
+  modelId: string,
+  modelSettings?: Record<string, string>,
+): string {
+  const requested =
+    modelSettings?.reasoningEffort?.trim() || modelSettings?.effort?.trim();
   const model = modelsFor("codex").find((entry) => entry.nativeId === modelId);
-  const setting = model?.settings?.find((entry) => entry.id === "reasoningEffort");
+  const setting = model?.settings?.find(
+    (entry) => entry.id === "reasoningEffort",
+  );
   const options = setting?.options?.map((option) => option.value) ?? [];
+  if (requested && (options.length === 0 || options.includes(requested))) {
+    return requested;
+  }
   if (options.includes("low")) return "low";
   if (options.includes("none")) return "none";
   if (setting?.value && options.includes(setting.value)) return setting.value;
   return TEXT_EFFORT;
+}
+
+function pickTextServiceTier(
+  modelSettings?: Record<string, string>,
+): string | undefined {
+  const value = modelSettings?.serviceTier?.trim();
+  return value || undefined;
 }
 
 export async function stopCodexTextPrompt(): Promise<void> {
@@ -66,9 +93,11 @@ export async function stopCodexTextPrompt(): Promise<void> {
 /** Start the shared Codex app-server in the background so the first prompt is fast. */
 export function warmupCodexText(cwd: string): Promise<void> {
   if (!cwd || cwd === "~") return Promise.resolve();
-  const run = turns.catch(() => undefined).then(async () => {
-    await ensureLive(cwd);
-  });
+  const run = turns
+    .catch(() => undefined)
+    .then(async () => {
+      await ensureLive({ cwd });
+    });
   turns = run.then(
     () => undefined,
     () => undefined,
@@ -81,10 +110,20 @@ export async function runCodexTextPrompt(input: {
   cwd: string;
   providerAccountId?: string;
   model?: string;
+  modelSettings?: Record<string, string>;
+  threadId?: string;
+  onThreadId?: (threadId: string) => void;
+  intent?: TurnIntent;
+  helperOnly?: boolean;
   outputSchema?: Record<string, unknown>;
   prompt: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
+  onEvent?: (event: HarnessEvent) => void;
 }): Promise<string> {
+  if (input.model !== undefined && !input.model.trim()) {
+    throw new Error("The selected Codex model is unavailable.");
+  }
   const run = turns.catch(() => undefined).then(() => promptOnLive(input));
   turns = run.then(
     () => undefined,
@@ -97,19 +136,39 @@ async function promptOnLive(input: {
   cwd: string;
   providerAccountId?: string;
   model?: string;
+  modelSettings?: Record<string, string>;
+  threadId?: string;
+  onThreadId?: (threadId: string) => void;
+  intent?: TurnIntent;
+  helperOnly?: boolean;
   outputSchema?: Record<string, unknown>;
   prompt: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
+  onEvent?: (event: HarnessEvent) => void;
 }): Promise<string> {
-  const session = await ensureLive(
-    input.cwd,
-    input.providerAccountId,
-    input.model,
-  );
+  input.signal?.throwIfAborted();
+  const session = await ensureLive(input);
+  input.signal?.throwIfAborted();
   session.output = "";
   session.collecting = true;
+  session.toolAttempting = false;
+  session.onEvent = input.onEvent;
   const timeoutMs = input.timeoutMs ?? REQUEST_TIMEOUT_MS;
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let abortHandler: (() => void) | undefined;
+  const abortPromise = input.signal
+    ? new Promise<void>((_, reject) => {
+        abortHandler = () => {
+          void session.rpc
+            .request("turn/interrupt", { threadId: session.threadId })
+            .catch(() => undefined);
+          reject(new Error("By-the-way request cancelled"));
+        };
+        input.signal!.addEventListener("abort", abortHandler, { once: true });
+        if (input.signal!.aborted) abortHandler();
+      })
+    : null;
 
   try {
     const turnPromise = new Promise<void>((resolve, reject) => {
@@ -117,7 +176,7 @@ async function promptOnLive(input: {
       session.turnFailed = reject;
     });
 
-    await session.rpc.request(
+    const turnStart = session.rpc.request(
       "turn/start",
       buildTurnStartParams({
         threadId: session.threadId,
@@ -125,10 +184,13 @@ async function promptOnLive(input: {
         prompt: input.prompt,
         model: session.model || undefined,
         effort: session.effort,
+        serviceTier: session.serviceTier,
         outputSchema: input.outputSchema,
+        intent: input.intent,
       }),
       timeoutMs,
     );
+    await Promise.race([turnStart, ...(abortPromise ? [abortPromise] : [])]);
 
     await Promise.race([
       turnPromise,
@@ -138,62 +200,107 @@ async function promptOnLive(input: {
           timeoutMs,
         );
       }),
+      ...(abortPromise ? [abortPromise] : []),
     ]);
 
     return session.output;
   } catch (error) {
-    if (!session.toolAttempting) {
-      await session.rpc
-        .request("turn/interrupt", { threadId: session.threadId })
-        .catch(() => undefined);
-    }
+    // The child is retired in finally; a stalled interrupt must not delay rejection.
+    void session.rpc
+      .request("turn/interrupt", { threadId: session.threadId })
+      .catch(() => undefined);
     if (session.closed) await dropLive();
     throw error;
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
+    if (abortHandler && input.signal) {
+      input.signal.removeEventListener("abort", abortHandler);
+    }
     session.collecting = false;
     session.turnDone = null;
     session.turnFailed = null;
     await dropLive();
   }
 }
-
-async function ensureLive(
-  cwd: string,
-  providerAccountId?: string,
-  requestedModel?: string,
-): Promise<LiveText> {
-  const model = requestedModel ?? pickTextModel();
-  const effort = pickTextEffort(model);
+async function ensureLive(input: {
+  helperOnly?: boolean;
+  cwd: string;
+  providerAccountId?: string;
+  model?: string;
+  modelSettings?: Record<string, string>;
+  threadId?: string;
+  onThreadId?: (threadId: string) => void;
+}): Promise<LiveText> {
+  const model = pickTextModel(input.model);
+  const effort = pickTextEffort(model, input.modelSettings);
+  const serviceTier = pickTextServiceTier(input.modelSettings);
+  const helperOnly = input.helperOnly === true;
+  const requestedThreadId = helperOnly
+    ? undefined
+    : input.threadId?.trim() || undefined;
   if (live && !live.closed) {
     if (
-      live.cwd === cwd &&
+      live.helperOnly === helperOnly &&
+      live.cwd === input.cwd &&
       live.model === model &&
       live.effort === effort &&
-      live.providerAccountId === providerAccountId
+      live.serviceTier === serviceTier &&
+      live.providerAccountId === input.providerAccountId &&
+      (!requestedThreadId || live.threadId === requestedThreadId)
     ) {
+      input.onThreadId?.(live.threadId);
       return live;
     }
-    if (live.providerAccountId !== providerAccountId) {
+    if (
+      live.providerAccountId !== input.providerAccountId ||
+      live.helperOnly !== helperOnly
+    ) {
       await dropLive();
-      return startLive(cwd, providerAccountId, model);
+      const started = await startLive(
+        input.cwd,
+        input.providerAccountId,
+        model,
+        effort,
+        serviceTier,
+        requestedThreadId,
+        helperOnly,
+      );
+      input.onThreadId?.(started.threadId);
+      return started;
     }
     try {
       live.model = model;
       live.effort = effort;
-      await openThread(live, cwd);
+      live.serviceTier = serviceTier;
+      await openThread(live, input.cwd, requestedThreadId);
+      input.onThreadId?.(live.threadId);
       return live;
-    } catch {
+    } catch (error) {
       await dropLive();
+      throw error;
     }
   }
-  return startLive(cwd, providerAccountId, model);
+  const started = await startLive(
+    input.cwd,
+    input.providerAccountId,
+    model,
+    effort,
+    serviceTier,
+    requestedThreadId,
+    helperOnly,
+  );
+  input.onThreadId?.(started.threadId);
+  return started;
 }
 
 async function startLive(
   cwd: string,
   providerAccountId?: string,
   model = pickTextModel(),
+  effort = pickTextEffort(model),
+  serviceTier?: string,
+  requestedThreadId?: string,
+  helperOnly = false,
 ): Promise<LiveText> {
   await dropLive();
   const { path } = await resolveCodexBinary();
@@ -212,19 +319,22 @@ async function startLive(
   );
 
   const session: LiveText = {
+    helperOnly,
+    toolAttempting: false,
     rpc,
     cwd,
     providerAccountId,
     threadId: "",
     model,
-    effort: pickTextEffort(model),
+    effort,
+    serviceTier,
     collecting: false,
     output: "",
     closed: false,
     turnDone: null,
     turnFailed: null,
-    toolAttempting: false,
   };
+
   sessionRef.session = session;
 
   watchChild(
@@ -241,10 +351,17 @@ async function startLive(
   );
 
   try {
-    await spawnChild(TEXT_CHILD_ID, path, ["app-server"], cwd, {
-      provider: "codex",
-      id: providerAccountId ?? "default",
-    });
+    await spawnChild(
+      TEXT_CHILD_ID,
+      path,
+      ["app-server"],
+      cwd,
+      {
+        provider: "codex",
+        id: providerAccountId ?? "default",
+      },
+      "codex",
+    );
     await rpc.request(
       "initialize",
       {
@@ -258,7 +375,7 @@ async function startLive(
       INIT_TIMEOUT_MS,
     );
     await rpc.notify("initialized", undefined);
-    await openThread(session, cwd);
+    await openThread(session, cwd, requestedThreadId);
     live = session;
     return session;
   } catch (error) {
@@ -270,23 +387,59 @@ async function startLive(
   }
 }
 
-async function openThread(session: LiveText, cwd: string): Promise<void> {
-  const opened = await session.rpc.request<{ thread?: { id?: string } }>(
-    "thread/start",
-    buildThreadStartParams({
-      cwd,
-      runtimeMode: TEXT_RUNTIME_MODE,
-      model: session.model || undefined,
-      ephemeral: true,
-    }),
-    INIT_TIMEOUT_MS,
-  );
+async function openThread(
+  session: LiveText,
+  cwd: string,
+  requestedThreadId?: string,
+): Promise<void> {
+  let opened: { thread?: { id?: string } } | undefined;
+  if (requestedThreadId) {
+    try {
+      opened = await session.rpc.request<{ thread?: { id?: string } }>(
+        "thread/resume",
+        {
+          threadId: requestedThreadId,
+          ...buildThreadStartParams({
+            cwd,
+            runtimeMode: TEXT_RUNTIME_MODE,
+            model: session.model || undefined,
+            serviceTier: session.serviceTier,
+          }),
+        },
+        INIT_TIMEOUT_MS,
+      );
+    } catch (error) {
+      if (!isRecoverableThreadResumeError(error)) throw error;
+      opened = undefined;
+    }
+    if (!opened?.thread?.id?.trim()) opened = undefined;
+  }
+  if (!opened) {
+    opened = await session.rpc.request<{ thread?: { id?: string } }>(
+      "thread/start",
+      {
+        ...buildThreadStartParams({
+          cwd,
+          runtimeMode: TEXT_RUNTIME_MODE,
+          model: session.model || undefined,
+          serviceTier: session.serviceTier,
+        }),
+        ...(session.helperOnly
+          ? {
+              ephemeral: true,
+              approvalPolicy: "untrusted",
+              sandbox: "read-only",
+            }
+          : {}),
+      },
+      INIT_TIMEOUT_MS,
+    );
+  }
   const threadId = opened.thread?.id?.trim();
   if (!threadId) throw new Error("Codex did not return a thread id");
   session.cwd = cwd;
   session.threadId = threadId;
 }
-
 async function dropLive(): Promise<void> {
   const current = live;
   live = null;
@@ -312,18 +465,24 @@ function handleNotification(
     return;
   }
 
-  if (method === "item/started") {
-    const item = asRecord(asRecord(params)?.item);
-    const itemType = stringField(item, "type") ?? "unknown";
+  if (session.helperOnly && method === "item/started") {
+    const itemType =
+      stringField(asRecord(asRecord(params)?.item), "type") ?? "unknown";
     if (
-      itemType !== "userMessage" &&
-      itemType !== "agentMessage" &&
-      itemType !== "reasoning" &&
-      itemType !== "contextCompaction"
+      ![
+        "userMessage",
+        "agentMessage",
+        "reasoning",
+        "contextCompaction",
+      ].includes(itemType)
     ) {
       void interruptForToolAttempt(session, itemType);
+      return;
     }
-    return;
+  }
+  const mapped = mapCodexNotification(method, params);
+  for (const event of mapped.events) {
+    session.onEvent?.(event);
   }
 
   if (method === "item/agentMessage/delta") {
@@ -370,7 +529,7 @@ async function handleServerRequest(
     toolKind = "MCP elicitation";
   }
   await rpc.respond(id, response).catch(() => undefined);
-  if (toolKind && session?.collecting) {
+  if (toolKind && session?.collecting && session.helperOnly) {
     await interruptForToolAttempt(session, toolKind);
   }
 }

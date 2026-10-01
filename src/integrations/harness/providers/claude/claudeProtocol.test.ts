@@ -7,6 +7,7 @@ import {
 } from "./claudeCatalog";
 import {
   applyClaudePromptEffortPrefix,
+  applyClaudeTaskTool,
   askUserQuestionAllowInput,
   buildClaudeSpawnArgs,
   buildSetModelRequest,
@@ -22,7 +23,7 @@ import {
   isTodoTool,
   listModelsFromControlResponse,
   normalizeClaudeCliEffort,
-  parseBackgroundAgentTasks,
+  parseBackgroundTasks,
   parseClaudeVersion,
   parseControlRequest,
   parseControlResponse,
@@ -44,19 +45,23 @@ import {
   toolTitle,
   turnStatusFromResult,
   turnMetricsFromResult,
+  isUsageLimitResult,
+  usageLimitFromRateLimitEvent,
 } from "./claudeProtocol";
 
-function liveKey(options: {
-  model?: string;
-  effort?: string;
-  fast?: string;
-  thinking?: string;
-  context?: string;
-  runtimeMode?: RuntimeMode;
-  intent?: "chat" | "plan";
-  providerAccountId?: string;
-  hooks?: boolean;
-} = {}) {
+function liveKey(
+  options: {
+    model?: string;
+    effort?: string;
+    fast?: string;
+    thinking?: string;
+    context?: string;
+    runtimeMode?: RuntimeMode;
+    intent?: "chat" | "plan";
+    providerAccountId?: string;
+    hooks?: boolean;
+  } = {},
+) {
   return claudeLiveKey(
     {
       model: options.model ?? "claude:claude-sonnet-4-6",
@@ -79,10 +84,13 @@ function liveKey(options: {
 describe("planClaudeLiveSwitch", () => {
   it("sends permission mode before the model when both can change live", () => {
     expect(
-      planClaudeLiveSwitch(liveKey(), liveKey({
-        model: "claude:claude-opus-4-7",
-        runtimeMode: "auto-accept-edits",
-      })),
+      planClaudeLiveSwitch(
+        liveKey(),
+        liveKey({
+          model: "claude:claude-opus-4-7",
+          runtimeMode: "auto-accept-edits",
+        }),
+      ),
     ).toEqual({
       kind: "switch",
       steps: [
@@ -100,16 +108,10 @@ describe("planClaudeLiveSwitch", () => {
       steps: [{ type: "set_permission_mode", mode: "plan" }],
     });
     expect(
-      planClaudeLiveSwitch(
-        liveKey(),
-        liveKey({ runtimeMode: "full-access" }),
-      ),
+      planClaudeLiveSwitch(liveKey(), liveKey({ runtimeMode: "full-access" })),
     ).toMatchObject({ kind: "restart" });
     expect(
-      planClaudeLiveSwitch(
-        liveKey({ runtimeMode: "full-access" }),
-        liveKey(),
-      ),
+      planClaudeLiveSwitch(liveKey({ runtimeMode: "full-access" }), liveKey()),
     ).toMatchObject({ kind: "restart" });
   });
 
@@ -121,7 +123,9 @@ describe("planClaudeLiveSwitch", () => {
     ["fast", liveKey({ fast: "true" })],
     ["normalized effort", liveKey({ effort: "low" })],
   ])("restarts when %s changes", (_label, next) => {
-    expect(planClaudeLiveSwitch(liveKey({ effort: "high" }), next)).toMatchObject({
+    expect(
+      planClaudeLiveSwitch(liveKey({ effort: "high" }), next),
+    ).toMatchObject({
       kind: "restart",
     });
   });
@@ -212,11 +216,33 @@ describe("resolveClaudeApiModelId", () => {
 
 describe("buildClaudeSpawnArgs", () => {
   it("combines resume and a new session id only for a native fork", () => {
-    const args = buildClaudeSpawnArgs({ resume: "source", sessionId: "new", forkSession: true, resumeSessionAt: "uuid", allowedTools: ["Read"] });
-    expect(args.slice(args.indexOf("--resume"))).toEqual(["--resume", "source", "--session-id", "new", "--fork-session", "--resume-session-at", "uuid"]);
+    const args = buildClaudeSpawnArgs({
+      resume: "source",
+      sessionId: "new",
+      forkSession: true,
+      resumeSessionAt: "uuid",
+      allowedTools: ["Read"],
+    });
+    expect(args.slice(args.indexOf("--resume"))).toEqual([
+      "--resume",
+      "source",
+      "--session-id",
+      "new",
+      "--fork-session",
+      "--resume-session-at",
+      "uuid",
+    ]);
     expect(args).toContain("--allowedTools");
-    expect(buildClaudeSpawnArgs({ resume: "source", sessionId: "new" })).not.toContain("--session-id");
-    expect(buildClaudeSpawnArgs({ resume: "source", sessionId: "new", forkSession: true })).not.toContain("--resume-session-at");
+    expect(
+      buildClaudeSpawnArgs({ resume: "source", sessionId: "new" }),
+    ).not.toContain("--session-id");
+    expect(
+      buildClaudeSpawnArgs({
+        resume: "source",
+        sessionId: "new",
+        forkSession: true,
+      }),
+    ).not.toContain("--resume-session-at");
   });
   it("speaks stream-json with stdio permissions like the Agent SDK", () => {
     const args = buildClaudeSpawnArgs({
@@ -266,6 +292,18 @@ describe("buildClaudeSpawnArgs", () => {
     const settings = args[args.indexOf("--settings") + 1];
     expect(JSON.parse(settings)).toMatchObject({ disableAllHooks: true });
     expect(args).not.toContain("--permission-prompt-tool");
+  });
+
+  it("locks isolated read-only prompts to plan mode", () => {
+    const args = buildClaudeSpawnArgs({
+      isolated: true,
+      permissionMode: "plan",
+      maxTurns: 1,
+      model: "claude-haiku-4-5",
+    });
+    expect(args).toEqual(
+      expect.arrayContaining(["--permission-mode", "plan", "--max-turns", "1"]),
+    );
   });
 
   it("adds bypass flag for full-access", () => {
@@ -367,12 +405,13 @@ describe("control protocol", () => {
         destination: "localSettings",
       },
     ])!.updates;
-    expect(toClaudePermissionResult("allow", { command: "npm test" }, updates))
-      .toEqual({
-        behavior: "allow",
-        updatedInput: { command: "npm test" },
-        updatedPermissions: updates,
-      });
+    expect(
+      toClaudePermissionResult("allow", { command: "npm test" }, updates),
+    ).toEqual({
+      behavior: "allow",
+      updatedInput: { command: "npm test" },
+      updatedPermissions: updates,
+    });
     expect(toClaudePermissionResult("allow", { command: "npm test" })).toEqual({
       behavior: "allow",
       updatedInput: { command: "npm test" },
@@ -397,16 +436,27 @@ describe("control protocol", () => {
 
 describe("claudeSessionRules", () => {
   it("adds a session MCP fallback when Claude offers no suggestions", () => {
-    expect(claudeSessionRules("mcp__plugin_socraticode_socraticode__codebase_search", undefined)).toEqual({
+    expect(
+      claudeSessionRules(
+        "mcp__plugin_socraticode_socraticode__codebase_search",
+        undefined,
+      ),
+    ).toEqual({
       updates: [
         {
           type: "addRules",
-          rules: [{ toolName: "mcp__plugin_socraticode_socraticode__codebase_search" }],
+          rules: [
+            {
+              toolName: "mcp__plugin_socraticode_socraticode__codebase_search",
+            },
+          ],
           behavior: "allow",
           destination: "session",
         },
       ],
-      rules: [{ toolName: "mcp__plugin_socraticode_socraticode__codebase_search" }],
+      rules: [
+        { toolName: "mcp__plugin_socraticode_socraticode__codebase_search" },
+      ],
     });
   });
 
@@ -438,7 +488,13 @@ describe("claudeSessionRules", () => {
     [{ type: "addRules", rules: [], behavior: "allow" }],
     [{ type: "addRules", rules: [{ toolName: "Bash" }], behavior: "deny" }],
     [{ type: "addRules", rules: [{ toolName: 4 }], behavior: "allow" }],
-    [{ type: "replaceRules", rules: [{ toolName: "Bash" }], behavior: "allow" }],
+    [
+      {
+        type: "replaceRules",
+        rules: [{ toolName: "Bash" }],
+        behavior: "allow",
+      },
+    ],
   ])("fails closed for unsupported suggestions: %j", (suggestions) => {
     expect(claudeSessionRules("Bash", suggestions)).toBeNull();
   });
@@ -504,6 +560,53 @@ describe("stream mapping", () => {
       name: "Read",
       input: { file_path: "a.ts" },
     });
+  });
+});
+
+describe("usage limits", () => {
+  it("reads a refused window and when it resets", () => {
+    expect(
+      usageLimitFromRateLimitEvent({
+        type: "rate_limit_event",
+        rate_limit_info: {
+          status: "rejected",
+          resetsAt: 1_790_000_000,
+          rateLimitType: "five_hour",
+        },
+      }),
+    ).toEqual({ resetsAt: 1_790_000_000_000 });
+  });
+
+  it("ignores allowed windows and extra usage", () => {
+    expect(
+      usageLimitFromRateLimitEvent({
+        rate_limit_info: { status: "allowed_warning", resetsAt: 1 },
+      }),
+    ).toBeNull();
+    expect(
+      usageLimitFromRateLimitEvent({
+        rate_limit_info: { status: "rejected", isUsingOverage: true },
+      }),
+    ).toBeNull();
+  });
+
+  it("recognizes a limit in an errored result", () => {
+    expect(
+      isUsageLimitResult({
+        type: "result",
+        subtype: "success",
+        is_error: true,
+        result: "You've hit your limit · resets 3am (Europe/Sofia)",
+      }),
+    ).toBe(true);
+    expect(
+      isUsageLimitResult({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "You've hit your limit",
+      }),
+    ).toBe(false);
   });
 });
 
@@ -780,6 +883,34 @@ describe("list_models catalog", () => {
     ).toBe("1m");
   });
 
+  it("launches a versioned short value with the claude- prefix", () => {
+    const models = modelsFromClaudeListModels([
+      {
+        value: "opus-5-5",
+        resolvedModel: "claude-opus-5-5",
+        displayName: "Opus 5.5",
+      },
+      {
+        value: "opus",
+        resolvedModel: "claude-opus-5-5",
+        displayName: "Opus",
+      },
+    ]);
+
+    expect(models.map((model) => model.nativeId)).toEqual([
+      "claude-opus-5-5",
+      "opus",
+    ]);
+    expect(models[0]).toMatchObject({
+      id: "claude:opus-5-5",
+      nativeId: "claude-opus-5-5",
+    });
+    expect(models[1]).toMatchObject({
+      id: "claude:opus",
+      nativeId: "opus",
+    });
+  });
+
   it("parses success and error control responses", () => {
     expect(
       parseControlResponse({
@@ -835,6 +966,9 @@ describe("helpers", () => {
     );
     expect(isTodoTool("TodoWrite")).toBe(true);
     expect(toolKindFromName("TodoWrite")).toBe("tasks");
+    expect(toolKindFromName("TaskCreate")).toBe("tasks");
+    expect(toolKindFromName("TaskUpdate")).toBe("tasks");
+    expect(toolKindFromName("TaskOutput")).not.toBe("agent");
     expect(
       taskListFromTodos({
         todos: [
@@ -1099,7 +1233,7 @@ describe("subagent messages", () => {
       summary: "Found the tokens",
     });
     expect(
-      parseBackgroundAgentTasks({
+      parseBackgroundTasks({
         type: "system",
         subtype: "background_tasks_changed",
         tasks: [
@@ -1123,6 +1257,7 @@ describe("subagent messages", () => {
       }),
     ).toEqual([
       { taskId: "t1", taskType: "local_agent", description: "Explore" },
+      { taskId: "bash_1", taskType: "local_bash", description: "sleep 10" },
     ]);
     expect(
       parseToolProgress({
@@ -1210,5 +1345,65 @@ describe("Claude context summary", () => {
         categories: [{ name: "bad", tokens: -1 }],
       }),
     ).toBeNull();
+  });
+});
+
+describe("applyClaudeTaskTool", () => {
+  it("creates from the result id, updates, renames and deletes", () => {
+    const tasks = new Map();
+    expect(
+      applyClaudeTaskTool(
+        tasks,
+        "TaskCreate",
+        { subject: "One" },
+        "Task #7 created successfully: One",
+      ),
+    ).toBe(true);
+    expect([...tasks.values()]).toEqual([
+      { id: "7", text: "One", status: "pending" },
+    ]);
+    applyClaudeTaskTool(
+      tasks,
+      "TaskUpdate",
+      { taskId: 7, status: "in_progress" },
+      "",
+    );
+    applyClaudeTaskTool(
+      tasks,
+      "TaskUpdate",
+      { taskId: "7", subject: "Uno" },
+      "",
+    );
+    expect(tasks.get("7")).toEqual({
+      id: "7",
+      text: "Uno",
+      status: "in_progress",
+    });
+    applyClaudeTaskTool(
+      tasks,
+      "TaskUpdate",
+      { taskId: "7", status: "deleted" },
+      "",
+    );
+    expect(tasks.size).toBe(0);
+  });
+
+  it("ignores unknown ids, missing result ids and other tools", () => {
+    const tasks = new Map();
+    expect(
+      applyClaudeTaskTool(tasks, "TaskCreate", { subject: "One" }, "error"),
+    ).toBe(false);
+    expect(
+      applyClaudeTaskTool(
+        tasks,
+        "TaskUpdate",
+        { taskId: "9", status: "completed" },
+        "",
+      ),
+    ).toBe(false);
+    expect(applyClaudeTaskTool(tasks, "TaskList", {}, "#1 [pending] One")).toBe(
+      false,
+    );
+    expect(tasks.size).toBe(0);
   });
 });

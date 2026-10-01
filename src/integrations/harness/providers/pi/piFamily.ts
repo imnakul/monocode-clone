@@ -78,6 +78,8 @@ type InFlightTool = {
   input: Record<string, unknown>;
   partialJson: string;
   title: string;
+  /** Set on `tool_execution_end`; later progress updates are stale. */
+  finished?: boolean;
 };
 
 type Live = {
@@ -562,6 +564,8 @@ async function startLive(
       plan: input.intent === "plan",
     }),
     input.cwd,
+    undefined,
+    flavor.id,
   );
 
   liveByThread.set(input.sessionId, live);
@@ -913,7 +917,9 @@ function handleFrame(
   const execUpdate = toolExecutionUpdateFromEvent(rec);
   if (execUpdate) {
     const tool = live.toolsById.get(execUpdate.id);
-    if (tool) {
+    // omp can deliver an update after the tool's end (omp#12875, steer during
+    // bash); replaying it would flip the finished card back to "running".
+    if (tool && !tool.finished) {
       if (Object.keys(execUpdate.input).length > 0) {
         tool.input = mergeToolInput(tool.input, execUpdate.input);
         tool.title = toolTitle(tool.name, tool.input);
@@ -937,6 +943,7 @@ function handleFrame(
   if (execEnd) {
     const tool = live.toolsById.get(execEnd.id);
     if (tool) {
+      tool.finished = true;
       live.onEvent({
         type: "tool.updated",
         callId: tool.id,
@@ -1167,6 +1174,16 @@ async function applyModel(
       }
     }
   }
+
+  if (
+    flavor.id === "pi" &&
+    parsePiModelRef(live.nativeModel) &&
+    input.model !== `pi:${live.nativeModel}` &&
+    stateFor(flavor).liveByThread.get(input.sessionId) === live &&
+    !live.muteUpdates
+  ) {
+    live.onEvent({ type: "session.configChanged", model: `pi:${live.nativeModel}` });
+  }
 }
 
 function bindState(
@@ -1188,7 +1205,7 @@ function bindState(
   const model = asRecord(asRecord(data)?.model);
   const provider = stringField(model, "provider");
   const modelId = stringField(model, "id");
-  if (provider && modelId && !live.nativeModel) {
+  if (provider && modelId && (flavor.id === "pi" || !live.nativeModel)) {
     live.nativeModel = piNativeId(provider, modelId);
   }
   const fastModeEnabled = asRecord(data)?.fastModeEnabled;

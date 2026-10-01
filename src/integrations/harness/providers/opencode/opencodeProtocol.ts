@@ -8,6 +8,7 @@ import {
   attachmentPath,
   attachmentPathText,
   isVisionImage,
+  promptText,
 } from "../../../../features/sessions/model/attachments";
 import { isTaskListToolName } from "../../../../features/sessions/model/taskList";
 import { extractToolPreview } from "../../core/preview";
@@ -177,7 +178,8 @@ export function toOpenCodePromptParts(
   text: string,
   attachments: Attachment[] | undefined,
 ): OpenCodePromptPart[] {
-  const textParts = text.trim() ? [text.trim()] : [];
+  const body = promptText(text, attachments ?? []);
+  const textParts = body ? [body] : [];
   const parts: Array<{
     type: "file";
     mime: string;
@@ -221,7 +223,9 @@ export function mergeOpenCodeAssistantText(
       : nextText;
   return {
     latestText,
-    deltaToEmit: latestText.slice(commonPrefixLength(previousText ?? "", latestText)),
+    deltaToEmit: latestText.slice(
+      commonPrefixLength(previousText ?? "", latestText),
+    ),
   };
 }
 
@@ -234,7 +238,11 @@ export function appendOpenCodeAssistantTextDelta(
 
 function commonPrefixLength(left: string, right: string): number {
   let index = 0;
-  while (index < left.length && index < right.length && left[index] === right[index]) {
+  while (
+    index < left.length &&
+    index < right.length &&
+    left[index] === right[index]
+  ) {
     index += 1;
   }
   return index;
@@ -310,14 +318,22 @@ export function sortOpenCodeVariants(values: string[]): string[] {
   });
 }
 
-export function inferDefaultAgent(agents: Array<{ name: string }>): string | undefined {
-  return agents.find((agent) => agent.name === "build")?.name ?? agents[0]?.name;
+export function inferDefaultAgent(
+  agents: Array<{ name: string }>,
+): string | undefined {
+  return (
+    agents.find((agent) => agent.name === "build")?.name ?? agents[0]?.name
+  );
 }
 
 export function toolKindFromName(toolName: string): string {
   const normalized = toolName.toLowerCase();
   if (isTaskListToolName(toolName)) return "tasks";
-  if (normalized.includes("bash") || normalized.includes("command") || normalized.includes("shell")) {
+  if (
+    normalized.includes("bash") ||
+    normalized.includes("command") ||
+    normalized.includes("shell")
+  ) {
     return "shell";
   }
   if (
@@ -348,7 +364,9 @@ export function toolKindFromName(toolName: string): string {
   return toolName;
 }
 
-export function previewFromToolPart(part: OpenCodePart): ToolPreview | undefined {
+export function previewFromToolPart(
+  part: OpenCodePart,
+): ToolPreview | undefined {
   const tool = part.tool ?? "tool";
   const state = part.state ?? {};
   const kind = toolKindFromName(tool);
@@ -373,7 +391,8 @@ export function previewFromToolPart(part: OpenCodePart): ToolPreview | undefined
 export function detailFromToolPart(part: OpenCodePart): string | undefined {
   const state = part.state ?? {};
   const status = typeof state.status === "string" ? state.status : "";
-  if (status === "completed" && typeof state.output === "string") return state.output;
+  if (status === "completed" && typeof state.output === "string")
+    return state.output;
   if (status === "error") {
     if (typeof state.error === "string") return state.error;
     const error = asRecord(state.error);
@@ -384,11 +403,15 @@ export function detailFromToolPart(part: OpenCodePart): string | undefined {
       stringField(asRecord(error?.error), "message")
     );
   }
-  if (status === "running" && typeof state.title === "string") return state.title;
+  if (status === "running" && typeof state.title === "string")
+    return state.title;
   return undefined;
 }
 
-export function permissionTitle(permission: string, patterns: string[]): string {
+export function permissionTitle(
+  permission: string,
+  patterns: string[],
+): string {
   const detail = patterns.length > 0 ? patterns.join("\n") : permission;
   switch (permission) {
     case "bash":
@@ -471,9 +494,7 @@ export function turnMetricsFromMessageInfo(
  * subagent runs as its own session, so this is what ties the child's stream
  * back to the row that started it.
  */
-export function openCodeChildSessionId(
-  part: OpenCodePart,
-): string | undefined {
+export function openCodeChildSessionId(part: OpenCodePart): string | undefined {
   const state = part.state ?? {};
   const metadata = asRecord(state.metadata);
   const input = asRecord(state.input);
@@ -489,7 +510,9 @@ export function openCodeChildSessionId(
   return undefined;
 }
 
-export function eventSessionId(event: Record<string, unknown>): string | undefined {
+export function eventSessionId(
+  event: Record<string, unknown>,
+): string | undefined {
   const properties = asRecord(event.properties);
   if (!properties) return undefined;
   const sessionID = stringField(properties, "sessionID");

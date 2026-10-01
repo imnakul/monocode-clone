@@ -1,8 +1,8 @@
 import { Chunk } from "@codemirror/merge";
 import { Text } from "@codemirror/state";
 import { decodeLineEndings } from "../../sessions/model/lineEndings";
+import { LINE_DIFF_CONFIG } from "./lineDiff";
 
-const DIFF_CONFIG = { scanLimit: 5_000, timeout: 100 };
 
 export const UNIFIED_CONTEXT_DEFAULT = 3;
 export const UNIFIED_FOLD_STEP = 20;
@@ -137,7 +137,7 @@ function unifiedLinesFromTexts(original: string, current: string): UnifiedLine[]
   const oldDoc = textFromString(original);
   const newDoc = textFromString(current);
   if (oldDoc.eq(newDoc)) return contextLines(newDoc, oldDoc, 0, newDoc.length);
-  const chunks = Chunk.build(oldDoc, newDoc, DIFF_CONFIG);
+  const chunks = Chunk.build(oldDoc, newDoc, LINE_DIFF_CONFIG);
   if (chunks.length === 0) return contextLines(newDoc, oldDoc, 0, newDoc.length);
 
   const lines: UnifiedLine[] = [];

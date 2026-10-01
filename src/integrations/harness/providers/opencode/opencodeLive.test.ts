@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { newSession, type RuntimeMode } from "../../../../features/sessions/model/session";
+import {
+  newSession,
+  type RuntimeMode,
+} from "../../../../features/sessions/model/session";
 import { applyHarnessEvent } from "../../core/apply";
 
 let onStdout: ((line: string) => void) | undefined;
@@ -24,7 +27,10 @@ const harnessHttp = vi.fn(
       return { status: 200, body: JSON.stringify({ id: "session_2" }) };
     }
     if (input.method === "GET" && url.pathname === "/session/session_2") {
-      return { status: 200, body: JSON.stringify({ id: "session_2", directory: "/repo" }) };
+      return {
+        status: 200,
+        body: JSON.stringify({ id: "session_2", directory: "/repo" }),
+      };
     }
     if (input.method === "GET" && url.pathname === "/session/session_1") {
       return {
@@ -88,7 +94,11 @@ const waitFor = async (predicate: () => boolean, label: string) => {
 
 function turn(
   events: HarnessEvent[],
-  options: { runtimeMode?: RuntimeMode; onAccepted?: () => void; fork?: NativeForkRequest } = {},
+  options: {
+    runtimeMode?: RuntimeMode;
+    onAccepted?: () => void;
+    fork?: NativeForkRequest;
+  } = {},
 ) {
   return sendOpenCodeTurn({
     sessionId: "opencode-live",
@@ -163,37 +173,102 @@ describe("OpenCode native fork", () => {
   it("checks the exclusive boundary, forks, updates permissions and prompts the returned session", async () => {
     sessionMessages = [{ info: { id: "msg_9", role: "user" }, parts: [] }];
     const events: HarnessEvent[] = [];
-    const done = turn(events, { fork: { sourceProviderSessionId: "session_1", forkPoint: "msg_9" } });
-    await waitFor(() => harnessHttp.mock.calls.some(([input]) => input.url.includes("/prompt_async")), "prompt");
+    const done = turn(events, {
+      fork: { sourceProviderSessionId: "session_1", forkPoint: "msg_9" },
+    });
+    await waitFor(
+      () =>
+        harnessHttp.mock.calls.some(([input]) =>
+          input.url.includes("/prompt_async"),
+        ),
+      "prompt",
+    );
     const calls = harnessHttp.mock.calls.map(([input]) => input);
-    const messages = calls.findIndex(input => input.url.includes("/session/session_1/message"));
-    const fork = calls.findIndex(input => input.url.includes("/session/session_1/fork"));
-    const update = calls.findIndex(input => input.method === "PATCH" && new URL(input.url).pathname === "/session/session_2");
-    const prompt = calls.findIndex(input => input.url.includes("/session/session_2/prompt_async"));
-    expect(messages).toBeGreaterThanOrEqual(0); expect(fork).toBeGreaterThan(messages); expect(update).toBeGreaterThan(fork); expect(prompt).toBeGreaterThan(update);
-    expect(JSON.parse(calls[fork].body ?? "{}")).toEqual({ messageID: "msg_9" });
-    expect(events).toContainEqual({ type: "session.providerBound", providerSessionId: "session_2" });
-    idle("session_2"); await done;
-    await stopOpenCodeSession("opencode-live"); harnessHttp.mockClear();
-    const next = turn(events, { fork: { sourceProviderSessionId: "session_1", forkPoint: "msg_9" } });
-    await waitFor(() => harnessHttp.mock.calls.some(([input]) => input.url.includes("/prompt_async")), "next prompt");
-    expect(harnessHttp.mock.calls.some(([input]) => input.url.includes("/fork"))).toBe(false);
-    idle("session_2"); await next;
+    const messages = calls.findIndex((input) =>
+      input.url.includes("/session/session_1/message"),
+    );
+    const fork = calls.findIndex((input) =>
+      input.url.includes("/session/session_1/fork"),
+    );
+    const update = calls.findIndex(
+      (input) =>
+        input.method === "PATCH" &&
+        new URL(input.url).pathname === "/session/session_2",
+    );
+    const prompt = calls.findIndex((input) =>
+      input.url.includes("/session/session_2/prompt_async"),
+    );
+    expect(messages).toBeGreaterThanOrEqual(0);
+    expect(fork).toBeGreaterThan(messages);
+    expect(update).toBeGreaterThan(fork);
+    expect(prompt).toBeGreaterThan(update);
+    expect(JSON.parse(calls[fork].body ?? "{}")).toEqual({
+      messageID: "msg_9",
+    });
+    expect(events).toContainEqual({
+      type: "session.providerBound",
+      providerSessionId: "session_2",
+    });
+    idle("session_2");
+    await done;
+    await stopOpenCodeSession("opencode-live");
+    harnessHttp.mockClear();
+    const next = turn(events, {
+      fork: { sourceProviderSessionId: "session_1", forkPoint: "msg_9" },
+    });
+    await waitFor(
+      () =>
+        harnessHttp.mock.calls.some(([input]) =>
+          input.url.includes("/prompt_async"),
+        ),
+      "next prompt",
+    );
+    expect(
+      harnessHttp.mock.calls.some(([input]) => input.url.includes("/fork")),
+    ).toBe(false);
+    idle("session_2");
+    await next;
   });
   it("unknown message id rejects before any fork or prompt", async () => {
-    await expect(turn([], { fork: { sourceProviderSessionId: "session_1", forkPoint: "unknown" } })).rejects.toEqual(new NativeForkError("OpenCode couldn't find where this turn ends."));
-    expect(harnessHttp.mock.calls.some(([input]) => input.url.includes("/fork") || input.url.includes("/prompt_async"))).toBe(false);
+    await expect(
+      turn([], {
+        fork: { sourceProviderSessionId: "session_1", forkPoint: "unknown" },
+      }),
+    ).rejects.toEqual(
+      new NativeForkError("OpenCode couldn't find where this turn ends."),
+    );
+    expect(
+      harnessHttp.mock.calls.some(
+        ([input]) =>
+          input.url.includes("/fork") || input.url.includes("/prompt_async"),
+      ),
+    ).toBe(false);
   });
   it("records the first main user id once per turn, ignoring hidden and child messages", async () => {
-    const events: HarnessEvent[] = []; const { done } = await startTurn(events);
-    const message = (sessionID: string, id: string, agent?: string) => onSseEvent?.({ type: "message.updated", properties: { info: { sessionID, id, role: "user", agent } } });
-    message("child", "child-user"); message("session_1", "hidden", "compaction");
-    message("session_1", "main-user"); message("session_1", "other-user");
-    expect(events.filter(event => event.type === "turn.started")).toEqual([{ type: "turn.started", providerTurnId: "main-user" }]);
-    idle(); await done;
+    const events: HarnessEvent[] = [];
+    const { done } = await startTurn(events);
+    const message = (sessionID: string, id: string, agent?: string) =>
+      onSseEvent?.({
+        type: "message.updated",
+        properties: { info: { sessionID, id, role: "user", agent } },
+      });
+    message("child", "child-user");
+    message("session_1", "hidden", "compaction");
+    message("session_1", "main-user");
+    message("session_1", "other-user");
+    expect(events.filter((event) => event.type === "turn.started")).toEqual([
+      { type: "turn.started", providerTurnId: "main-user" },
+    ]);
+    idle();
+    await done;
     harnessHttp.mockClear();
-    const next = await startTurn(events); message("session_1", "next-user"); idle(); await next.done;
-    expect(events.filter(event => event.type === "turn.started")).toHaveLength(2);
+    const next = await startTurn(events);
+    message("session_1", "next-user");
+    idle();
+    await next.done;
+    expect(
+      events.filter((event) => event.type === "turn.started"),
+    ).toHaveLength(2);
   });
 });
 
@@ -209,16 +284,34 @@ it("reports when OpenCode accepts a turn", async () => {
 });
 
 describe("OpenCode subagent trails", () => {
-  const part = (sessionID: string, value: Record<string, unknown>) => onSseEvent?.({
-    type: "message.part.updated", properties: { part: { sessionID, ...value } },
-  });
-  const message = (sessionID: string, id: string, role = "assistant", agent?: string, modelID?: string) => onSseEvent?.({
-    type: "message.updated", properties: { info: { sessionID, id, role, agent, modelID } },
-  });
-  const task = (callID: string, child: string) => part("session_1", {
-    id: `part_${callID}`, type: "tool", tool: "task", callID,
-    state: { status: "running", title: `Task ${callID}`, metadata: { sessionId: child } },
-  });
+  const part = (sessionID: string, value: Record<string, unknown>) =>
+    onSseEvent?.({
+      type: "message.part.updated",
+      properties: { part: { sessionID, ...value } },
+    });
+  const message = (
+    sessionID: string,
+    id: string,
+    role = "assistant",
+    agent?: string,
+    modelID?: string,
+  ) =>
+    onSseEvent?.({
+      type: "message.updated",
+      properties: { info: { sessionID, id, role, agent, modelID } },
+    });
+  const task = (callID: string, child: string) =>
+    part("session_1", {
+      id: `part_${callID}`,
+      type: "tool",
+      tool: "task",
+      callID,
+      state: {
+        status: "running",
+        title: `Task ${callID}`,
+        metadata: { sessionId: child },
+      },
+    });
 
   it("pairs concurrent children by metadata and replays their latest parts after creating the row", async () => {
     const events: HarnessEvent[] = [];
@@ -227,25 +320,47 @@ describe("OpenCode subagent trails", () => {
     sessionCreated("child_a", "session_1");
     message("child_a", "msg_a", "assistant", undefined, "claude-haiku-4-5");
     message("child_b", "msg_b");
-    part("child_b", { id: "prose_b", messageID: "msg_b", type: "text", text: "Second child" });
+    part("child_b", {
+      id: "prose_b",
+      messageID: "msg_b",
+      type: "text",
+      text: "Second child",
+    });
     for (let i = 0; i < 70; i++) {
-      part("child_a", { id: "prose_a", messageID: "msg_a", type: "text", text: `First child ${i}` });
+      part("child_a", {
+        id: "prose_a",
+        messageID: "msg_a",
+        type: "text",
+        text: `First child ${i}`,
+      });
     }
     task("a", "child_a");
     task("b", "child_b");
     idle("child_a");
-    expect(events.some((event) => event.type === "message.completed")).toBe(false);
+    expect(events.some((event) => event.type === "message.completed")).toBe(
+      false,
+    );
     idle();
     await done;
-    const session = events.reduce(applyHarnessEvent, newSession("opencode", "/repo"));
-    expect(session.blocks.find((block) => block.tool?.callId === "a")?.agentRun?.model).toBe("claude-haiku-4-5");
-    expect(session.blocks.find((block) => block.tool?.callId === "a")?.agentRun?.steps).toEqual([
-      expect.objectContaining({ text: "First child 69" }),
-    ]);
-    expect(session.blocks.find((block) => block.tool?.callId === "b")?.agentRun?.steps).toEqual([
-      expect.objectContaining({ text: "Second child" }),
-    ]);
-    expect(events.filter((event) => event.type === "message.delta")).toEqual([]);
+    const session = events.reduce(
+      applyHarnessEvent,
+      newSession("opencode", "/repo"),
+    );
+    expect(
+      session.blocks.find((block) => block.tool?.callId === "a")?.agentRun
+        ?.model,
+    ).toBe("claude-haiku-4-5");
+    expect(
+      session.blocks.find((block) => block.tool?.callId === "a")?.agentRun
+        ?.steps,
+    ).toEqual([expect.objectContaining({ text: "First child 69" })]);
+    expect(
+      session.blocks.find((block) => block.tool?.callId === "b")?.agentRun
+        ?.steps,
+    ).toEqual([expect.objectContaining({ text: "Second child" })]);
+    expect(events.filter((event) => event.type === "message.delta")).toEqual(
+      [],
+    );
   });
 
   it("streams child reasoning and tools, including nested tasks, without user or hidden text", async () => {
@@ -256,30 +371,101 @@ describe("OpenCode subagent trails", () => {
     message("child", "user_msg", "user");
     message("child", "hidden_msg", "assistant", "compaction");
     message("child", "assistant_msg");
-    part("child", { id: "input", type: "text", messageID: "user_msg", text: "Private prompt" });
-    part("child", { id: "hidden", type: "text", messageID: "hidden_msg", text: "Hidden summary" });
-    part("child", { id: "think", type: "reasoning", messageID: "assistant_msg", text: "Trace " });
-    onSseEvent?.({ type: "message.part.delta", properties: { sessionID: "child", partID: "think", field: "text", delta: "imports" } });
-    part("child", { id: "read", type: "tool", tool: "read", callID: "read", messageID: "assistant_msg",
-      state: { status: "running", input: { filePath: "auth.ts" } } });
-    part("child", { id: "read", type: "tool", tool: "read", callID: "read", messageID: "assistant_msg",
-      state: { status: "error", input: { filePath: "auth.ts" }, error: "File missing" } });
+    part("child", {
+      id: "input",
+      type: "text",
+      messageID: "user_msg",
+      text: "Private prompt",
+    });
+    part("child", {
+      id: "hidden",
+      type: "text",
+      messageID: "hidden_msg",
+      text: "Hidden summary",
+    });
+    part("child", {
+      id: "think",
+      type: "reasoning",
+      messageID: "assistant_msg",
+      text: "Trace ",
+    });
+    onSseEvent?.({
+      type: "message.part.delta",
+      properties: {
+        sessionID: "child",
+        partID: "think",
+        field: "text",
+        delta: "imports",
+      },
+    });
+    part("child", {
+      id: "read",
+      type: "tool",
+      tool: "read",
+      callID: "read",
+      messageID: "assistant_msg",
+      state: { status: "running", input: { filePath: "auth.ts" } },
+    });
+    part("child", {
+      id: "read",
+      type: "tool",
+      tool: "read",
+      callID: "read",
+      messageID: "assistant_msg",
+      state: {
+        status: "error",
+        input: { filePath: "auth.ts" },
+        error: "File missing",
+      },
+    });
     sessionCreated("grandchild", "child");
     message("grandchild", "nested_msg");
-    part("grandchild", { id: "nested_text", type: "text", messageID: "nested_msg", text: "Nested answer" });
-    part("child", { id: "nested_call", type: "tool", tool: "task", callID: "nested_call", messageID: "assistant_msg",
-      state: { status: "running", metadata: { sessionId: "grandchild" } } });
+    part("grandchild", {
+      id: "nested_text",
+      type: "text",
+      messageID: "nested_msg",
+      text: "Nested answer",
+    });
+    part("child", {
+      id: "nested_call",
+      type: "tool",
+      tool: "task",
+      callID: "nested_call",
+      messageID: "assistant_msg",
+      state: { status: "running", metadata: { sessionId: "grandchild" } },
+    });
     // Another session on the same server is not part of this run.
     sessionCreated("unrelated");
     message("unrelated", "other_msg");
-    part("unrelated", { id: "other", type: "text", messageID: "other_msg", text: "Other session" });
+    part("unrelated", {
+      id: "other",
+      type: "text",
+      messageID: "other_msg",
+      text: "Other session",
+    });
     idle();
     await done;
-    const session = events.reduce(applyHarnessEvent, newSession("opencode", "/repo"));
-    const steps = session.blocks.find((block) => block.tool?.callId === "a")?.agentRun?.steps;
-    expect(steps?.map((step) => step.text)).toEqual(["Trace imports", "Read auth.ts", "Subagent", "Nested answer"]);
-    expect(steps?.find((step) => step.toolKind === "read")?.status).toBe("failed");
-    expect(session.blocks.filter((block) => block.role === "assistant")).toEqual([]);
+    const session = events.reduce(
+      applyHarnessEvent,
+      newSession("opencode", "/repo"),
+    );
+    const steps = session.blocks.find((block) => block.tool?.callId === "a")
+      ?.agentRun?.steps;
+    expect(steps?.map((step) => step.text)).toEqual([
+      "Trace imports",
+      "Read auth.ts",
+      "Subagent",
+      "Nested answer",
+    ]);
+    expect(steps?.find((step) => step.toolKind === "read")?.status).toBe(
+      "failed",
+    );
+    expect(steps?.find((step) => step.toolKind === "read")?.detail).toBe(
+      "File missing",
+    );
+    expect(
+      session.blocks.filter((block) => block.role === "assistant"),
+    ).toEqual([]);
   });
 });
 
@@ -599,9 +785,9 @@ describe("OpenCode access modes", () => {
         body: JSON.stringify({ reply: "once" }),
       }),
     );
-    expect(
-      events.some((event) => event.type === "approval.requested"),
-    ).toBe(false);
+    expect(events.some((event) => event.type === "approval.requested")).toBe(
+      false,
+    );
 
     idle();
     await second;

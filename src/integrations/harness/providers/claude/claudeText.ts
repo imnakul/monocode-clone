@@ -7,30 +7,65 @@ import {
   watchChild,
   writeChild,
 } from "../../core/child";
+import { HelperToolAttemptError } from "../../core/helperIsolation";
+import { isAgentToolName } from "../../core/preview";
 import {
-  asRecord,
   assistantTextBlocks,
-  buildControlResponse,
   buildClaudeSpawnArgs,
   buildClaudeUserMessage,
-  parseControlRequest,
+  inputJsonDeltaFromEvent,
+  isClaudeUltracodeEffort,
+  normalizeClaudeCliEffort,
   parseJsonLine,
-  stringField,
+  parseControlRequest,
+  asRecord,
+  buildControlResponse,
   toClaudePermissionResult,
+  previewFromTool,
+  resolveClaudeApiModelId,
+  streamDeltaFromEvent,
+  stringField,
+  summarizeToolRequest,
+  toolKindFromName,
+  toolStartFromEvent,
+  toolTitle,
+  tryParseJsonRecord,
   turnStatusFromResult,
 } from "./claudeProtocol";
+import type { TurnIntent } from "../../../../features/sessions/model/session";
+import type { HarnessEvent } from "../../core/types";
 import { mergeStream } from "../../core/streamText";
-import { HelperToolAttemptError } from "../../core/helperIsolation";
 
 const TEXT_CHILD_ID = "monocode-claude-text";
 const INIT_TIMEOUT_MS = 8_000;
 const REQUEST_TIMEOUT_MS = 45_000;
 const TEXT_MODEL = "claude-haiku-4-5";
 
+type TextSettings = {
+  helperOnly: boolean;
+  key: string;
+  launchModel: string;
+  effort?: string;
+  promptEffort?: string;
+  settings: Record<string, boolean>;
+  permissionMode?: "plan";
+  maxTurns?: number;
+};
+
+type InFlightTool = {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+  partialJson: string;
+  title: string;
+};
+
 type LiveText = {
+  helperOnly: boolean;
   cwd: string;
   providerAccountId?: string;
   model: string;
+  settingsKey: string;
   collecting: boolean;
   output: string;
   closed: boolean;
@@ -38,12 +73,50 @@ type LiveText = {
   turnDone: (() => void) | null;
   turnFailed: ((error: Error) => void) | null;
   readyDone: (() => void) | null;
+  onEvent?: (event: HarnessEvent) => void;
+  toolsByIndex: Map<number, InFlightTool>;
+  toolsById: Map<string, InFlightTool>;
 };
 
 let live: LiveText | null = null;
 let turns: Promise<void> = Promise.resolve();
 
-function pickTextModel(): string {
+function textSettings(
+  model: string,
+  modelSettings?: Record<string, string>,
+  intent?: TurnIntent,
+  helperOnly = false,
+): TextSettings {
+  const effort = modelSettings?.effort?.trim() || undefined;
+  const context = modelSettings?.context?.trim() || undefined;
+  const thinking = modelSettings?.thinking === "true";
+  const fast = modelSettings?.fast === "true";
+  const readOnly = intent === "plan";
+  const settings: Record<string, boolean> = {};
+  if (thinking) settings.alwaysThinkingEnabled = true;
+  if (fast) settings.fastMode = true;
+  if (isClaudeUltracodeEffort(effort)) settings.ultracode = true;
+  return {
+    helperOnly,
+    key: JSON.stringify({
+      effort,
+      context,
+      thinking,
+      fast,
+      readOnly,
+      helperOnly,
+    }),
+    launchModel: resolveClaudeApiModelId(model, context),
+    effort: normalizeClaudeCliEffort(effort, model),
+    promptEffort: effort,
+    settings,
+    ...(readOnly ? { permissionMode: "plan" as const, maxTurns: 1 } : {}),
+  };
+}
+
+function pickTextModel(requested?: string): string {
+  const selected = requested?.trim();
+  if (selected) return selected;
   const models = modelsFor("claude");
   const haiku = models.find((model) =>
     /haiku/i.test(`${model.nativeId ?? ""} ${model.name} ${model.id}`),
@@ -57,9 +130,11 @@ export async function stopClaudeTextPrompt(): Promise<void> {
 
 export function warmupClaudeText(cwd: string): Promise<void> {
   if (!cwd || cwd === "~") return Promise.resolve();
-  const run = turns.catch(() => undefined).then(async () => {
-    await ensureLive(cwd);
-  });
+  const run = turns
+    .catch(() => undefined)
+    .then(async () => {
+      await ensureLive(cwd);
+    });
   turns = run.then(
     () => undefined,
     () => undefined,
@@ -71,9 +146,17 @@ export async function runClaudeTextPrompt(input: {
   cwd: string;
   providerAccountId?: string;
   model?: string;
+  modelSettings?: Record<string, string>;
+  intent?: TurnIntent;
+  helperOnly?: boolean;
   prompt: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
+  onEvent?: (event: HarnessEvent) => void;
 }): Promise<string> {
+  if (input.model !== undefined && !input.model.trim()) {
+    throw new Error("The selected Claude model is unavailable.");
+  }
   const run = turns.catch(() => undefined).then(() => promptOnLive(input));
   turns = run.then(
     () => undefined,
@@ -86,18 +169,48 @@ async function promptOnLive(input: {
   cwd: string;
   providerAccountId?: string;
   model?: string;
+  modelSettings?: Record<string, string>;
+  intent?: TurnIntent;
+  helperOnly?: boolean;
   prompt: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
+  onEvent?: (event: HarnessEvent) => void;
 }): Promise<string> {
+  input.signal?.throwIfAborted();
+  const model = pickTextModel(input.model);
+  const settings = textSettings(
+    model,
+    input.modelSettings,
+    input.intent,
+    input.helperOnly,
+  );
   const session = await ensureLive(
     input.cwd,
     input.providerAccountId,
-    input.model,
+    model,
+    settings,
   );
+  input.signal?.throwIfAborted();
   session.output = "";
   session.collecting = true;
+  session.onEvent = input.onEvent;
+  session.toolsByIndex = new Map();
+  session.toolsById = new Map();
   const timeoutMs = input.timeoutMs ?? REQUEST_TIMEOUT_MS;
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let abortHandler: (() => void) | undefined;
+  const abortPromise = input.signal
+    ? new Promise<never>((_, reject) => {
+        const cancel = () => {
+          session.turnFailed?.(new Error("By-the-way request cancelled"));
+          reject(new Error("By-the-way request cancelled"));
+        };
+        abortHandler = cancel;
+        input.signal!.addEventListener("abort", cancel, { once: true });
+        if (input.signal!.aborted) cancel();
+      })
+    : null;
 
   try {
     const turnPromise = new Promise<void>((resolve, reject) => {
@@ -107,7 +220,12 @@ async function promptOnLive(input: {
 
     await writeChild(
       TEXT_CHILD_ID,
-      JSON.stringify(buildClaudeUserMessage({ text: input.prompt })),
+      JSON.stringify(
+        buildClaudeUserMessage({
+          text: input.prompt,
+          effort: settings.promptEffort,
+        }),
+      ),
     );
 
     await Promise.race([
@@ -118,6 +236,7 @@ async function promptOnLive(input: {
           timeoutMs,
         );
       }),
+      ...(abortPromise ? [abortPromise] : []),
     ]);
 
     const output = session.output.trim();
@@ -128,6 +247,9 @@ async function promptOnLive(input: {
     throw error;
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
+    if (abortHandler && input.signal) {
+      input.signal.removeEventListener("abort", abortHandler);
+    }
     session.collecting = false;
     session.turnDone = null;
     session.turnFailed = null;
@@ -139,31 +261,37 @@ async function ensureLive(
   cwd: string,
   providerAccountId?: string,
   requestedModel?: string,
+  requestedSettings?: TextSettings,
 ): Promise<LiveText> {
-  const model = requestedModel ?? pickTextModel();
+  const model = pickTextModel(requestedModel);
+  const settings = requestedSettings ?? textSettings(model);
   if (
     live &&
     !live.closed &&
     live.cwd === cwd &&
     live.providerAccountId === providerAccountId &&
-    live.model === model
+    live.model === model &&
+    live.settingsKey === settings.key
   ) {
     return live;
   }
   await dropLive();
-  return startLive(cwd, providerAccountId, model);
+  return startLive(cwd, providerAccountId, model, settings);
 }
 
 async function startLive(
   cwd: string,
   providerAccountId?: string,
   model = pickTextModel(),
+  settings = textSettings(model),
 ): Promise<LiveText> {
   const { path } = await resolveClaudeBinary();
   const session: LiveText = {
+    helperOnly: settings.helperOnly,
     cwd,
     providerAccountId,
     model,
+    settingsKey: settings.key,
     collecting: false,
     output: "",
     closed: false,
@@ -171,6 +299,8 @@ async function startLive(
     turnDone: null,
     turnFailed: null,
     readyDone: null,
+    toolsByIndex: new Map(),
+    toolsById: new Map(),
   };
 
   watchChild(
@@ -193,11 +323,16 @@ async function startLive(
       path,
       buildClaudeSpawnArgs({
         isolated: true,
-        model,
-        noTools: true,
+        model: settings.launchModel,
+        noTools: settings.helperOnly,
+        effort: settings.effort,
+        settings: settings.settings,
+        permissionMode: settings.permissionMode,
+        maxTurns: settings.maxTurns,
       }),
       cwd,
       { provider: "claude", id: providerAccountId ?? "default" },
+      "claude",
     );
     live = session;
     await waitForReady(session, INIT_TIMEOUT_MS);
@@ -242,31 +377,40 @@ function handleLine(session: LiveText, line: string): void {
   if (type === "control_request" || type === "sdk_control_request") {
     const control = parseControlRequest(rec);
     if (control?.subtype === "can_use_tool") {
-      void denyToolRequest(session, control.requestId, control.input ?? {}, control.toolName ?? "unknown");
+      void denyToolRequest(
+        session,
+        control.requestId,
+        control.input ?? {},
+        control.toolName ?? "unknown",
+      );
     }
     return;
   }
-  if (type === "assistant") {
+  if (session.helperOnly && type === "assistant") {
     const message = asRecord(rec.message);
     const content = Array.isArray(message?.content) ? message.content : [];
-    const attemptedTool = content
-      .map((block) => asRecord(block))
+    const attempted = content
+      .map(asRecord)
       .find((block) => stringField(block, "type") === "tool_use");
-    if (attemptedTool) {
-      failToolAttempt(session, stringField(attemptedTool, "name") ?? "tool_use");
+    if (attempted) {
+      failToolAttempt(session, stringField(attempted, "name") ?? "tool_use");
       return;
     }
+  }
+  if (session.helperOnly && type === "stream_event") {
+    const started = toolStartFromEvent(rec);
+    if (started) {
+      failToolAttempt(session, started.name);
+      return;
+    }
+  }
+  if (type === "assistant") {
     const snapshot = assistantTextBlocks(rec).join("");
     if (snapshot) session.output = mergeStream(session.output, snapshot);
     return;
   }
   if (type === "stream_event") {
-    const event = rec.event;
-    if (!event || typeof event !== "object") return;
-    const delta = (event as { delta?: { type?: string; text?: string } }).delta;
-    if (delta?.type === "text_delta" && typeof delta.text === "string") {
-      session.output = mergeStream(session.output, delta.text);
-    }
+    handleStreamEvent(session, rec);
     return;
   }
   if (type === "result") {
@@ -281,6 +425,69 @@ function handleLine(session: LiveText, line: string): void {
   }
 }
 
+function handleStreamEvent(
+  session: LiveText,
+  rec: Record<string, unknown>,
+): void {
+  const delta = streamDeltaFromEvent(rec);
+  if (delta) {
+    if (delta.kind === "assistant") {
+      session.output = mergeStream(session.output, delta.text);
+      session.onEvent?.({ type: "message.delta", text: delta.text });
+    } else {
+      session.onEvent?.({ type: "reasoning.delta", text: delta.text });
+    }
+    return;
+  }
+
+  const started = toolStartFromEvent(rec);
+  if (started) {
+    const tool: InFlightTool = {
+      id: started.id,
+      name: started.name,
+      input: started.input,
+      partialJson: "",
+      title: toolTitle(started.name, started.input),
+    };
+    if (started.index >= 0) session.toolsByIndex.set(started.index, tool);
+    session.toolsById.set(started.id, tool);
+    session.onEvent?.({
+      type: "tool.started",
+      callId: tool.id,
+      title: tool.title,
+      kind: toolKindFromName(tool.name),
+      ...(isAgentToolName(tool.name) && stringField(tool.input, "model")
+        ? { agentModel: stringField(tool.input, "model") }
+        : {}),
+      status: isAgentToolName(tool.name) ? "in_progress" : "pending",
+      preview: previewFromTool(tool.name, tool.input),
+    });
+    return;
+  }
+
+  const jsonDelta = inputJsonDeltaFromEvent(rec);
+  if (!jsonDelta) return;
+  const tool = session.toolsByIndex.get(jsonDelta.index);
+  if (!tool) return;
+  tool.partialJson += jsonDelta.partial;
+  const parsed = tryParseJsonRecord(tool.partialJson);
+  if (!parsed) return;
+  tool.input = parsed;
+  tool.title = toolTitle(tool.name, parsed);
+  session.onEvent?.({
+    type: "tool.updated",
+    callId: tool.id,
+    title: tool.title,
+    kind: toolKindFromName(tool.name),
+    ...(isAgentToolName(tool.name) && stringField(tool.input, "model")
+      ? { agentModel: stringField(tool.input, "model") }
+      : {}),
+    status: "pending",
+    detail: summarizeToolRequest(tool.name, parsed),
+    preview: previewFromTool(tool.name, parsed),
+  });
+}
+
 async function denyToolRequest(
   session: LiveText,
   requestId: string,
@@ -291,13 +498,16 @@ async function denyToolRequest(
     await writeChild(
       TEXT_CHILD_ID,
       JSON.stringify(
-        buildControlResponse(requestId, toClaudePermissionResult("deny", input)),
+        buildControlResponse(
+          requestId,
+          toClaudePermissionResult("deny", input),
+        ),
       ),
     );
   } catch {
     // A closing child may not accept the deny; the tool attempt still fails closed.
   }
-  failToolAttempt(session, toolKind);
+  if (session.helperOnly) failToolAttempt(session, toolKind);
 }
 
 function failToolAttempt(session: LiveText, toolKind: string): void {

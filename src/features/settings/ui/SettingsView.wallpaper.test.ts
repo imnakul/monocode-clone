@@ -277,7 +277,7 @@ describe("wallpaper settings races", () => {
     ).toBe('url("blob:settings-wallpaper-1")');
   });
 
-  it("offers all five wallpaper effects and keeps chat's effect independent", async () => {
+  it("offers all wallpaper effects and keeps chat's effect independent", async () => {
     localStorage.setItem("monocode.newThreadBackgroundEffect", "ascii");
     document.documentElement.style.setProperty(
       "--chat-background-image",
@@ -290,7 +290,7 @@ describe("wallpaper settings races", () => {
       ),
     );
     expect(options.map((option) => option.textContent)).toEqual([
-      "None", "Dither", "ASCII", "Halftone", "Scanlines",
+      "None", "Dither", "ASCII", "Halftone", "Scanlines", "Haze",
     ]);
     expect(options.every((option) => option.disabled)).toBe(true);
 

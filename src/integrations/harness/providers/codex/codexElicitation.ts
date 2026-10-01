@@ -26,11 +26,7 @@ export type CodexMcpToolGrant = { key: string };
 export type CodexInProgressMcpTool = { server: string; tool: string };
 
 export type McpFormUnsupportedReason =
-  | "url"
-  | "secret"
-  | "field-type"
-  | "too-many"
-  | "shape";
+  "url" | "secret" | "field-type" | "too-many" | "shape";
 
 export type CodexMcpFormResult =
   | {
@@ -91,8 +87,9 @@ const WEAK_SECRET_WORDS = new Set(["token", "pin", "pin code", "code"]);
 export function codexMcpForm(params: unknown): CodexMcpFormResult {
   const rec = asRecord(params);
   const serverName = stringField(rec, "serverName") ?? "MCP server";
-  const unsupported = (reason: McpFormUnsupportedReason): CodexMcpFormResult =>
-    ({ ok: false, reason, serverName });
+  const unsupported = (
+    reason: McpFormUnsupportedReason,
+  ): CodexMcpFormResult => ({ ok: false, reason, serverName });
 
   if (rec?.mode === "url") return unsupported("url");
   if (!["form", "openai/form", "openaiForm"].includes(String(rec?.mode)))
@@ -149,7 +146,9 @@ export function isSecretField(field: McpFormField): boolean {
   const description = normalizeSecretText(field.description ?? "");
   const texts = [key, title, description];
   if (
-    texts.some((text) => STRONG_SECRET_PHRASES.some((phrase) => hasPhrase(text, phrase)))
+    texts.some((text) =>
+      STRONG_SECRET_PHRASES.some((phrase) => hasPhrase(text, phrase)),
+    )
   )
     return true;
   return WEAK_SECRET_WORDS.has(key) || WEAK_SECRET_WORDS.has(title);
@@ -233,9 +232,7 @@ function parseMcpFormField(
       field: {
         ...base,
         kind: "text",
-        ...(isTextFormat(format)
-          ? { format }
-          : {}),
+        ...(isTextFormat(format) ? { format } : {}),
         ...(typeof field.minLength === "number"
           ? { minLength: field.minLength }
           : {}),
@@ -261,7 +258,8 @@ function parseMcpFormField(
         field.minimum > field.maximum) ||
       (typeof field.default === "number" &&
         ((type === "integer" && !Number.isInteger(field.default)) ||
-          (typeof field.minimum === "number" && field.default < field.minimum) ||
+          (typeof field.minimum === "number" &&
+            field.default < field.minimum) ||
           (typeof field.maximum === "number" && field.default > field.maximum)))
     )
       return { ok: false, reason: "shape" };
@@ -277,7 +275,9 @@ function parseMcpFormField(
         ...(typeof field.maximum === "number"
           ? { maximum: field.maximum }
           : {}),
-        ...(typeof field.default === "number" ? { default: field.default } : {}),
+        ...(typeof field.default === "number"
+          ? { default: field.default }
+          : {}),
       },
     };
   }
@@ -292,7 +292,9 @@ function parseMcpFormField(
       field: {
         ...base,
         kind: "boolean",
-        ...(typeof field.default === "boolean" ? { default: field.default } : {}),
+        ...(typeof field.default === "boolean"
+          ? { default: field.default }
+          : {}),
       },
     };
   }
@@ -393,7 +395,10 @@ function parseMultiOptions(value: unknown): McpFormOption[] | null {
   return null;
 }
 
-function isOptionValue(value: unknown, options: McpFormOption[]): value is string {
+function isOptionValue(
+  value: unknown,
+  options: McpFormOption[],
+): value is string {
   return (
     typeof value === "string" &&
     options.some((option) => option.value === value)
@@ -437,7 +442,10 @@ function hasOnlyKeys(
 }
 
 function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry: unknown) => typeof entry === "string");
+  return (
+    Array.isArray(value) &&
+    value.every((entry: unknown) => typeof entry === "string")
+  );
 }
 
 function isUnknownArray(value: unknown): value is unknown[] {

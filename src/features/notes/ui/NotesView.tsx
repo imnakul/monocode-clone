@@ -1,4 +1,11 @@
-import { LoaderCircle, Plus, Search, File, Trash2, X } from "../../../shared/ui/icons";
+import {
+  LoaderCircle,
+  Plus,
+  Search,
+  File,
+  Trash2,
+  X,
+} from "../../../shared/ui/icons";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   Fragment,
@@ -25,6 +32,7 @@ import {
   deleteNote,
   loadNotes,
   MAX_NOTE_TAGS,
+  NOTES_CHANGED_EVENT,
   normalizeNoteTags,
   notePreview,
   noteProjectChoices,
@@ -43,7 +51,10 @@ import {
 } from "../noteImages";
 import { projectKey, projectName } from "../../../shared/lib/paths";
 import { IS_MAC } from "../../../platform/tauri/platform";
-import { looksLikeProject, type RecentProject } from "../../projects/model/recents";
+import {
+  looksLikeProject,
+  type RecentProject,
+} from "../../projects/model/recents";
 import {
   loadTabGroupColors,
   loadTabGroupCustomColors,
@@ -53,9 +64,15 @@ import {
   resolveTabGroupLogo,
   resolveTabGroupMascot,
 } from "../../workspace/model/tabGroups";
-import { AgentMarkdown, MarkdownSourceHighlight } from "../../sessions/ui/AgentMarkdown";
+import {
+  AgentMarkdown,
+  MarkdownSourceHighlight,
+} from "../../sessions/ui/AgentMarkdown";
 import { ChevronDown, StickyNote } from "../../../shared/ui/icons";
-import { ExplorerMenu, type ExplorerMenuItem } from "../../files/ui/ExplorerMenu";
+import {
+  ExplorerMenu,
+  type ExplorerMenuItem,
+} from "../../files/ui/ExplorerMenu";
 import { loadRecents } from "../../projects/model/recents";
 import { SharedHoverHighlight } from "../../sessions/ui/SharedHoverHighlight";
 import { type NoteProjectChoice } from "../notes";
@@ -123,9 +140,14 @@ export function NotesView({
   const [loading, setLoading] = useState(() => peekNotes() == null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(
-    () => rememberedNoteId ?? peekNotes()?.[0]?.id ?? null,
-  );
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    const cached = peekNotes();
+    return (
+      cached?.find((note) => note.id === rememberedNoteId)?.id ??
+      cached?.[0]?.id ??
+      rememberedNoteId
+    );
+  });
   const [creating, setCreating] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef(menu);
@@ -157,6 +179,8 @@ export function NotesView({
 
   useEffect(() => {
     void refresh();
+    window.addEventListener(NOTES_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(NOTES_CHANGED_EVENT, refresh);
   }, [refresh]);
 
   useEffect(() => {
@@ -223,9 +247,7 @@ export function NotesView({
       const note = await createNote({
         title: "Untitled",
         body: "",
-        ...(sourceCwd && looksLikeProject(sourceCwd)
-          ? { sourceCwd }
-          : {}),
+        ...(sourceCwd && looksLikeProject(sourceCwd) ? { sourceCwd } : {}),
       });
       setNotes(await loadNotes(true));
       setSelectedId(note.id);
@@ -363,7 +385,10 @@ export function NotesView({
               : "No notes yet. Save a turn from the transcript, or create one here."}
           </p>
         ) : (
-          <ul data-shared-hover-continuity className="flex flex-col gap-0.5 p-1.5">
+          <ul
+            data-shared-hover-continuity
+            className="flex flex-col gap-0.5 p-1.5"
+          >
             {visible.map((note) => (
               <li key={note.id}>
                 <NoteCard
@@ -1050,7 +1075,7 @@ function NoteEditor({
               }}
             />
           ) : body.trim() ? (
-            <AgentMarkdown text={body} cwd={sourceCwd} />
+            <AgentMarkdown text={body} cwd={sourceCwd} hardBreaks />
           ) : (
             <p className="text-[13px] text-content/45">No description</p>
           )}
