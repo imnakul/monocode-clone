@@ -1,7 +1,7 @@
 {
   "name": "monocode-desktop",
   "private": true,
-  "version": "0.1.55-local3-rail-wallpaper",
+  "version": "0.1.55-local4-provider-batch",
   "type": "module",
   "scripts": {
     "dev": "vite",
