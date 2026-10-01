@@ -42,7 +42,7 @@ describe("native branch planner", () => {
     ["not-started", { providerSessionId: undefined }],
     ["no-fork-point", { busy: true }],
   ] satisfies [string, Partial<Session>][])("copies with %s", (reason, patch) => {
-    expect(plan({ ...source(), ...patch })).toMatchObject({ kind: "copied", origin: { reason, mode: "summary", summaryDelivery: "composer", status: "done" } });
+    expect(plan({ ...source(), ...patch })).toMatchObject({ kind: "copied", origin: { reason, harness: source().harness, mode: "summary", summaryDelivery: "composer", status: "done" } });
   });
   it("records the account and working copy on a whole-conversation fork", () => {
     expect(plan({ ...source(), providerAccountId: "account", worktreeCwd: "/worktree" })).toMatchObject({
