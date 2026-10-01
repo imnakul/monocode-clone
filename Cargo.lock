@@ -2214,7 +2214,7 @@ dependencies = [
 
 [[package]]
 name = "monocode"
-version = "0.1.55-local4-provider-batch"
+version = "0.1.55-local5-provider-fixes"
 dependencies = [
  "base64 0.22.1",
  "block2",
