@@ -544,6 +544,76 @@ describe("claude model switching", () => {
 });
 
 describe("Claude session approvals", () => {
+  it("does not save a Claude session rule when the session stops during the response write", async () => {
+    const first = await startTurn("s1", {
+      providerAccountId: "account-work",
+    });
+    const toolName = "mcp__plugin_socraticode_socraticode__codebase_search";
+    emit({
+      type: "control_request",
+      request_id: "mcp_permission",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: toolName,
+        input: { query: "find the session approval flow" },
+        permission_suggestions: [],
+      },
+    });
+    await waitFor(
+      () => first.events.some((event) => event.type === "approval.requested"),
+      "MCP approval",
+    );
+    const approval = first.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+
+    let releaseWrite: (() => void) | undefined;
+    const responseWrite = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    writeChild.mockImplementationOnce(async (_id, line) => {
+      await responseWrite;
+      sent.push(line);
+    });
+    respondClaudeApproval("s1", approval.requestId, "allow", "session");
+    await waitFor(
+      () =>
+        writeChild.mock.calls.some((call) => {
+          const message = JSON.parse(call[1]) as Record<string, unknown>;
+          const response = message.response as
+            | Record<string, unknown>
+            | undefined;
+          return response?.request_id === "mcp_permission";
+        }),
+      "pending Claude session approval write",
+    );
+
+    await stopClaudeSession("s1");
+    releaseWrite?.();
+    await waitFor(
+      () =>
+        parse().some((message) => {
+          const response = message.response as
+            | Record<string, unknown>
+            | undefined;
+          return response?.request_id === "mcp_permission";
+        }),
+      "late Claude approval response",
+    );
+    await first.turn;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    sent.length = 0;
+    const resumed = await startTurn("s1", {
+      providerAccountId: "account-work",
+    });
+    expect(spawned[1]).not.toContain("--allowedTools");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await resumed.turn;
+  });
+
   it("responds with a session MCP rule and replays it only in the same cwd", async () => {
     const { events, turn } = await startTurn("s1", {
       providerAccountId: "account-work",

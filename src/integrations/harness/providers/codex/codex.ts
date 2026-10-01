@@ -1174,6 +1174,7 @@ async function handleServerRequest(
       }
       const grantKey = confirmation.mcpToolGrant?.key;
       if (
+        !live.planning &&
         grantKey &&
         mcpGrantsByThread.get(live.sessionId)?.has(grantKey)
       ) {
@@ -1224,7 +1225,11 @@ async function handleServerRequest(
         content: decision === "allow" ? confirmation.content : null,
         _meta: sessionGrant ? { persist: "session" } : null,
       });
-      if (sessionGrant) {
+      if (
+        sessionGrant &&
+        liveByThread.get(live.sessionId) === live &&
+        !live.cancelled
+      ) {
         const grants = mcpGrantsByThread.get(live.sessionId) ?? new Set<string>();
         grants.add(grantKey);
         mcpGrantsByThread.set(live.sessionId, grants);

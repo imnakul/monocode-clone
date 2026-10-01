@@ -177,6 +177,25 @@ async function startTurn(
   return { events, turn };
 }
 
+function sendFollowupTurn(
+  sessionId: string,
+  options: { intent?: TurnIntent; text?: string } = {},
+) {
+  const events: HarnessEvent[] = [];
+  const turn = sendCodexTurn({
+    sessionId,
+    cwd: "/repo",
+    model: "codex:gpt-5.4",
+    modelSettings: {},
+    runtimeMode: "supervised",
+    intent: options.intent,
+    text: options.text ?? "continue the conversation",
+    attachments: [],
+    onEvent: (event) => events.push(event),
+  });
+  return { events, turn };
+}
+
 describe("codex live turn sequence", () => {
   it("forks without starting a fresh thread, then resumes the fork on the next send", async () => {
     const { events, turn } = await startTurn("codex-live", { fork: { sourceProviderSessionId: "source", forkPoint: "turn-2" } });
@@ -1255,6 +1274,112 @@ describe("codex live turn sequence", () => {
     await waitFor(() => parse().some((message) => message.id === 91), "reply");
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await turn;
+  });
+
+  it("does not reuse a stored MCP grant during a Plan turn", async () => {
+    const first = await startTurn("codex-live");
+    sendMcpToolRequest(91, "codebase_status");
+    await waitFor(
+      () => first.events.some((event) => event.type === "approval.requested"),
+      "MCP approval",
+    );
+    const initialApproval = first.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (initialApproval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+    respondCodexApproval(
+      "codex-live",
+      initialApproval.requestId,
+      "allow",
+      "session",
+    );
+    await waitFor(() => parse().some((message) => message.id === 91), "grant reply");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await first.turn;
+
+    sent.length = 0;
+    const plan = sendFollowupTurn("codex-live", { intent: "plan" });
+    await waitFor(
+      () => parse().some((message) => message.method === "turn/start"),
+      "Plan turn start",
+    );
+    const turnStart = parse().find((message) => message.method === "turn/start");
+    if (typeof turnStart?.id !== "number")
+      throw new Error("missing Plan turn request id");
+    reply(turnStart.id, { turn: { id: "turn_2", status: "inProgress" } });
+    notify("turn/started", { turn: { id: "turn_2", status: "inProgress" } });
+
+    sendMcpToolRequest(92, "codebase_status");
+    await waitFor(
+      () => plan.events.some((event) => event.type === "approval.requested"),
+      "Plan MCP approval",
+    );
+    const approval = plan.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing Plan MCP approval");
+    expect(parse().some((message) => message.id === 92)).toBe(false);
+    respondCodexApproval("codex-live", approval.requestId, "deny");
+    await waitFor(() => parse().some((message) => message.id === 92), "Plan reply");
+    notify("turn/completed", { turn: { id: "turn_2", status: "completed" } });
+    await plan.turn;
+  });
+
+  it("does not save a Codex session grant when the session stops during the response write", async () => {
+    const first = await startTurn("codex-live");
+    sendMcpToolRequest(91, "codebase_status");
+    await waitFor(
+      () => first.events.some((event) => event.type === "approval.requested"),
+      "MCP approval",
+    );
+    const approval = first.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+
+    let releaseWrite: (() => void) | undefined;
+    const responseWrite = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    writeChild.mockImplementationOnce(async (_id, line) => {
+      await responseWrite;
+      sent.push(line);
+    });
+    respondCodexApproval("codex-live", approval.requestId, "allow", "session");
+    await waitFor(
+      () =>
+        writeChild.mock.calls.some((call) => {
+          const message = JSON.parse(call[1]) as Record<string, unknown>;
+          return message.id === 91;
+        }),
+      "pending session approval write",
+    );
+
+    await stopCodexSession("codex-live");
+    releaseWrite?.();
+    await waitFor(() => parse().some((message) => message.id === 91), "late reply");
+    await first.turn;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    sent.length = 0;
+    const resumed = await startTurn("codex-live", { resume: true });
+    sendMcpToolRequest(92, "codebase_status");
+    await waitFor(
+      () => resumed.events.some((event) => event.type === "approval.requested"),
+      "new MCP approval after stop",
+    );
+    const nextApproval = resumed.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (nextApproval?.type !== "approval.requested")
+      throw new Error("missing MCP approval after stop");
+    respondCodexApproval("codex-live", nextApproval.requestId, "deny");
+    await waitFor(() => parse().some((message) => message.id === 92), "new reply");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await resumed.turn;
   });
 
   it("logs only the sanitized Codex MCP elicitation diagnostic", async () => {

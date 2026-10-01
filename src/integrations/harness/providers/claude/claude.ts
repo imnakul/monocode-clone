@@ -1877,6 +1877,7 @@ function addClaudeSessionRules(
   live: Live,
   rules: ClaudeSessionRule[],
 ): void {
+  if (liveByThread.get(sessionId) !== live || live.cancelled) return;
   const entry = sessionGrantsByThread.get(sessionId) ?? {
     cwd: live.cwd,
     providerAccountId: live.providerAccountId,
