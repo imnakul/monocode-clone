@@ -399,6 +399,19 @@ describe("Composer question focus", () => {
     const createObjectURL = vi.fn(() => "blob:owned");
     const revokeObjectURL = vi.fn();
     vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+    vi.stubGlobal(
+      "FileReader",
+      class {
+        result: string | null = null;
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+
+        readAsDataURL(file: Blob): void {
+          this.result = `data:${file.type};base64,bmV3`;
+          this.onload?.();
+        }
+      },
+    );
     let recallLastTurn: (() => void) | undefined;
     let rejectResend: ComposerTurnOptions["onResendRejected"];
     const borrowed: Attachment = {
@@ -465,8 +478,10 @@ describe("Composer question focus", () => {
     });
     await act(async () => {
       container.querySelector("textarea")!.dispatchEvent(paste);
-      await new Promise((resolve) => setTimeout(resolve, 20));
     });
+    expect(
+      container.querySelector('[aria-label="Remove owned.png"]'),
+    ).not.toBeNull();
 
     await act(async () =>
       container.querySelector<HTMLButtonElement>('[aria-label="Send"]')!.click(),
