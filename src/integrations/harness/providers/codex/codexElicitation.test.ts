@@ -6,6 +6,7 @@ import {
   isSecretField,
   setCodexMcpApprovalKindKeysForTest,
 } from "./codexElicitation";
+import type { CodexInProgressMcpTool } from "./codexElicitation";
 import type { McpFormField } from "../../../../features/sessions/model/mcpForm";
 
 const confirmation = {
@@ -84,6 +85,99 @@ describe("Codex MCP confirmations", () => {
       content: {},
       mcpToolGrant: { key: "socraticode\u0000codebase_search" },
     });
+  });
+
+  it("resolves a missing tool name from one quoted in-progress item", () => {
+    const confirmation = codexMcpConfirmation(
+      {
+        ...sessionConfirmation,
+        message:
+          'Allow the socraticode MCP server to run tool "codebase_status"?',
+        _meta: { ...sessionConfirmation._meta, tool_name: undefined },
+      },
+      [
+        { server: "socraticode", tool: "codebase_status" },
+        { server: "socraticode", tool: "codebase_status" },
+        { server: "socraticode", tool: "codebase_search" },
+        { server: "other", tool: "codebase_status" },
+      ],
+    );
+
+    expect(confirmation?.mcpToolGrant).toEqual({
+      key: "socraticode\u0000codebase_status",
+    });
+  });
+
+  const missingToolCases: Array<{
+    title: string;
+    message: string;
+    tools: CodexInProgressMcpTool[];
+  }> = [
+    {
+      title: "no in-progress item",
+      message:
+        'Allow the socraticode MCP server to run tool "codebase_status"?',
+      tools: [],
+    },
+    {
+      title: "an item from another server",
+      message:
+        'Allow the socraticode MCP server to run tool "codebase_status"?',
+      tools: [{ server: "other", tool: "codebase_status" }],
+    },
+    {
+      title: "a message that does not quote the tool name",
+      message: "Allow the socraticode MCP server to run tool codebase_status?",
+      tools: [{ server: "socraticode", tool: "codebase_status" }],
+    },
+    {
+      title: "an in-progress tool name longer than 200 characters",
+      message: `Allow "${"x".repeat(201)}" for socraticode?`,
+      tools: [{ server: "socraticode", tool: "x".repeat(201) }],
+    },
+    {
+      title: "multiple quoted tools",
+      message:
+        'Allow "codebase_status" or "codebase_search" for socraticode?',
+      tools: [
+        { server: "socraticode", tool: "codebase_status" },
+        { server: "socraticode", tool: "codebase_search" },
+      ],
+    },
+  ];
+
+  it.each(missingToolCases)("fails closed for $title", (testCase) => {
+    const confirmation = codexMcpConfirmation(
+      {
+        ...sessionConfirmation,
+        message: testCase.message,
+        _meta: { ...sessionConfirmation._meta, tool_name: undefined },
+      },
+      testCase.tools,
+    );
+
+    expect(confirmation?.mcpToolGrant).toBeUndefined();
+  });
+
+  it("uses metadata over in-progress candidates and refuses invalid metadata", () => {
+    const candidates = [{ server: "socraticode", tool: "codebase_status" }];
+    expect(
+      codexMcpConfirmation(sessionConfirmation, candidates)?.mcpToolGrant,
+    ).toEqual({ key: "socraticode\u0000codebase_search" });
+
+    for (const toolName of ["", "x".repeat(201), null]) {
+      expect(
+        codexMcpConfirmation(
+          {
+            ...sessionConfirmation,
+            message:
+              'Allow the socraticode MCP server to run tool "codebase_status"?',
+            _meta: { ...sessionConfirmation._meta, tool_name: toolName },
+          },
+          candidates,
+        )?.mcpToolGrant,
+      ).toBeUndefined();
+    }
   });
 
   it.each(invalidShapes)("fails closed when $title", (shape) => {

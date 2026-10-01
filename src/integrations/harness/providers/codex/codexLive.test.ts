@@ -46,6 +46,58 @@ function reply(id: number, result: unknown) {
 function notify(method: string, params: unknown) {
   onLine!(JSON.stringify({ method, params }));
 }
+
+function sendMcpToolRequest(
+  id: number,
+  toolName: string,
+  options: {
+    startItem?: boolean;
+    completeItem?: boolean;
+    itemThreadId?: string;
+    server?: string;
+  } = {},
+) {
+  const server = options.server ?? "socraticode";
+  const item = {
+    id: `call_${id}`,
+    type: "mcpToolCall",
+    server,
+    tool: toolName,
+    status: "inProgress",
+  };
+  if (options.startItem ?? true) {
+    notify("item/started", {
+      threadId: options.itemThreadId ?? "thr_1",
+      item,
+    });
+  }
+  if (options.completeItem) {
+    notify("item/completed", {
+      threadId: options.itemThreadId ?? "thr_1",
+      item,
+    });
+  }
+  onLine!(
+    JSON.stringify({
+      id,
+      method: "mcpServer/elicitation/request",
+      params: {
+        serverName: server,
+        mode: "form",
+        message: `Allow the ${server} MCP server to run tool "${toolName}"?`,
+        requestedSchema: { type: "object", properties: {} },
+        _meta: {
+          codex_approval_kind: "mcp_tool_call",
+          persist: ["session", "always"],
+          tool_description: "tool description",
+          tool_params: {},
+          tool_params_display: [],
+        },
+      },
+    }),
+  );
+}
+
 function withoutTurnIdentity(events: HarnessEvent[]) {
   return events.filter((event) => event.type !== "turn.started");
 }
@@ -1034,25 +1086,7 @@ describe("codex live turn sequence", () => {
 
   it("replays an MCP session grant after a Codex restart and prompts for other tools", async () => {
     const { events, turn } = await startTurn("codex-live");
-    const sendMcpApproval = (id: number, toolName: string) =>
-      onLine!(
-        JSON.stringify({
-          id,
-          method: "mcpServer/elicitation/request",
-          params: {
-            serverName: "socraticode",
-            mode: "form",
-            message: `Allow ${toolName}?`,
-            requestedSchema: { type: "object", properties: {} },
-            _meta: {
-              codex_approval_kind: "mcp_tool_call",
-              persist: ["session", "always"],
-              tool_name: toolName,
-            },
-          },
-        }),
-      );
-    sendMcpApproval(91, "codebase_search");
+    sendMcpToolRequest(91, "codebase_status");
     await waitFor(
       () => events.some((event) => event.type === "approval.requested"),
       "MCP approval UI",
@@ -1070,13 +1104,23 @@ describe("codex live turn sequence", () => {
       content: {},
       _meta: { persist: "session" },
     });
+    notify("item/completed", {
+      threadId: "thr_1",
+      item: {
+        id: "call_91",
+        type: "mcpToolCall",
+        server: "socraticode",
+        tool: "codebase_status",
+        status: "completed",
+      },
+    });
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await turn;
 
     await stopCodexSession("codex-live");
     sent.length = 0;
     const resumed = await startTurn("codex-live", { resume: true });
-    sendMcpApproval(92, "codebase_search");
+    sendMcpToolRequest(92, "codebase_status");
     await waitFor(() => parse().some((message) => message.id === 92), "replayed reply");
     expect(parse().find((message) => message.id === 92)?.result).toEqual({
       action: "accept",
@@ -1087,7 +1131,7 @@ describe("codex live turn sequence", () => {
       false,
     );
 
-    sendMcpApproval(93, "different_tool");
+    sendMcpToolRequest(93, "codebase_search");
     await waitFor(
       () => resumed.events.some((event) => event.type === "approval.requested"),
       "different MCP tool approval UI",
@@ -1106,6 +1150,111 @@ describe("codex live turn sequence", () => {
     });
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await resumed.turn;
+  });
+
+  it("offers no session scope when the in-progress item is absent", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    sendMcpToolRequest(91, "codebase_status", { startItem: false });
+    await waitFor(
+      () => events.some((event) => event.type === "approval.requested"),
+      "MCP approval without an item",
+    );
+    const approval = events.find((event) => event.type === "approval.requested");
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+    expect(approval.sessionScope).toBeUndefined();
+    respondCodexApproval("codex-live", approval.requestId, "deny");
+    await waitFor(() => parse().some((message) => message.id === 91), "reply");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("offers no session scope after the matching item completes", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    sendMcpToolRequest(91, "codebase_status", { completeItem: true });
+    await waitFor(
+      () => events.some((event) => event.type === "approval.requested"),
+      "MCP approval after item completion",
+    );
+    const approval = events.find((event) => event.type === "approval.requested");
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+    expect(approval.sessionScope).toBeUndefined();
+    respondCodexApproval("codex-live", approval.requestId, "deny");
+    await waitFor(() => parse().some((message) => message.id === 91), "reply");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("does not carry an in-progress MCP item into the next turn", async () => {
+    const first = await startTurn("codex-live");
+    notify("item/started", {
+      threadId: "thr_1",
+      item: {
+        id: "call_91",
+        type: "mcpToolCall",
+        server: "socraticode",
+        tool: "codebase_status",
+        status: "inProgress",
+      },
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await first.turn;
+
+    sent.length = 0;
+    const events: HarnessEvent[] = [];
+    const nextTurn = sendCodexTurn({
+      sessionId: "codex-live",
+      cwd: "/repo",
+      model: "codex:gpt-5.4",
+      modelSettings: {},
+      runtimeMode: "supervised",
+      text: "continue",
+      attachments: [],
+      onEvent: (event) => events.push(event),
+    });
+    await waitFor(
+      () => parse().some((message) => message.method === "turn/start"),
+      "second turn start",
+    );
+    const turnStart = parse().find((message) => message.method === "turn/start");
+    if (typeof turnStart?.id !== "number")
+      throw new Error("missing second turn request id");
+    reply(turnStart.id, { turn: { id: "turn_2", status: "inProgress" } });
+    notify("turn/started", { turn: { id: "turn_2", status: "inProgress" } });
+
+    sendMcpToolRequest(92, "codebase_status", { startItem: false });
+    await waitFor(
+      () => events.some((event) => event.type === "approval.requested"),
+      "MCP approval in the next turn",
+    );
+    const approval = events.find((event) => event.type === "approval.requested");
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+    expect(approval.sessionScope).toBeUndefined();
+    respondCodexApproval("codex-live", approval.requestId, "deny");
+    await waitFor(() => parse().some((message) => message.id === 92), "reply");
+    notify("turn/completed", { turn: { id: "turn_2", status: "completed" } });
+    await nextTurn;
+  });
+
+  it("does not use child-thread items to scope a parent MCP approval", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    sendMcpToolRequest(91, "codebase_status", {
+      itemThreadId: "child-thread",
+    });
+    await waitFor(
+      () => events.some((event) => event.type === "approval.requested"),
+      "parent MCP approval",
+    );
+    const approval = events.find((event) => event.type === "approval.requested");
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+    expect(approval.sessionScope).toBeUndefined();
+    respondCodexApproval("codex-live", approval.requestId, "deny");
+    await waitFor(() => parse().some((message) => message.id === 91), "reply");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
   });
 
   it("logs only the sanitized Codex MCP elicitation diagnostic", async () => {

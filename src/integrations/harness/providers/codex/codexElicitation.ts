@@ -23,6 +23,7 @@ export function codexMcpApprovalKindKeys(): readonly string[] {
 }
 
 export type CodexMcpToolGrant = { key: string };
+export type CodexInProgressMcpTool = { server: string; tool: string };
 
 export type McpFormUnsupportedReason =
   | "url"
@@ -491,7 +492,10 @@ export function isCodexComputerUseAccessConfirmation(params: unknown): boolean {
 }
 
 /** Only confirmations can be represented faithfully by the Allow/Deny UI. */
-export function codexMcpConfirmation(params: unknown): {
+export function codexMcpConfirmation(
+  params: unknown,
+  inProgressTools: readonly CodexInProgressMcpTool[] = [],
+): {
   title: string;
   content: Record<string, boolean>;
   mcpToolGrant?: CodexMcpToolGrant;
@@ -554,7 +558,7 @@ export function codexMcpConfirmation(params: unknown): {
   }
 
   const message = stringField(rec, "message") ?? "Approve request";
-  const mcpToolGrant = codexMcpToolGrant(rec);
+  const mcpToolGrant = codexMcpToolGrant(rec, inProgressTools);
   return {
     title: `${stringField(rec, "serverName") ?? "MCP"}: ${message}${detail ? ` — ${detail}` : ""}`,
     content,
@@ -564,6 +568,7 @@ export function codexMcpConfirmation(params: unknown): {
 
 function codexMcpToolGrant(
   params: Record<string, unknown>,
+  inProgressTools: readonly CodexInProgressMcpTool[],
 ): CodexMcpToolGrant | undefined {
   const schema = asRecord(params.requestedSchema);
   const properties = asRecord(schema?.properties);
@@ -598,16 +603,42 @@ function codexMcpToolGrant(
       persist.every((entry): entry is string => typeof entry === "string") &&
       persist.includes("session"));
   const serverName = params.serverName;
-  const toolName = meta.tool_name;
   if (
     !hasSessionPersist ||
     typeof serverName !== "string" ||
-    serverName.trim().length === 0 ||
-    typeof toolName !== "string" ||
-    toolName.trim().length === 0 ||
-    toolName.length > 200
+    serverName.trim().length === 0
   ) {
     return undefined;
+  }
+
+  const metadataToolName = meta.tool_name;
+  let toolName: string;
+  if (metadataToolName !== undefined) {
+    if (
+      typeof metadataToolName !== "string" ||
+      metadataToolName.trim().length === 0 ||
+      metadataToolName.length > 200
+    ) {
+      return undefined;
+    }
+    toolName = metadataToolName;
+  } else {
+    const message = params.message;
+    if (typeof message !== "string") return undefined;
+    const matchingTools = new Set(
+      inProgressTools
+        .filter(
+          (candidate) =>
+            candidate.server === serverName &&
+            candidate.tool.length <= 200 &&
+            message.includes('"' + candidate.tool + '"'),
+        )
+        .map((candidate) => candidate.tool),
+    );
+    if (matchingTools.size !== 1) return undefined;
+    const matchingTool = matchingTools.values().next().value;
+    if (typeof matchingTool !== "string") return undefined;
+    toolName = matchingTool;
   }
 
   return { key: `${serverName}\u0000${toolName}` };

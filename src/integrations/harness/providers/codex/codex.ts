@@ -46,6 +46,7 @@ import {
   codexMcpConfirmation,
   codexMcpForm,
   isCodexComputerUseAccessConfirmation,
+  type CodexInProgressMcpTool,
   type McpFormUnsupportedReason,
 } from "./codexElicitation";
 import { joinStreamText, snapshotRemainder } from "../../core/streamText";
@@ -110,6 +111,8 @@ type Live = {
   forms: Map<number, PendingForm>;
   visibleFormId: number | null;
   nextApprovalUiId: number;
+  /** In-progress MCP calls used to resolve elicitation tool names. */
+  inProgressMcpTools: Map<string, CodexInProgressMcpTool>;
   cancelled: boolean;
   muteUpdates: boolean;
   activeTurnId: string | null;
@@ -640,6 +643,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       forms: new Map(),
       visibleFormId: null,
       nextApprovalUiId: 1,
+      inProgressMcpTools: new Map(),
       cancelled: false,
       muteUpdates: didResume,
       activeTurnId: null,
@@ -696,6 +700,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
 
   live.emittedAssistant = "";
   live.emittedReasoning = "";
+  live.inProgressMcpTools.clear();
   live.threadBaseline = live.lastThreadTotal;
   live.turnUsage = undefined;
 
@@ -791,6 +796,19 @@ function handleNotification(live: Live, method: string, params: unknown): void {
   if (threadId && threadId !== live.threadId) {
     handleSubagentNotification(live, threadId, method, params);
     return;
+  }
+  if (method === "item/started" || method === "item/completed") {
+    const item = asRecord(rec?.item);
+    const itemId = stringField(item, "id");
+    if (stringField(item, "type") === "mcpToolCall" && itemId) {
+      if (method === "item/started") {
+        const server = stringField(item, "server");
+        const tool = stringField(item, "tool");
+        if (server && tool) live.inProgressMcpTools.set(itemId, { server, tool });
+      } else {
+        live.inProgressMcpTools.delete(itemId);
+      }
+    }
   }
   // A Codex turn is a sequence of items. Completing an agentMessage does not
   // mean the turn is over — more tools and messages can still arrive. Only
@@ -1043,6 +1061,7 @@ function finishActiveTurn(live: Live, extraEvents: HarnessEvent[] = []): void {
   live.activeTurnId = null;
   live.emittedAssistant = "";
   live.emittedReasoning = "";
+  live.inProgressMcpTools.clear();
   for (const event of extraEvents) {
     live.onEvent(event);
   }
@@ -1135,7 +1154,10 @@ async function handleServerRequest(
       });
       return;
     }
-    const confirmation = codexMcpConfirmation(params);
+    const confirmation = codexMcpConfirmation(
+      params,
+      threadId === live.threadId ? [...live.inProgressMcpTools.values()] : [],
+    );
     if (confirmation) {
       logCodexElicitation(params);
       if (
