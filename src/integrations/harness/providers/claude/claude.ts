@@ -144,6 +144,7 @@ type LiveAgentTask = {
 type Live = {
   lastAssistantUuid?: string;
   forkPending: boolean;
+  forkSourceSessionId?: string;
   exited: boolean;
   sessionId: string;
   cwd: string;
@@ -518,6 +519,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
 
   const live: Live = {
     forkPending: !!fork,
+    forkSourceSessionId: fork?.sourceProviderSessionId,
     exited: false,
     sessionId: input.sessionId,
     cwd: input.cwd,
@@ -732,17 +734,23 @@ function handleLine(sessionId: string, live: Live, line: string): void {
   if (live.muteUpdates) return;
 
   const sessionIdFromLine = sessionIdFromMessage(rec);
-  if (!live.forkPending && sessionIdFromLine && sessionIdFromLine !== live.claudeSessionId) {
+  if (
+    sessionIdFromLine &&
+    sessionIdFromLine !== live.claudeSessionId &&
+    (!live.forkPending || sessionIdFromLine !== live.forkSourceSessionId)
+  ) {
     live.claudeSessionId = sessionIdFromLine;
     resumeByThread.set(sessionId, {
       sessionId: sessionIdFromLine,
       cwd: live.cwd,
       providerAccountId: live.providerAccountId,
     });
-    live.onEvent({
-      type: "session.providerBound",
-      providerSessionId: sessionIdFromLine,
-    });
+    if (!live.forkPending) {
+      live.onEvent({
+        type: "session.providerBound",
+        providerSessionId: sessionIdFromLine,
+      });
+    }
   }
 
   if (

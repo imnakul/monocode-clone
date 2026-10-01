@@ -63,7 +63,8 @@ export function planBranch(input: { source: Session; turn: Block[]; newSessionId
     }
   }
   const origin: BranchOrigin = {
-    sessionId: newSessionId, sourceSessionId: source.id, sourceTitle: source.title, harness: source.harness,
+    sessionId: newSessionId, sourceSessionId: source.id, sourceTitle: source.title,
+    harness: reason === "different-provider" ? turnHarness : source.harness,
     mode: reason ? "summary" : "native", status: reason ? "done" : "pending",
     ...(reason ? { reason, summaryDelivery: "composer" } : {
       fork: { sourceProviderSessionId: source.providerSessionId ?? "", forkPoint,

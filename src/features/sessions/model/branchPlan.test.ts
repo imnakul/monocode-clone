@@ -27,7 +27,13 @@ describe("native branch planner", () => {
     session.blocks[0] = { ...session.blocks[0], ...patch };
     session.orchestrationLeadId = "worker";
     session.providerSessionId = undefined;
-    expect(plan(session)).toMatchObject({ kind: "copied", origin: { reason } });
+    expect(plan(session)).toMatchObject({
+      kind: "copied",
+      origin: {
+        reason,
+        harness: reason === "different-provider" ? "codex" : session.harness,
+      },
+    });
     expect(plan(session)?.blocks[2].text).toContain("this turn came from Codex");
   });
   it.each([

@@ -99,6 +99,7 @@ async function startTurn(
     modelSettings?: Record<string, string>;
     text?: string;
     fork?: NativeForkRequest;
+    initialSessionId?: string;
   } = {},
 ) {
   const events: HarnessEvent[] = [];
@@ -126,7 +127,11 @@ async function startTurn(
     "initialize",
   );
   const initialize = outgoingControlRequest("initialize");
-  emit({ type: "system", subtype: "init", session_id: "sess_1" });
+  emit({
+    type: "system",
+    subtype: "init",
+    session_id: options.initialSessionId ?? "sess_1",
+  });
   respondToControl(initialize?.request_id);
   await waitFor(
     () => parse().filter((message) => message.type === "user").length > userCount,
@@ -145,12 +150,35 @@ describe("Claude native fork", () => {
     const newId = args[args.indexOf("--session-id") + 1];
     expect(newId).not.toBe("source");
     expect(events.some(event => event.type === "session.providerBound")).toBe(false);
+    emit({ type: "system", subtype: "status", session_id: "forked-real" });
+    expect(events.some(event => event.type === "session.providerBound")).toBe(false);
     emit({ type: "assistant", uuid: "first", message: { content: [] } });
     emit({ type: "assistant", uuid: "last", message: { content: [] } });
     emit({ type: "assistant", uuid: "child", parent_tool_use_id: "tool", message: { content: [] } });
     emit({ type: "result", subtype: "success" }); await turn;
     expect(events).toContainEqual({ type: "turn.forkPoint", providerForkPoint: "last" });
-    expect(events).toContainEqual({ type: "session.providerBound", providerSessionId: newId });
+    expect(events).toContainEqual({ type: "session.providerBound", providerSessionId: "forked-real" });
+  });
+  it("ignores the source session id reported during a pending fork", async () => {
+    const { events, turn } = await startTurn("claude-live", {
+      text: "hello",
+      fork: { sourceProviderSessionId: "source", forkPoint: "at-uuid" },
+      initialSessionId: "source",
+    });
+    const args = spawned[0];
+    const requestedId = args[args.indexOf("--session-id") + 1];
+    expect(requestedId).not.toBe("source");
+    expect(events.some((event) => event.type === "session.providerBound")).toBe(
+      false,
+    );
+
+    emit({ type: "result", subtype: "success" });
+    await turn;
+
+    expect(events).toContainEqual({
+      type: "session.providerBound",
+      providerSessionId: requestedId,
+    });
   });
   it("rejects exit before initialization without binding or writing a user message and re-forks", async () => {
     const events: HarnessEvent[] = [];
