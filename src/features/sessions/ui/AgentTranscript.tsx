@@ -3484,7 +3484,7 @@ function ApprovalControls({
     <div className="mt-1.5 flex flex-wrap gap-2">
       <button
         type="button"
-        className="min-w-16 flex-1 rounded-md bg-content px-2.5 py-0.5 text-[11px] text-background-base hover:bg-content/80 max-[319px]:basis-[calc(50%_-_0.25rem)]"
+        className="rounded-md bg-content px-2.5 py-0.5 text-[11px] text-background-base hover:bg-content/80"
         onClick={() => onApproval(approval.requestId, "allow")}
       >
         Allow
@@ -3494,7 +3494,7 @@ function ApprovalControls({
           type="button"
           title={approval.sessionScopeHint}
           aria-description={approval.sessionScopeHint}
-          className="min-w-32 flex-1 rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/85 hover:bg-content/20 max-[319px]:basis-[calc(50%_-_0.25rem)]"
+          className="rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/85 hover:bg-content/20"
           onClick={() =>
             onApproval(approval.requestId, "allow", "session")
           }
@@ -3504,7 +3504,7 @@ function ApprovalControls({
       ) : null}
       <button
         type="button"
-        className="min-w-16 flex-1 rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/70 hover:bg-content/20 max-[319px]:basis-[calc(50%_-_0.25rem)]"
+        className="rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/70 hover:bg-content/20"
         onClick={() => onApproval(approval.requestId, "deny")}
       >
         Deny
