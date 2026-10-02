@@ -129,7 +129,7 @@ export function TasksView({
   return (
     <div
       role="region"
-      aria-label="Tasks"
+      aria-label="Task Manager"
       data-app-tasks
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
@@ -144,7 +144,7 @@ export function TasksView({
         ) : null}
         <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
           <CheckCircle className="size-3.5 text-content/45" />
-          Tasks
+          Task Manager
         </div>
         {!IS_MAC ? <WindowControls /> : null}
       </div>

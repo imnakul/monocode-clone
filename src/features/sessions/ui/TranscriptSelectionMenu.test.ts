@@ -68,7 +68,7 @@ describe("TranscriptSelectionMenu", () => {
     act(() => root.render(createElement(TranscriptSelectionMenu, {
       selection: { text: "Investigate installer", responseId: "cline:42", rect: new DOMRect(10, 20, 100, 20) }, onAddToTask, onDismiss,
     })));
-    const todo = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Add as Todo"))!;
+    const todo = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Add to Task Manager"))!;
     await act(async () => todo.click());
     expect(onAddToTask).toHaveBeenCalledWith("Investigate installer", "cline:42");
     expect(onDismiss).not.toHaveBeenCalled();

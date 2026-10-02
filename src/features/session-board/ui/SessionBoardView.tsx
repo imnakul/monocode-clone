@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { OverlayNav } from "../../../app/shell/TitleBar";
 import { WindowControls } from "../../../app/shell/WindowControls";
 import { IS_MAC } from "../../../platform/tauri/platform";
-import { PanelLeft, X } from "../../../shared/ui/icons";
+import { PanelLeft, Plus, Play, Pencil, X } from "../../../shared/ui/icons";
 import { projectName, pathKey } from "../../../shared/lib/paths";
 import { SessionCard } from "../../sessions/ui/SessionCard";
 import type { HarnessId } from "../../sessions/model/session";
@@ -35,6 +35,10 @@ export function SessionBoardView({
   besideRail,
   compactRail,
   onToggleSidebar,
+  onAddTodo,
+  onEditTodo,
+  onStartTodo,
+  onDeleteTodo,
 }: {
   cards: readonly BoardCard[];
   cwd?: string;
@@ -49,6 +53,10 @@ export function SessionBoardView({
   besideRail?: boolean;
   compactRail?: boolean;
   onToggleSidebar?: () => void;
+  onAddTodo?: (cwd?: string) => void;
+  onEditTodo?: (id: string) => Promise<void>;
+  onStartTodo?: (id: string) => Promise<void>;
+  onDeleteTodo?: (id: string) => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
   const [project, setProject] = useState("");
@@ -151,7 +159,7 @@ export function SessionBoardView({
   return (
     <div
       data-app-kanban
-      aria-label="Session Kanban"
+      aria-label="Session Manager"
       role="region"
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
@@ -166,7 +174,7 @@ export function SessionBoardView({
         ) : null}
         <div className="flex flex-1 items-center gap-2 px-3 text-sm">
           <PanelLeft className="size-3.5" />
-          Kanban
+          Session Manager
         </div>
         <button className={`${control} mr-2`} onClick={onClose}>
           Back to workspace
@@ -174,6 +182,19 @@ export function SessionBoardView({
         {!IS_MAC ? <WindowControls /> : null}
       </div>
       <div className="flex flex-wrap items-center gap-2 border-b border-stroke p-2">
+        {onAddTodo ? (
+          <button
+            className={`${control} flex items-center gap-1`}
+            onClick={() =>
+              onAddTodo(
+                projects.find((path) => pathKey(path) === project) ?? cwd,
+              )
+            }
+            aria-label="Add Session Manager Todo"
+          >
+            <Plus className="size-3.5" /> Add Todo
+          </button>
+        ) : null}
         <input
           className={control}
           aria-label="Search board"
@@ -245,8 +266,7 @@ export function SessionBoardView({
           {loading ? <p>Loading sessions…</p> : null}
           {!loading && !visible.length ? (
             <p className="text-sm text-content/45">
-              No sessions match. Sessions appear here when a turn or draft is
-              created.
+              No sessions match. Add a Todo or start a session to see it here.
             </p>
           ) : null}
           {(Object.entries(BOARD_COLUMNS) as [BoardStatus, string][])
@@ -262,6 +282,21 @@ export function SessionBoardView({
                   <div className="flex items-center gap-2 border-b border-stroke p-2 text-xs font-medium">
                     <span>{label}</span>
                     <span className="text-content/45">{rows.length}</span>
+                    {key === "todo" && onAddTodo ? (
+                      <button
+                        className="ml-auto rounded p-1 hover:bg-content/10"
+                        aria-label="Add Todo"
+                        onClick={() =>
+                          onAddTodo(
+                            projects.find(
+                              (path) => pathKey(path) === project,
+                            ) ?? cwd,
+                          )
+                        }
+                      >
+                        <Plus className="size-3.5" />
+                      </button>
+                    ) : null}
                     {key === "done" || key === "stopped" ? (
                       <button
                         className="ml-auto text-content/50 hover:text-content disabled:opacity-40"
@@ -314,12 +349,58 @@ export function SessionBoardView({
                             <p className="mt-1 line-clamp-3">{card.reason}</p>
                           ) : null}
                         </div>
+                        {key === "todo" &&
+                        card.runId.startsWith("draft:") &&
+                        onStartTodo ? (
+                          <div className="flex gap-1 px-2 pb-2 opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+                            <button
+                              className={`${control} flex items-center gap-1`}
+                              disabled={busy}
+                              aria-label={`Start ${card.title}`}
+                              onClick={() =>
+                                void runAction(async () => {
+                                  await onStartTodo(card.sessionId);
+                                  await onOpenSession(card.sessionId);
+                                  setSelected(true);
+                                })
+                              }
+                            >
+                              <Play className="size-3" /> Start
+                            </button>
+                            {onEditTodo ? (
+                              <button
+                                className={control}
+                                disabled={busy}
+                                aria-label={`Edit ${card.title}`}
+                                onClick={() =>
+                                  void runAction(() =>
+                                    onEditTodo(card.sessionId),
+                                  )
+                                }
+                              >
+                                <Pencil className="size-3" />
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <button
                           className="absolute right-1 top-1 rounded bg-background-base p-1 opacity-0 hover:text-red-400 focus:opacity-100 group-hover:opacity-100"
-                          aria-label={`Remove ${card.title} from board`}
+                          aria-label={
+                            key === "todo" &&
+                            card.runId.startsWith("draft:") &&
+                            onDeleteTodo
+                              ? `Delete Todo ${card.title}`
+                              : `Remove ${card.title} from board`
+                          }
                           disabled={busy}
                           onClick={() =>
-                            void runAction(() => hideBoardCards([card]))
+                            void runAction(() =>
+                              key === "todo" &&
+                              card.runId.startsWith("draft:") &&
+                              onDeleteTodo
+                                ? onDeleteTodo(card.sessionId)
+                                : hideBoardCards([card]),
+                            )
                           }
                         >
                           <X className="size-3" />

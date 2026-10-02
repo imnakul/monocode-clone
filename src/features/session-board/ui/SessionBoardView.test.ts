@@ -22,7 +22,7 @@ const row = (
   cwd = "/projects/one",
 ): BoardCard => ({
   sessionId: id,
-  runId: `run-${id}`,
+  runId: status === "todo" ? `draft:run-${id}` : `run-${id}`,
   title: `Session ${id}`,
   cwd,
   harness: "claude",
@@ -224,4 +224,35 @@ it("keeps the selected Windows project when its display path changes slash style
   expect(project.value).toBe("e:/projects/monocode");
   expect(card("running")).not.toBeNull();
   expect(container.querySelector('[data-board-card="other"]')).toBeNull();
+});
+
+it("adds into the selected project, edits/deletes Todos, and starts beside the retained board", async () => {
+  props.cwd = "/projects/current";
+  props.cards = [row("prepared", "todo", "/projects/two")];
+  props.onAddTodo = vi.fn(); props.onEditTodo = vi.fn(async () => {}); props.onStartTodo = vi.fn(async () => {}); props.onDeleteTodo = vi.fn(async () => {});
+  render();
+  const project = container.querySelector<HTMLSelectElement>('[aria-label="Board project"]')!;
+  await act(async () => { project.value = "/projects/two"; project.dispatchEvent(new Event("change", { bubbles: true })); });
+  await act(async () => button("Add Todo").click());
+  expect(props.onAddTodo).toHaveBeenCalledWith("/projects/two");
+  await act(async () => button("Edit Session prepared").click());
+  expect(props.onEditTodo).toHaveBeenCalledWith("prepared");
+  await act(async () => button("Start Session prepared").click());
+  expect(props.onStartTodo).toHaveBeenCalledWith("prepared");
+  expect(props.onOpenSession).toHaveBeenCalledWith("prepared");
+  expect(props.onPaneVisible).toHaveBeenLastCalledWith(true);
+  expect(card("prepared")).toBeTruthy();
+  await act(async () => button("Delete Todo Session prepared").click());
+  expect(props.onDeleteTodo).toHaveBeenCalledWith("prepared");
+  expect(hideBoardCards).not.toHaveBeenCalled();
+});
+it("keeps a rejected Todo start on the board with a readable error and retry action", async () => {
+  props.cards = [row("prepared", "todo")]; props.onStartTodo = vi.fn().mockRejectedValueOnce(new Error("Provider unavailable")).mockResolvedValueOnce(undefined);
+  render();
+  await act(async () => button("Start Session prepared").click());
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Provider unavailable");
+  expect(props.onOpenSession).not.toHaveBeenCalled();
+  expect(card("prepared")).toBeTruthy();
+  await act(async () => button("Start Session prepared").click());
+  expect(props.onStartTodo).toHaveBeenCalledTimes(2); expect(props.onOpenSession).toHaveBeenCalledWith("prepared");
 });

@@ -416,7 +416,7 @@ export function ProjectRail({
                 ariaLabel="Notes"
               />
             ) : null}
-            {onOpenTasks ? <RailAction label="Tasks" icon={CheckCircle} onClick={onOpenTasks} active={tasksActive} ariaLabel="Tasks" /> : null}
+            {onOpenTasks ? <RailAction label="Task Manager" icon={CheckCircle} onClick={onOpenTasks} active={tasksActive} ariaLabel="Task Manager" /> : null}
             <RailAction
               label="Automations"
               icon={Zap}
@@ -424,7 +424,7 @@ export function ProjectRail({
               active={automationsActive}
               ariaLabel="Automations"
             />
-            {onOpenKanban ? <RailAction label="Kanban" icon={PanelLeft} onClick={onOpenKanban} active={kanbanActive} ariaLabel="Kanban" /> : null}
+            {onOpenKanban ? <RailAction label="Session Manager" icon={PanelLeft} onClick={onOpenKanban} active={kanbanActive} ariaLabel="Session Manager" /> : null}
           </div>
 
           <div

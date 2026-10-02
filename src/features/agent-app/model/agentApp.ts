@@ -1,3 +1,6 @@
+import { BOARD_COLUMNS, type BoardStatus } from "../../session-board/sessionBoard";
+import type { sessionTodoManager } from "../../session-board/sessionTodos";
+import { parseQuickAttachments } from "../../quick-composer/model/quickAttachments";
 import { filterTasks, taskStatus, type Task, type TaskUpsert, type TaskChanges, type TaskFilters } from "../../tasks";
 import { isHarnessAvailable } from "../../../integrations/harness/core/availability";
 import { looksLikeProject } from "../../projects/model/recents";
@@ -73,6 +76,7 @@ export type AgentAppHost = {
     base: string,
     existing: boolean,
   ): Promise<Worktree>;
+  sessionManager?: ReturnType<typeof sessionTodoManager>;
   tasks?(): Promise<Task[]>;
   task?(id: string): Promise<Task | null>;
   saveTask?(task: TaskUpsert): Promise<Task>;
@@ -84,6 +88,13 @@ export type AgentAppHost = {
 };
 
 const FIELDS = new Map<string, readonly string[]>([
+  ["session_manager.list", ["status", "projectCwd", "query", "limit", "offset"]],
+  ["session_manager.read", ["id"]],
+  ["session_manager.write", ["id", "title", "projectCwd", "prompt", "harness", "model", "modelSettings", "effort", "runtimeMode", "attachments", "workspaceMode", "worktreeBase", "worktreeCwd"]],
+  ["session_manager.start", ["id"]],
+  ["session_manager.delete", ["id"]],
+  ["session_manager.remove", ["id", "runId"]],
+  ["session_manager.clear", ["status", "projectCwd"]],
   ["models.list", []],
   ["sessions.list", []],
   ["sessions.read", ["sessionId", "before", "limit", "maxChars"]],
@@ -313,6 +324,182 @@ export async function handleAgentApp(
 ): Promise<unknown> {
   fields(action, input);
   switch (action) {
+    case "session_manager.list": {
+      if (!host.sessionManager) throw new Error("Session Manager is unavailable");
+      const status =
+        input.status === undefined
+          ? undefined
+          : (requiredString(input.status, "status", 30) as BoardStatus);
+      if (status && !Object.prototype.hasOwnProperty.call(BOARD_COLUMNS, status))
+        throw new Error("Unknown Session Manager status");
+      const projectCwd =
+        input.projectCwd === undefined
+          ? undefined
+          : taskProject(input.projectCwd);
+      if (projectCwd === null)
+        throw new Error("Session Manager Todos require a project");
+      const query =
+        input.query === undefined
+          ? undefined
+          : requiredString(input.query, "query", 1000);
+      const limit = input.limit ?? 30,
+        offset = input.offset ?? 0;
+      if (
+        !Number.isInteger(limit) ||
+        (limit as number) < 1 ||
+        (limit as number) > 100 ||
+        !Number.isInteger(offset) ||
+        (offset as number) < 0
+      )
+        throw new Error("Use limit 1–100 and a non-negative offset");
+      const cards = await host.sessionManager.list({ status, projectCwd, query });
+      return {
+        total: cards.length,
+        offset,
+        cards: cards.slice(
+          offset as number,
+          (offset as number) + (limit as number),
+        ),
+      };
+    }
+    case "session_manager.read":
+      if (!host.sessionManager) throw new Error("Session Manager is unavailable");
+      return host.sessionManager.read(taskId(input.id));
+    case "session_manager.write": {
+      if (!host.sessionManager) throw new Error("Session Manager is unavailable");
+      const id = input.id === undefined ? undefined : taskId(input.id);
+      if (id && Object.keys(input).length === 1)
+        throw new Error("Supply fields to update a Todo");
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(requestId))
+        throw new Error("Invalid request ID");
+      const existing = id ? await host.sessionManager.read(id) : undefined;
+      const projectCwd =
+        input.projectCwd === undefined
+          ? (existing?.cwd ?? requireProject(source))
+          : taskProject(input.projectCwd);
+      if (!projectCwd) throw new Error("Session Manager Todos require a project");
+      const prompt = input.prompt === undefined ? existing?.prompt : input.prompt;
+      const attachments = parseQuickAttachments(
+        input.attachments === undefined
+          ? existing?.attachments
+          : input.attachments,
+      );
+      if (!attachments)
+        throw new Error(
+          "attachments must be up to 20 persisted file/image descriptors with local paths",
+        );
+      if (
+        typeof prompt !== "string" ||
+        prompt.length > 240_000 ||
+        (!prompt.trim() && !attachments.length)
+      )
+        throw new Error("Supply a prompt or attachments");
+      if (prompt.trim()) agentPrompt(prompt);
+      const projectChanged =
+        existing && pathKey(existing.cwd) !== pathKey(projectCwd);
+      const mode =
+        input.workspaceMode ??
+        (projectChanged ? "current" : existing?.workspaceMode) ??
+        "current";
+      const base = optionalString(
+        input.worktreeBase ??
+          (projectChanged || input.workspaceMode === "current"
+            ? undefined
+            : existing?.worktreeBase),
+        "worktreeBase",
+        400,
+      );
+      const tree = optionalString(
+        input.worktreeCwd ??
+          (projectChanged || input.workspaceMode === "worktree"
+            ? undefined
+            : existing?.worktreeCwd),
+        "worktreeCwd",
+        4096,
+      );
+      const template = existing
+        ? {
+            ...source,
+            cwd: projectCwd,
+            harness: existing.harness,
+            model: existing.model ?? source.model,
+            modelSettings: existing.modelSettings ?? {},
+            runtimeMode: existing.runtimeMode ?? source.runtimeMode,
+            worktreeCwd: tree,
+          }
+        : {
+            ...source,
+            cwd: projectCwd,
+            worktreeCwd:
+              pathKey(projectCwd) === pathKey(source.cwd)
+                ? source.worktreeCwd
+                : undefined,
+          };
+      const launch = startLaunch(template, {
+        prompt: prompt.trim() ? prompt : "Attached files",
+        harness: input.harness ?? existing?.harness,
+        model: input.model ?? existing?.model,
+        modelSettings: input.modelSettings ?? existing?.modelSettings,
+        effort: input.effort,
+        runtimeMode: input.runtimeMode ?? existing?.runtimeMode,
+        workspaceMode: mode,
+        ...(base ? { worktreeBase: base } : {}),
+        ...(tree ? { worktreeCwd: tree } : {}),
+      });
+      launch.prompt = prompt;
+      launch.attachments = attachments;
+      if (existing?.intent) launch.intent = existing.intent;
+      launch.draft = true;
+      launch.reveal = false;
+      if (tree) {
+        const available = (await host.worktrees(projectCwd)).worktrees.find(
+          (entry) =>
+            !entry.missing &&
+            pathKey(entry.path) === pathKey(launch.worktreeCwd!),
+        );
+        if (!available)
+          throw new Error("Worktree is unavailable in this project");
+        launch.worktreeCwd =
+          pathKey(available.path) === pathKey(projectCwd)
+            ? undefined
+            : available.path;
+      }
+      const title =
+        input.title === undefined
+          ? undefined
+          : requiredString(input.title, "title", 200);
+      return host.sessionManager.write(
+        id ?? `app-todo-${source.id}-${requestId}`,
+        launch,
+        { edit: !!id, title, expectedRevision: existing?.revision },
+      );
+    }
+    case "session_manager.start": {
+      if (!host.sessionManager) throw new Error("Session Manager is unavailable");
+      const id = taskId(input.id);
+      return host.sessionManager.start(id, true);
+    }
+    case "session_manager.delete":
+      if (!host.sessionManager) throw new Error("Session Manager is unavailable");
+      return host.sessionManager.delete(taskId(input.id));
+    case "session_manager.remove":
+      if (!host.sessionManager) throw new Error("Session Manager is unavailable");
+      return host.sessionManager.remove(
+        taskId(input.id),
+        requiredString(input.runId, "runId", 512),
+      );
+    case "session_manager.clear": {
+      if (!host.sessionManager) throw new Error("Session Manager is unavailable");
+      if (input.status !== "done" && input.status !== "stopped")
+        throw new Error("Only done or stopped columns can be cleared");
+      const project =
+        input.projectCwd === undefined
+          ? undefined
+          : taskProject(input.projectCwd);
+      if (project === null)
+        throw new Error("Use a project path or omit projectCwd");
+      return host.sessionManager.clear(input.status, project);
+    }
     case "models.list":
       return {
         runtimeModes: RUNTIME_MODES.map((id) => ({

@@ -37,8 +37,7 @@ function releaseCaptures(files: Attachment[]) {
 }
 
 type CapturedClipboardPaste =
-  | { files: Attachment[]; warning?: string }
-  | { error: unknown };
+  { files: Attachment[]; warning?: string } | { error: unknown };
 
 function discardCapturedPaste(paste: CapturedClipboardPaste) {
   if ("files" in paste) paste.files.forEach(revokeAttachment);
@@ -47,8 +46,10 @@ function discardCapturedPaste(paste: CapturedClipboardPaste) {
 export function useQuickAttachments(
   supported: boolean,
   onError: (message: string | null) => void,
+  initialFiles: Attachment[] = [],
+  nativeCapture = true,
 ) {
-  const [files, setFiles] = useState<Attachment[]>([]);
+  const [files, setFiles] = useState<Attachment[]>(initialFiles);
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const filesRef = useRef(files);
@@ -266,6 +267,10 @@ export function useQuickAttachments(
     onDrop,
     chooseFiles: () => collect(pickAttachments),
     takeScreenshot: async () => {
+      if (!nativeCapture) {
+        onError("Paste a screenshot or attach an image file here.");
+        return;
+      }
       let captured: string | null = null;
       try {
         await collect(async () => {
