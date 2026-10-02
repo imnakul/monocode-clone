@@ -15,6 +15,10 @@ import { projectName, pathKey } from "../../../shared/lib/paths";
 import { SessionCard } from "../../sessions/ui/SessionCard";
 import type { HarnessId } from "../../sessions/model/session";
 import {
+  projectRailItems,
+  type RecentProject,
+} from "../../projects/model/recents";
+import {
   BOARD_COLUMNS,
   hideBoardCards,
   loadBoard,
@@ -26,6 +30,8 @@ import {
 const COLUMN_MIN_WIDTH = 256;
 export function SessionBoardView({
   cards,
+  cwd,
+  recents = [],
   loading,
   error,
   activeSessionId,
@@ -38,6 +44,8 @@ export function SessionBoardView({
   onToggleSidebar,
 }: {
   cards: readonly BoardCard[];
+  cwd?: string;
+  recents?: RecentProject[];
   loading: boolean;
   error: string | null;
   activeSessionId?: string;
@@ -82,12 +90,20 @@ export function SessionBoardView({
     const timer = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(timer);
   }, []);
-  const projects = useMemo(
-    () => [
-      ...new Map(cards.map((card) => [pathKey(card.cwd), card.cwd])).values(),
-    ],
-    [cards],
-  );
+  const projects = useMemo(() => {
+    const paths = new Map(
+      projectRailItems(recents, cwd ?? "").map(({ path }) => [
+        pathKey(path),
+        path,
+      ]),
+    );
+    // Keep projects from durable cards even after they leave the recent-project rail.
+    for (const card of cards) {
+      if (card.cwd && !paths.has(pathKey(card.cwd)))
+        paths.set(pathKey(card.cwd), card.cwd);
+    }
+    return [...paths.values()];
+  }, [cards, recents, cwd]);
   const visible = visibleBoardCards(cards).filter(
     (card) =>
       (!project || pathKey(project) === pathKey(card.cwd)) &&
@@ -101,8 +117,9 @@ export function SessionBoardView({
   const projectOptions = useMemo<SearchableSelectOption[]>(
     () => [
       { value: "", label: "All projects" },
+      // Normalized keys so Windows drive-letter casing matches card paths.
       ...projects.map((path) => ({
-        value: path,
+        value: pathKey(path),
         label: projectName(path),
         keywords: path,
       })),

@@ -211,3 +211,70 @@ it("hides the session pane without removing its card and supports keyboard resiz
   expect(props.onPaneVisible).toHaveBeenLastCalledWith(false);
   expect(card("running")).toBeTruthy();
 });
+
+const projectTrigger = () =>
+  container.querySelector<HTMLButtonElement>(
+    'button[aria-label^="Board project:"]',
+  )!;
+const projectOptionLabels = async () => {
+  await act(async () => projectTrigger().click());
+  const labels = [
+    ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ].map((entry) => entry.textContent?.trim());
+  await act(async () => projectTrigger().click());
+  return labels;
+};
+it("lists known sidebar and current projects even before any board cards exist", async () => {
+  props.cards = [];
+  props.cwd = "E:/Projects/Current";
+  props.recents = [
+    { path: "E:/Projects/Teacher", openedAt: 2 },
+    { path: "E:/Projects/MonoCode", openedAt: 1 },
+  ];
+  render();
+  expect(await projectOptionLabels()).toEqual([
+    "All projects",
+    "Current",
+    "Teacher",
+    "MonoCode",
+  ]);
+});
+
+it("deduplicates Windows project paths and filters persisted cards using the known project option", async () => {
+  props.cwd = "E:/Projects/MonoCode";
+  props.recents = [
+    { path: "E:/Projects/Teacher", openedAt: 2 },
+    { path: "E:/Projects/MonoCode", openedAt: 1 },
+  ];
+  props.cards = [
+    row("running", "in_progress", "e:\\projects\\monocode\\"),
+    row("old", "done", "E:/Other/Archived"),
+  ];
+  render();
+  expect(await projectOptionLabels()).toEqual([
+    "All projects",
+    "Teacher",
+    "MonoCode",
+    "Archived",
+  ]);
+  await pick("Board project", "MonoCode");
+  expect(card("running")).not.toBeNull();
+  expect(container.querySelector('[data-board-card="old"]')).toBeNull();
+});
+
+it("keeps the selected Windows project when its display path changes slash style or casing", async () => {
+  props.recents = [{ path: "E:/Projects/MonoCode", openedAt: 1 }];
+  props.cards = [
+    row("running", "in_progress", "e:/projects/monocode"),
+    row("other", "done"),
+  ];
+  render();
+  await pick("Board project", "MonoCode");
+  props.recents = [{ path: "e:\\Projects\\MONOCODE\\", openedAt: 2 }];
+  render();
+  expect(projectTrigger().getAttribute("aria-label")).toBe(
+    "Board project: MONOCODE",
+  );
+  expect(card("running")).not.toBeNull();
+  expect(container.querySelector('[data-board-card="other"]')).toBeNull();
+});
