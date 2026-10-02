@@ -22,6 +22,7 @@ import {
   isReleaseNotesTab,
   isReviewTab,
   isSessionChangesTab,
+  isTaskTab,
   isTerminalTab,
   type FilePaneTab,
 } from "../model/layout";
@@ -122,6 +123,15 @@ export function surfaceTabPresentation(
       label: title,
       iconName: "CHANGELOG.md",
       tooltip: title,
+    };
+  }
+
+  if (isTaskTab(file)) {
+    return {
+      name: file.task.title,
+      label: file.task.title,
+      iconName: "task.md",
+      tooltip: `Task: ${file.task.title}`,
     };
   }
 

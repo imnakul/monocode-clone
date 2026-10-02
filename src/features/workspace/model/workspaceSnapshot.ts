@@ -15,6 +15,7 @@ import {
   type LayoutNode,
   type PlanTabSource,
   type SessionChangesSource,
+  type TaskTabSource,
   type WorkspaceTab,
 } from "./layout";
 import type { ReleaseNotesTabSource } from "../../../app/model/releaseNotes";
@@ -560,6 +561,8 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
   const plan = sanitizePlan(value.plan);
   const hasReleaseNotes = "releaseNotes" in value;
   const releaseNotes = sanitizeReleaseNotes(value.releaseNotes);
+  const hasTask = "task" in value;
+  const task = sanitizeTask(value.task);
   const hasCommit = "commit" in value;
   const commit = sanitizeCommit(value.commit);
   const hasSessionChanges = "sessionChanges" in value;
@@ -570,6 +573,7 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
   const focusKind = sanitizeFocusKind(value.focusKind);
 
   if (hasReleaseNotes && !releaseNotes) return null;
+  if (hasTask && !task) return null;
   if (hasCommit && !commit) return null;
   if (hasSessionChanges && !sessionChanges) return null;
   if (hasDiff && !diff) return null;
@@ -618,6 +622,19 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     return null;
   }
   if (
+    task &&
+    (value.plan != null ||
+      releaseNotes != null ||
+      commit != null ||
+      sessionChanges != null ||
+      diff != null ||
+      value.review === true ||
+      value.changes === true ||
+      value.terminal === true)
+  ) {
+    return null;
+  }
+  if (
     commit &&
     (value.plan != null ||
       value.review === true ||
@@ -659,6 +676,7 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
       : {}),
     ...(plan ? { plan } : {}),
     ...(releaseNotes ? { releaseNotes } : {}),
+    ...(task ? { task } : {}),
     ...(commit ? { commit } : {}),
     ...(sessionChanges ? { sessionChanges, review: true } : {}),
     ...(diff ? { diff, review: true } : {}),
@@ -744,6 +762,17 @@ function sanitizeReleaseNotes(raw: unknown): ReleaseNotesTabSource | undefined {
   const version = (raw as Record<string, unknown>).version;
   if (typeof version !== "string" || !version.trim()) return undefined;
   return { version: version.trim() };
+}
+
+function sanitizeTask(raw: unknown): TaskTabSource | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const value = raw as Record<string, unknown>;
+  const taskId = value.taskId;
+  if (typeof taskId !== "string" || !taskId || taskId.length > 200)
+    return undefined;
+  if (typeof value.title !== "string") return undefined;
+  const title = value.title.trim().slice(0, 200) || "Task";
+  return { taskId, title };
 }
 
 function sanitizeProjectTerminal(raw: unknown): ProjectTerminalDock | null {

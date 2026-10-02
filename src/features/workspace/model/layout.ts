@@ -61,6 +61,9 @@ export type GitDiffTabSource = {
   deleted?: boolean;
 };
 
+/** A task opened beside the session. The title is a snapshot for the tab label. */
+export type TaskTabSource = { taskId: string; title: string };
+
 export type FilePaneTab = {
   id: string;
   path: string;
@@ -69,6 +72,7 @@ export type FilePaneTab = {
   projectCwd?: string;
   plan?: PlanTabSource;
   releaseNotes?: ReleaseNotesTabSource;
+  task?: TaskTabSource;
   review?: boolean;
   /** Single working-tree review of every changed file (unified diff). */
   changes?: boolean;
@@ -233,6 +237,21 @@ export function newPlanTab(
     path: `plan:${blockId}`,
     cwd,
     plan: { sessionId, blockId, title },
+  };
+}
+
+/** Virtual tab that edits one task next to the session. */
+export function newTaskTab(task: {
+  id: string;
+  title: string;
+  projectCwd?: string;
+}): FilePaneTab {
+  return {
+    id: crypto.randomUUID(),
+    path: `task:${task.id}`,
+    cwd: task.projectCwd ?? "~",
+    ...(task.projectCwd ? { projectCwd: task.projectCwd } : {}),
+    task: { taskId: task.id, title: task.title },
   };
 }
 
@@ -511,6 +530,12 @@ export function isReleaseNotesTab(
   return !!file.releaseNotes;
 }
 
+export function isTaskTab(
+  file: FilePaneTab,
+): file is FilePaneTab & { task: TaskTabSource } {
+  return !!file.task;
+}
+
 export function isCommitTab(
   file: FilePaneTab,
 ): file is FilePaneTab & { commit: CommitTabSource } {
@@ -531,6 +556,7 @@ export function isVirtualDocumentTab(file: FilePaneTab): boolean {
   return (
     isPlanTab(file) ||
     isReleaseNotesTab(file) ||
+    isTaskTab(file) ||
     isCommitTab(file) ||
     isAgentTab(file)
   );
@@ -622,6 +648,7 @@ export function editorTabKey(file: FilePaneTab): string {
   if (file.agent) return `agent:${file.agent.sessionId}`;
   if (file.plan) return `plan:${file.plan.blockId}`;
   if (file.releaseNotes) return `release-notes:${file.releaseNotes.version}`;
+  if (file.task) return `task:${file.task.taskId}`;
   if (file.commit) return `commit:${file.cwd}:${file.commit.sha}`;
   if (file.sessionChanges)
     return `session-changes:${file.cwd}:${file.sessionChanges.sessionId}`;
@@ -656,6 +683,7 @@ export function isPreviewableTab(file: FilePaneTab): boolean {
     !file.agent &&
     !file.plan &&
     !file.releaseNotes &&
+    !file.task &&
     !file.changes
   );
 }
