@@ -983,6 +983,15 @@ describe("task tabs in snapshots", () => {
       task: { taskId: "t-1", title: "x" },
       sessionChanges: { sessionId: "s" },
     },
+    {
+      task: { taskId: "t-1", title: "x" },
+      projectCwd: "remote://env/repo",
+      remoteFile: {
+        machineId: "machine",
+        projectId: "project",
+        relativePath: "src/index.ts",
+      },
+    },
   ])("drops a file with an invalid or conflicting task: %j", (descriptor) => {
     const parsed = parseWith(descriptor);
     expect(parsed?.tabs.map((tab) => tab.id)).toEqual(["valid-tab"]);

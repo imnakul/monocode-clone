@@ -36,10 +36,8 @@ export function BoardColumn({
       aria-label={`${label} column`}
       data-board-column={id}
       style={{ minWidth }}
-      className={`relative flex min-h-0 flex-1 basis-0 flex-col rounded-lg ${
-        highlighted
-          ? "bg-content/5 ring-1 ring-accent/40 transition-colors duration-100"
-          : "bg-content/3"
+      className={`relative flex min-h-0 flex-1 basis-0 flex-col rounded-lg transition-colors duration-100 ${
+        highlighted ? "bg-content/5 ring-1 ring-accent/40" : "bg-content/3"
       }`}
     >
       <div className="flex h-9 shrink-0 items-center gap-2 px-3 text-[12px] font-medium">

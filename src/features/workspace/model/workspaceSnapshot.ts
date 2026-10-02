@@ -591,6 +591,7 @@ function sanitizeFile(raw: unknown): FilePaneTab | null {
     remoteFile &&
     (value.plan != null ||
       releaseNotes ||
+      task ||
       commit ||
       sessionChanges ||
       diff ||
