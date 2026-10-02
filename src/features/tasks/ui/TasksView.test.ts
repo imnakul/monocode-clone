@@ -205,7 +205,12 @@ async function pickOption(trigger: string, option: string) {
   await click(container.querySelector(`button[aria-label^="${trigger}:"]`));
   const choice = [
     ...document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ].find((entry) => entry.textContent?.trim() === option);
+  ].find(
+    (entry) =>
+      (
+        entry.querySelector("[data-option-label]") ?? entry
+      ).textContent?.trim() === option,
+  );
   await click(choice);
 }
 async function pickMenuItem(trigger: HTMLElement | undefined, label: string) {
@@ -214,7 +219,12 @@ async function pickMenuItem(trigger: HTMLElement | undefined, label: string) {
     ...document.querySelectorAll<HTMLElement>(
       '[role="menuitem"], [role="menuitemcheckbox"]',
     ),
-  ].find((entry) => entry.textContent?.trim() === label);
+  ].find(
+    (entry) =>
+      (
+        entry.querySelector("[data-menu-label]") ?? entry
+      ).textContent?.trim() === label,
+  );
   await click(item);
 }
 async function escape(target: Element = document.body) {
@@ -1028,13 +1038,13 @@ describe("persisted peek width", () => {
 
 describe("grouping", () => {
   const groupHeaders = () =>
-    [...container.querySelectorAll<HTMLButtonElement>("[data-task-group]")]
-      .map((entry) =>
+    [...container.querySelectorAll<HTMLButtonElement>("[data-task-group]")].map(
+      (entry) =>
         [...entry.querySelectorAll("span")]
           .map((span) => span.textContent?.trim())
           .filter(Boolean)
           .join(" "),
-      );
+    );
 
   it("groups the List by project with Personal last, collapses a group and persists the choice", async () => {
     await render();
@@ -1154,5 +1164,77 @@ describe("grouping", () => {
         JSON.parse(localStorage.getItem(BOARD_KEY)!).hiddenProjects,
       ).toEqual(["project:/work/other"]);
     });
+  });
+});
+
+describe("counts", () => {
+  const headerCount = () =>
+    container.querySelector<HTMLElement>(
+      '[data-tauri-drag-region] [role="status"]',
+    );
+  const optionCounts = async (trigger: string) => {
+    await click(container.querySelector(`button[aria-label^="${trigger}:"]`));
+    const counts = Object.fromEntries(
+      [...document.querySelectorAll<HTMLElement>('[role="option"]')].map(
+        (option) => {
+          return [
+            option.querySelector("[data-option-label]")?.textContent?.trim(),
+            Number(option.querySelector(".tabular-nums")?.textContent),
+          ];
+        },
+      ),
+    );
+    await click(container.querySelector(`button[aria-label^="${trigger}:"]`));
+    return counts;
+  };
+
+  it("shows the total in the header, then shown-of-total while filtered", async () => {
+    await render();
+    expect(headerCount()?.textContent).toBe("3");
+    expect(headerCount()?.getAttribute("aria-label")).toBe("3 tasks");
+    await pickOption("Status", "Todo");
+    expect(headerCount()?.textContent).toBe("1 of 3");
+    expect(headerCount()?.getAttribute("aria-label")).toBe(
+      "1 of 3 tasks shown",
+    );
+  });
+
+  it("shows faceted counts beside every filter option", async () => {
+    await render();
+    expect(await optionCounts("Status")).toMatchObject({
+      "All statuses": 3,
+      Todo: 1,
+      Progress: 1,
+      Blocked: 1,
+      Review: 0,
+    });
+    await pickOption("Project", "Personal");
+    // The status facet now counts Personal tasks only.
+    expect(await optionCounts("Status")).toMatchObject({
+      "All statuses": 1,
+      Todo: 1,
+      Blocked: 0,
+    });
+    // The project facet ignores its own filter.
+    expect(await optionCounts("Project")).toMatchObject({
+      "All projects": 3,
+      Personal: 1,
+    });
+    expect(await optionCounts("Tag")).toMatchObject({ "#home": 1, "#bug": 0 });
+  });
+
+  it("shows how many tasks each board column holds in the Columns menu", async () => {
+    await render();
+    await switchView("Board");
+    await click(byLabel("Choose visible columns"));
+    const counts = Object.fromEntries(
+      [
+        ...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'),
+      ].map((item) => [
+        item.querySelector("[data-menu-label]")?.textContent?.trim(),
+        Number(item.querySelector(".tabular-nums")?.textContent),
+      ]),
+    );
+    expect(counts).toMatchObject({ Draft: 0, Todo: 1, Blocked: 1 });
   });
 });

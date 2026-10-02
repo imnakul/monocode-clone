@@ -285,8 +285,8 @@ export function TaskBoard({
           {columns.length === 0 ? (
             <p className="m-auto text-[12px] text-content/45">
               {groupBy === "project"
-              ? "No project columns shown. Use Columns to choose projects."
-              : "No columns shown. Use Columns to choose statuses."}
+                ? "No project columns shown. Use Columns to choose projects."
+                : "No columns shown. Use Columns to choose statuses."}
             </p>
           ) : null}
         </BoardColumns>

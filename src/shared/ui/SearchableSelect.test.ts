@@ -90,3 +90,39 @@ it("does not scroll the page when a compact menu opens", async () => {
   const option = document.body.querySelector('[role="option"]');
   expect(option?.className).toContain("h-7");
 });
+
+it("shows an option count beside the label and includes it in the accessible name", async () => {
+  await act(async () => {
+    root.render(
+      createElement(SearchableSelect, {
+        label: "Status",
+        value: "",
+        searchable: false,
+        options: [
+          { value: "", label: "All statuses", count: 12 },
+          { value: "todo", label: "Todo", count: 0 },
+          { value: "plain", label: "No count" },
+        ],
+        onChange: vi.fn(),
+      }),
+    );
+  });
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>("button")!.click(),
+  );
+  const options = [
+    ...document.body.querySelectorAll<HTMLElement>('[role="option"]'),
+  ];
+  expect(
+    options.map((option) => [
+      option.querySelector("[data-option-label]")?.textContent,
+      option.getAttribute("aria-label"),
+    ]),
+  ).toEqual([
+    ["All statuses", "All statuses, 12"],
+    ["Todo", "Todo, 0"],
+    ["No count", null],
+  ]);
+  // Options without a count keep their plain text exactly as before.
+  expect(options[2].textContent?.trim()).toBe("No count");
+});

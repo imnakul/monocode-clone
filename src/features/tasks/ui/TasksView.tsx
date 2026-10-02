@@ -65,7 +65,8 @@ import { TaskBoard } from "./TaskBoard";
 import { TaskList } from "./TaskList";
 import { TaskPeekPane } from "./TaskPeekPane";
 import { TaskTable } from "./TaskTable";
-import { TasksToolbar } from "./TasksToolbar";
+import { hasActiveFilters, TasksToolbar } from "./TasksToolbar";
+import { ResultCount } from "../../../shared/ui/ResultCount";
 import { TasksViewSwitch } from "./TasksViewSwitch";
 import {
   SearchableSelect,
@@ -90,7 +91,6 @@ const GROUP_OPTIONS: Record<TaskViewId, SearchableSelectOption[]> = {
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
 
 type Menu = { kind: "create" | "columns"; x: number; y: number };
 
@@ -303,19 +303,19 @@ export function TasksView({
         }),
       );
     if (menu?.kind === "columns" && grouping.board === "project")
-      return groupTasksByProject(visible).map(
-        (group): ExplorerMenuItem => ({
-          kind: "item",
-          id: group.key,
-          label: group.label,
-          checked: !board.hiddenProjects.includes(group.key),
-        }),
-      );
+      return groupTasksByProject(visible).map((group): ExplorerMenuItem => ({
+        kind: "item",
+        id: group.key,
+        label: group.label,
+        count: group.tasks.length,
+        checked: !board.hiddenProjects.includes(group.key),
+      }));
     if (menu?.kind === "columns")
       return TASK_STATUSES.map((status): ExplorerMenuItem => ({
         kind: "item",
         id: status,
         label: TASK_STATUS_LABELS[status],
+        count: visible.filter((task) => task.status === status).length,
         checked: !board.hidden.includes(status),
       }));
     return [];
@@ -467,6 +467,14 @@ export function TasksView({
             strokeWidth={1.75}
           />
           <span className="min-w-0 truncate text-content">Tasks</span>
+          {loading && tasks.length === 0 ? null : (
+            <ResultCount
+              shown={visible.length}
+              total={tasks.length}
+              filtered={hasActiveFilters(filters)}
+              noun="tasks"
+            />
+          )}
         </div>
         {IS_MAC ? null : <WindowControls />}
       </div>

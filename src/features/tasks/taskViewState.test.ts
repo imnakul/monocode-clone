@@ -218,12 +218,13 @@ describe("grouping", () => {
       task({ id: "w1", projectCwd: "E:/Work/Alpha" }),
       task({ id: "w2", projectCwd: "e:\\work\\alpha\\" }),
     ]);
-    expect(groups.map((group) => [group.label, group.tasks.map((t) => t.id)]))
-      .toEqual([
-        ["Alpha", ["w1", "w2"]],
-        ["zeta", ["z"]],
-        ["Personal", ["p"]],
-      ]);
+    expect(
+      groups.map((group) => [group.label, group.tasks.map((t) => t.id)]),
+    ).toEqual([
+      ["Alpha", ["w1", "w2"]],
+      ["zeta", ["z"]],
+      ["Personal", ["p"]],
+    ]);
     expect(groups[2]).toMatchObject({
       key: "project:personal",
       projectCwd: null,
@@ -232,9 +233,9 @@ describe("grouping", () => {
 
   it("returns one group for no grouping and readable labels for status groups", () => {
     const tasks = [task({ id: "a", status: "review" }), task({ id: "b" })];
-    expect(groupTasks(tasks, "none").map((group) => group.tasks.length)).toEqual(
-      [2],
-    );
+    expect(
+      groupTasks(tasks, "none").map((group) => group.tasks.length),
+    ).toEqual([2]);
     expect(groupTasks(tasks, "status").map((group) => group.label)).toEqual([
       "Todo",
       "Review",

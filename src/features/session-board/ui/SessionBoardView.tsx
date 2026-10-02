@@ -7,6 +7,7 @@ import {
   BoardColumn,
   BoardColumns,
 } from "../../../shared/ui/board/BoardColumns";
+import { ResultCount } from "../../../shared/ui/ResultCount";
 import {
   SearchableSelect,
   type SearchableSelectOption,
@@ -134,38 +135,54 @@ export function SessionBoardView({
     }
     return [...paths.values()];
   }, [cards, recents, cwd]);
-  const visible = visibleBoardCards(cards).filter(
-    (card) =>
-      (!project || pathKey(project) === pathKey(card.cwd)) &&
-      (!status || card.status === status) &&
-      (!query.trim() ||
-        [card.title, card.cwd, card.model, card.harness, card.reason ?? ""]
-          .join(" ")
-          .toLowerCase()
-          .includes(query.trim().toLowerCase())),
+  const boardCards = visibleBoardCards(cards);
+  const needle = query.trim().toLowerCase();
+  const matchesProject = (card: BoardCard) =>
+    !project || pathKey(project) === pathKey(card.cwd);
+  const matchesStatus = (card: BoardCard) => !status || card.status === status;
+  const matchesQuery = (card: BoardCard) =>
+    !needle ||
+    [card.title, card.cwd, card.model, card.harness, card.reason ?? ""]
+      .join(" ")
+      .toLowerCase()
+      .includes(needle);
+  const visible = boardCards.filter(
+    (card) => matchesProject(card) && matchesStatus(card) && matchesQuery(card),
   );
-  const projectOptions = useMemo<SearchableSelectOption[]>(
-    () => [
-      { value: "", label: "All projects" },
-      // Normalized keys so Windows drive-letter casing matches card paths.
-      ...projects.map((path) => ({
-        value: pathKey(path),
-        label: projectName(path),
-        keywords: path,
-      })),
-    ],
-    [projects],
-  );
-  const statusOptions = useMemo<SearchableSelectOption[]>(
-    () => [
-      { value: "", label: "All statuses" },
-      ...Object.entries(BOARD_COLUMNS).map(([value, label]) => ({
-        value,
-        label,
-      })),
-    ],
-    [],
-  );
+  // Faceted counts: each dropdown applies every filter except its own.
+  const projectCounts = new Map<string, number>();
+  let anyProjectCount = 0;
+  for (const card of boardCards) {
+    if (!matchesStatus(card) || !matchesQuery(card)) continue;
+    anyProjectCount += 1;
+    const key = pathKey(card.cwd);
+    projectCounts.set(key, (projectCounts.get(key) ?? 0) + 1);
+  }
+  const statusCounts = new Map<string, number>();
+  let anyStatusCount = 0;
+  for (const card of boardCards) {
+    if (!matchesProject(card) || !matchesQuery(card)) continue;
+    anyStatusCount += 1;
+    statusCounts.set(card.status, (statusCounts.get(card.status) ?? 0) + 1);
+  }
+  const projectOptions: SearchableSelectOption[] = [
+    { value: "", label: "All projects", count: anyProjectCount },
+    // Normalized keys so Windows drive-letter casing matches card paths.
+    ...projects.map((path) => ({
+      value: pathKey(path),
+      label: projectName(path),
+      keywords: path,
+      count: projectCounts.get(pathKey(path)) ?? 0,
+    })),
+  ];
+  const statusOptions: SearchableSelectOption[] = [
+    { value: "", label: "All statuses", count: anyStatusCount },
+    ...Object.entries(BOARD_COLUMNS).map(([value, label]) => ({
+      value,
+      label,
+      count: statusCounts.get(value) ?? 0,
+    })),
+  ];
   const runAction = async (action: () => Promise<void>) => {
     setBusy(true);
     setActionError(null);
@@ -229,6 +246,14 @@ export function SessionBoardView({
             strokeWidth={1.75}
           />
           <span className="min-w-0 truncate text-content">Session board</span>
+          {loading ? null : (
+            <ResultCount
+              shown={visible.length}
+              total={boardCards.length}
+              filtered={Boolean(needle || project || status)}
+              noun="sessions"
+            />
+          )}
         </div>
         <button
           type="button"

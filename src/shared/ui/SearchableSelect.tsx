@@ -16,6 +16,8 @@ export type SearchableSelectOption = {
   value: string;
   label: string;
   keywords?: string;
+  /** Optional item count shown right-aligned and muted (e.g. matching tasks). */
+  count?: number;
 };
 
 export function SearchableSelect({
@@ -284,6 +286,11 @@ export function SearchableSelect({
                     role="option"
                     tabIndex={-1}
                     aria-selected={isSelected}
+                    aria-label={
+                      option.count !== undefined
+                        ? `${option.label}, ${option.count}`
+                        : undefined
+                    }
                     onMouseDown={(event) => event.preventDefault()}
                     onMouseEnter={() => setActive(index)}
                     onClick={() => pick(option.value)}
@@ -300,9 +307,14 @@ export function SearchableSelect({
                         <Check className="size-3" strokeWidth={2} />
                       ) : null}
                     </span>
-                    <span className="min-w-0 flex-1 truncate">
+                    <span data-option-label className="min-w-0 flex-1 truncate">
                       {option.label}
                     </span>
+                    {option.count !== undefined ? (
+                      <span className="shrink-0 text-[11px] tabular-nums text-content/40">
+                        {option.count}
+                      </span>
+                    ) : null}
                   </button>
                 );
               })

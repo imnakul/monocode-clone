@@ -16,7 +16,8 @@ export function TaskGroupIcon({
   marks: ProjectMarks;
 }) {
   if (group.status) return <TaskStatusIcon status={group.status} />;
-  if (group.projectCwd) return <ProjectIcon cwd={group.projectCwd} {...marks} />;
+  if (group.projectCwd)
+    return <ProjectIcon cwd={group.projectCwd} {...marks} />;
   return <PersonalIcon />;
 }
 

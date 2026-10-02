@@ -103,7 +103,12 @@ const pick = async (trigger: string, option: string) => {
   );
   await act(async () =>
     [...document.querySelectorAll<HTMLElement>('[role="option"]')]
-      .find((entry) => entry.textContent?.trim() === option)!
+      .find(
+        (entry) =>
+          (
+            entry.querySelector("[data-option-label]") ?? entry
+          ).textContent?.trim() === option,
+      )!
       .click(),
   );
 };
@@ -222,7 +227,9 @@ const projectOptionLabels = async () => {
   await act(async () => projectTrigger().click());
   const labels = [
     ...document.querySelectorAll<HTMLElement>('[role="option"]'),
-  ].map((entry) => entry.textContent?.trim());
+  ].map((entry) =>
+    (entry.querySelector("[data-option-label]") ?? entry).textContent?.trim(),
+  );
   await act(async () => projectTrigger().click());
   return labels;
 };
@@ -300,9 +307,7 @@ it("fills by default, resizes every column to a fixed width, persists it and res
       new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true }),
     ),
   );
-  expect(localStorage.getItem("monocode.sessionBoard.columnWidth")).toBe(
-    "272",
-  );
+  expect(localStorage.getItem("monocode.sessionBoard.columnWidth")).toBe("272");
   expect(
     container.querySelector<HTMLElement>('[aria-label="Done column"]')!.style
       .width,
@@ -321,4 +326,36 @@ it("draws session cards on the translucent board surface, not an opaque one", ()
   )!;
   expect(wrapper.className).toContain("bg-content/3");
   expect(wrapper.className).not.toContain("bg-background-base");
+});
+
+it("shows the session total in the header and faceted counts in the filters", async () => {
+  render();
+  const count = () =>
+    container.querySelector<HTMLElement>(
+      '[data-tauri-drag-region] [role="status"]',
+    );
+  expect(count()?.textContent).toBe("3");
+  await pick("Board status", "Done");
+  expect(count()?.textContent).toBe("1 of 3");
+  await act(async () =>
+    container
+      .querySelector<HTMLElement>('button[aria-label^="Board status:"]')!
+      .click(),
+  );
+  const statusCounts = Object.fromEntries(
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')].map(
+      (option) => {
+        return [
+          option.querySelector("[data-option-label]")?.textContent?.trim(),
+          Number(option.querySelector(".tabular-nums")?.textContent),
+        ];
+      },
+    ),
+  );
+  expect(statusCounts).toMatchObject({
+    "All statuses": 3,
+    Progress: 1,
+    Done: 1,
+    Blocked: 0,
+  });
 });

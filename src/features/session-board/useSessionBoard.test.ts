@@ -114,9 +114,10 @@ it("captures an already-running session after StrictMode effect replay without a
   )!;
   await act(async () => projectTrigger.click());
   expect(
-    Array.from(
-      document.querySelectorAll('[role="option"]'),
-      (option) => option.textContent?.trim(),
+    Array.from(document.querySelectorAll('[role="option"]'), (option) =>
+      (
+        option.querySelector("[data-option-label]") ?? option
+      ).textContent?.trim(),
     ),
   ).toContain("monocode");
   await act(async () => projectTrigger.click());

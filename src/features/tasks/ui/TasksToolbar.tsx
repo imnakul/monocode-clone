@@ -1,11 +1,12 @@
 import { useMemo, type ReactNode } from "react";
-import { projectName } from "../../../shared/lib/paths";
+import { pathKey, projectName } from "../../../shared/lib/paths";
 import { Search, SlidersHorizontal, X } from "../../../shared/ui/icons";
 import {
   SearchableSelect,
   type SearchableSelectOption,
 } from "../../../shared/ui/SearchableSelect";
 import { normalizeNoteTags } from "../../notes/notes";
+import { taskFacetCounts } from "../taskFacets";
 import {
   TASK_STATUSES,
   TASK_STATUS_LABELS,
@@ -47,34 +48,44 @@ export function TasksToolbar({
   /** View controls pinned to the right end of the row. */
   trailing?: ReactNode;
 }) {
+  const facets = useMemo(
+    () => taskFacetCounts(tasks, filters),
+    [tasks, filters],
+  );
   const statusOptions = useMemo<SearchableSelectOption[]>(
     () => [
-      { value: "", label: "All statuses" },
+      { value: "", label: "All statuses", count: facets.anyStatus },
       ...TASK_STATUSES.map((status) => ({
         value: status,
         label: TASK_STATUS_LABELS[status],
+        count: facets.status.get(status) ?? 0,
       })),
     ],
-    [],
+    [facets],
   );
   const projectOptions = useMemo<SearchableSelectOption[]>(
     () => [
-      { value: "", label: "All projects" },
-      { value: PERSONAL, label: "Personal" },
+      { value: "", label: "All projects", count: facets.anyProject },
+      { value: PERSONAL, label: "Personal", count: facets.personal },
       ...projects.map((path) => ({
         value: path,
         label: projectName(path),
         keywords: path,
+        count: facets.project.get(pathKey(path)) ?? 0,
       })),
     ],
-    [projects],
+    [projects, facets],
   );
   const tagOptions = useMemo<SearchableSelectOption[]>(
     () =>
       normalizeNoteTags(tasks.flatMap((task) => task.tags))
         .sort((a, b) => a.localeCompare(b))
-        .map((tag) => ({ value: tag, label: `#${tag}` })),
-    [tasks],
+        .map((tag) => ({
+          value: tag,
+          label: `#${tag}`,
+          count: facets.tag.get(tag) ?? 0,
+        })),
+    [tasks, facets],
   );
   const tags = filters.tags ?? [];
   const projectValue =
