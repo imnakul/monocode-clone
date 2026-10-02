@@ -7,6 +7,10 @@ import {
   type Task,
 } from "../features/tasks";
 import { TaskTabActionsContext } from "../features/tasks/ui/TaskTabActionsContext";
+import { sessionTodoManager, editableSessionTodo, type SessionTodoHost } from "../features/session-board/sessionTodos";
+import { SESSION_MANAGER_COMPOSE_EVENT } from "../features/session-board/ui/SessionManagerCapture";
+import { initialQuickChoice, parseQuickLaunch } from "../features/quick-composer/model/quickComposer";
+import { SessionTodoComposer } from "../features/session-board/ui/SessionTodoComposer";
 import { acceptQuickLaunch } from "./model/quickLaunchSession";
 import {
   cancelScheduledFlush,
@@ -1114,6 +1118,7 @@ function Workspace({
   const openingInboxSessions = useRef(new Map<string, Promise<string>>());
   const [recordsViewOpen, setRecordsViewOpen] = useState(false);
   const [recordKind, setRecordKind] = useState<"notes" | "tasks" | "kanban">("notes");
+  const [todoComposer, setTodoComposer] = useState<{ id: string; launch: QuickLaunch; editing?: boolean; revision?: string } | null>(null);
   const boardOpen = recordsViewOpen && recordKind === "kanban";
   const [boardWorkspaceHost, setBoardWorkspaceHost] = useState<HTMLElement | null>(null);
   const [boardPaneVisible, setBoardPaneVisible] = useState(false);
@@ -7382,7 +7387,7 @@ function Workspace({
           );
           if (operatorCommand.matched) {
             const cli = `${shellPath(await invoke<string>("app_cli_path"))} app`;
-            sendText += `\n\n<monocode_app>\nThe user's Operator command enables app access in this thread, including later turns without the command. You can start session tabs or split session panes right or down, list and create project worktrees, choose a new session's checkout, read and continue other project sessions, save unsent drafts, organize session folders, and read or write saved notes and tasks through its local CLI. Tasks support status, tags, Personal/project association, source links, completion and deletion; tasks.list filters by status/statuses, tags (all or any), projectCwd and query with pagination. Run \`${cli} --help\` for exact commands and JSON fields, then use it as needed for the user's request. When reading another session, start with its latest two or three user/assistant exchanges. Request older exchanges with nextBefore or a larger excerpt only if needed. The CLI uses a session credential already in your environment; never print it. New sessions inherit this session's permission mode unless runtimeMode is set explicitly. For a new session with a draft, call sessions.start with its prompt and draft:true; do not submit a seed prompt. The returned ID can be used as besideSessionId to split its pane again or moved into a folder immediately. A normal sessions.start submits its prompt but returns after acceptance, so do not wait for that agent to finish before organizing it.\n</monocode_app>`;
+            sendText += `\n\n<monocode_app>\nThe user's Operator command enables app access in this thread, including later turns without the command. You can start session tabs or split session panes right or down, list and create project worktrees, choose a new session's checkout, read and continue other project sessions, save unsent drafts, organize session folders, and read or write saved notes and tasks through its local CLI. Session Manager supports prepared Todos with session_manager.list/read/write/delete/start, plus run-scoped remove/clear of Done and Cancelled/Stopped cards. Saving a Todo does not launch an agent; start it explicitly. Todos preserve project, provider/model/settings/effort, permissions, prompt, files/images, and workspace/base. Operator can manage Todos across local projects via projectCwd. Task Manager uses the existing tasks.* actions. Tasks support status, tags, Personal/project association, source links, completion and deletion; tasks.list filters by status/statuses, tags (all or any), projectCwd and query with pagination. Run \`${cli} --help\` for exact commands and JSON fields, then use it as needed for the user's request. When reading another session, start with its latest two or three user/assistant exchanges. Request older exchanges with nextBefore or a larger excerpt only if needed. The CLI uses a session credential already in your environment; never print it. New sessions inherit this session's permission mode unless runtimeMode is set explicitly. For a new session with a draft, call sessions.start with its prompt and draft:true; do not submit a seed prompt. The returned ID can be used as besideSessionId to split its pane again or moved into a folder immediately. A normal sessions.start submits its prompt but returns after acceptance, so do not wait for that agent to finish before organizing it.\n</monocode_app>`;
           }
           await sendTurn(sendText);
           acceptEditedResend();
@@ -7821,6 +7826,140 @@ function Workspace({
   saveDraftRef.current = onSaveDraft;
   const ensureOpenSessionRef = useRef(ensureOpenSession);
   ensureOpenSessionRef.current = ensureOpenSession;
+
+  const todoHostRef = useRef<SessionTodoHost>(null!);
+  todoHostRef.current = {
+    read: async (id) =>
+      sessionsRef.current.find((session) => session.id === id) ??
+      (await getSession(id)),
+    save: async (session) => {
+      const current = sessionsRef.current.find((item) => item.id === session.id);
+      if (current && !editableSessionTodo(current))
+        throw new Error("This session has already started");
+      if (removingSessionIds.current.has(session.id))
+        throw new Error("Session is being changed; try again");
+      removingSessionIds.current.add(session.id);
+      // Update an open draft immediately; unopened Todos stay off the tab strip.
+      if (current)
+        flushSync(() => {
+          const next = sessionsRef.current.map((item) =>
+            item.id === session.id ? session : item,
+          );
+          sessionsRef.current = next;
+          setSessions(next);
+        });
+      try {
+        const summary = await upsertSession(session);
+        if (!summary) throw new Error("The Todo could not be saved");
+        invalidateLoadedSession(session.id);
+        void refreshHistory(sidebarCwdRef.current);
+      } catch (error) {
+        if (
+          current &&
+          sessionsRef.current.find((item) => item.id === session.id) === session
+        ) {
+          const next = sessionsRef.current.map((item) =>
+            item.id === session.id ? current : item,
+          );
+          sessionsRef.current = next;
+          setSessions(next);
+        }
+        throw error;
+      } finally {
+        removingSessionIds.current.delete(session.id);
+      }
+    },
+    erase: async (session) => {
+      const current = sessionsRef.current.find((item) => item.id === session.id);
+      if (current && !editableSessionTodo(current))
+        throw new Error("This session has already started");
+      if (removingSessionIds.current.has(session.id))
+        throw new Error("Session is being changed; try again");
+      removingSessionIds.current.add(session.id);
+      try {
+        pendingPersist.current.delete(session.id);
+        await discardDraftSessionRecord(session.id);
+        // Retain any open pane as an empty composer; no active conversation is deleted.
+        if (current)
+          flushSync(() => {
+            const next = sessionsRef.current.map((item) =>
+              item.id === session.id
+                ? { ...item, blocks: [], title: HARNESS_LABEL[item.harness] }
+                : item,
+            );
+            sessionsRef.current = next;
+            setSessions(next);
+          });
+        lastPersisted.current.delete(session.id);
+        lastPersistedUserBlock.current.delete(session.id);
+        invalidateLoadedSession(session.id);
+        void refreshHistory(sidebarCwdRef.current);
+      } finally {
+        removingSessionIds.current.delete(session.id);
+      }
+    },
+    open: async (id) => {
+      const session = await ensureOpenSessionRef.current(id);
+      if (
+        session &&
+        !tabsRef.current.some((tab) => leafIds(tab.layout).includes(id))
+      )
+        appendTab(newTab(id), session.cwd);
+      return session;
+    },
+    submit: async (id, prompt, attachments, options) => {
+      const accepted = await submitSessionRef.current(
+        id,
+        prompt,
+        attachments,
+        options,
+      );
+      // Publish accepted draft promotion before the next queued start checks it.
+      flushSync(() => setSessions((current) => current));
+      return accepted;
+    },
+  };
+  const todoManagerRef = useRef<ReturnType<typeof sessionTodoManager> | null>(
+    null,
+  );
+  if (!todoManagerRef.current)
+    todoManagerRef.current = sessionTodoManager({
+      read: (...args) => todoHostRef.current.read(...args),
+      save: (...args) => todoHostRef.current.save(...args),
+      erase: (...args) => todoHostRef.current.erase(...args),
+      open: (...args) => todoHostRef.current.open(...args),
+      submit: (...args) => todoHostRef.current.submit(...args),
+    });
+  const todoManager = todoManagerRef.current;
+  useEffect(() => {
+    const compose = (event: Event) => {
+      const launch = parseQuickLaunch((event as CustomEvent).detail);
+      if (launch) setTodoComposer({ id: crypto.randomUUID(), launch });
+    };
+    window.addEventListener(SESSION_MANAGER_COMPOSE_EVENT, compose);
+    return () =>
+      window.removeEventListener(SESSION_MANAGER_COMPOSE_EVENT, compose);
+  }, []);
+  const addSessionTodo = (cwd = projectCwd) =>
+    setTodoComposer({
+      id: crypto.randomUUID(),
+      launch: {
+        prompt: "",
+        cwd,
+        ...initialQuickChoice(),
+        runtimeMode: "supervised",
+        reveal: false,
+      },
+    });
+  const editSessionTodo = async (id: string) => {
+    const {
+      id: _id,
+      title: _title,
+      revision,
+      ...launch
+    } = await todoManager.read(id);
+    setTodoComposer({ id, launch, editing: true, revision });
+  };
 
   const appReceipts = useRef(
     new Map<string, { signature: string; promise: Promise<unknown> }>(),
@@ -9973,6 +10112,7 @@ function Workspace({
             worktrees: (cwd) => listWorktrees(cwd),
             createWorktree: (cwd, branch, base, existing) =>
               createWorktree(cwd, branch, base, existing),
+            sessionManager: todoManagerRef.current!,
             tasks: loadTasks,
             task: getTask,
             saveTask: upsertTask,
@@ -11855,6 +11995,10 @@ function Workspace({
                   cwd={projectCwd}
                   recents={recents}
                   cards={sessionBoard.cards}
+                  onAddTodo={addSessionTodo}
+                  onEditTodo={editSessionTodo}
+                  onStartTodo={async (id) => { await todoManager.start(id); }}
+                  onDeleteTodo={async (id) => { await todoManager.delete(id); }}
                   loading={!sessionBoard.ready}
                   error={sessionBoard.error}
                   activeSessionId={active?.id}
@@ -11885,6 +12029,8 @@ function Workspace({
                   onOpenSession={onOpenAutomationSession}
                 />
               ) : null}
+              {todoComposer ? <SessionTodoComposer key={todoComposer.id} initialLaunch={todoComposer.launch} editing={todoComposer.editing}
+                onClose={() => setTodoComposer(null)} onSave={async (launch) => { await todoManager.write(todoComposer.id, launch, { edit: todoComposer.editing, expectedRevision: todoComposer.revision }); }} /> : null}
               {settingsOpen ? (
                 <SettingsView
                   section={settingsSection}

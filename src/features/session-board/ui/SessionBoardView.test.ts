@@ -22,7 +22,7 @@ const row = (
   cwd = "/projects/one",
 ): BoardCard => ({
   sessionId: id,
-  runId: `run-${id}`,
+  runId: status === "todo" ? `draft:run-${id}` : `run-${id}`,
   title: `Session ${id}`,
   cwd,
   harness: "claude",
@@ -127,12 +127,12 @@ it("filters by project and status and clears only the filtered terminal cards", 
   expect(card("blocked")).toBeTruthy();
   expect(container.querySelector('[data-board-card="one"]')).toBeNull();
 });
-it("uses the Session board header and toolbar without native selects", async () => {
+it("uses the Session Manager header and toolbar without native selects", async () => {
   render();
   expect(
     container.querySelector('[role="region"]')?.getAttribute("aria-label"),
-  ).toBe("Session board");
-  expect(container.textContent).toContain("Session board");
+  ).toBe("Session Manager");
+  expect(container.textContent).toContain("Session Manager");
   expect(container.textContent).not.toContain("Kanban");
   expect(container.querySelector("select")).toBeNull();
   const resetButton = () =>
@@ -358,4 +358,33 @@ it("shows the session total in the header and faceted counts in the filters", as
     Done: 1,
     Blocked: 0,
   });
+});
+it("adds into the selected project, edits/deletes Todos, and starts beside the retained board", async () => {
+  props.cwd = "/projects/current";
+  props.cards = [row("prepared", "todo", "/projects/two")];
+  props.onAddTodo = vi.fn(); props.onEditTodo = vi.fn(async () => {}); props.onStartTodo = vi.fn(async () => {}); props.onDeleteTodo = vi.fn(async () => {});
+  render();
+  await pick("Board project", "two");
+  await act(async () => button("Add Todo").click());
+  expect(props.onAddTodo).toHaveBeenCalledWith("/projects/two");
+  await act(async () => button("Edit Session prepared").click());
+  expect(props.onEditTodo).toHaveBeenCalledWith("prepared");
+  await act(async () => button("Start Session prepared").click());
+  expect(props.onStartTodo).toHaveBeenCalledWith("prepared");
+  expect(props.onOpenSession).toHaveBeenCalledWith("prepared");
+  expect(props.onPaneVisible).toHaveBeenLastCalledWith(true);
+  expect(card("prepared")).toBeTruthy();
+  await act(async () => button("Delete Todo Session prepared").click());
+  expect(props.onDeleteTodo).toHaveBeenCalledWith("prepared");
+  expect(hideBoardCards).not.toHaveBeenCalled();
+});
+it("keeps a rejected Todo start on the board with a readable error and retry action", async () => {
+  props.cards = [row("prepared", "todo")]; props.onStartTodo = vi.fn().mockRejectedValueOnce(new Error("Provider unavailable")).mockResolvedValueOnce(undefined);
+  render();
+  await act(async () => button("Start Session prepared").click());
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Provider unavailable");
+  expect(props.onOpenSession).not.toHaveBeenCalled();
+  expect(card("prepared")).toBeTruthy();
+  await act(async () => button("Start Session prepared").click());
+  expect(props.onStartTodo).toHaveBeenCalledTimes(2); expect(props.onOpenSession).toHaveBeenCalledWith("prepared");
 });

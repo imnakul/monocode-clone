@@ -7,6 +7,13 @@ export type MonoCodeToolCall = {
 };
 
 const ACTION_LABELS: Record<string, string> = {
+  "session_manager.list": "List Session Manager cards",
+  "session_manager.read": "Read a Session Manager Todo",
+  "session_manager.write": "Save a Session Manager Todo",
+  "session_manager.start": "Start a Session Manager Todo",
+  "session_manager.delete": "Delete a Session Manager Todo",
+  "session_manager.remove": "Remove a Session Manager card",
+  "session_manager.clear": "Clear terminal Session Manager cards",
   "models.list": "List models",
   "sessions.list": "List sessions",
   "sessions.read": "Read a session",

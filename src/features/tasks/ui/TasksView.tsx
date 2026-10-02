@@ -448,7 +448,7 @@ export function TasksView({
     <div
       ref={root}
       role="region"
-      aria-label="Tasks"
+      aria-label="Task Manager"
       data-app-tasks
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
@@ -466,7 +466,7 @@ export function TasksView({
             className="size-3.5 shrink-0 text-content/45"
             strokeWidth={1.75}
           />
-          <span className="min-w-0 truncate text-content">Tasks</span>
+          <span className="min-w-0 truncate text-content">Task Manager</span>
           {loading && tasks.length === 0 ? null : (
             <ResultCount
               shown={visible.length}

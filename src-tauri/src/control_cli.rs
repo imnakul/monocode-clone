@@ -82,7 +82,14 @@ const ACTIONS: [&str; 12] = [
     "list", "delegate", "get", "steer", "message", "retry", "cancel", "wait", "review", "finish",
     "respond", "answer",
 ];
-const APP_ACTIONS: [&str; 17] = [
+const APP_ACTIONS: [&str; 24] = [
+    "session_manager.list",
+    "session_manager.read",
+    "session_manager.write",
+    "session_manager.delete",
+    "session_manager.start",
+    "session_manager.remove",
+    "session_manager.clear",
     "models.list",
     "sessions.list",
     "sessions.read",
@@ -150,6 +157,33 @@ Actions:
   folders.list   {}  Folders in your current project.
   folders.move   {"sessionId":"...","folderId":"..."}
                   Or use "newFolderName":"Research" to create a folder.
+  session_manager.list {"status":"todo","projectCwd":"/project","query":"fix",
+                        "limit":30,"offset":0}
+            List persistent Session Manager cards across projects. Statuses:
+            todo, in_progress, needs_attention, blocked, done, stopped.
+  session_manager.read {"id":"..."}
+            Read an unsent Todo including its prompt, attachments and settings.
+  session_manager.write {"projectCwd":"/project","prompt":"Implement the spec",
+                         "harness":"codex","model":"<exact model ID>",
+                         "effort":"medium","runtimeMode":"supervised"}
+            Save without starting. Supply id to partially edit an unsent Todo.
+            Optional title, modelSettings, workspaceMode (current/worktree),
+            worktreeBase, worktreeCwd, and attachments (up to 20 descriptors:
+            id,name,mimeType,kind:image|audio|file,size,path). Images need a
+            vision-capable provider. Use models.list for effort/setting values.
+            projectCwd defaults to this project; model/permissions to this thread.
+            Select an existing branch with worktreeCwd, or a deferred new
+            worktree base with workspaceMode:worktree and worktreeBase.
+            Operator cannot enable /operator in another session.
+  session_manager.start {"id":"..."}
+            Start a saved draft once. Retrying an already started ID never resends.
+  session_manager.delete {"id":"..."}
+            Delete an unsent Todo. Started conversations cannot be deleted here.
+  session_manager.remove {"id":"<sessionId>","runId":"<from list>"}
+            Remove a Done/Cancelled/Stopped board card; retain its session.
+  session_manager.clear {"status":"done","projectCwd":"/project"}
+            Clear done or stopped cards, optionally within one project.
+
   notes.list     {"limit":30,"offset":0}  Titles and short previews only.
   notes.read     {"id":"..."}  Full body of one note.
   notes.write    {"title":"Plan","body":"Markdown","tags":["work"]}
@@ -544,6 +578,30 @@ mod tests {
         // A backslash escapes in a POSIX shell, so bare would rewrite the path.
         assert_eq!(quoted("/Users/a\\b/MonoCode"), "'/Users/a\\b/MonoCode'");
         assert_eq!(quoted("/Users/it's/MonoCode"), r"'/Users/it'\''s/MonoCode'");
+    }
+    #[test]
+    fn session_manager_actions_are_app_only_and_document_prepared_todos() {
+        for action in [
+            "session_manager.list",
+            "session_manager.read",
+            "session_manager.write",
+            "session_manager.start",
+            "session_manager.delete",
+            "session_manager.remove",
+            "session_manager.clear",
+        ] {
+            assert!(matches!(
+                parse_args_for(&args(&[action, "--json", r#"{"id":"todo"}"#]), true),
+                Ok(Parsed::Call(_, _, _))
+            ));
+            assert!(parse_args_for(&args(&[action]), false).is_err());
+            assert!(app_help().contains(action));
+        }
+        assert!(app_help().contains("Save without starting"));
+        assert!(app_help().contains("Retrying"));
+        assert!(app_help().contains("runId"));
+        assert!(app_help().contains("attachments"));
+        assert!(app_help().contains("worktreeBase"));
     }
     #[test]
     fn app_mode_exposes_only_app_actions_and_safe_request_ids() {

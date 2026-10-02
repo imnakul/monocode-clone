@@ -1,4 +1,7 @@
+import { BranchPicker } from "../../source-control/ui/BranchPicker";
 import { IS_MAC, MOD } from "../../../platform/tauri/platform";
+import { WorkspacePicker } from "../../workspace/ui/WorkspacePicker";
+import { isHarnessAvailable } from "../../../integrations/harness/core/availability";
 import { QuickWorkspaceControls } from "./QuickWorkspaceControls";
 import {
   workspaceForProject,
@@ -42,6 +45,7 @@ import {
 import {
   DEFAULT_RUNTIME_MODE,
   HARNESS_TITLE,
+  HARNESSES,
   type HarnessId,
   type RuntimeMode,
   harnessSupportsAttachments,
@@ -110,19 +114,54 @@ export function quickPromptMode(text: string): {
   return { prompt: text.slice(match![0].length), mode };
 }
 
-export function QuickComposer({ onShown }: { onShown: () => void }) {
-  const [projects, setProjects] = useState(loadQuickProjects);
+export function QuickComposer({
+  onShown,
+  initialLaunch,
+  onSubmitLaunch,
+  onDismiss,
+  submitLabel = "Save Todo",
+}: {
+  onShown: () => void;
+  initialLaunch?: QuickLaunch;
+  onSubmitLaunch?: (launch: QuickLaunch) => Promise<void>;
+  onDismiss?: () => void;
+  submitLabel?: string;
+}) {
+  const embedded = !!onSubmitLaunch;
+  const [projects, setProjects] = useState(() => [
+    ...new Set([
+      ...(initialLaunch?.cwd ? [initialLaunch.cwd] : []),
+      ...loadQuickProjects(),
+    ]),
+  ]);
   const [projectAppearance, setProjectAppearance] = useState(
     loadQuickProjectAppearance,
   );
   const [availableHarnesses, setAvailableHarnesses] = useState<
     HarnessId[] | null
-  >(null);
-  const [cwd, setCwd] = useState(() => initialQuickProject(projects));
-  const [choice, setChoice] = useState(initialQuickChoice);
+  >(embedded ? HARNESSES.filter(isHarnessAvailable) : null);
+  const [cwd, setCwd] = useState(
+    () => initialLaunch?.cwd ?? initialQuickProject(projects),
+  );
+  const [choice, setChoice] = useState(() =>
+    initialLaunch
+      ? {
+          harness: initialLaunch.harness,
+          model: initialLaunch.model ?? initialQuickChoice().model,
+        }
+      : initialQuickChoice(),
+  );
   const [workspaceChoice, setWorkspaceChoice] = useState<QuickWorkspace>({
     cwd,
-    mode: "current",
+    mode: initialLaunch?.workspaceMode ?? "current",
+    base: initialLaunch?.worktreeBase,
+    ...(initialLaunch?.worktreeCwd
+      ? {
+          tree: {
+            path: initialLaunch.worktreeCwd,
+          } as import("../../source-control/model/worktrees").Worktree,
+        }
+      : {}),
   });
   const workspace = workspaceForProject(workspaceChoice, cwd);
   const [gitOpen, setGitOpen] = useState(false);
@@ -131,10 +170,17 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
     subscribeModels,
     getModelSnapshot,
   );
-  const [modelSettings, setModelSettings] = useState(loadLastModelSettings);
-  const [runtimeMode, setRuntimeMode] =
-    useState<RuntimeMode>(DEFAULT_RUNTIME_MODE);
-  const [prompt, setPrompt] = useState("");
+  const [modelSettings, setModelSettings] = useState(
+    () => initialLaunch?.modelSettings ?? loadLastModelSettings(),
+  );
+  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
+    initialLaunch?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
+  );
+  const [prompt, setPrompt] = useState(() =>
+    initialLaunch?.intent
+      ? `/${initialLaunch.intent} ${initialLaunch.prompt}`
+      : (initialLaunch?.prompt ?? ""),
+  );
   const leadingMode = leadingModeCommand(prompt, MODE_NAMES);
   const [slash, setSlash] = useState<SlashToken | null>(null);
   const [picker, setPicker] = useState<
@@ -148,6 +194,8 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
   const attachments = useQuickAttachments(
     attachmentsSupported && !busy,
     setError,
+    initialLaunch?.attachments,
+    !embedded,
   );
   const frameRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -169,6 +217,10 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
   // Projects and defaults can change in the workspace between shows, so each
   // show re-reads them. The draft survives a dismiss, like Spotlight's query.
   useEffect(() => {
+    if (embedded) {
+      focusPrompt();
+      return;
+    }
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listen(QUICK_COMPOSER_SHOWN_EVENT, () => {
@@ -199,10 +251,11 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
       disposed = true;
       unlisten?.();
     };
-  }, [focusPrompt, onShown]);
+  }, [focusPrompt, onShown, embedded]);
 
   // Model lists come from the CLIs, which only workspace windows talk to.
   useEffect(() => {
+    if (embedded) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listen(QUICK_COMPOSER_CATALOG_EVENT, (event) => {
@@ -223,7 +276,7 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [embedded]);
 
   // Scroll only the list. scrollIntoView also scrolls the clipped card/root
   // while the native window is still catching up with the expanded content.
@@ -254,7 +307,7 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
       setSlash(null);
     }
   }, []);
-  useQuickPickerMotion(frameRef, pickerRef, picker);
+  useQuickPickerMotion(frameRef, pickerRef, picker, !embedded);
 
   const projectOptions = useMemo(
     () => filterQuickProjects(projects, picker === "project" ? query : ""),
@@ -343,7 +396,10 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
   };
 
   const dismiss = () => {
-    void invoke("quick_composer_dismiss");
+    if (!busy) {
+      if (onDismiss) onDismiss();
+      else void invoke("quick_composer_dismiss");
+    }
   };
 
   const submit = async (reveal: boolean) => {
@@ -379,7 +435,9 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
         ...(await quickWorkspaceLaunch(workspace)),
         reveal,
       };
-      await invoke("quick_composer_submit", { request });
+      if (onSubmitLaunch)
+        await onSubmitLaunch({ ...request, draft: true, reveal: false });
+      else await invoke("quick_composer_submit", { request });
       rememberQuickProject(cwd);
       saveLastModelSettings(settings);
       saveRecentModelChoice(picked.harness, picked.model);
@@ -497,10 +555,11 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
       className="relative flex max-h-[520px] flex-col overflow-clip rounded-[16px] border border-content/10 bg-background-base/45 text-content"
     >
       <div
+        hidden={embedded}
         title="Drag to move"
         className="group absolute inset-x-0 top-0 z-10 flex h-3 cursor-grab items-start justify-center pt-1 active:cursor-grabbing"
         onMouseDown={(event) => {
-          if (event.button !== 0) return;
+          if (embedded || event.button !== 0) return;
           event.preventDefault();
           void getCurrentWindow()
             .startDragging()
@@ -524,15 +583,46 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
         </div>
       ) : null}
       <div className="flex shrink-0 items-center px-5 pt-3 pr-9">
-        <QuickWorkspaceControls
-          key={cwd}
-          value={workspace}
-          enabled={!busy && !picker}
-          onChange={setWorkspaceChoice}
-          onError={setError}
-          onOpenChange={onGitOpenChange}
-          onClose={focusPrompt}
-        />
+        {embedded ? (
+          <>
+            <WorkspacePicker
+              cwd={workspace.tree?.path ?? cwd ?? ""}
+              mode={workspace.mode}
+              base={workspace.base}
+              enabled={!!cwd && !busy}
+              onModeChange={(mode, base) =>
+                setWorkspaceChoice({ cwd, mode, base })
+              }
+              onBaseChange={(base) =>
+                setWorkspaceChoice({ ...workspace, base })
+              }
+              onSelectWorktree={async (tree) =>
+                setWorkspaceChoice({ cwd, mode: "current", tree })
+              }
+              onOpenChange={onGitOpenChange}
+              onClose={focusPrompt}
+            />
+            {workspace.mode === "current" ? (
+              <BranchPicker
+                cwd={workspace.tree?.path ?? cwd ?? ""}
+                enabled={!!cwd && !busy}
+                worktree={!!workspace.tree && !workspace.tree.isMain}
+                onOpenChange={onGitOpenChange}
+                onClose={focusPrompt}
+              />
+            ) : null}
+          </>
+        ) : (
+          <QuickWorkspaceControls
+            key={cwd}
+            value={workspace}
+            enabled={!busy && !picker}
+            onChange={setWorkspaceChoice}
+            onError={setError}
+            onOpenChange={onGitOpenChange}
+            onClose={focusPrompt}
+          />
+        )}
       </div>
       {attachments.files.length ? (
         <div
@@ -678,11 +768,13 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
           ) : (
             <>
               <span>
-                <Kbd>↵</Kbd> start
+                <Kbd>↵</Kbd> {embedded ? "save Todo" : "start"}
               </span>
-              <span>
-                <Kbd>{`${MOD}↵`}</Kbd> start and open
-              </span>
+              {!embedded ? (
+                <span>
+                  <Kbd>{`${MOD}↵`}</Kbd> start and open
+                </span>
+              ) : null}
             </>
           )}
           <button
@@ -691,7 +783,11 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
             disabled={!canSubmit}
             className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-white disabled:opacity-40"
           >
-            {leadingMode?.name === DRAFT_COMMAND.name ? "Save draft" : "Start"}
+            {embedded
+              ? submitLabel
+              : leadingMode?.name === DRAFT_COMMAND.name
+                ? "Save draft"
+                : "Start"}
           </button>
         </span>
       </div>
@@ -723,6 +819,7 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
           </button>
           <button
             type="button"
+            hidden={embedded}
             disabled={attachments.loading || !attachmentsSupported}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {

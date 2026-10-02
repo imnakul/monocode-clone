@@ -2469,7 +2469,7 @@ function SidebarProjectPicker({
           </IconButton>
         ) : null}
         {onOpenTasks ? (
-          <IconButton label="Tasks" active={tasksActive} onClick={onOpenTasks}>
+          <IconButton label="Task Manager" active={tasksActive} onClick={onOpenTasks}>
             <CheckCircle className="size-3.5" strokeWidth={1.75} />
           </IconButton>
         ) : null}
@@ -2482,7 +2482,7 @@ function SidebarProjectPicker({
             <Zap className="size-3.5" strokeWidth={1.75} />
           </IconButton>
         ) : null}
-        {onOpenKanban ? <IconButton label="Session board" active={kanbanActive} onClick={onOpenKanban}><MessageMultiple className="size-3.5" /></IconButton> : null}
+        {onOpenKanban ? <IconButton label="Session Manager" active={kanbanActive} onClick={onOpenKanban}><MessageMultiple className="size-3.5" /></IconButton> : null}
       </div>
       {inboxMenu ? (
         <InboxNotificationMenu
@@ -2665,7 +2665,7 @@ function CompactProjectRail({
           />
         ) : null}
         {onOpenTasks ? (
-          <CompactRailAction label="Tasks" icon={CheckCircle} active={tasksActive}
+          <CompactRailAction label="Task Manager" icon={CheckCircle} active={tasksActive}
             onClick={action(tasksActive, onOpenTasks)} />
         ) : null}
         <CompactRailAction
@@ -2674,7 +2674,7 @@ function CompactProjectRail({
           active={automationsActive}
           onClick={action(automationsActive, onOpenAutomations)}
         />
-        {onOpenKanban ? <CompactRailAction label="Session board" icon={MessageMultiple} active={kanbanActive} onClick={action(kanbanActive, onOpenKanban)} /> : null}
+        {onOpenKanban ? <CompactRailAction label="Session Manager" icon={MessageMultiple} active={kanbanActive} onClick={action(kanbanActive, onOpenKanban)} /> : null}
       </div>
       <div className="min-h-2 flex-1" />
       <div

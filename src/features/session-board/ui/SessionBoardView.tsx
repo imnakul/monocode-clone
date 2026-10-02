@@ -2,7 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { OverlayNav } from "../../../app/shell/TitleBar";
 import { WindowControls } from "../../../app/shell/WindowControls";
 import { IS_MAC } from "../../../platform/tauri/platform";
-import { MessageMultiple, Search, X } from "../../../shared/ui/icons";
+import {
+  MessageMultiple,
+  Pencil,
+  Play,
+  Plus,
+  Search,
+  X,
+} from "../../../shared/ui/icons";
 import {
   BoardColumn,
   BoardColumns,
@@ -27,6 +34,14 @@ import {
   type BoardCard,
   type BoardStatus,
 } from "../sessionBoard";
+
+/** Unsent Todo drafts can be started, edited or deleted from the board. */
+function isDraftTodo(card: BoardCard): boolean {
+  return card.status === "todo" && card.runId.startsWith("draft:");
+}
+
+const todoAction =
+  "inline-flex h-6 items-center gap-1 rounded-md bg-content/8 px-2 text-[11px] text-content/75 transition-colors duration-100 hover:bg-content/15 hover:text-content disabled:opacity-40";
 
 const COLUMN_MIN_WIDTH = 256;
 const COLUMN_RESIZE_MIN = 220;
@@ -67,6 +82,10 @@ export function SessionBoardView({
   besideRail,
   compactRail,
   onToggleSidebar,
+  onAddTodo,
+  onEditTodo,
+  onStartTodo,
+  onDeleteTodo,
 }: {
   cards: readonly BoardCard[];
   cwd?: string;
@@ -81,6 +100,10 @@ export function SessionBoardView({
   besideRail?: boolean;
   compactRail?: boolean;
   onToggleSidebar?: () => void;
+  onAddTodo?: (cwd?: string) => void;
+  onEditTodo?: (id: string) => Promise<void>;
+  onStartTodo?: (id: string) => Promise<void>;
+  onDeleteTodo?: (id: string) => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
   const [project, setProject] = useState("");
@@ -227,7 +250,7 @@ export function SessionBoardView({
   return (
     <div
       data-app-kanban
-      aria-label="Session board"
+      aria-label="Session Manager"
       role="region"
       className="flex min-h-0 min-w-0 flex-1 flex-col text-content"
     >
@@ -245,7 +268,7 @@ export function SessionBoardView({
             className="size-3.5 shrink-0 text-content/45"
             strokeWidth={1.75}
           />
-          <span className="min-w-0 truncate text-content">Session board</span>
+          <span className="min-w-0 truncate text-content">Session Manager</span>
           {loading ? null : (
             <ResultCount
               shown={visible.length}
@@ -265,6 +288,21 @@ export function SessionBoardView({
         {!IS_MAC ? <WindowControls /> : null}
       </div>
       <div className="flex h-9 shrink-0 items-center gap-1.5 px-2">
+        {onAddTodo ? (
+          <button
+            type="button"
+            aria-label="Add Todo"
+            onClick={() =>
+              onAddTodo(
+                projects.find((path) => pathKey(path) === project) ?? cwd,
+              )
+            }
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-content pl-2.5 pr-3 text-[12px] font-medium text-background-base transition-colors duration-100 hover:bg-content/85 active:bg-content/75"
+          >
+            <Plus aria-hidden className="size-3.5" strokeWidth={1.75} />
+            Add Todo
+          </button>
+        ) : null}
         <div className="relative flex h-7 min-w-0 max-w-72 flex-1 items-center">
           <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
           <input
@@ -339,8 +377,7 @@ export function SessionBoardView({
           ) : null}
           {!loading && !visible.length ? (
             <p className="px-4 pt-3 text-[13px] text-content/45">
-              No sessions match. Sessions appear here when a turn or draft is
-              created.
+              No sessions match. Add a Todo or start a session to see it here.
             </p>
           ) : null}
           <div className="min-h-0 flex-1">
@@ -421,12 +458,65 @@ export function SessionBoardView({
                               <p className="mt-1 line-clamp-3">{card.reason}</p>
                             ) : null}
                           </div>
+                          {isDraftTodo(card) && onStartTodo ? (
+                            <div className="flex gap-1 px-2 pb-2 opacity-0 transition-opacity duration-100 focus-within:opacity-100 group-hover:opacity-100">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                aria-label={`Start ${card.title}`}
+                                onClick={() =>
+                                  void runAction(async () => {
+                                    await onStartTodo(card.sessionId);
+                                    await onOpenSession(card.sessionId);
+                                    setSelected(true);
+                                  })
+                                }
+                                className={todoAction}
+                              >
+                                <Play
+                                  aria-hidden
+                                  className="size-3"
+                                  strokeWidth={1.75}
+                                />
+                                Start
+                              </button>
+                              {onEditTodo ? (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  aria-label={`Edit ${card.title}`}
+                                  onClick={() =>
+                                    void runAction(() =>
+                                      onEditTodo(card.sessionId),
+                                    )
+                                  }
+                                  className={todoAction}
+                                >
+                                  <Pencil
+                                    aria-hidden
+                                    className="size-3"
+                                    strokeWidth={1.75}
+                                  />
+                                  Edit
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : null}
                           <button
-                            className="absolute right-1 top-1 rounded bg-background-base p-1 opacity-0 hover:text-red-400 focus:opacity-100 group-hover:opacity-100"
-                            aria-label={`Remove ${card.title} from board`}
+                            type="button"
+                            className="absolute right-1 top-1 rounded bg-content/10 p-1 opacity-0 backdrop-blur-md transition-opacity duration-100 hover:text-red-400 focus:opacity-100 group-hover:opacity-100"
+                            aria-label={
+                              isDraftTodo(card) && onDeleteTodo
+                                ? `Delete Todo ${card.title}`
+                                : `Remove ${card.title} from board`
+                            }
                             disabled={busy}
                             onClick={() =>
-                              void runAction(() => hideBoardCards([card]))
+                              void runAction(() =>
+                                isDraftTodo(card) && onDeleteTodo
+                                  ? onDeleteTodo(card.sessionId)
+                                  : hideBoardCards([card]),
+                              )
                             }
                           >
                             <X className="size-3" />

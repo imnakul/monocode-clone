@@ -1,3 +1,4 @@
+import { SessionManagerCaptureContext, AddToSessionManagerButton } from "../../session-board/ui/SessionManagerCapture";
 import {
   ArrowUp,
   Check,
@@ -189,6 +190,7 @@ type Props = {
   onRemoveDraft?: (block: Block) => boolean | void;
   onSaveSelectionNote?: (text: string) => void | Promise<void>;
   onSaveSelectionTask?: (text: string, blockId?: string) => void | Promise<void>;
+  onAddToSessionManager?: (text: string) => void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
   onOpenPlan?: (blockId: string) => void;
@@ -236,6 +238,7 @@ function AgentTranscriptComponent({
   onRemoveDraft,
   onSaveSelectionNote,
   onSaveSelectionTask,
+  onAddToSessionManager,
   onOpenFile,
   onOpenDiff,
   onOpenPlan,
@@ -667,6 +670,7 @@ function AgentTranscriptComponent({
 
   const tableActions = useMemo(() => ({ onSaveNote }), [onSaveNote]);
   return (
+    <SessionManagerCaptureContext.Provider value={onAddToSessionManager}>
     <MarkdownTableContext.Provider value={tableActions}>
       <div
         ref={setScroller}
@@ -1015,6 +1019,7 @@ function AgentTranscriptComponent({
         ) : null}
       </div>
     </MarkdownTableContext.Provider>
+    </SessionManagerCaptureContext.Provider>
   );
 }
 
@@ -1142,6 +1147,7 @@ function TurnDuration({
         {output ? (
           <>
             <CopyTurnButton text={output} />
+            <AddToSessionManagerButton text={output} />
             {onSaveNote ? (
               <SaveNoteButton text={output} onSave={onSaveNote} />
             ) : null}

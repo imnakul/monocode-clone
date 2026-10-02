@@ -343,8 +343,8 @@ export function MenuBar({
             ),
           },
           { kind: "item", id: "open_inbox", label: "Inbox" },
-          ...(onOpenKanban ? [{ kind: "item" as const, id: "open_kanban", label: "Session board" }] : []),
-          ...(onOpenTasks ? [{ kind: "item" as const, id: "open_tasks", label: "Tasks" }] : []),
+          ...(onOpenKanban ? [{ kind: "item" as const, id: "open_kanban", label: "Session Manager" }] : []),
+          ...(onOpenTasks ? [{ kind: "item" as const, id: "open_tasks", label: "Task Manager" }] : []),
           ...(onOpenNotes
             ? [{ kind: "item" as const, id: "open_notes", label: "Notes" }]
             : []),

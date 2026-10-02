@@ -1,3 +1,4 @@
+import { AddToSessionManagerButton } from "../../session-board/ui/SessionManagerCapture";
 import { code } from "@streamdown/code";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -376,6 +377,7 @@ function MarkdownCode({
         <span className="markdown-code-fallback-label">{fence.language}</span>
       ) : null}
       <CodeCopyButton code={code} />
+      <AddToSessionManagerButton text={code.replace(/\r?\n$/, "")} code disabled={incomplete} />
       <CodeBlock
         className={className}
         code={code}

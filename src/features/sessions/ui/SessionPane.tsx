@@ -1,3 +1,4 @@
+import { composeSessionTodo } from "../../session-board/ui/SessionManagerCapture";
 import { ChevronDown, GripVertical, X } from "../../../shared/ui/icons";
 import {
   memo,
@@ -900,6 +901,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
                   onReviewFix={onReviewFix ? fixReviewIssue : undefined}
                   onAddToChat={addSelectionToChat}
                   onSaveNote={notesEnabled ? saveNote : undefined}
+                  onAddToSessionManager={remote ? undefined : (text) => composeSessionTodo({ prompt: text, cwd: session.cwd, harness: session.harness, model: session.model, modelSettings: session.modelSettings, runtimeMode: session.runtimeMode, workspaceMode: "current", ...(session.worktreeCwd ? { worktreeCwd: session.worktreeCwd } : {}), reveal: false })}
                   onSidechat={onSidechat ? askSidechat : undefined}
                   onBranch={onBranch ? branchTurn : undefined}
                   onSendDraft={
@@ -911,6 +913,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
                             block.attachments ?? [],
                             {
                               draftBlockId: block.id,
+                              ...(block.intent ? { intent: block.intent } : {}),
                               ...(block.appRequestId
                                 ? { appRequestId: block.appRequestId }
                                 : {}),

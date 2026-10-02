@@ -1924,7 +1924,7 @@ describe("Tasks navigation", () => {
     props.onSelectProject = vi.fn();
     props.onOpenProject = vi.fn();
     await act(async () => render());
-    const tasks = [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.getAttribute("aria-label")?.startsWith("Tasks") || button.textContent?.trim() === "Tasks");
+    const tasks = [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.getAttribute("aria-label")?.startsWith("Task Manager") || button.textContent?.trim() === "Task Manager");
     expect(tasks).toBeDefined();
     await act(async () => tasks!.click());
     expect(props.onOpenTasks).toHaveBeenCalledOnce();
@@ -1940,12 +1940,12 @@ it("forwards Alt-click opening without changing multi-selection modifiers",()=>{
   expect(props.onSelectSession).not.toHaveBeenCalled();
 });
 
-describe("Session board navigation",()=>{
-  it.each([true,false])("opens Session board below Automations with rail=%s",async(projectRailOpen)=>{
+describe("Session Manager navigation",()=>{
+  it.each([true,false])("opens Session Manager below Automations with rail=%s",async(projectRailOpen)=>{
     props.projectRailOpen=projectRailOpen;props.compactProjectRail=true;props.onSelectProject=vi.fn();props.onOpenProject=vi.fn();props.onOpenKanban=vi.fn();props.kanbanActive=true;
     await act(async()=>render());
     const buttons=[...container.querySelectorAll<HTMLButtonElement>("button")];
-    const kanban=buttons.find(button=>button.getAttribute("aria-label")?.startsWith("Session board") || button.textContent?.trim()==="Session board")!;
+    const kanban=buttons.find(button=>button.getAttribute("aria-label")?.startsWith("Session Manager") || button.textContent?.trim()==="Session Manager")!;
     const automations=buttons.find(button=>button.getAttribute("aria-label")?.startsWith("Automations") || button.textContent?.trim()==="Automations")!;
     expect(kanban).toBeDefined();expect(buttons.indexOf(kanban)).toBeGreaterThan(buttons.indexOf(automations));await act(async()=>kanban.click());expect(props.onOpenKanban).toHaveBeenCalledOnce();
   });

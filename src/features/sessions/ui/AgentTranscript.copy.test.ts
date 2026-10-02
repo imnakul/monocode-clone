@@ -298,3 +298,21 @@ it("saves the user prompt to Notes from the action row outside the bubble", asyn
   );
   expect(save!.getAttribute("aria-label")).toBe("Saved to Notes");
 });
+
+it("opens Session Manager capture for the exact reply and handover fenced block without launching", async () => {
+  const handover = "Read docs/spec.md\n\nImplement the Windows fixes.";
+  const response = `Here is the handover:\n\n\`\`\`text\n${handover}\n\`\`\``;
+  const compose = vi.fn();
+  await act(async () => root.render(createElement(AgentTranscript, {
+    blocks: [{ id: "prompt", role: "user", text: "Give a handover", startedAt: 1000, durationMs: 500 }, { id: "answer", role: "assistant", text: response }],
+    onAddToSessionManager: compose,
+  })));
+  const buttons = [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Add to Session Manager"]')];
+  expect(buttons).toHaveLength(2);
+  await act(async () => buttons.find(button => button.classList.contains("markdown-code-copy"))!.click());
+  expect(compose).toHaveBeenLastCalledWith(handover);
+  await act(async () => buttons.find(button => !button.classList.contains("markdown-code-copy"))!.click());
+  expect(compose).toHaveBeenLastCalledWith(response);
+  await act(async () => root.render(createElement(AgentTranscript, { blocks: [{ id: "answer", role: "assistant", text: response }] })));
+  expect(container.querySelector('[aria-label="Add to Session Manager"]')).toBeNull();
+});
