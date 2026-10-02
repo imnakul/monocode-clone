@@ -552,7 +552,12 @@ export function QuickComposer({
         if (picker) closePicker();
         else dismiss();
       }}
-      className="relative flex max-h-[520px] flex-col overflow-clip rounded-[16px] border border-content/10 bg-background-base/45 text-content"
+      className={`relative flex max-h-[520px] flex-col overflow-clip rounded-[16px] border text-content ${
+        embedded
+          ? // Inside a modal: the modal already draws the glass.
+            "border-content/8 bg-content/3"
+          : "quick-composer-surface border-content/10"
+      }`}
     >
       <div
         hidden={embedded}

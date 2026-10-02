@@ -752,8 +752,9 @@ function AgentTranscriptComponent({
                 background={backgroundTasks}
                 modelName={turnModelName}
               />
-            ) : durationMs != null ? (
-              formatWorkingDuration(durationMs, turnModelName, true)
+            ) : durationMs != null && turnModelName?.trim() ? (
+              // Finished: the model on top; how long it ran sits in the footer.
+              turnModelName.trim()
             ) : (
               workSummaryLine(folded)
             );
@@ -980,14 +981,12 @@ function AgentTranscriptComponent({
                   <TurnDuration
                     elapsedMs={durationMs}
                     metrics={userBlock?.turnMetrics}
-                    labelHidden={showFoldLine}
                     modelName={turnModelName}
                     completedAt={
                       startedAt != null ? startedAt + durationMs : undefined
                     }
                     copyText={turnCopyText(turn)}
                     onSaveNote={onSaveNote}
-                    harness={turnHarness}
                     fromHarness={turnHarness}
                     fromModel={turnModel?.id}
                     onSecondOpinion={
@@ -1101,9 +1100,7 @@ function backgroundLabel(tasks: string[]): string {
 function TurnDuration({
   elapsedMs,
   metrics,
-  labelHidden = false,
   modelName,
-  harness,
   completedAt,
   copyText: output,
   onSaveNote,
@@ -1116,10 +1113,7 @@ function TurnDuration({
 }: {
   elapsedMs: number | null;
   metrics?: TurnMetrics;
-  /** True when the fold line above already keeps the time for this turn. */
-  labelHidden?: boolean;
   modelName?: string;
-  harness?: HarnessId;
   completedAt?: number;
   copyText?: string;
   onSaveNote?: (text: string) => void | Promise<void>;
@@ -1131,7 +1125,13 @@ function TurnDuration({
   onSidechat?: () => void;
   onBranch?: () => void;
 }) {
-  const label = formatWorkingDuration(elapsedMs, modelName, true);
+  const elapsed = formatElapsed(elapsedMs);
+  const ranFor = elapsed ? `Ran for ${elapsed}` : null;
+  const finished = completedAt != null ? formatClockTime(completedAt) : null;
+  const label =
+    [modelName?.trim(), ranFor, finished ? `finished ${finished}` : null]
+      .filter(Boolean)
+      .join(", ") || "Response finished";
   const dot = (
     <span
       aria-hidden
@@ -1140,21 +1140,12 @@ function TurnDuration({
   );
   return (
     <div
+      role="group"
       aria-label={label}
       className="flex w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden px-4 pt-1 pb-3 font-sans text-sm text-content/40"
     >
+      {/* Left: continue the conversation elsewhere, then how long it ran. */}
       <span className="flex shrink-0 items-center gap-1">
-        {output ? (
-          <>
-            <CopyTurnButton text={output} />
-            <AddToSessionManagerButton text={output} />
-            {onSaveNote ? (
-              <SaveNoteButton text={output} onSave={onSaveNote} />
-            ) : null}
-          </>
-        ) : (
-          <Check className="size-3.5" strokeWidth={1.75} />
-        )}
         {fromHarness && onHandoff ? (
           <HandoffButton from={fromHarness} onPick={onHandoff} />
         ) : null}
@@ -1167,51 +1158,57 @@ function TurnDuration({
             excludeFromModel
           />
         ) : null}
+        {onBranch ? (
+          <button
+            type="button"
+            title="Fork chat — open this thread up to this turn in a new chat"
+            aria-label="Branch from here"
+            onClick={onBranch}
+            className="rounded-md p-1 text-content/40 transition-colors duration-100 hover:bg-content/8 hover:text-content/70"
+          >
+            <GitBranch className="size-3.5" strokeWidth={1.75} />
+          </button>
+        ) : null}
         {onSidechat ? (
           <button
             type="button"
             title="Ask in sidechat — opens beside this chat, nothing is sent until you ask"
             aria-label="Ask in sidechat"
             onClick={onSidechat}
-            className="rounded-md p-1 text-content/40 hover:bg-content/8 hover:text-content/70"
+            className="rounded-md p-1 text-content/40 transition-colors duration-100 hover:bg-content/8 hover:text-content/70"
           >
             <MessageSquarePlus className="size-3.5" strokeWidth={1.75} />
           </button>
         ) : null}
-        {onBranch ? (
-          <button
-            type="button"
-            title="Branch from here — open this thread up to this turn in a new chat"
-            aria-label="Branch from here"
-            onClick={onBranch}
-            className="rounded-md p-1 text-content/40 hover:bg-content/8 hover:text-content/70"
-          >
-            <GitBranch className="size-3.5" strokeWidth={1.75} />
-          </button>
-        ) : null}
         <TurnMetricsBadge metrics={metrics} elapsedMs={elapsedMs} />
       </span>
-      {labelHidden ? null : (
-        <span className="flex min-w-0 items-center gap-2.5">
-          {dot}
-          <span className="flex min-w-0 items-center gap-1.5">
-            {harness ? (
-              <HarnessIcon harness={harness} className="size-3.5 shrink-0" />
-            ) : null}
-            <span className="min-w-0 truncate" title={label}>
-              {label}
-            </span>
-          </span>
+      {ranFor ? (
+        <span className="min-w-0 truncate tabular-nums" title={label}>
+          {ranFor}
         </span>
-      )}
-      {completedAt != null ? (
+      ) : null}
+      {finished ? (
         <span className="flex shrink-0 items-center gap-2.5">
-          {dot}
-          <span className="shrink-0 text-content/35">
-            {formatClockTime(completedAt)}
+          {ranFor ? dot : null}
+          <span className="shrink-0 tabular-nums text-content/35">
+            {finished}
           </span>
         </span>
       ) : null}
+      {/* Right: keep what the turn produced. */}
+      <span className="ml-auto flex shrink-0 items-center gap-1">
+        {output ? (
+          <>
+            {onSaveNote ? (
+              <SaveNoteButton text={output} onSave={onSaveNote} />
+            ) : null}
+            <AddToSessionManagerButton text={output} />
+            <CopyTurnButton text={output} />
+          </>
+        ) : (
+          <Check aria-hidden className="size-3.5" strokeWidth={1.75} />
+        )}
+      </span>
     </div>
   );
 }
@@ -1348,7 +1345,7 @@ function CopyTurnButton({
         disabled={pending}
         title={copied ? "Copied" : label}
         aria-label={copied ? "Copied" : label}
-        className="-ml-1 rounded-md p-1 text-content/40 hover:bg-content/8 hover:text-content/70"
+        className="rounded-md p-1 text-content/40 hover:bg-content/8 hover:text-content/70"
         onClick={(event) => {
           event.stopPropagation();
           setError(null);
@@ -3447,18 +3444,15 @@ function useElapsedFrom(
   return elapsedMs;
 }
 
+/** Live label while a turn runs; finished turns show "Ran for" in the footer. */
 function formatWorkingDuration(
   elapsedMs: number | null,
   modelName?: string,
-  done = false,
 ): string {
   const who = modelName?.trim();
   const elapsed = formatElapsed(elapsedMs);
-  const verb = done ? (who ? "worked" : "Worked") : who ? "working" : "Working";
-  if (elapsed == null) {
-    if (done) return who ? `${who} ${verb}` : verb;
-    return who ? `${who} ${verb}…` : `${verb}…`;
-  }
+  const verb = who ? "working" : "Working";
+  if (elapsed == null) return who ? `${who} ${verb}…` : `${verb}…`;
   return who ? `${who} ${verb} for ${elapsed}` : `${verb} for ${elapsed}`;
 }
 

@@ -1,17 +1,19 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { IS_MAC } from "../../platform/tauri/platform";
+import { IS_MAC, IS_WINDOWS } from "../../platform/tauri/platform";
 import {
   applyAccentColor,
   applyThemeDarkLightness,
   applyThemePreference,
   applyThemeTint,
+  applyWindowGlassStrength,
   loadAccentColor,
   loadThemeDarkLightness,
   loadThemeHue,
   loadThemePreference,
   loadThemeSaturation,
+  loadWindowGlassStrength,
 } from "../settings/model/appearance";
 import { QuickGitPopup } from "./ui/QuickGitPopup";
 import { QuickComposer } from "./ui/QuickComposer";
@@ -24,6 +26,13 @@ import "../../styles/index.css";
  */
 function applyAppearance() {
   document.documentElement.classList.toggle("is-mac", IS_MAC);
+  // macOS vibrancy and Windows Acrylic blur the desktop behind the panel, so
+  // the card can use the same light glass tint as the workspace window.
+  document.documentElement.classList.toggle(
+    "composer-native-glass",
+    IS_MAC || IS_WINDOWS,
+  );
+  applyWindowGlassStrength(loadWindowGlassStrength());
   applyAccentColor(loadAccentColor());
   applyThemeTint(loadThemeHue(), loadThemeSaturation());
   applyThemeDarkLightness(loadThemeDarkLightness());

@@ -56,7 +56,10 @@ describe("table actions", () => {
     expect(copy.mock.calls[0][0]).toBe(second);
     expect(copy.mock.calls[0][1]).toContain("<table>");
     expect(copy.mock.calls[0][1]).not.toMatch(/First|Copy|data-streamdown/);
-    expect(action(1, "Copy table").textContent).toBe("Copied");
+    // Icon-only: the result shows as a check, in the tooltip and to screen readers.
+    expect(action(1, "Copy table").getAttribute("title")).toBe("Copied");
+    expect(action(1, "Copy table").textContent).toBe("");
+    expect(container.textContent).toContain("Table copied");
   });
 
   it("saves the chosen Markdown table through the existing note callback", async () => {
@@ -64,7 +67,10 @@ describe("table actions", () => {
     render(save);
     await act(async () => action(0, "Add table to Note").click());
     expect(save).toHaveBeenCalledWith(first);
-    expect(action(0, "Add table to Note").textContent).toBe("Saved to Notes");
+    expect(action(0, "Add table to Note").getAttribute("title")).toBe(
+      "Saved to Notes",
+    );
+    expect(container.textContent).toContain("Table saved to Notes");
   });
 
   it("surfaces a save failure and allows retry", async () => {
@@ -95,5 +101,37 @@ describe("table actions", () => {
     );
     expect(action(0, "Copy table").disabled).toBe(true);
     expect(action(0, "Add table to Note").disabled).toBe(true);
+  });
+});
+
+describe("table actions layout", () => {
+  it("shows icon-only Add to Note, Add to Session Manager and Copy, in that order", async () => {
+    const compose = vi.fn();
+    const { SessionManagerCaptureContext } = await import(
+      "../../session-board/ui/SessionManagerCapture"
+    );
+    act(() =>
+      root.render(
+        createElement(
+          SessionManagerCaptureContext.Provider,
+          { value: compose },
+          createElement(AgentMarkdown, {
+            text: first,
+            onSaveNote: async () => {},
+          }),
+        ),
+      ),
+    );
+    const group = container.querySelector('[aria-label="Table actions"]')!;
+    const buttons = [...group.querySelectorAll("button")];
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Add table to Note",
+      "Add to Session Manager",
+      "Copy table",
+    ]);
+    for (const button of buttons) expect(button.textContent).toBe("");
+    await act(async () => buttons[1].click());
+    // The table is read at click time, so the captured text is the Markdown.
+    expect(compose).toHaveBeenCalledWith(first);
   });
 });

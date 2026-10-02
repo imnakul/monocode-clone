@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import { PanelLeft } from "../../../shared/ui/icons";
+import { MessageMultiple } from "../../../shared/ui/icons";
 import type { QuickLaunch } from "../../quick-composer/model/quickComposer";
 
 export const SESSION_MANAGER_COMPOSE_EVENT = "monocode.sessionManager.compose";
@@ -16,12 +16,13 @@ export function AddToSessionManagerButton({
   code = false,
   disabled = false,
 }: {
-  text: string;
+  /** The text to capture, or a function that reads it at click time. */
+  text: string | (() => string);
   code?: boolean;
   disabled?: boolean;
 }) {
   const compose = useContext(SessionManagerCaptureContext);
-  if (!compose || !text.trim()) return null;
+  if (!compose || (typeof text === "string" && !text.trim())) return null;
   return (
     <button
       type="button"
@@ -31,11 +32,14 @@ export function AddToSessionManagerButton({
       className={
         code
           ? "markdown-code-copy !right-10 disabled:opacity-30"
-          : "rounded-md p-1 text-content/40 hover:bg-content/8 hover:text-content/70 disabled:opacity-30"
+          : "rounded-md p-1 text-content/40 transition-colors duration-100 hover:bg-content/8 hover:text-content/70 disabled:opacity-30"
       }
-      onClick={() => compose(text)}
+      onClick={() => {
+        const value = typeof text === "string" ? text : text();
+        if (value.trim()) compose(value);
+      }}
     >
-      <PanelLeft className="size-3.5" />
+      <MessageMultiple aria-hidden className="size-3.5" strokeWidth={1.75} />
     </button>
   );
 }

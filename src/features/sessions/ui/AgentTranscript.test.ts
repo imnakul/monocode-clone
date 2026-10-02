@@ -74,7 +74,8 @@ describe("AgentTranscript collapsed work", () => {
       },
       { id: "answer", role: "assistant", text: "Done" },
     ]);
-    expect(markup).toContain('aria-label="Worked for 2s"');
+    expect(markup).toContain('aria-label="Ran for 2s, finished');
+    expect(markup).toContain(">Ran for 2s</span>");
     expect(markup).toContain("flex shrink-0 items-center gap-2.5");
     expect(markup).not.toContain("ml-auto flex shrink-0 items-center gap-2.5");
   });
@@ -315,7 +316,7 @@ describe("AgentTranscript collapsed work", () => {
       finished.indexOf("data-orchestration-result"),
     );
     expect(finished.indexOf("data-orchestration-review")).toBeLessThan(
-      finished.indexOf('aria-label="Worked for 1s"'),
+      finished.indexOf('aria-label="Ran for 1s'),
     );
     expect(finished.match(/data-orchestration-review/g)).toHaveLength(1);
     card.orchestration!.status = "planning";
@@ -403,8 +404,10 @@ describe("AgentTranscript collapsed work", () => {
       }),
     );
 
-    expect(markup).toContain("Claude Sonnet 5 worked for 9s");
-    expect(markup).not.toContain("Claude Opus 5 worked for 9s");
+    // The recorded model labels the turn on top; how long it ran is in the footer.
+    expect(markup).toContain(">Claude Sonnet 5</span>");
+    expect(markup).not.toContain("Claude Opus 5");
+    expect(markup).toContain(">Ran for 9s</span>");
   });
 
   it("does not assign the current model to a legacy completed turn", () => {
@@ -425,8 +428,8 @@ describe("AgentTranscript collapsed work", () => {
       }),
     );
 
-    expect(markup).toContain("Worked for 9s");
-    expect(markup).not.toContain("Claude Opus 5 worked for 9s");
+    expect(markup).toContain(">Ran for 9s</span>");
+    expect(markup).not.toContain("Claude Opus 5");
   });
   it("marks the edited message with a quiet visual state instead of a text banner", () => {
     const markup = renderToStaticMarkup(
@@ -775,7 +778,7 @@ describe("AgentTranscript collapsed work", () => {
       markup.indexOf("Changed files"),
     );
     expect(markup.indexOf("Changed files")).toBeLessThan(
-      markup.indexOf('aria-label="Worked for 1s"'),
+      markup.indexOf('aria-label="Ran for 1s'),
     );
   });
 
@@ -872,5 +875,59 @@ describe("worker assignment prompts", () => {
     expect(markup).toContain("Looking now");
     expect(markup).not.toContain("monocode_assignment");
     expect(markup).not.toContain("You are a worker managed by a MonoCode lead");
+  });
+});
+
+describe("finished turn layout", () => {
+  it("shows only the model on top and puts actions, run time and keep actions in the footer", () => {
+    const blocks: Block[] = [
+      {
+        id: "user",
+        role: "user",
+        text: "Plan it",
+        startedAt: 1_000,
+        durationMs: 3_240_000,
+        turnModel: {
+          harness: "claude",
+          id: "claude:sonnet-5",
+          name: "Claude Sonnet 5",
+        },
+      },
+      { id: "answer", role: "assistant", text: "Here is the plan." },
+    ];
+    const markup = renderToStaticMarkup(
+      createElement(AgentTranscript, {
+        blocks,
+        harness: "claude",
+        model: "claude:sonnet-5",
+        onSaveNote: async () => {},
+        onAddToSessionManager: () => {},
+        onBranch: () => {},
+        onSidechat: () => {},
+      }),
+    );
+    // Top-left: the model name only, no duration.
+    expect(markup).toContain(">Claude Sonnet 5</span>");
+    expect(markup).not.toContain("worked for");
+    // Footer order: fork, side chat, then "Ran for · time", then note, session, copy.
+    // Search only the footer row; the user message has its own note button.
+    const footer = markup.slice(
+      markup.indexOf('role="group" aria-label="Claude Sonnet 5, Ran for 54m'),
+    );
+    expect(footer.length).toBeLessThan(markup.length);
+    const at = (needle: string) => {
+      const index = footer.indexOf(needle);
+      expect(index, needle).toBeGreaterThan(-1);
+      return index;
+    };
+    const order = [
+      at('aria-label="Branch from here"'),
+      at('aria-label="Ask in sidechat"'),
+      at(">Ran for 54m</span>"),
+      at('aria-label="Save as note"'),
+      at('aria-label="Add to Session Manager"'),
+      at('aria-label="Copy response"'),
+    ];
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 });

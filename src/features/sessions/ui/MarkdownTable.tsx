@@ -9,6 +9,7 @@ import {
 import { Check, Copy, FilePlusCorner } from "../../../shared/ui/icons";
 import { copyFormattedText } from "../../../platform/tauri/clipboard";
 import { tableContent } from "../model/tableContent";
+import { AddToSessionManagerButton } from "../../session-board/ui/SessionManagerCapture";
 
 export const MarkdownTableContext = createContext<{
   onSaveNote?: (text: string) => void | Promise<void>;
@@ -52,7 +53,13 @@ export function MarkdownTable({
   };
 
   const buttonClass =
-    "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-content/60 hover:bg-content/8 hover:text-content focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
+    "rounded-md p-1 text-content/40 transition-colors duration-100 hover:bg-content/8 hover:text-content/70 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
+  const status =
+    complete === "copy"
+      ? "Table copied"
+      : complete === "note"
+        ? "Table saved to Notes"
+        : "";
   return (
     <div
       data-streamdown="table-wrapper"
@@ -61,27 +68,8 @@ export function MarkdownTable({
       <div
         role="group"
         aria-label="Table actions"
-        className="flex flex-wrap items-center justify-end gap-1 px-2 py-1.5 select-none"
+        className="flex flex-wrap items-center justify-end gap-0.5 px-1.5 py-1 select-none"
       >
-        <button
-          type="button"
-          className={buttonClass}
-          aria-label="Copy table"
-          title={
-            streaming
-              ? "Wait for the response to finish"
-              : "Copy table as Markdown and formatted text"
-          }
-          disabled={!!pending || streaming}
-          onClick={() => void run("copy")}
-        >
-          {complete === "copy" ? (
-            <Check className="size-3.5" />
-          ) : (
-            <Copy className="size-3.5" />
-          )}
-          {complete === "copy" ? "Copied" : "Copy"}
-        </button>
         {onSaveNote ? (
           <button
             type="button"
@@ -90,19 +78,53 @@ export function MarkdownTable({
             title={
               streaming
                 ? "Wait for the response to finish"
-                : "Save this table as a note"
+                : complete === "note"
+                  ? "Saved to Notes"
+                  : "Add table to Note"
             }
             disabled={!!pending || streaming}
             onClick={() => void run("note")}
           >
             {complete === "note" ? (
-              <Check className="size-3.5" />
+              <Check aria-hidden className="size-3.5" strokeWidth={1.75} />
             ) : (
-              <FilePlusCorner className="size-3.5" />
+              <FilePlusCorner
+                aria-hidden
+                className="size-3.5"
+                strokeWidth={1.75}
+              />
             )}
-            {complete === "note" ? "Saved to Notes" : "Add to Note"}
           </button>
         ) : null}
+        <AddToSessionManagerButton
+          text={() =>
+            table.current ? tableContent(table.current).markdown : ""
+          }
+          disabled={!!pending || streaming}
+        />
+        <button
+          type="button"
+          className={buttonClass}
+          aria-label="Copy table"
+          title={
+            streaming
+              ? "Wait for the response to finish"
+              : complete === "copy"
+                ? "Copied"
+                : "Copy table as Markdown and formatted text"
+          }
+          disabled={!!pending || streaming}
+          onClick={() => void run("copy")}
+        >
+          {complete === "copy" ? (
+            <Check aria-hidden className="size-3.5" strokeWidth={1.75} />
+          ) : (
+            <Copy aria-hidden className="size-3.5" strokeWidth={1.75} />
+          )}
+        </button>
+        <span role="status" className="sr-only">
+          {status}
+        </span>
       </div>
       {error ? (
         <p role="alert" className="px-3 pb-2 text-xs text-content/70">

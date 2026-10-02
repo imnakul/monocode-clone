@@ -218,3 +218,27 @@ it("retains the embedded draft after save failure and retries the same prompt", 
   expect(save).toHaveBeenCalledTimes(2);
   expect(prompt.value).toBe("");
 });
+
+it("draws the floating card with the shared glass surface and the embedded card on the modal's glass", async () => {
+  // beforeEach rendered the floating (global) composer.
+  const floating = prompt.closest<HTMLElement>(".rounded-\\[16px\\]")!;
+  expect(floating.className).toContain("quick-composer-surface");
+  expect(floating.className).not.toContain("bg-background-base");
+  await act(async () =>
+    root.render(
+      createElement(QuickComposer, {
+        key: "embedded-surface",
+        onShown: () => {},
+        onSubmitLaunch: vi.fn(async () => {}),
+        onDismiss: vi.fn(),
+      }),
+    ),
+  );
+  const embedded = container
+    .querySelector("textarea")!
+    .closest<HTMLElement>(".rounded-\\[16px\\]")!;
+  // Inside a modal the modal draws the glass, so the card adds no dark fill.
+  expect(embedded.className).toContain("bg-content/3");
+  expect(embedded.className).not.toContain("quick-composer-surface");
+  expect(embedded.className).not.toContain("bg-background-base");
+});

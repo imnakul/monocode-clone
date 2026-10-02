@@ -1481,6 +1481,21 @@ html.is-windows.has-app-wallpaper.glass-body .body-glass {
   -webkit-backdrop-filter: none;
 }
 
+/* Quick Composer panels are separate transparent windows. Where the OS blurs
+   the desktop behind them (macOS vibrancy, Windows Acrylic) they share the
+   workspace's Glass strength tint; elsewhere a firmer fill keeps text legible. */
+.quick-composer-surface {
+  background: color-mix(in srgb, var(--color-background-base) 45%, transparent);
+}
+
+html.composer-native-glass .quick-composer-surface {
+  background: color-mix(
+    in srgb,
+    var(--color-background-base) var(--window-glass-tint-opacity),
+    transparent
+  );
+}
+
 html.is-mac.glass-body .body-glass {
   backdrop-filter: blur(var(--window-blur-radius, 20px));
   -webkit-backdrop-filter: blur(var(--window-blur-radius, 20px));
