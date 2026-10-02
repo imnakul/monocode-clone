@@ -88,10 +88,12 @@ pub struct TaskUpsert {
     pub source_block_id: Option<String>,
 }
 
-/// Create the independent task table without changing the session migration
-/// version or rewriting notes/sessions.
+/// Initialize or upgrade the independent task table before creating its indexes.
+/// Older local databases may already have `tasks` without the current columns;
+/// CREATE TABLE IF NOT EXISTS alone does not upgrade those databases.
 pub fn ensure_tasks_table(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
+    let tx = conn.unchecked_transaction()?;
+    tx.execute_batch(
         "CREATE TABLE IF NOT EXISTS tasks (
            id TEXT PRIMARY KEY,
            title TEXT NOT NULL,
@@ -106,12 +108,50 @@ pub fn ensure_tasks_table(conn: &Connection) -> rusqlite::Result<()> {
            created_at INTEGER NOT NULL,
            updated_at INTEGER NOT NULL,
            completed_at INTEGER
-         );
-         CREATE INDEX IF NOT EXISTS tasks_project_updated_idx
+         );",
+    )?;
+    let columns = {
+        let mut statement = tx.prepare("SELECT name FROM pragma_table_info('tasks')")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    if !columns
+        .iter()
+        .any(|column| column.eq_ignore_ascii_case("id"))
+    {
+        return Err(rusqlite::Error::InvalidColumnName(
+            "tasks.id (cannot upgrade an existing Tasks table without record IDs)".into(),
+        ));
+    }
+    // Add only missing fields. Existing columns, values, and legacy metadata
+    // are preserved; records with no prior status become Todos. Fixed SQL
+    // declarations provide safe defaults for populated tables.
+    for (name, declaration) in [
+        ("title", "TEXT NOT NULL DEFAULT 'Untitled task'"),
+        ("body", "TEXT NOT NULL DEFAULT ''"),
+        (
+            "status",
+            "TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('draft', 'todo', 'in_progress', 'blocked', 'review', 'completed', 'deferred'))",
+        ),
+        ("tags_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("project_cwd", "TEXT"),
+        ("source_session_id", "TEXT"),
+        ("source_block_id", "TEXT"),
+        ("created_at", "INTEGER NOT NULL DEFAULT 0"),
+        ("updated_at", "INTEGER NOT NULL DEFAULT 0"),
+        ("completed_at", "INTEGER"),
+    ] {
+        if !columns.iter().any(|column| column.eq_ignore_ascii_case(name)) {
+            tx.execute_batch(&format!("ALTER TABLE tasks ADD COLUMN {name} {declaration};"))?;
+        }
+    }
+    tx.execute_batch(
+        "CREATE INDEX IF NOT EXISTS tasks_project_updated_idx
            ON tasks (project_cwd, updated_at DESC, id ASC);
          CREATE INDEX IF NOT EXISTS tasks_status_updated_idx
            ON tasks (status, updated_at DESC, id ASC);",
-    )
+    )?;
+    tx.commit()
 }
 
 #[tauri::command(async)]
@@ -418,6 +458,170 @@ mod tests {
             assert_eq!(list_tasks(&conn).unwrap().len(), 1);
         }
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn legacy_schema_is_upgraded_before_indexes_without_rewriting_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE tasks (
+               id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL,
+               project_cwd TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+               legacy_metadata TEXT
+             );
+             INSERT INTO tasks VALUES (
+               'legacy-task', 'Existing task', '# Keep this Markdown',
+               'C:/Work/Mono', 100, 200, 'keep unknown legacy data'
+             );",
+        )
+        .unwrap();
+        ensure_tasks_table(&conn).unwrap();
+        let task = get_task(&conn, "legacy-task").unwrap().unwrap();
+        assert_eq!(task.title, "Existing task");
+        assert_eq!(task.body, "# Keep this Markdown");
+        assert_eq!(task.project_cwd.as_deref(), Some("C:/Work/Mono"));
+        assert_eq!((task.created_at, task.updated_at), (100, 200));
+        assert_eq!(task.status, TaskStatus::Todo);
+        assert!(task.tags.is_empty());
+        assert_eq!(task.source_session_id, None);
+        assert_eq!(task.source_block_id, None);
+        assert_eq!(task.completed_at, None);
+        let legacy: String = conn
+            .query_row(
+                "SELECT legacy_metadata FROM tasks WHERE id = 'legacy-task'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy, "keep unknown legacy data");
+        let indexes: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index'
+             AND name IN ('tasks_project_updated_idx', 'tasks_status_updated_idx')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexes, 2);
+        let completed = upsert_task(&conn, &input("legacy-task", TaskStatus::Completed)).unwrap();
+        ensure_tasks_table(&conn).unwrap();
+        assert_eq!(get_task(&conn, "legacy-task").unwrap(), Some(completed));
+        delete_task(&conn, "legacy-task").unwrap();
+        assert!(list_tasks(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn older_tasks_schema_survives_session_store_startup_and_reopen() {
+        let path = std::env::temp_dir().join(format!(
+            "monocode-legacy-tasks-{}.sqlite",
+            uuid::Uuid::new_v4()
+        ));
+        {
+            let store = SessionStore::open(path.clone()).unwrap();
+            let conn = store.lock_conn().unwrap();
+            conn.execute_batch(
+                "DROP TABLE tasks;
+                 CREATE TABLE tasks (
+                   id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL,
+                   tags_json TEXT NOT NULL, project_cwd TEXT, source_session_id TEXT,
+                   source_block_id TEXT, created_at INTEGER NOT NULL,
+                   updated_at INTEGER NOT NULL, completed_at INTEGER
+                 );
+                 INSERT INTO tasks VALUES (
+                   'old-task', 'Old task', '| Keep |\n| --- |\n| Table |',
+                   '[\"legacy\"]', 'C:/Work/Mono', 'source-session', 'cline:42', 123, 456, NULL
+                 );
+                 INSERT INTO notes (id, slug, title, body, tags_json, created_at, updated_at)
+                   VALUES ('existing-note', 'existing-note', 'Existing note', 'Keep note', '[]', 1, 2);
+                 INSERT INTO sessions (id, cwd, harness, model, runtime_mode, title, created_at, updated_at)
+                   VALUES ('existing-session', 'C:/Work/Mono', 'codex', '', 'supervised', 'Keep session', 1, 2);"
+            ).unwrap();
+        }
+        for _ in 0..2 {
+            let store = SessionStore::open(path.clone()).unwrap();
+            let conn = store.lock_conn().unwrap();
+            let task = get_task(&conn, "old-task").unwrap().unwrap();
+            assert_eq!(task.title, "Old task");
+            assert_eq!(task.body, "| Keep |\n| --- |\n| Table |");
+            assert_eq!(task.tags, vec!["legacy"]);
+            assert_eq!(task.status, TaskStatus::Todo);
+            assert_eq!(task.project_cwd.as_deref(), Some("C:/Work/Mono"));
+            assert_eq!(task.source_session_id.as_deref(), Some("source-session"));
+            assert_eq!(task.source_block_id.as_deref(), Some("cline:42"));
+            assert_eq!((task.created_at, task.updated_at), (123, 456));
+            assert_eq!(
+                conn.query_row(
+                    "SELECT body FROM notes WHERE id = 'existing-note'",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+                "Keep note"
+            );
+            assert_eq!(
+                conn.query_row(
+                    "SELECT title FROM sessions WHERE id = 'existing-session'",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+                "Keep session"
+            );
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn failed_schema_upgrade_rolls_back_added_columns_and_indexes() {
+        let unidentified = Connection::open_in_memory().unwrap();
+        unidentified.execute_batch(
+            "CREATE TABLE tasks (title TEXT); INSERT INTO tasks VALUES ('Keep unidentified record');"
+        ).unwrap();
+        assert!(ensure_tasks_table(&unidentified)
+            .unwrap_err()
+            .to_string()
+            .contains("without record IDs"));
+        assert_eq!(
+            unidentified
+                .query_row("SELECT title FROM tasks", [], |row| row.get::<_, String>(0))
+                .unwrap(),
+            "Keep unidentified record"
+        );
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+             INSERT INTO tasks VALUES ('legacy', 'Keep me');
+             CREATE TABLE tasks_status_updated_idx (placeholder TEXT);",
+        )
+        .unwrap();
+        assert!(ensure_tasks_table(&conn).is_err());
+        let columns: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('tasks')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(columns, 2);
+        let indexes: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'tasks_project_updated_idx'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexes, 0);
+        assert_eq!(
+            conn.query_row("SELECT title FROM tasks WHERE id = 'legacy'", [], |row| row
+                .get::<_, String>(0))
+                .unwrap(),
+            "Keep me"
+        );
+        conn.execute_batch("DROP TABLE tasks_status_updated_idx;")
+            .unwrap();
+        ensure_tasks_table(&conn).unwrap();
+        assert_eq!(get_task(&conn, "legacy").unwrap().unwrap().title, "Keep me");
     }
 
     #[test]
