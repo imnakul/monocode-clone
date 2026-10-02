@@ -237,6 +237,34 @@ describe("durable board ledger", () => {
       1,
     );
   });
+  it("skips unchanged sessions on repeated observation but still records real changes", async () => {
+    const board = await import("./sessionBoard");
+    const running = session({ busy: true });
+    await board.observeBoardSessions([running]);
+    const upserts = () =>
+      vi
+        .mocked(invoke)
+        .mock.calls.filter(([command]) => command === "session_board_upsert")
+        .length;
+    const afterFirst = upserts();
+    expect(afterFirst).toBe(1);
+    // The same session objects again (another session streamed): no work.
+    for (let pass = 0; pass < 5; pass++)
+      await board.observeBoardSessions([running]);
+    expect(upserts()).toBe(afterFirst);
+    // A real change to this session (it hit an error) is still recorded.
+    await board.observeBoardSessions([
+      {
+        ...running,
+        blocks: [
+          ...running.blocks,
+          { id: "fail", role: "assistant", text: "Provider failed", notice: "error" },
+        ],
+      },
+    ]);
+    expect(upserts()).toBe(afterFirst + 1);
+    expect(board.boardSnapshot().cards[0].status).toBe("blocked");
+  });
   it("exposes storage failures and retries without losing session state", async () => {
     const board = await import("./sessionBoard");
     vi.mocked(invoke).mockRejectedValueOnce(new Error("Database unavailable"));
