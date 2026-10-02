@@ -10,7 +10,9 @@ import {
   isReleaseNotesTab,
   isReviewTab,
   isSessionChangesTab,
+  isTaskTab,
   isTerminalTab,
+  isPreviewableTab,
   layoutLeaves,
   layoutSashes,
   leaf,
@@ -23,6 +25,7 @@ import {
   newReleaseNotesWorkspaceTab,
   newSessionChangesTab,
   newTab,
+  newTaskTab,
   newTerminalFile,
   newTerminalWorkspaceTab,
   nextTerminalTitle,
@@ -971,5 +974,69 @@ describe("git diff tab handling", () => {
     expect(isChangesTab(regularFile)).toBe(false);
     expect(isDiffTab(regularFile)).toBe(false);
     expect(isFilesystemTab(regularFile)).toBe(true);
+  });
+});
+
+describe("task tabs", () => {
+  const task = { id: "t-1", title: "Fix installer", projectCwd: "/work/app" };
+
+  it("builds a virtual document tab keyed by task id", () => {
+    const file = newTaskTab(task);
+    expect(isTaskTab(file)).toBe(true);
+    expect(file.path).toBe("task:t-1");
+    expect(file.cwd).toBe("/work/app");
+    expect(file.projectCwd).toBe("/work/app");
+    expect(file.task).toEqual({ taskId: "t-1", title: "Fix installer" });
+    expect(editorTabKey(file)).toBe("task:t-1");
+    expect(isFilesystemTab(file)).toBe(false);
+    expect(isPreviewableTab(file)).toBe(false);
+  });
+
+  it("falls back to ~ for Personal tasks", () => {
+    const file = newTaskTab({ id: "t-2", title: "Home" });
+    expect(file.cwd).toBe("~");
+    expect("projectCwd" in file).toBe(false);
+  });
+
+  it("focuses the existing tab instead of duplicating it", () => {
+    const base = [newTab("session-a")];
+    const insert = (tabs: typeof base, tab: (typeof base)[number]) => [
+      ...tabs,
+      tab,
+    ];
+    const first = newTaskTab(task);
+    const opened = openWorkspaceFile(
+      base,
+      first,
+      newEditorWorkspaceTab(first),
+      insert,
+      true,
+    );
+    const second = newTaskTab(task);
+    const again = openWorkspaceFile(
+      opened.tabs,
+      second,
+      newEditorWorkspaceTab(second),
+      insert,
+      true,
+    );
+    expect(again.tabs).toHaveLength(opened.tabs.length);
+    expect(again.tabId).toBe(opened.tabId);
+    expect(
+      again.tabs.flatMap((tab) => tab.editorPanes.flatMap((p) => p.files)),
+    ).toHaveLength(1);
+  });
+
+  it("focuses the existing tab when opened twice inside one session tab", () => {
+    const tab = newTab("session-a");
+    const once = openEditorTab(tab, newTaskTab(task), {
+      split: "right",
+      pin: true,
+    });
+    const twice = openEditorTab(once, newTaskTab(task), {
+      split: "right",
+      pin: true,
+    });
+    expect(twice.editorPanes.flatMap((pane) => pane.files)).toHaveLength(1);
   });
 });
