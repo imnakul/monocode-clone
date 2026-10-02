@@ -314,16 +314,18 @@ export function SessionCard({
           <span className="min-w-0 flex-1" />
         )}
         <span
-          className={`flex shrink-0 items-center gap-1.5 ${
+          className={`flex min-w-3.5 shrink-0 items-center gap-1.5 ${
             onArchive
               ? "transition-[padding] group-focus-within:pl-5 group-hover:pl-5"
               : ""
           }`}
         >
-          <HarnessIcon
-            harness={session.harness}
-            className="size-3.5 shrink-0"
-          />
+          {compact ? (
+            <HarnessIcon
+              harness={session.harness}
+              className="size-3.5 shrink-0"
+            />
+          ) : null}
         </span>
       </span>
     </button>

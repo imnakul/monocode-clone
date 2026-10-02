@@ -20,7 +20,10 @@ function session(overrides: Partial<Session> = {}): Session {
   };
 }
 function card(status: BoardCard["status"]): BoardCard {
-  return { ...projectBoardCard(session(), undefined, 1)!, status };
+  return {
+    ...projectBoardCard(session({ busy: true }), undefined, 1)!,
+    status,
+  };
 }
 describe("session board lifecycle", () => {
   it("uses structured activity, approvals, queues, drafts and errors", () => {
@@ -103,9 +106,36 @@ describe("session board lifecycle", () => {
       projectBoardCard(session({ inboxAsk: {} as Session["inboxAsk"] })),
     ).toBeNull();
   });
+  it("does not turn unknown idle history into a failure or a success", () => {
+    expect(projectBoardCard(session())).toBeNull();
+    expect(
+      projectBoardCard(
+        session({
+          blocks: [
+            { id: "turn-1", role: "user", text: "Work", durationMs: 1000 },
+            { id: "reply", role: "assistant", text: "Completed successfully" },
+          ],
+        }),
+      ),
+    ).toBeNull();
+    const legacy = {
+      ...card("blocked"),
+      reason: "Earlier run has no recorded result; review the session",
+    };
+    expect(projectBoardCard(session(), legacy)).toBeNull();
+    expect(projectBoardCard(session({ busy: true }), legacy)).toMatchObject({
+      status: "in_progress",
+      reason: undefined,
+    });
+    expect(projectBoardCard(session(), card("in_progress"))).toMatchObject({
+      status: "blocked",
+      reason: "Previous run was interrupted; review the session",
+    });
+  });
   it("stores the model that ran the turn and normalizes the title", () => {
     const next = projectBoardCard(
       session({
+        busy: true,
         title: "  A   title  ",
         model: "next-choice",
         blocks: [
@@ -195,6 +225,17 @@ describe("durable board ledger", () => {
     await board.recordBoardOutcome(session(), "stopped", "Stopped by you");
     await board.observeBoardSessions([session()]);
     expect(board.boardSnapshot().cards[0].status).toBe("stopped");
+  });
+  it("ignores idle history but records explicit terminal outcomes without prior observation", async () => {
+    const board = await import("./sessionBoard");
+    await board.observeBoardSessions([session()]);
+    expect(rows.size).toBe(0);
+    await board.recordBoardOutcome(session(), "done");
+    expect(rows.get("session-1")?.status).toBe("done");
+    await board.observeBoardSessions([session()]);
+    expect(board.visibleBoardCards(board.boardSnapshot().cards)).toHaveLength(
+      1,
+    );
   });
   it("exposes storage failures and retries without losing session state", async () => {
     const board = await import("./sessionBoard");

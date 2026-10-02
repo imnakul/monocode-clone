@@ -51,6 +51,7 @@ export function projectBoardCard(
   session: Session,
   previous?: BoardCard,
   now = Date.now(),
+  recordedOutcome = false,
 ): BoardCard | null {
   const runId = boardRunId(session);
   if (!runId || session.ephemeral || session.inboxAsk) return null;
@@ -121,9 +122,15 @@ export function projectBoardCard(
   } else if (sameRun && previous.status === "in_progress") {
     status = "blocked";
     reason = "Previous run was interrupted; review the session";
-  } else if (!sameRun && !session.busy && user) {
-    status = "blocked";
-    reason = "Earlier run has no recorded result; review the session";
+  } else if (
+    !recordedOutcome &&
+    (!sameRun ||
+      (previous.status === "blocked" &&
+        previous.reason ===
+          "Earlier run has no recorded result; review the session"))
+  ) {
+    // Idle history without an observed outcome is not evidence of a failed run.
+    return null;
   }
 
   const next: BoardCard = {
@@ -262,7 +269,7 @@ export function recordBoardOutcome(
   ++observationVersion;
   return enqueue(async () => {
     const previous = cards.find((card) => card.sessionId === session.id);
-    const next = projectBoardCard(session, previous);
+    const next = projectBoardCard(session, previous, Date.now(), true);
     if (next)
       await store({
         ...next,
