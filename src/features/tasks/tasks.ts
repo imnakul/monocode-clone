@@ -96,8 +96,18 @@ function changed() {
   if (typeof window !== "undefined")
     window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
 }
+let cachedTasks: Task[] | null = null;
+/** Tasks from the latest successful load, so the view can paint before the next one. */
+export function peekTasks(): Task[] | null {
+  return cachedTasks;
+}
+export function invalidateTasks() {
+  cachedTasks = null;
+}
 export async function loadTasks(): Promise<Task[]> {
-  return invoke<Task[]>("tasks_list");
+  const tasks = await invoke<Task[]>("tasks_list");
+  cachedTasks = tasks;
+  return tasks;
 }
 export async function getTask(id: string): Promise<Task | null> {
   return invoke<Task | null>("tasks_get", { id });
