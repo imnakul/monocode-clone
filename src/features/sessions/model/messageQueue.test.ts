@@ -2,15 +2,19 @@ import { describe, expect, it, vi } from "vitest";
 import { appendPreparingHandoff } from "./handoff";
 import {
   beginQueuedSteerCancellation,
+  appendQueuedMessage,
   canDispatchQueuedHead,
+  dismissUsageLimitNotice,
   dequeueQueuedMessage,
   finalizeTurnSession,
   orchestrateTurnCompletion,
   finishQueuedSteerCancellation,
   isEditingQueuedHead,
   lastAssistantTextInTurn,
+  prepareUsageLimitContinue,
   queuedHead,
   queuedMessageForSubmit,
+  releaseHeldQueue,
   settleQueuedSteerCancellations,
 } from "./messageQueue";
 import { isProviderFailureText } from "./plan";
@@ -33,6 +37,101 @@ describe("queuedHead", () => {
   it("returns the first queued follow-up", () => {
     expect(queuedHead(chat())?.id).toBe("a");
     expect(queuedHead(chat({ queuedMessages: undefined }))).toBeUndefined();
+  });
+});
+
+describe("quota holds and manual queue resume", () => {
+  it("keeps late queue additions held after a usage limit and dismiss", () => {
+    const limited = chat({
+      busy: true,
+      queuedMessages: undefined,
+      queueStatus: undefined,
+      usageLimit: { resetsAt: 10_000 },
+    });
+    const withQueue = appendQueuedMessage(limited, queued("late"));
+    expect(withQueue.queueStatus).toBe("held");
+    expect(withQueue.queueHoldReason).toMatch(/usage limit/i);
+    expect(canDispatchQueuedHead(withQueue)).toBe(false);
+
+    const dismissed = dismissUsageLimitNotice(withQueue);
+    expect(dismissed.usageLimit).toBeUndefined();
+    expect(dismissed.queueStatus).toBe("held");
+    expect(dismissed.queueHoldReason).toMatch(/usage limit/i);
+    expect(canDispatchQueuedHead(dismissed)).toBe(false);
+
+    expect(canDispatchQueuedHead(releaseHeldQueue(dismissed))).toBe(false);
+    const resumed = releaseHeldQueue({ ...dismissed, busy: false });
+    expect(resumed.queueStatus).toBe("active");
+    expect(resumed.queueHoldReason).toBeUndefined();
+    expect(canDispatchQueuedHead(resumed)).toBe(true);
+  });
+
+  it("keeps a paused queue paused when the quota notice is dismissed", () => {
+    const dismissed = dismissUsageLimitNotice(
+      chat({
+        queueStatus: "paused",
+        usageLimit: { resetsAt: 10_000 },
+      }),
+    );
+    expect(dismissed.queueStatus).toBe("paused");
+    expect(canDispatchQueuedHead(dismissed)).toBe(false);
+  });
+
+  it("keeps a hidden quota hold when a queue is added after notice dismissal", () => {
+    const dismissed = dismissUsageLimitNotice(
+      chat({
+        busy: true,
+        queuedMessages: undefined,
+        queueStatus: undefined,
+        usageLimit: { resetsAt: 10_000 },
+      }),
+    );
+    expect(dismissed.queueStatus).toBe("held");
+    const withQueue = appendQueuedMessage(dismissed, queued("late"));
+    expect(withQueue.queueStatus).toBe("held");
+    expect(withQueue.queueHoldReason).toMatch(/usage limit/i);
+    expect(canDispatchQueuedHead({ ...withQueue, busy: false })).toBe(false);
+
+    const withoutQueue = finalizeTurnSession(
+      { ...dismissed, busy: true },
+      { providerFailed: false },
+    );
+    expect(withoutQueue.queueStatus).toBeUndefined();
+    expect(withoutQueue.queueHoldReason).toBeUndefined();
+  });
+
+  it("keeps the queue blocked while an explicit quota Continue runs", () => {
+    const held = chat({
+      busy: false,
+      queueStatus: "held",
+      queueHoldReason: "The provider reached its usage limit.",
+      usageLimit: { resetsAt: 10_000, resumeAtReset: true },
+    });
+    const continuing = prepareUsageLimitContinue(held);
+    expect(continuing.usageLimit).toBeUndefined();
+    expect(continuing.queueStatus).toBe("resuming");
+    expect(continuing.queueHoldReason).toBeUndefined();
+    expect(canDispatchQueuedHead(continuing)).toBe(false);
+
+    const failed = finalizeTurnSession(
+      {
+        ...continuing,
+        busy: true,
+        blocks: [
+          { id: "u1", role: "user", text: "continue" },
+          {
+            id: "e1",
+            role: "system",
+            text: "Quota is still exhausted",
+            notice: "error",
+          },
+        ],
+      },
+      { providerFailed: true },
+    );
+    expect(failed.queueStatus).toBe("held");
+    expect(failed.queueHoldReason).toBe("Quota is still exhausted");
+    expect(canDispatchQueuedHead(failed)).toBe(false);
   });
 });
 
@@ -224,14 +323,18 @@ describe("queued Steer cancellation", () => {
   });
 });
 
-
 describe("finalizeTurnSession and failure-to-held ordering", () => {
   it("transitions a session with a queue to held on structured provider failure", () => {
     const session = chat({
       busy: true,
       blocks: [
         { id: "u1", role: "user", text: "hello" },
-        { id: "s1", role: "system", text: "Anthropic API 500 internal error" },
+        {
+          id: "s1",
+          role: "system",
+          text: "Anthropic API 500 internal error",
+          notice: "error",
+        },
       ],
     });
 
@@ -239,6 +342,7 @@ describe("finalizeTurnSession and failure-to-held ordering", () => {
 
     expect(finalized.busy).toBe(false);
     expect(finalized.queueStatus).toBe("held");
+    expect(finalized.queueHoldReason).toBe("Anthropic API 500 internal error");
     expect(canDispatchQueuedHead(finalized)).toBe(false);
   });
 
@@ -255,6 +359,7 @@ describe("finalizeTurnSession and failure-to-held ordering", () => {
 
     expect(finalized.busy).toBe(false);
     expect(finalized.queueStatus).toBe("held");
+    expect(finalized.queueHoldReason).toMatch(/last turn failed/i);
     expect(canDispatchQueuedHead(finalized)).toBe(false);
   });
 
@@ -281,6 +386,7 @@ describe("finalizeTurnSession and failure-to-held ordering", () => {
 
     expect(finalized.busy).toBe(false);
     expect(finalized.queueStatus).toBe("held");
+    expect(finalized.queueHoldReason).toBe("Upgrade your plan to continue.");
     expect(canDispatchQueuedHead(finalized)).toBe(false);
   });
 
@@ -361,7 +467,16 @@ describe("queued Steer cancellation unconditional editing owner clear", () => {
     const selected: QueuedMessage = {
       id: "target",
       text: "plan migration",
-      attachments: [{ id: "att-1", name: "doc.md", mimeType: "text/markdown", kind: "file", size: 50, path: "/tmp/doc.md" }],
+      attachments: [
+        {
+          id: "att-1",
+          name: "doc.md",
+          mimeType: "text/markdown",
+          kind: "file",
+          size: 50,
+          path: "/tmp/doc.md",
+        },
+      ],
       intent: "plan",
       noteCard: { id: "n1", slug: "card", title: "Card", body: "detail" },
       handoffCard: { from: "claude", to: "codex", brief: "continue", files: 1 },
@@ -398,7 +513,9 @@ describe("queued Steer cancellation unconditional editing owner clear", () => {
           }
         : session;
     const applyDelete = (session: Session, messageId: string) =>
-      session.queueStatus !== "steering" ? dequeueQueuedMessage(session, messageId) : session;
+      session.queueStatus !== "steering"
+        ? dequeueQueuedMessage(session, messageId)
+        : session;
 
     expect(applyEdit(cancelling, "b", "mutated")).toBe(cancelling);
     expect(applyDelete(cancelling, "b")).toBe(cancelling);
@@ -416,7 +533,6 @@ describe("queued Steer cancellation unconditional editing owner clear", () => {
     expect(deleted.queuedMessages?.map((m) => m.id)).toEqual(["a"]);
   });
 });
-
 
 describe("orchestrateTurnCompletion (production-used orchestration, Defect 2)", () => {
   it("synchronously sets queueStatus to held on session.error before checkpoint Promise resolves", async () => {
@@ -582,7 +698,11 @@ describe("orchestrateTurnCompletion (production-used orchestration, Defect 2)", 
       queueStatus: "active",
       blocks: [
         { id: "u1", role: "user", text: "hello" },
-        { id: "a1", role: "assistant", text: "You have reached your usage limit. Upgrade your plan." },
+        {
+          id: "a1",
+          role: "assistant",
+          text: "You have reached your usage limit. Upgrade your plan.",
+        },
       ],
       queuedMessages: [queued("q1", "queued row")],
     });

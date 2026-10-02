@@ -143,6 +143,36 @@ describe("historyWithLiveSessions", () => {
     expect(rows[0]?.repo).toBe("project-a");
   });
 
+  it("uses the active turn model on live summaries and clears it when idle", () => {
+    const session = newSession("claude", "/tmp/project-a");
+    session.model = "claude:sonnet-4";
+    session.blocks = [
+      {
+        id: "u1",
+        role: "user",
+        text: "hello",
+        turnModel: { harness: "codex", id: "gpt-5.1", name: "GPT-5.1" },
+      },
+      { id: "draft", role: "user", text: "next", draft: true },
+    ];
+    session.busy = true;
+
+    const live = historyWithLiveSessions([], [session], "/tmp/project-a");
+    expect(live[0]).toMatchObject({
+      model: "claude:sonnet-4",
+      harness: "claude",
+      activeTurnModel: {
+        harness: "codex",
+        id: "gpt-5.1",
+        name: "GPT-5.1",
+      },
+    });
+
+    session.busy = false;
+    const settled = historyWithLiveSessions(live, [session], "/tmp/project-a");
+    expect(settled[0]?.activeTurnModel).toBeUndefined();
+  });
+
   it("marks drafts appended to started threads and clears stale draft status when sent", () => {
     const session = newSession("cursor", "/tmp/project-a");
     session.id = "draft-session";

@@ -275,6 +275,7 @@ type Props = {
   lastTurnRecall?: LastTurnRecall | null;
   queuedMessages?: QueuedMessage[];
   queueStatus?: MessageQueueStatus;
+  queueHoldReason?: string;
   usageLimit?: UsageLimit;
   hotkeys?: boolean;
   onFocus: () => void;
@@ -363,6 +364,7 @@ function ToolButton({
 export function MessageQueue({
   messages,
   status,
+  holdReason,
   onDelete,
   onEdit,
   onEditingChange,
@@ -371,6 +373,7 @@ export function MessageQueue({
 }: {
   messages: QueuedMessage[];
   status?: MessageQueueStatus;
+  holdReason?: string;
   onDelete?: (messageId: string) => void;
   onEdit?: (messageId: string, text: string) => void;
   onEditingChange?: (messageId?: string) => void;
@@ -440,10 +443,17 @@ export function MessageQueue({
           </div>
         ) : null}
         {held ? (
-          <div className="flex h-7 items-center gap-2 border-b border-content/10 text-[12px]">
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex h-7 items-center gap-2 border-b border-content/10 text-[12px]"
+          >
             <Pause className="size-3.5" />
-            <span className="min-w-0 flex-1 truncate">
-              Queue held because the last turn failed
+            <span
+              title={holdReason || "Queue held because the last turn failed"}
+              className="min-w-0 flex-1 truncate"
+            >
+              {holdReason || "Queue held because the last turn failed"}
             </span>
             <button
               type="button"
@@ -619,6 +629,7 @@ export function Composer({
   lastTurnRecall = null,
   queuedMessages = [],
   queueStatus,
+  queueHoldReason,
   usageLimit,
   onFocus,
   onCwdChange,
@@ -2190,6 +2201,7 @@ export function Composer({
       <MessageQueue
         messages={queuedMessages}
         status={queueStatus}
+        holdReason={queueHoldReason}
         onDelete={onDeleteQueuedMessage}
         onEdit={onEditQueuedMessage}
         onEditingChange={onQueuedMessageEditingChange}

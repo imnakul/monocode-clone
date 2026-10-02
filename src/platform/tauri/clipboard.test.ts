@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from "vitest";
-import { copyMessage, messageFilesFromClipboard } from "./clipboard";
+import {
+  copyFormattedText,
+  copyMessage,
+  messageFilesFromClipboard,
+} from "./clipboard";
 import { invoke } from "@tauri-apps/api/core";
 import {
   MAX_EMBED_BYTES,
@@ -12,6 +16,30 @@ import {
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 afterEach(() => vi.restoreAllMocks());
+
+it("copies formatted text with both Markdown and HTML clipboard formats", async () => {
+  const write = vi.spyOn(navigator.clipboard, "write").mockResolvedValue();
+  await copyFormattedText(
+    "| A |\n| --- |",
+    "<table><tr><th>A</th></tr></table>",
+  );
+  const item = write.mock.calls[0][0][0];
+  expect(await (await item.getType("text/plain")).text()).toBe(
+    "| A |\n| --- |",
+  );
+  expect(await (await item.getType("text/html")).text()).toContain("<table>");
+});
+
+it("falls back to Markdown text when rich clipboard write is unavailable", async () => {
+  vi.spyOn(navigator.clipboard, "write").mockRejectedValue(
+    new Error("unsupported"),
+  );
+  const writeText = vi
+    .spyOn(navigator.clipboard, "writeText")
+    .mockResolvedValue();
+  await copyFormattedText("| A |\n| --- |", "<table></table>");
+  expect(writeText).toHaveBeenCalledWith("| A |\n| --- |");
+});
 
 it("copies fresh disk images but leaves their restored placeholders alone", async () => {
   vi.mocked(invoke).mockResolvedValue(btoa("<svg></svg>"));

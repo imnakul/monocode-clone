@@ -372,6 +372,7 @@ import {
   loadCloseToTray,
   loadCollapsedProjectRailMode,
   loadComposerRunner,
+  loadCompactModelLabels,
   loadDetailedContext,
   loadDiffViewer,
   loadFileTabMode,
@@ -390,6 +391,7 @@ import {
   saveCloseToTray,
   saveCollapsedProjectRailMode,
   saveComposerRunner,
+  saveCompactModelLabels,
   saveAiHelperSettings,
   saveDetailedContext,
   saveDiffViewer,
@@ -827,6 +829,8 @@ function SettingsSearch({
 function ExperimentationPage(): ReactElement {
   const [detailedContext, setDetailedContext] = useState(loadDetailedContext);
   const [remainingQuota, setRemainingQuota] = useState(loadRemainingQuota);
+  const [compactModelLabels, setCompactModelLabels] =
+    useState(loadCompactModelLabels);
 
   const onDetailedContext = (next: boolean): void => {
     saveDetailedContext(next);
@@ -836,6 +840,11 @@ function ExperimentationPage(): ReactElement {
   const onRemainingQuota = (next: boolean): void => {
     saveRemainingQuota(next);
     setRemainingQuota(next);
+  };
+
+  const onCompactModelLabels = (next: boolean): void => {
+    saveCompactModelLabels(next);
+    setCompactModelLabels(next);
   };
 
   return (
@@ -858,6 +867,17 @@ function ExperimentationPage(): ReactElement {
           label="Remaining quota"
           on={remainingQuota}
           onChange={onRemainingQuota}
+        />
+      </Row>
+      <Row
+        id="compact-model-labels"
+        label="Compact model labels"
+        description="Show each compact sidebar thread’s model, including the model handling its active turn when it differs from the next-turn selection."
+      >
+        <Toggle
+          label="Compact model labels"
+          on={compactModelLabels}
+          onChange={onCompactModelLabels}
         />
       </Row>
     </>

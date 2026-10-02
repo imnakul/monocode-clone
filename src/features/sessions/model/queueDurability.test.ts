@@ -44,6 +44,36 @@ describe("queue durability", () => {
     ).toBeUndefined();
   });
 
+  it("persists a held reason on the current queue head and strips row metadata after restore", async () => {
+    const session = newSession("codex", "/tmp/project");
+    session.blocks = [{ id: "u1", role: "user", text: "initial prompt" }];
+    session.queuedMessages = [
+      { id: "q1", text: "first", attachments: [] },
+      { id: "q2", text: "second", attachments: [] },
+    ];
+    session.queueStatus = "held";
+    session.queueHoldReason = "The provider reached its usage limit.";
+
+    const saved = sanitizeSessionForPersist(session);
+    expect(saved.queuedMessages?.[0]).toMatchObject({
+      id: "q1",
+      queueHoldReason: "The provider reached its usage limit.",
+    });
+    vi.mocked(invoke).mockResolvedValueOnce(saved);
+    const restored = await getSession(session.id);
+    expect(restored?.queueHoldReason).toBe(
+      "The provider reached its usage limit.",
+    );
+    expect(restored?.queuedMessages?.[0]).not.toHaveProperty("queueHoldReason");
+
+    session.queuedMessages.shift();
+    const afterHeadRemoval = sanitizeSessionForPersist(session);
+    expect(afterHeadRemoval.queuedMessages?.[0]).toMatchObject({
+      id: "q2",
+      queueHoldReason: "The provider reached its usage limit.",
+    });
+  });
+
   it.each<MessageQueueStatus>(["paused", "held", "resuming", "steering"])(
     "preserves %s as a safe stop across restart",
     async (queueStatus) => {
@@ -208,6 +238,17 @@ describe("queue persistence while busy and dirty tracking (Defect 1)", () => {
     const pausedKey = queuePersistFingerprint(session);
     expect(pausedKey).not.toBe(activeKey);
     expect(pausedKey).not.toBe(heldKey);
+  });
+
+  it("changes the durable key for a reason-only held queue update", () => {
+    const session = newSession("claude", "/tmp/project");
+    session.queuedMessages = [{ id: "q1", text: "step", attachments: [] }];
+    session.queueStatus = "held";
+    session.queueHoldReason = "A provider error needs review.";
+    const firstReason = queuePersistFingerprint(session);
+
+    session.queueHoldReason = "The provider reached its usage limit.";
+    expect(queuePersistFingerprint(session)).not.toBe(firstReason);
   });
 
   it("normalizes steering and resuming to the same restart-safe representation as paused", () => {

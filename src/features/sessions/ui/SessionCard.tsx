@@ -11,7 +11,10 @@ import { HarnessIcon } from "./HarnessIcon";
 import { TerminalSpinner } from "./TerminalSpinner";
 import { suppressTextSelection } from "../../../shared/lib/drag";
 import type { PaneEdge } from "../../workspace/model/layout";
-import { resolveModel } from "../model/models";
+import {
+  compactModelLabel,
+  useCompactModelLabels,
+} from "./useCompactModelLabels";
 import { paneDropFromPoint, setExternalPaneDrop } from "../../workspace/model/paneDrop";
 import { sessionDisplayTitle } from "../model/session";
 import type { SessionListDropTarget } from "../model/sessionFolders";
@@ -79,9 +82,12 @@ export function SessionCard({
   const title = sessionDisplayTitle(session.title, session.harness);
   const gitLabel = formatGitLabel(session.repo, session.branch);
   const time = formatRelative(session.updatedAt, now);
+  const showCompactModel = useCompactModelLabels();
   const model = compact
-    ? null
-    : resolveModel(session.harness, session.model).name;
+    ? showCompactModel
+      ? compactModelLabel(session)
+      : null
+    : compactModelLabel(session);
   const statusClass = needsApproval
     ? "text-amber-400"
     : busy
@@ -289,6 +295,14 @@ export function SessionCard({
         </span>
         {compact ? status : null}
       </span>
+      {compact && showCompactModel && model ? (
+        <span
+          title={`Model: ${model}`}
+          className="relative mt-0.5 min-w-0 truncate text-[10px] leading-tight text-content/45"
+        >
+          Model: {model}
+        </span>
+      ) : null}
       <span className="relative mt-1 flex items-center gap-2">
         {gitLabel ? (
           <span className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-content/45">

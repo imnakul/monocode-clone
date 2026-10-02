@@ -484,6 +484,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     label: "Show archived in the sidebar",
     keywords: "hidden conversations list",
   },
+  {
+    id: "compact-model-labels",
+    section: "experimentation",
+    label: "Compact model labels",
+    keywords: "sidebar thread cards current running provider model",
+  },
 ];
 
 export type SettingsSearchResult = {
@@ -1220,6 +1226,52 @@ export function subscribeRemainingQuota(onStoreChange: () => void): () => void {
   window.addEventListener(REMAINING_QUOTA_CHANGE_EVENT, onStoreChange);
   return () =>
     window.removeEventListener(REMAINING_QUOTA_CHANGE_EVENT, onStoreChange);
+}
+
+const COMPACT_MODEL_LABELS_KEY = "monocode.compactModelLabels";
+
+export const COMPACT_MODEL_LABELS_DEFAULT = false;
+
+export const COMPACT_MODEL_LABELS_CHANGE_EVENT =
+  "monocode:compact-model-labels-change";
+
+export function loadCompactModelLabels(): boolean {
+  try {
+    const raw = localStorage.getItem(COMPACT_MODEL_LABELS_KEY);
+    if (raw == null) return COMPACT_MODEL_LABELS_DEFAULT;
+    return raw === "1" || raw === "true";
+  } catch {
+    return COMPACT_MODEL_LABELS_DEFAULT;
+  }
+}
+
+export function saveCompactModelLabels(value: boolean): void {
+  try {
+    localStorage.setItem(COMPACT_MODEL_LABELS_KEY, value ? "1" : "0");
+  } catch {
+    // private mode / quota
+  }
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<boolean>(COMPACT_MODEL_LABELS_CHANGE_EVENT, {
+      detail: value,
+    }),
+  );
+}
+
+export function subscribeCompactModelLabels(
+  onStoreChange: () => void,
+): () => void {
+  if (typeof window === "undefined") return () => {};
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === COMPACT_MODEL_LABELS_KEY) onStoreChange();
+  };
+  window.addEventListener(COMPACT_MODEL_LABELS_CHANGE_EVENT, onStoreChange);
+  window.addEventListener("storage", onStorage);
+  return () => {
+    window.removeEventListener(COMPACT_MODEL_LABELS_CHANGE_EVENT, onStoreChange);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 const CTRL = IS_MAC ? "⌃" : "Ctrl+";

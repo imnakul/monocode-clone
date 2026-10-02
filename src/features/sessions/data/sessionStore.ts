@@ -57,6 +57,8 @@ export type SessionSummary = {
   cwd: string;
   harness: HarnessId;
   model: string;
+  /** Model handling the current user turn; memory-only live-session metadata. */
+  activeTurnModel?: TurnModel;
   runtimeMode: RuntimeMode;
   title: string;
   providerSessionId?: string;
@@ -169,7 +171,10 @@ function persistableMeta(
     // Queued follow-ups ride with the session so a restart cannot lose them.
     ...(session.queuedMessages?.length
       ? {
-          queuedMessages: persistableQueuedMessages(session.queuedMessages),
+          queuedMessages: persistableQueuedMessages(
+            session.queuedMessages,
+            session.queueHoldReason,
+          ),
           queueStatus,
         }
       : {}),
@@ -1378,9 +1383,12 @@ function asRuntimeMode(value: string): RuntimeMode {
 
 /** Focus fingerprint derived only from durable queue state. */
 export function queuePersistFingerprint(
-  session: Pick<Session, "queuedMessages" | "queueStatus">,
+  session: Pick<Session, "queuedMessages" | "queueStatus" | "queueHoldReason">,
 ): string {
-  const queuedMessages = persistableQueuedMessages(session.queuedMessages ?? []);
+  const queuedMessages = persistableQueuedMessages(
+    session.queuedMessages ?? [],
+    session.queueHoldReason,
+  );
   if (!queuedMessages || queuedMessages.length === 0) return "";
   const queueStatus =
     session.queueStatus === "resuming" || session.queueStatus === "steering"
@@ -1403,8 +1411,19 @@ export function shouldScheduleSessionPersist(params: {
 }
 
 /** Strip ephemeral attachment payloads so the queue survives a restart. */
-export function persistableQueuedMessages(messages: QueuedMessage[]): QueuedMessage[] {
-  return messages
+type PersistedQueuedMessage = QueuedMessage & { queueHoldReason?: string };
+
+function sanitizeQueueHoldReason(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const reason = value.trim().replace(/\s+/g, " ").slice(0, 240);
+  return reason || undefined;
+}
+
+export function persistableQueuedMessages(
+  messages: QueuedMessage[],
+  queueHoldReason?: string,
+): PersistedQueuedMessage[] {
+  const rows: PersistedQueuedMessage[] = messages
     .filter((message) => message && typeof message.id === "string")
     .map((message) => ({
       ...message,
@@ -1413,13 +1432,26 @@ export function persistableQueuedMessages(messages: QueuedMessage[]): QueuedMess
         ...(!file.path && file.data ? { data: file.data } : {}),
       })),
     }));
+  const reason = sanitizeQueueHoldReason(queueHoldReason);
+  if (rows[0]) {
+    if (reason) rows[0].queueHoldReason = reason;
+    else delete rows[0].queueHoldReason;
+  }
+  return rows;
 }
 
 /** Validate queue rows coming back from disk; drop anything malformed. */
 export function restoreQueuedMessages(
   value: unknown,
-): { queuedMessages: QueuedMessage[] } | undefined {
+): { queuedMessages: QueuedMessage[]; queueHoldReason?: string } | undefined {
   if (!Array.isArray(value) || value.length === 0) return undefined;
+  const holdReason = value
+    .flatMap((entry) =>
+      entry && typeof entry === "object" && !Array.isArray(entry)
+        ? [sanitizeQueueHoldReason((entry as Record<string, unknown>).queueHoldReason)]
+        : [],
+    )
+    .find((reason): reason is string => Boolean(reason));
   const messages = value.flatMap((entry): QueuedMessage[] => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
     const row: Record<string, unknown> = entry;
@@ -1485,7 +1517,12 @@ export function restoreQueuedMessages(
       },
     ];
   });
-  return messages.length > 0 ? { queuedMessages: messages } : undefined;
+  return messages.length > 0
+    ? {
+        queuedMessages: messages,
+        ...(holdReason ? { queueHoldReason: holdReason } : {}),
+      }
+    : undefined;
 }
 
 /** Validate disk metadata before it can enter prompt composition. */

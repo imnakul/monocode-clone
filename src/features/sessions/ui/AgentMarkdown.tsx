@@ -27,7 +27,10 @@ import {
   type Components,
 } from "streamdown";
 import type { PluggableList } from "unified";
-import { ExplorerMenu, type ExplorerMenuItem } from "../../files/ui/ExplorerMenu";
+import {
+  ExplorerMenu,
+  type ExplorerMenuItem,
+} from "../../files/ui/ExplorerMenu";
 import { FileActionError } from "../../files/ui/FileActionError";
 import { FileTypeIcon } from "../../files/ui/FileTypeIcon";
 import { createLazyMermaidPlugin } from "../../files/editor/mermaidPlugin";
@@ -43,12 +46,16 @@ import { useColorScheme } from "../../../shared/hooks/useColorScheme";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import { copyText } from "../../../platform/tauri/clipboard";
 import { openPathWithDefaultApp, revealPath } from "../../../platform/tauri/fs";
-import { INBOX_MEDIA_PREFIXES, isInboxMediaUrl } from "../../inbox/model/inboxMedia";
+import {
+  INBOX_MEDIA_PREFIXES,
+  isInboxMediaUrl,
+} from "../../inbox/model/inboxMedia";
 import { isNoteImagePath } from "../../notes";
 import { IS_MAC, IS_WIN } from "../../../platform/tauri/platform";
 import { InboxMedia } from "../../inbox/ui/InboxMedia";
 import { rehypeHardBreaks } from "./hardBreaks";
 import { rehypeWordFade, usePacedText, useWordFading } from "./wordFade";
+import { MarkdownTable, MarkdownTableContext } from "./MarkdownTable";
 
 const MERMAID_BASE_CONFIG = {
   startOnLoad: false,
@@ -219,7 +226,9 @@ const LANGUAGE_FILE_NAMES: Record<string, string> = {
 const PLAINTEXT_FENCE_LANGUAGES = new Set(["text", "plaintext", "txt", ""]);
 
 function highlightLanguageFor(language: string): string {
-  return PLAINTEXT_FENCE_LANGUAGES.has(language.toLowerCase()) ? "js" : language;
+  return PLAINTEXT_FENCE_LANGUAGES.has(language.toLowerCase())
+    ? "js"
+    : language;
 }
 
 type MarkdownLinkProps = ComponentProps<"a"> & { node?: unknown };
@@ -481,6 +490,7 @@ const MARKDOWN_COMPONENTS = {
   a: MarkdownLink,
   code: MarkdownCode,
   img: MarkdownImage,
+  table: MarkdownTable,
 } satisfies Components;
 
 /**
@@ -510,6 +520,7 @@ export const AgentMarkdown = memo(function AgentMarkdown({
   onOpenFile,
   allowRemoteMedia,
   hardBreaks,
+  onSaveNote,
 }: {
   text: string;
   streaming?: boolean;
@@ -519,6 +530,7 @@ export const AgentMarkdown = memo(function AgentMarkdown({
   allowRemoteMedia?: boolean;
   /** Show a newline inside a block as a line break, as a document does (#591). */
   hardBreaks?: boolean;
+  onSaveNote?: (text: string) => void | Promise<void>;
 }) {
   const [fileMenu, setFileMenu] = useState<FileLinkMenu | null>(null);
   const [fileActionError, setFileActionError] = useState<string | null>(null);
@@ -543,6 +555,14 @@ export const AgentMarkdown = memo(function AgentMarkdown({
   );
   const remoteMedia = !!allowRemoteMedia;
   const paced = usePacedText(text, !!streaming);
+  const inheritedTableActions = useContext(MarkdownTableContext);
+  const tableActions = useMemo(
+    () => ({
+      onSaveNote: onSaveNote ?? inheritedTableActions.onSaveNote,
+      streaming: !!streaming || paced.revealing,
+    }),
+    [onSaveNote, inheritedTableActions.onSaveNote, streaming, paced.revealing],
+  );
   const fading = useWordFading(!!streaming || paced.revealing);
   // Spans stay while words are fading so a word already on screen keeps its
   // element. Dropping one mid-fade would remount it and fade it again. Once
@@ -604,22 +624,24 @@ export const AgentMarkdown = memo(function AgentMarkdown({
     <RemoteMediaContext.Provider value={remoteMedia}>
       <FileOpenContext.Provider value={fileOpen}>
         <>
-          <Streamdown
-            // Streamdown keeps a parsed tree while the text is unchanged, so
-            // the plugin swap has to remount it once the fade is over.
-            key={fading ? "fade" : "plain"}
-            BlockComponent={DirectionalBlock}
-            className={`agent-markdown min-w-0 font-sans text-sm leading-6 ${fading ? "word-fading" : ""} ${className ?? ""}`}
-            components={MARKDOWN_COMPONENTS}
-            controls={false}
-            dir="auto"
-            isAnimating={!!streaming || paced.revealing}
-            plugins={MARKDOWN_PLUGINS}
-            remarkPlugins={remarkPlugins}
-            rehypePlugins={rehypePlugins}
-          >
-            {paced.text}
-          </Streamdown>
+          <MarkdownTableContext.Provider value={tableActions}>
+            <Streamdown
+              // Streamdown keeps a parsed tree while the text is unchanged, so
+              // the plugin swap has to remount it once the fade is over.
+              key={fading ? "fade" : "plain"}
+              BlockComponent={DirectionalBlock}
+              className={`agent-markdown min-w-0 font-sans text-sm leading-6 ${fading ? "word-fading" : ""} ${className ?? ""}`}
+              components={MARKDOWN_COMPONENTS}
+              controls={false}
+              dir="auto"
+              isAnimating={!!streaming || paced.revealing}
+              plugins={MARKDOWN_PLUGINS}
+              remarkPlugins={remarkPlugins}
+              rehypePlugins={rehypePlugins}
+            >
+              {paced.text}
+            </Streamdown>
+          </MarkdownTableContext.Provider>
           {fileMenu ? (
             <ExplorerMenu
               x={fileMenu.x}

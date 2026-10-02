@@ -1,5 +1,9 @@
 import { NO_BRANCH_LABEL } from "../../features/source-control/model/worktrees";
 import { OrchestrationSidebarAgents } from "../../features/orchestration/ui/OrchestrationSidebarAgents";
+import {
+  compactModelLabel,
+  useCompactModelLabels,
+} from "../../features/sessions/ui/useCompactModelLabels";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Archive,
@@ -53,7 +57,6 @@ import {
 } from "../../platform/tauri/fs";
 import { IS_MAC, MOD } from "../../platform/tauri/platform";
 import { copyText } from "../../platform/tauri/clipboard";
-import { resolveModel } from "../../features/sessions/model/models";
 import type { OpenFileFn } from "../../features/search/model/search";
 import { sessionDisplayTitle } from "../../features/sessions/model/session";
 import { nextUnseenFinishedSessions } from "../../features/sessions/model/sessionDone";
@@ -3082,6 +3085,7 @@ const SessionCard = memo(function SessionCard({
     useState(false);
   const orchestration = session.orchestration;
   const draft = !!session.draft;
+  const compactModelLabels = useCompactModelLabels();
   const orchestrationExpanded =
     !!orchestration && (isActive || isSelected || busy);
   const orchestrationDone =
@@ -3094,8 +3098,10 @@ const SessionCard = memo(function SessionCard({
   const time = formatRelative(session.updatedAt, now);
   const model =
     compact && !orchestrationExpanded
-      ? null
-      : resolveModel(session.harness, session.model).name;
+      ? compactModelLabels
+        ? compactModelLabel(session)
+        : null
+      : compactModelLabel(session);
   const statusClass = needsApproval
     ? "text-amber-400"
     : busy
@@ -3439,6 +3445,17 @@ const SessionCard = memo(function SessionCard({
             ) : null}
           </span>
         </div>
+        {compact &&
+        !orchestrationExpanded &&
+        compactModelLabels &&
+        model ? (
+          <span
+            title={`Model: ${model}`}
+            className="relative mt-0.5 min-w-0 truncate text-[10px] leading-tight text-content/45"
+          >
+            Model: {model}
+          </span>
+        ) : null}
         {orchestrationExpanded ? (
           <OrchestrationSidebarAgents
             leadId={session.id}

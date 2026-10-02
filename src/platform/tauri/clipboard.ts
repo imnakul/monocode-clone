@@ -154,6 +154,23 @@ export function messageFilesFromClipboard(
   }
 }
 
+/** Rich paste in editors that support it; Markdown/plain text remains available. */
+export async function copyFormattedText(
+  text: string,
+  html: string,
+): Promise<void> {
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/plain": new Blob([text], { type: "text/plain" }),
+        "text/html": new Blob([html], { type: "text/html" }),
+      }),
+    ]);
+  } catch {
+    await copyText(text);
+  }
+}
+
 export async function copyText(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
@@ -245,7 +262,8 @@ export async function nativeClipboardAttachments(
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     // An empty clipboard is a no-op. A real read failure still surfaces.
-    if (reason === "The clipboard does not contain an image.") return { files: [] };
+    if (reason === "The clipboard does not contain an image.")
+      return { files: [] };
     throw error;
   }
 }

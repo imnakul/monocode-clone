@@ -9,7 +9,10 @@ import type {
 } from "../../../features/sessions/model/session";
 import { mergeContextUsage } from "../../../features/sessions/model/contextUsage";
 import { branchDividerText } from "../../../features/sessions/model/branchPlan";
-import { HARNESS_TITLE } from "../../../features/sessions/model/session";
+import {
+  HARNESS_TITLE,
+  QUEUE_HOLD_REASON_USAGE_LIMIT,
+} from "../../../features/sessions/model/session";
 import { displayPath } from "../../../shared/lib/paths";
 import {
   composeToolTitle,
@@ -239,6 +242,16 @@ export function applyHarnessEvent(
       return {
         ...session,
         usageLimit: event.resetsAt != null ? { resetsAt: event.resetsAt } : {},
+        ...(session.queuedMessages?.length &&
+        session.queueStatus !== "paused" &&
+        session.queueStatus !== "steering" &&
+        session.queueStatus !== "resuming"
+          ? {
+              queueStatus: "held",
+              queueHoldReason:
+                session.queueHoldReason ?? QUEUE_HOLD_REASON_USAGE_LIMIT,
+            }
+          : {}),
       };
     case "interjection":
       // A visible boundary the user must not miss, so unlike status it never

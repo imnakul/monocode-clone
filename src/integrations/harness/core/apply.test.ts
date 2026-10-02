@@ -453,6 +453,18 @@ describe("usage limits", () => {
         .usageLimit,
     ).toEqual({});
   });
+
+  it("puts an existing queue into a durable manual-resume hold", () => {
+    const session = {
+      ...newSession("codex", "/tmp"),
+      queuedMessages: [{ id: "q1", text: "next", attachments: [] }],
+      queueStatus: "active" as const,
+    };
+    const limited = applyHarnessEvent(session, { type: "usage.limited" });
+    expect(limited.usageLimit).toEqual({});
+    expect(limited.queueStatus).toBe("held");
+    expect(limited.queueHoldReason).toMatch(/usage limit/i);
+  });
 });
 
 describe("status blocks", () => {

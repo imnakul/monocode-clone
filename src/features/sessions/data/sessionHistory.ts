@@ -12,6 +12,14 @@ import {
 } from "../model/session";
 import { shouldPersistSession, type SessionSummary } from "./sessionStore";
 
+function activeTurnModelFor(session: Session) {
+  if (!session.busy) return undefined;
+  const activeUserTurn = [...session.blocks]
+    .reverse()
+    .find((block) => block.role === "user" && !block.draft);
+  return activeUserTurn?.turnModel;
+}
+
 export type SessionGitHint = {
   repo?: string;
   branch?: string;
@@ -105,12 +113,14 @@ export function summaryFromSession(
   session: Session,
   git?: SessionGitHint,
 ): SessionSummary {
+  const activeTurnModel = activeTurnModelFor(session);
   return {
     id: session.id,
     orchestrationLeadId: session.orchestrationLeadId,
     cwd: session.cwd,
     harness: session.harness,
     model: session.model,
+    ...(activeTurnModel ? { activeTurnModel } : {}),
     runtimeMode: session.runtimeMode,
     title: session.title,
     draft: !!sessionDraftBlock(session),
@@ -189,10 +199,23 @@ export function historyWithLiveSessions(
       const stored = rows[storedIndex];
       const draft = !!sessionDraftBlock(session);
       const automationId = session.automationId || stored.automationId;
-      if (!!stored.draft !== draft || stored.automationId !== automationId) {
+      const activeTurnModel = activeTurnModelFor(session);
+      if (
+        !!stored.draft !== draft ||
+        stored.automationId !== automationId ||
+        stored.model !== session.model ||
+        stored.harness !== session.harness ||
+        JSON.stringify(stored.activeTurnModel) !==
+          JSON.stringify(activeTurnModel)
+      ) {
         rows[storedIndex] = {
           ...stored,
+          model: session.model,
+          harness: session.harness,
           draft: draft || undefined,
+          ...(activeTurnModel
+            ? { activeTurnModel }
+            : { activeTurnModel: undefined }),
           ...(automationId ? { automationId } : {}),
         };
       }

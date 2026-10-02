@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import type { NewThreadBackgroundEffect } from "./appearance";
+import { hazeWallpaperPixels } from "./wallpaperHaze";
 
 type Source = {
   width: number;
@@ -205,6 +206,24 @@ function scanlinePixels(source: Source, light: boolean) {
   return output;
 }
 
+export function renderEffectPixels(
+  source: Source,
+  effect: NewThreadBackgroundEffect,
+  light: boolean,
+): Uint8ClampedArray {
+  return effect === "none"
+    ? nonePixels(source)
+    : effect === "dither"
+      ? ditherPixels(source)
+      : effect === "ascii"
+        ? asciiPixels(source, light)
+        : effect === "halftone"
+          ? halftonePixels(source, light)
+          : effect === "gradient-blur"
+            ? hazeWallpaperPixels(source.pixels, source.width, source.height)
+            : scanlinePixels(source, light);
+}
+
 async function loadSource(sourceKey: string, bytes: ArrayBuffer) {
   const decoded = await createImageBitmap(new Blob([bytes]));
   const scale = Math.min(1, 2048 / decoded.width, 2048 / decoded.height);
@@ -240,16 +259,7 @@ async function render(
   const cacheKey = `${sourceKey}:${effect}:${themeKey}`;
   const cached = rendered.get(cacheKey);
   if (cached) return cached;
-  const pixels =
-    effect === "none"
-      ? nonePixels(source)
-      : effect === "dither"
-        ? ditherPixels(source)
-        : effect === "ascii"
-          ? asciiPixels(source, light)
-          : effect === "halftone"
-            ? halftonePixels(source, light)
-            : scanlinePixels(source, light);
+  const pixels = renderEffectPixels(source, effect, light);
   const canvas = new OffscreenCanvas(source.width, source.height);
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Unable to render the background effect.");

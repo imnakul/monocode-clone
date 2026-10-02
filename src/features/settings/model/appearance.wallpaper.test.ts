@@ -58,7 +58,7 @@ afterEach(async () => {
 });
 
 describe("wallpaper Halftone", () => {
-  it.each(["dither", "ascii", "scanlines"] as const)(
+  it.each(["dither", "ascii", "scanlines", "gradient-blur"] as const)(
     "renders %s with the shared worker without changing chat",
     async (effect) => {
       await applyWallpaperPath("C:/Pictures/wallpaper.png", effect);

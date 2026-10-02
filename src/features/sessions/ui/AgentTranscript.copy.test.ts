@@ -8,6 +8,31 @@ import { messageFilesFromClipboard } from "../../../platform/tauri/clipboard";
 let container: HTMLDivElement;
 let root: Root;
 
+it("saves a table from the transcript with its structure and follows notes availability", async () => {
+  const table = "| Model | State |\n| --- | --- |\n| Claude | Running |";
+  const save = vi.fn(async (_text: string) => {});
+  const props = {
+    blocks: [
+      { id: "prompt", role: "user" as const, text: "Compare" },
+      { id: "answer", role: "assistant" as const, text: table },
+    ],
+  };
+  act(() =>
+    root.render(createElement(AgentTranscript, { ...props, onSaveNote: save })),
+  );
+  const button = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Add table to Note"]',
+  );
+  expect(button).not.toBeNull();
+  await act(async () => button!.click());
+  expect(save).toHaveBeenCalledWith(table);
+  act(() => root.render(createElement(AgentTranscript, props)));
+  expect(
+    container.querySelector('[aria-label="Add table to Note"]'),
+  ).toBeNull();
+  expect(container.querySelector('[aria-label="Copy table"]')).not.toBeNull();
+});
+
 it("shows the user's send time next to the message actions", () => {
   act(() =>
     root.render(

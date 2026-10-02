@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   COMPOSER_RUNNER_DEFAULT,
+  COMPACT_MODEL_LABELS_DEFAULT,
   DETAILED_CONTEXT_DEFAULT,
   AUTOSAVE_DEFAULT,
   COLLAPSED_PROJECT_RAIL_MODE_DEFAULT,
@@ -18,6 +19,7 @@ import {
   LIVE_AGENTS_ENABLED_DEFAULT,
   TAB_ANIMATIONS_ENABLED_DEFAULT,
   loadComposerRunner,
+  loadCompactModelLabels,
   loadDetailedContext,
   loadComposerEffortVisible,
   loadAutosave,
@@ -39,6 +41,7 @@ import {
   NOTES_ENABLED_DEFAULT,
   REMAINING_QUOTA_DEFAULT,
   saveComposerRunner,
+  saveCompactModelLabels,
   saveDetailedContext,
   saveComposerEffortVisible,
   saveAutosave,
@@ -58,6 +61,7 @@ import {
   subscribeDetailedContext,
   subscribeFollowUpBehavior,
   subscribeRemainingQuota,
+  subscribeCompactModelLabels,
   AI_HELPER_CHANGE_EVENT,
   loadAiHelperSettings,
   parseAiHelperSettings,
@@ -84,6 +88,7 @@ const FILE_TAB_MODE_KEY = "monocode.fileTabMode";
 const FOLLOW_UP_BEHAVIOR_KEY = "monocode.followUpBehavior";
 const DETAILED_CONTEXT_KEY = "monocode.detailedContext";
 const REMAINING_QUOTA_KEY = "monocode.remainingQuota";
+const COMPACT_MODEL_LABELS_KEY = "monocode.compactModelLabels";
 const TAB_ANIMATIONS_KEY = "monocode.tabAnimationsEnabled";
 const COLLAPSED_PROJECT_RAIL_MODE_KEY = "monocode.collapsedProjectRailMode";
 const AI_HELPER_KEY = "monocode.aiHelper";
@@ -681,6 +686,12 @@ describe("experimentation section metadata", () => {
     expect(settingsSectionDescription("experimentation")).toBe(
       "Preview features that may change or use estimated data.",
     );
+    expect(searchSettings("compact model labels")).toContainEqual(
+      expect.objectContaining({
+        section: "experimentation",
+        settingId: "compact-model-labels",
+      }),
+    );
   });
 });
 
@@ -823,6 +834,38 @@ describe("remaining quota setting", () => {
     }
   });
 
+});
+
+describe("compact model labels setting", () => {
+  beforeEach(mockLocalStorage);
+  afterEach(() => {
+    localStorage.removeItem(COMPACT_MODEL_LABELS_KEY);
+  });
+
+  it("defaults off and persists its value", () => {
+    expect(COMPACT_MODEL_LABELS_DEFAULT).toBe(false);
+    expect(loadCompactModelLabels()).toBe(false);
+    saveCompactModelLabels(true);
+    expect(localStorage.getItem(COMPACT_MODEL_LABELS_KEY)).toBe("1");
+    expect(loadCompactModelLabels()).toBe(true);
+  });
+
+  it("notifies subscribers when the setting changes", () => {
+    const target = new EventTarget();
+    vi.stubGlobal("window", target);
+    try {
+      let calls = 0;
+      const unsubscribe = subscribeCompactModelLabels(() => calls++);
+      saveCompactModelLabels(true);
+      saveCompactModelLabels(false);
+      expect(calls).toBe(2);
+      unsubscribe();
+      saveCompactModelLabels(true);
+      expect(calls).toBe(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe("file tab mode setting", () => {

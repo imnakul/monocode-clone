@@ -1,12 +1,105 @@
 import { isProviderFailureText } from "./plan";
 import { isPreparingHandoff } from "./handoff";
-import { promoteLastAssistantToPlan, stopStreaming } from "../../../integrations/harness/core/apply";
-import type { PlanStatus, QueuedMessage, Session, TurnIntent } from "./session";
+import {
+  promoteLastAssistantToPlan,
+  stopStreaming,
+} from "../../../integrations/harness/core/apply";
+import {
+  QUEUE_HOLD_REASON_STEER_CANCEL,
+  QUEUE_HOLD_REASON_USAGE_LIMIT,
+  type PlanStatus,
+  type QueuedMessage,
+  type Session,
+  type TurnIntent,
+} from "./session";
 
 const QUEUED_STEER_CANCEL_GRACE_MS = 15_000;
 
 export function queuedHead(session: Session): QueuedMessage | undefined {
   return session.queuedMessages?.[0];
+}
+
+/** Preserve queue barriers when a follow-up is added during an active turn. */
+export function appendQueuedMessage(
+  session: Session,
+  message: QueuedMessage,
+): Session {
+  const preserveStatus =
+    session.queueStatus === "paused" ||
+    session.queueStatus === "held" ||
+    session.queueStatus === "steering" ||
+    session.queueStatus === "resuming";
+  const usageLimitHold =
+    Boolean(session.usageLimit) &&
+    session.queueStatus !== "paused" &&
+    session.queueStatus !== "steering" &&
+    session.queueStatus !== "resuming";
+  return {
+    ...session,
+    queuedMessages: [...(session.queuedMessages ?? []), message],
+    queueStatus: usageLimitHold
+      ? "held"
+      : preserveStatus
+        ? session.queueStatus
+        : "active",
+    ...(usageLimitHold
+      ? {
+          queueHoldReason:
+            session.queueHoldReason ?? QUEUE_HOLD_REASON_USAGE_LIMIT,
+        }
+      : {}),
+  };
+}
+
+/** Keep a usage-limit dismissal from releasing queued work automatically. */
+export function dismissUsageLimitNotice(session: Session): Session {
+  if (!session.usageLimit) return session;
+  const cleared = { ...session, usageLimit: undefined };
+  if (!session.queuedMessages?.length) {
+    return session.busy
+      ? {
+          ...cleared,
+          queueStatus: "held",
+          queueHoldReason:
+            session.queueHoldReason ?? QUEUE_HOLD_REASON_USAGE_LIMIT,
+        }
+      : cleared;
+  }
+  if (
+    session.queueStatus === "paused" ||
+    session.queueStatus === "steering" ||
+    session.queueStatus === "resuming"
+  ) {
+    return cleared;
+  }
+  return {
+    ...cleared,
+    queueStatus: "held",
+    queueHoldReason: session.queueHoldReason ?? QUEUE_HOLD_REASON_USAGE_LIMIT,
+  };
+}
+
+/** Release a held queue only after the user activates its Resume control. */
+export function releaseHeldQueue(session: Session): Session {
+  if (session.queueStatus !== "held") return session;
+  return {
+    ...session,
+    queueStatus: "active",
+    queueHoldReason: undefined,
+    usageLimit: undefined,
+  };
+}
+
+/** Explicit or opted-in quota resume sends Continue before queued follow-ups. */
+export function prepareUsageLimitContinue(session: Session): Session {
+  if (!session.usageLimit) return session;
+  return {
+    ...session,
+    usageLimit: undefined,
+    ...(session.queuedMessages?.length
+      ? { queueStatus: "resuming", queueHoldReason: undefined }
+      : { queueStatus: undefined, queueHoldReason: undefined }),
+  };
 }
 
 /** Hold auto-dispatch only while the item about to send is being edited. */
@@ -26,6 +119,7 @@ export function dequeueQueuedMessage(
     ...session,
     queuedMessages: queuedMessages.length > 0 ? queuedMessages : undefined,
     queueStatus: queuedMessages.length > 0 ? session.queueStatus : undefined,
+    ...(queuedMessages.length > 0 ? {} : { queueHoldReason: undefined }),
     editingQueuedMessageId:
       session.editingQueuedMessageId === messageId
         ? undefined
@@ -96,6 +190,7 @@ export function beginQueuedSteerCancellation(
       ),
     ],
     queueStatus: "steering",
+    queueHoldReason: undefined,
     editingQueuedMessageId: undefined,
   };
 }
@@ -110,6 +205,7 @@ export function finishQueuedSteerCancellation(
     ...session,
     busy: false,
     queueStatus: succeeded ? "active" : "held",
+    queueHoldReason: succeeded ? undefined : QUEUE_HOLD_REASON_STEER_CANCEL,
   };
 }
 
@@ -131,7 +227,6 @@ export async function settleQueuedSteerCancellations(
     if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
 }
-
 
 export function withPlanStatus(
   session: Session,
@@ -158,6 +253,28 @@ export function lastAssistantTextInTurn(session: Session): string {
     if (block.role === "assistant" && block.text.trim()) return block.text;
   }
   return "";
+}
+
+function failedTurnReason(session: Session): string {
+  for (let index = session.blocks.length - 1; index >= 0; index -= 1) {
+    const block = session.blocks[index];
+    if (block.role === "user") break;
+    if (
+      block.role === "system" &&
+      block.notice === "error" &&
+      block.text.trim()
+    ) {
+      return block.text.trim();
+    }
+    if (
+      block.role === "assistant" &&
+      block.text.trim() &&
+      isProviderFailureText(block.text)
+    ) {
+      return block.text.trim();
+    }
+  }
+  return "The last turn failed. Review the error before resuming the queue.";
 }
 
 /**
@@ -189,11 +306,17 @@ export function finalizeTurnSession(
         )
       : finalized;
   if (params.providerFailed && built.queuedMessages?.length) {
-    return { ...built, queueStatus: "held" };
+    return {
+      ...built,
+      queueStatus: "held",
+      queueHoldReason: failedTurnReason(built),
+    };
+  }
+  if (!built.queuedMessages?.length && built.queueStatus === "held") {
+    return { ...built, queueStatus: undefined, queueHoldReason: undefined };
   }
   return built;
 }
-
 
 export interface TurnCompletionParams {
   sessionId: string;

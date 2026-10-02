@@ -139,6 +139,24 @@ function clickNode(node: FakeNode): void {
   }
 }
 
+describe("MessageQueue held reason", () => {
+  it("announces the reason and keeps the full error available on hover", () => {
+    const reason = "Provider request failed with a recoverable authentication error";
+    const markup = renderToStaticMarkup(
+      createElement(MessageQueue, {
+        messages: [queued("q1")],
+        status: "held",
+        holdReason: reason,
+        onResume: () => {},
+      }),
+    );
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain(`title="${reason}"`);
+    expect(markup).toContain(reason);
+    expect(markup).toContain('aria-label="Resume held message queue"');
+  });
+});
+
 describe("MessageQueue component during steering (Defect 5)", () => {
   it("renders accessible status banner and disables row actions during steering", () => {
     const messages = [queued("q1", "first follow-up"), queued("q2", "second follow-up")];

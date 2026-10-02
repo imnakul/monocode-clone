@@ -430,12 +430,16 @@ import {
 } from "../features/sessions/model/session";
 
 import {
+  appendQueuedMessage,
   beginQueuedSteerCancellation,
   canDispatchQueuedHead,
+  dismissUsageLimitNotice,
   dequeueQueuedMessage,
   finishQueuedSteerCancellation,
   orchestrateTurnCompletion,
+  prepareUsageLimitContinue,
   queuedMessageForSubmit,
+  releaseHeldQueue,
 } from "../features/sessions/model/messageQueue";
 import {
   USAGE_LIMIT_RESUME_GRACE_MS,
@@ -6467,27 +6471,22 @@ function Workspace({
           setSessions((prev) =>
             prev.map((s) =>
               s.id === sessionId
-                ? {
-                    ...s,
-                    inboxCard: rawCommand ? s.inboxCard : undefined,
-                    noteCard: rawCommand ? s.noteCard : undefined,
-                    handoffCard: rawCommand ? s.handoffCard : undefined,
-                    queuedMessages: [
-                      ...(s.queuedMessages ?? []),
-                      {
-                        id: crypto.randomUUID(),
-                        text,
-                        attachments,
-                        noteCard,
-                        handoffCard,
-                        intent,
-                      },
-                    ],
-                    queueStatus:
-                      s.queueStatus === "paused" || s.queueStatus === "held"
-                        ? s.queueStatus
-                        : "active",
-                  }
+                ? appendQueuedMessage(
+                    {
+                      ...s,
+                      inboxCard: rawCommand ? s.inboxCard : undefined,
+                      noteCard: rawCommand ? s.noteCard : undefined,
+                      handoffCard: rawCommand ? s.handoffCard : undefined,
+                    },
+                    {
+                      id: crypto.randomUUID(),
+                      text,
+                      attachments,
+                      noteCard,
+                      handoffCard,
+                      intent,
+                    },
+                  )
                 : s,
             ),
           );
@@ -8037,22 +8036,24 @@ function Workspace({
       // effect dispatches the head as the next turn. A paused queue (user
       // stopped mid-turn) resumes the interrupted turn first.
       if (session.queueStatus === "held") {
-        setSessions((prev) =>
-          prev.map((entry) =>
-            entry.id === sessionId
-              ? { ...entry, queueStatus: "active" }
-              : entry,
-          ),
+        const nextSessions = sessionsRef.current.map((entry) =>
+          entry.id === sessionId ? releaseHeldQueue(entry) : entry,
         );
+        sessionsRef.current = nextSessions;
+        setSessions(nextSessions);
         return;
       }
-      setSessions((prev) =>
-        prev.map((entry) =>
-          entry.id === sessionId
-            ? { ...entry, queueStatus: "resuming" }
-            : entry,
-        ),
+      const nextSessions = sessionsRef.current.map((entry) =>
+        entry.id === sessionId
+          ? {
+              ...entry,
+              queueStatus: "resuming" as const,
+              queueHoldReason: undefined,
+            }
+          : entry,
       );
+      sessionsRef.current = nextSessions;
+      setSessions(nextSessions);
       onSubmit(sessionId, CONTINUE_PROMPT, [], {
         followUpBehavior: "steer",
       });
@@ -8061,13 +8062,13 @@ function Workspace({
   );
 
   const onUsageLimitDismiss = useCallback((sessionId: string) => {
-    setSessions((prev) =>
-      prev.map((session) =>
-        session.id === sessionId && session.usageLimit
-          ? { ...session, usageLimit: undefined }
-          : session,
-      ),
+    const nextSessions = sessionsRef.current.map((session) =>
+      session.id === sessionId
+        ? dismissUsageLimitNotice(session)
+        : session,
     );
+    sessionsRef.current = nextSessions;
+    setSessions(nextSessions);
   }, []);
 
   const onUsageLimitResumeAtReset = useCallback(
@@ -8092,7 +8093,17 @@ function Workspace({
         (entry) => entry.id === sessionId,
       );
       if (!session?.usageLimit || session.busy) return;
-      onUsageLimitDismiss(sessionId);
+      if (session.queuedMessages?.length) {
+        const nextSessions = sessionsRef.current.map((entry) =>
+          entry.id === sessionId
+            ? prepareUsageLimitContinue(entry)
+            : entry,
+        );
+        sessionsRef.current = nextSessions;
+        setSessions(nextSessions);
+      } else {
+        onUsageLimitDismiss(sessionId);
+      }
       onSubmit(sessionId, CONTINUE_PROMPT);
     },
     [onSubmit, onUsageLimitDismiss],

@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SettingsNav } from "../../../app/shell/SettingsRail";
 import { SettingsView } from "../../settings/ui/SettingsView";
 import {
+  COMPACT_MODEL_LABELS_DEFAULT,
   DETAILED_CONTEXT_DEFAULT,
   REMAINING_QUOTA_DEFAULT,
+  saveCompactModelLabels,
   saveDetailedContext,
   saveRemainingQuota,
 } from "../../settings/model/settings";
@@ -54,9 +56,10 @@ describe("SettingsView Experimentation Page", () => {
   afterEach(() => {
     localStorage.removeItem("monocode.detailedContext");
     localStorage.removeItem("monocode.remainingQuota");
+    localStorage.removeItem("monocode.compactModelLabels");
   });
 
-  it("renders section header and exact copy for both experimental toggles", () => {
+  it("renders section header and exact copy for the experimental toggles", () => {
     const markup = renderToStaticMarkup(
       createElement(SettingsView, {
         section: "experimentation",
@@ -86,11 +89,17 @@ describe("SettingsView Experimentation Page", () => {
     expect(markup).toContain(
       "Show plan limits as quota remaining—for example, 42% left—instead of quota already used.",
     );
+
+    expect(markup).toContain("Compact model labels");
+    expect(markup).toContain(
+      "Show each compact sidebar thread’s model, including the model handling its active turn when it differs from the next-turn selection.",
+    );
   });
 
-  it("defaults both switches to OFF and exposes switch semantics", () => {
+  it("defaults all switches to OFF and exposes switch semantics", () => {
     expect(DETAILED_CONTEXT_DEFAULT).toBe(false);
     expect(REMAINING_QUOTA_DEFAULT).toBe(false);
+    expect(COMPACT_MODEL_LABELS_DEFAULT).toBe(false);
 
     const markup = renderToStaticMarkup(
       createElement(SettingsView, {
@@ -107,14 +116,16 @@ describe("SettingsView Experimentation Page", () => {
     expect(markup).toContain('role="switch"');
     expect(markup).toContain('aria-label="Detailed context"');
     expect(markup).toContain('aria-label="Remaining quota"');
-    // Both off by default: aria-checked should be "false"
+    expect(markup).toContain('aria-label="Compact model labels"');
+    // All three are off by default: aria-checked should be "false".
     const checkedMatches = markup.match(/aria-checked="false"/g);
-    expect(checkedMatches?.length).toBeGreaterThanOrEqual(2);
+    expect(checkedMatches?.length).toBeGreaterThanOrEqual(3);
   });
 
   it("reflects ON switch semantics when values are saved", () => {
     saveDetailedContext(true);
     saveRemainingQuota(true);
+    saveCompactModelLabels(true);
 
     const markup = renderToStaticMarkup(
       createElement(SettingsView, {
@@ -129,6 +140,6 @@ describe("SettingsView Experimentation Page", () => {
     );
 
     const checkedMatches = markup.match(/aria-checked="true"/g);
-    expect(checkedMatches?.length).toBeGreaterThanOrEqual(2);
+    expect(checkedMatches?.length).toBeGreaterThanOrEqual(3);
   });
 });

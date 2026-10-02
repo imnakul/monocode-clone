@@ -281,6 +281,11 @@ export type UsageLimit = {
   resumeAtReset?: boolean;
 };
 
+export const QUEUE_HOLD_REASON_USAGE_LIMIT =
+  "The provider reached its usage limit. Review the notice, then resume the queue.";
+export const QUEUE_HOLD_REASON_STEER_CANCEL =
+  "The current turn could not be stopped. Review it before resuming the queue.";
+
 /** Provider/model provenance captured when a user turn is submitted. */
 export type TurnModel = {
   harness: HarnessId;
@@ -464,6 +469,8 @@ export type Session = {
   queuedMessages?: QueuedMessage[];
   /** Queue dispatch lifecycle, including pause/failure/cancellation holds. */
   queueStatus?: MessageQueueStatus;
+  /** Persisted explanation for a held queue, shown beside manual Resume. */
+  queueHoldReason?: string;
   /** Prevent auto-dispatch while this queued row is being edited. In-memory only. */
   editingQueuedMessageId?: string;
   /** Last turn hit a provider usage limit; cleared by the next send. In-memory only. */
