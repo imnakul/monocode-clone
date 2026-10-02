@@ -17,16 +17,19 @@ import {
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { MarkdownCopyButton } from "../../sessions/ui/MarkdownCopyButton";
+import { MarkdownDetailTabs } from "../../sessions/ui/MarkdownDetailTabs";
 import { useMarkdownMode } from "../../sessions/ui/MarkdownModeToggle";
-import { ProjectLogoIcon } from "../../projects/ui/ProjectLogoIcon";
-import { ProjectMascot } from "../../projects/ui/ProjectMascot";
+import {
+  PersonalMark,
+  ProjectMark,
+  useProjectMarks,
+  type ProjectMarks,
+} from "../../projects/ui/ProjectMark";
 import { SearchableProjectPicker } from "../../projects/ui/SearchableProjectPicker";
 import { OverlayNav } from "../../../app/shell/TitleBar";
 import { WindowControls } from "../../../app/shell/WindowControls";
 import { useDragResize } from "../../../shared/hooks/useDragResize";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
-import { useTabGroupLogos } from "../../projects/hooks/useTabGroupLogos";
 import { formatRelativeTime } from "../../inbox/model/githubTasks";
 import {
   createNote,
@@ -50,26 +53,17 @@ import {
   saveNoteImagesFromPaths,
   type NoteImageAsset,
 } from "../noteImages";
-import { projectKey, projectName } from "../../../shared/lib/paths";
+import { projectName } from "../../../shared/lib/paths";
 import { IS_MAC } from "../../../platform/tauri/platform";
 import {
   looksLikeProject,
   type RecentProject,
 } from "../../projects/model/recents";
 import {
-  loadTabGroupColors,
-  loadTabGroupCustomColors,
-  loadTabGroupLogos,
-  loadTabGroupMascots,
-  resolveTabGroupColor,
-  resolveTabGroupLogo,
-  resolveTabGroupMascot,
-} from "../../workspace/model/tabGroups";
-import {
   AgentMarkdown,
   MarkdownSourceHighlight,
 } from "../../sessions/ui/AgentMarkdown";
-import { ChevronDown, StickyNote } from "../../../shared/ui/icons";
+import { ChevronDown } from "../../../shared/ui/icons";
 import {
   ExplorerMenu,
   type ExplorerMenuItem,
@@ -154,10 +148,7 @@ export function NotesView({
   const menuRef = useRef(menu);
   menuRef.current = menu;
   const plusRef = useRef<HTMLButtonElement>(null);
-  const logos = useTabGroupLogos();
-  const [groupMascots] = useState(loadTabGroupMascots);
-  const [groupColors] = useState(loadTabGroupColors);
-  const [groupCustomColors] = useState(loadTabGroupCustomColors);
+  const marks = useProjectMarks();
 
   const refresh = useCallback(async () => {
     try {
@@ -395,10 +386,7 @@ export function NotesView({
                 <NoteCard
                   note={note}
                   active={selected?.id === note.id}
-                  logos={logos}
-                  mascots={groupMascots}
-                  colors={groupColors}
-                  customColors={groupCustomColors}
+                  marks={marks}
                   onSelect={() => setSelectedId(note.id)}
                 />
               </li>
@@ -459,99 +447,17 @@ export function NotesView({
   );
 }
 
-type ProjectMarks = {
-  logos: Record<string, string>;
-  mascots: Record<string, string>;
-  colors: Record<string, number>;
-  customColors: Record<string, string>;
-};
-
-function NoteProjectMark({
-  cwd,
-  logos,
-  mascots,
-  colors,
-  customColors,
-}: { cwd: string } & ProjectMarks) {
-  const project = projectName(cwd);
-  const key = projectKey(cwd);
-  const logoPath = resolveTabGroupLogo(key, logos);
-  const mascotName = resolveTabGroupMascot(key, mascots);
-  const mascotColor = resolveTabGroupColor(key, colors, customColors, project);
-  return (
-    <span className="flex min-w-0 items-center gap-1.5">
-      {logoPath ? (
-        <ProjectLogoIcon
-          path={logoPath}
-          className="size-3.5 shrink-0 rounded-sm"
-          imageClassName="size-3.5"
-        />
-      ) : (
-        <ProjectMascot
-          project={project}
-          color={mascotColor}
-          name={mascotName}
-          className="size-3 shrink-0"
-        />
-      )}
-      <span className="min-w-0 truncate">{project}</span>
-    </span>
-  );
-}
-
-/** Same visual weight as a project mark, so unbound notes don't read as blank. */
-function NotePersonalMark() {
-  return (
-    <span className="flex min-w-0 items-center gap-1.5">
-      <StickyNote
-        className="size-3 shrink-0 text-content/50"
-        strokeWidth={1.75}
-      />
-      <span className="min-w-0 truncate">Personal</span>
-    </span>
-  );
-}
-
-function NoteDetailTab({
-  label,
-  selected,
-  onSelect,
-}: {
-  label: string;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={selected}
-      onClick={onSelect}
-      className={`relative flex h-9 items-center text-[12px] leading-none ${
-        selected ? "text-content" : "text-content/50 hover:text-content"
-      }`}
-    >
-      {label}
-      {selected ? (
-        <span className="absolute inset-x-0 bottom-0 h-0.5 bg-content" />
-      ) : null}
-    </button>
-  );
-}
-
 function NoteCard({
   note,
   active,
-  logos,
-  mascots,
-  colors,
-  customColors,
+  marks,
   onSelect,
 }: {
   note: Note;
   active: boolean;
+  marks: ProjectMarks;
   onSelect: () => void;
-} & ProjectMarks) {
+}) {
   const preview = notePreview(note.body, note.title);
   const project = noteSourceProject(note.sourceCwd);
   const time = formatRelativeTime(new Date(note.updatedAt).toISOString());
@@ -573,17 +479,14 @@ function NoteCard({
       <span className="flex items-center gap-2">
         {project && note.sourceCwd ? (
           <span className="min-w-0 flex-1 text-[11px] text-content/50">
-            <NoteProjectMark
+            <ProjectMark
               cwd={note.sourceCwd}
-              logos={logos}
-              mascots={mascots}
-              colors={colors}
-              customColors={customColors}
+              {...marks}
             />
           </span>
         ) : (
           <span className="min-w-0 flex-1 text-[11px] text-content/50">
-            <NotePersonalMark />
+            <PersonalMark />
           </span>
         )}
         {time ? (
@@ -673,6 +576,7 @@ function NoteEditor({
   onAddToChat: (note: Note) => void;
 }) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
+  const marks = useProjectMarks();
   const blank = !note.body.trim() && note.title === "Untitled";
   const [mode, setMode] = useMarkdownMode(note.id);
   type Edits = Partial<Pick<Note, "title" | "body" | "tags">>;
@@ -920,15 +824,12 @@ function NoteEditor({
               <span className="min-w-0 truncate">{note.slug}</span>
             ) : null}
             {note.sourceCwd ? (
-              <NoteProjectMark
+              <ProjectMark
                 cwd={note.sourceCwd}
-                logos={loadTabGroupLogos()}
-                mascots={loadTabGroupMascots()}
-                colors={loadTabGroupColors()}
-                customColors={loadTabGroupCustomColors()}
+                {...marks}
               />
             ) : (
-              <NotePersonalMark />
+              <PersonalMark />
             )}
             <SearchableProjectPicker
               cwd={sourceCwd ?? "~"}
@@ -1012,25 +913,12 @@ function NoteEditor({
             </div>
           ) : null}
         </header>
-        <div className="flex items-center justify-between border-b border-stroke">
-          <div
-            role="tablist"
-            aria-label="Note sections"
-            className="flex h-9 items-stretch gap-4"
-          >
-            <NoteDetailTab
-              label="Preview"
-              selected={mode === "preview"}
-              onSelect={() => setMode("preview")}
-            />
-            <NoteDetailTab
-              label="Source"
-              selected={mode === "source"}
-              onSelect={() => setMode("source")}
-            />
-          </div>
-          <MarkdownCopyButton text={body} />
-        </div>
+        <MarkdownDetailTabs
+          mode={mode}
+          onChange={setMode}
+          markdown={body}
+          label="Note sections"
+        />
         <div
           ref={dropZoneRef}
           aria-busy={imageBusy}
