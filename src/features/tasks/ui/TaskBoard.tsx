@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { suppressTextSelection } from "../../../shared/lib/drag";
+import { SharedHoverHighlight } from "../../sessions/ui/SharedHoverHighlight";
 import { X } from "../../../shared/ui/icons";
 import {
   BoardColumn,
@@ -259,7 +260,13 @@ export function TaskBoard({
                   No tasks
                 </p>
               ) : (
-                <ul className="flex flex-col gap-1.5" role="list">
+                <div className="relative">
+                <SharedHoverHighlight />
+                <ul
+                  data-shared-hover-continuity
+                  className="flex flex-col gap-1.5"
+                  role="list"
+                >
                   {column.tasks.map((task) => (
                     <li key={task.id}>
                       <TaskCard
@@ -279,6 +286,7 @@ export function TaskBoard({
                     </li>
                   ))}
                 </ul>
+                </div>
               )}
             </BoardColumn>
           ))}
@@ -341,6 +349,8 @@ function TaskCard({
   return (
     <div
       data-task-card={ghost ? undefined : task.id}
+      data-shared-hover-item={ghost ? undefined : ""}
+      data-shared-hover-preserve={active ? "" : undefined}
       onPointerDown={onPointerDown}
       className={`group relative touch-none rounded-md ${
         active ? "bg-selection" : "bg-content/3 hover:bg-content/5"

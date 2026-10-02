@@ -413,37 +413,41 @@ export function MenuBar({
       data-tauri-drag-region="false"
     >
       <SharedHoverHighlight />
-      {MENUS.map(({ key, label }) => {
-        const isActive = activeMenu === key;
-        return (
-          <button
-            key={key}
-            type="button"
-            data-shared-hover-item
-            data-shared-hover-preserve={isActive ? "" : undefined}
-            data-tauri-drag-region="false"
-            onClick={(e) => {
-              if (isActive) {
-                closeMenu();
-              } else {
-                openDropdown(key, e.currentTarget);
-              }
-            }}
-            onMouseEnter={(e) => {
-              if (activeMenu && activeMenu !== key) {
-                openDropdown(key, e.currentTarget);
-              }
-            }}
-            className={`rounded px-2 py-0.5 transition-colors ${
-              isActive
-                ? "bg-selection-hover text-content"
-                : "text-content/70 hover:bg-content/10 hover:text-content"
-            }`}
-          >
-            {label}
-          </button>
-        );
-      })}
+      {/* Only the menu titles: crossing their small gaps keeps the highlight
+          gliding, while the empty bar beyond them still clears it. */}
+      <div data-shared-hover-continuity className="flex items-center gap-0.5">
+        {MENUS.map(({ key, label }) => {
+          const isActive = activeMenu === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              data-shared-hover-item
+              data-shared-hover-preserve={isActive ? "" : undefined}
+              data-tauri-drag-region="false"
+              onClick={(e) => {
+                if (isActive) {
+                  closeMenu();
+                } else {
+                  openDropdown(key, e.currentTarget);
+                }
+              }}
+              onMouseEnter={(e) => {
+                if (activeMenu && activeMenu !== key) {
+                  openDropdown(key, e.currentTarget);
+                }
+              }}
+              className={`rounded px-2 py-0.5 transition-colors ${
+                isActive
+                  ? "bg-selection-hover text-content"
+                  : "text-content/70 hover:bg-content/10 hover:text-content"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
 
       {activeMenu && menuAnchor ? (
         <ExplorerMenu

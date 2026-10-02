@@ -44,7 +44,7 @@ export function TaskList({
             aria-label={grouped ? group.label : undefined}
           >
             {grouped ? (
-              <div className="sticky top-0 z-10 flex h-8 items-center bg-content/2 px-1.5 backdrop-blur-xl">
+              <div className="flex h-8 items-center px-1.5">
                 <TaskGroupHeader
                   group={group}
                   collapsed={isCollapsed}

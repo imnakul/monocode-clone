@@ -381,7 +381,7 @@ export function ProjectRail({
         />
       ) : (
         <>
-          <div className="flex shrink-0 flex-col gap-px px-2 pb-2 pt-0.5">
+          <div data-shared-hover-continuity className="flex shrink-0 flex-col gap-px px-2 pb-2 pt-0.5">
             <RailSearch
               label="Search"
               icon={Search}
@@ -468,7 +468,7 @@ export function ProjectRail({
                   label="Groups"
                   onAddGroup={(x, y) => projectMenu.createGroup(x, y)}
                 />
-                <div className="flex flex-col gap-px px-2">
+                <div data-shared-hover-continuity className="flex flex-col gap-px px-2">
                   {groupedProjectSections.grouped.map(({ group, items }) => (
                     <ProjectGroupSection
                       key={group.id}
@@ -552,7 +552,7 @@ export function ProjectRail({
             onOpenWhatsNew={onOpenWhatsNew}
             onDismissUpdate={onDismissUpdate}
           />
-          <div className="flex shrink-0 flex-col gap-px p-2">
+          <div data-shared-hover-continuity className="flex shrink-0 flex-col gap-px p-2">
             <GithubStarPrompt />
             <RailAction
               label="Settings"
@@ -646,7 +646,7 @@ function ProjectSection({
           {emptyLabel}
         </p>
       ) : null}
-      <div className="flex flex-col gap-px px-2">
+      <div data-shared-hover-continuity className="flex flex-col gap-px px-2">
         {items.map((item) => (
           <ProjectCard
             key={item.path}
@@ -833,7 +833,7 @@ function ProjectGroupSection({
         </button>
       </div>
       {expanded ? (
-        <div data-project-group-items className="flex flex-col gap-px p-1">
+        <div data-project-group-items data-shared-hover-continuity className="flex flex-col gap-px p-1">
           {items.map((item) => (
             <ProjectCard
               key={item.path}

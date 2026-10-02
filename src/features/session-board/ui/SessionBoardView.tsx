@@ -14,6 +14,7 @@ import {
   BoardColumn,
   BoardColumns,
 } from "../../../shared/ui/board/BoardColumns";
+import { SharedHoverHighlight } from "../../sessions/ui/SharedHoverHighlight";
 import { ResultCount } from "../../../shared/ui/ResultCount";
 import {
   SearchableSelect,
@@ -418,11 +419,29 @@ export function SessionBoardView({
                         ) : null
                       }
                     >
+                      <div data-shared-hover-continuity className="relative flex flex-col">
+                      <SharedHoverHighlight />
                       {rows.map((card) => (
                         <div
-                          className="group relative mb-2 rounded-md bg-content/3 transition-colors duration-100 hover:bg-content/5"
+                          className="group group/board-card relative mb-2 cursor-default rounded-md bg-content/3 transition-colors duration-100 hover:bg-content/8"
                           key={card.sessionId}
                           data-board-card={card.sessionId}
+                          data-shared-hover-item
+                          data-shared-hover-preserve={
+                            selected && card.sessionId === activeSessionId
+                              ? ""
+                              : undefined
+                          }
+                          // The whole card opens the session; its own buttons
+                          // (the card title, Start, Edit, remove) act alone.
+                          onClick={(event) => {
+                            if (
+                              event.target instanceof Element &&
+                              event.target.closest("button")
+                            )
+                              return;
+                            void open(card, event.altKey);
+                          }}
                         >
                           <SessionCard
                             session={{
@@ -442,6 +461,7 @@ export function SessionBoardView({
                             busy={key === "in_progress"}
                             done={key === "done"}
                             needsApproval={key === "needs_attention"}
+                            flat
                             now={now}
                             onSelect={(_id, event) =>
                               void open(card, event?.altKey)
@@ -504,7 +524,7 @@ export function SessionBoardView({
                           ) : null}
                           <button
                             type="button"
-                            className="absolute right-1 top-1 rounded bg-content/10 p-1 opacity-0 backdrop-blur-md transition-opacity duration-100 hover:text-red-400 focus:opacity-100 group-hover:opacity-100"
+                            className="absolute right-1 top-1 rounded bg-content/15 p-1 opacity-0 transition-opacity duration-100 hover:text-red-400 focus:opacity-100 group-hover:opacity-100"
                             aria-label={
                               isDraftTodo(card) && onDeleteTodo
                                 ? `Delete Todo ${card.title}`
@@ -523,6 +543,7 @@ export function SessionBoardView({
                           </button>
                         </div>
                       ))}
+                      </div>
                     </BoardColumn>
                   );
                 })}

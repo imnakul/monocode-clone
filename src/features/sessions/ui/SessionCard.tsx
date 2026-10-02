@@ -48,6 +48,7 @@ export function SessionCard({
   needsApproval,
   dropTarget,
   compact = false,
+  flat = false,
   now,
   onSelect,
   onPrefetch,
@@ -66,6 +67,8 @@ export function SessionCard({
   needsApproval: boolean;
   dropTarget?: boolean;
   compact?: boolean;
+  /** No hover fill of its own: a containing card owns the hover surface. */
+  flat?: boolean;
   now: number;
   onSelect: (sessionId: string, event?: { altKey: boolean }) => void;
   onPrefetch?: (sessionId: string) => void;
@@ -237,7 +240,7 @@ export function SessionCard({
     <div className="group relative">
     <button
       type="button"
-      data-shared-hover-item
+      data-shared-hover-item={flat ? undefined : ""}
       data-shared-hover-preserve={
         isActive || needsApproval || dropTarget ? "" : undefined
       }
@@ -263,7 +266,9 @@ export function SessionCard({
             ? "bg-content/20 text-content border-content/30 border-dashed"
             : isActive
               ? "bg-content/10 text-content border-transparent"
-              : "text-content/80 hover:bg-content/5 hover:text-content border-transparent"
+              : flat
+                ? "text-content/80 group-hover/board-card:text-content border-transparent"
+                : "text-content/80 hover:bg-content/5 hover:text-content border-transparent"
       }`}
     >
       {dropTarget ? (

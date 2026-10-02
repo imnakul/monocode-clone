@@ -9,6 +9,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { SharedHoverHighlight } from "../../sessions/ui/SharedHoverHighlight";
 import { AccessPicker } from "../../sessions/ui/AccessPicker";
 import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
 import {
@@ -377,14 +378,15 @@ function AutomationsContent({
         </div>
         <div
           ref={listLock}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-none p-1.5"
+          className="relative min-h-0 flex-1 overflow-y-auto overscroll-none p-1.5"
         >
+          <SharedHoverHighlight />
           {loading ? (
             <div className="grid place-items-center py-12 text-content/35">
               <LoaderCircle className="size-4 animate-spin" />
             </div>
           ) : visible.length > 0 ? (
-            <ul className="space-y-0.5">
+            <ul data-shared-hover-continuity className="space-y-0.5">
               {visible.map((automation) => (
                 <li key={automation.id}>
                   <AutomationCard
@@ -504,6 +506,8 @@ function AutomationCard({
   const model = resolveModel(automation.harness, automation.model);
   return (
     <div
+      data-shared-hover-item
+      data-shared-hover-preserve={active ? "" : undefined}
       className={`group relative rounded-md border ${
         active
           ? "border-transparent bg-selection"

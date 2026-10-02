@@ -388,3 +388,20 @@ it("keeps a rejected Todo start on the board with a readable error and retry act
   await act(async () => button("Start Session prepared").click());
   expect(props.onStartTodo).toHaveBeenCalledTimes(2); expect(props.onOpenSession).toHaveBeenCalledWith("prepared");
 });
+
+it("treats the whole card as one hover surface and opens the session from anywhere on it", async () => {
+  props.cards = [{ ...row("running", "in_progress"), reason: "Waiting on CI" }];
+  render();
+  const wrapper = container.querySelector<HTMLElement>(
+    '[data-board-card="running"]',
+  )!;
+  // The card body owns hover; the inner session button adds no fill of its own.
+  expect(wrapper.className).toContain("hover:bg-content/8");
+  expect(card("running").className).not.toContain("hover:bg-content/5");
+  // Clicking the lower details (not the title button) still opens the session.
+  const details = [...wrapper.querySelectorAll("p")].find((entry) =>
+    entry.textContent?.includes("Waiting on CI"),
+  )!;
+  await act(async () => details.click());
+  expect(props.onOpenSession).toHaveBeenCalledWith("running", false);
+});

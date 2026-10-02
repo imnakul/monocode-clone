@@ -16,6 +16,7 @@ import {
 } from "../taskViewState";
 import type { Task, TaskStatus } from "../tasks";
 import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
+import { SharedHoverHighlight } from "../../sessions/ui/SharedHoverHighlight";
 import { TaskGroupHeader } from "./TaskGroupHeader";
 import { TaskStatusMenu } from "./TaskStatusIcon";
 import { relativeTime, TaskProjectMark, TaskTagChips } from "./TaskTags";
@@ -109,8 +110,9 @@ export function TaskTable({
   return (
     <div
       ref={lock}
-      className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-none"
+      className="relative min-h-0 min-w-0 flex-1 overflow-auto overscroll-none"
     >
+      <SharedHoverHighlight />
       <table
         aria-label="Tasks table"
         className="table-fixed border-separate border-spacing-0 text-[12px]"
@@ -121,7 +123,9 @@ export function TaskTable({
             <col key={id} style={{ width: widthOf(id) }} />
           ))}
         </colgroup>
-        <thead>
+        {/* One sticky, blurred header layer instead of a blur per cell: each
+            backdrop-filter is its own GPU layer, recomputed on every scroll. */}
+        <thead className="sticky top-0 z-20 bg-content/3 backdrop-blur-xl">
           <tr>
             {columns.map((id) => {
               const meta = TASK_COLUMNS[id];
@@ -137,7 +141,7 @@ export function TaskTable({
                         : "descending"
                       : undefined
                   }
-                  className="sticky top-0 z-20 h-8 border-b border-stroke bg-content/3 px-3 text-left text-[11px] font-normal text-content/50 backdrop-blur-xl"
+                  className="h-8 border-b border-stroke px-3 text-left text-[11px] font-normal text-content/50"
                 >
                   <button
                     type="button"
@@ -187,13 +191,13 @@ export function TaskTable({
           const grouped = groupBy !== "none";
           const collapsed = grouped && state.collapsed.includes(group.key);
           return (
-            <tbody key={group.key}>
+            <tbody key={group.key} data-shared-hover-continuity>
               {grouped ? (
                 <tr>
                   <th
                     colSpan={columns.length}
                     scope="colgroup"
-                    className="sticky top-8 z-10 h-8 bg-content/2 px-2 text-left font-normal backdrop-blur-xl"
+                    className="h-8 bg-content/2 px-2 text-left font-normal"
                   >
                     <TaskGroupHeader
                       group={group}
@@ -213,6 +217,8 @@ export function TaskTable({
                         key={task.id}
                         aria-selected={active}
                         data-task-row={task.id}
+                        data-shared-hover-item
+                        data-shared-hover-preserve={active ? "" : undefined}
                         onClick={(event: MouseEvent<HTMLTableRowElement>) => {
                           if (
                             event.target instanceof Element &&
