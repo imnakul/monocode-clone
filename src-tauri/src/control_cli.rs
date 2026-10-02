@@ -160,7 +160,10 @@ Actions:
   session_manager.list {"status":"todo","projectCwd":"/project","query":"fix",
                         "limit":30,"offset":0}
             List persistent Session Manager cards across projects. Statuses:
-            todo, in_progress, needs_attention, blocked, done, stopped.
+            todo, in_progress, needs_attention, blocked, done, stopped. The
+            board shows four columns: Draft (todo), In progress (in_progress,
+            or todo with queued messages), Needs attention (needs_attention,
+            blocked) and Done (done, stopped).
   session_manager.read {"id":"..."}
             Read an unsent Todo including its prompt, attachments and settings.
   session_manager.write {"projectCwd":"/project","prompt":"Implement the spec",
@@ -180,7 +183,7 @@ Actions:
   session_manager.delete {"id":"..."}
             Delete an unsent Todo. Started conversations cannot be deleted here.
   session_manager.remove {"id":"<sessionId>","runId":"<from list>"}
-            Remove a Done/Cancelled/Stopped board card; retain its session.
+            Remove a done or stopped board card; retain its session.
   session_manager.clear {"status":"done","projectCwd":"/project"}
             Clear done or stopped cards, optionally within one project.
 

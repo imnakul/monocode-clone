@@ -107,7 +107,7 @@ it("captures an already-running session after StrictMode effect replay without a
   await render([session()]);
   expect(container.textContent).not.toContain("Loading sessions…");
   await tick();
-  expect(inColumn("Progress")).not.toBeNull();
+  expect(inColumn("In progress")).not.toBeNull();
   expect(rows.get("running")?.status).toBe("in_progress");
   const projectTrigger = container.querySelector<HTMLButtonElement>(
     'button[aria-label^="Board project:"]',
@@ -138,7 +138,7 @@ it("observes the latest streaming snapshot at the throttle deadline without wait
     ]);
   }
   await tick(25);
-  expect(inColumn("Progress")).not.toBeNull();
+  expect(inColumn("In progress")).not.toBeNull();
   expect(rows.get("running")?.title).toBe("Streaming 5");
   expect(
     vi
@@ -161,7 +161,7 @@ it("keeps a live run in Progress after hydrating its saved interrupted-run fallb
   });
   await render([session()]);
   await tick();
-  expect(inColumn("Progress")).not.toBeNull();
+  expect(inColumn("In progress")).not.toBeNull();
   expect(rows.get("running")?.reason).toBeUndefined();
 });
 
@@ -187,12 +187,13 @@ it("moves live cards through blocked, attention and completion, retains hidden r
   const board = await import("./sessionBoard");
   await render([session()]);
   await tick();
-  expect(inColumn("Progress")).not.toBeNull();
+  expect(inColumn("In progress")).not.toBeNull();
   await render([
     session({ queueStatus: "held", queueHoldReason: "Quota expired" }),
   ]);
   await tick();
-  expect(inColumn("Blocked")).not.toBeNull();
+  // Blocked runs share the Needs attention column with a reason tag.
+  expect(inColumn("Needs attention")).not.toBeNull();
   await render([
     session({ pendingQuestion: {} as Session["pendingQuestion"] }),
   ]);
@@ -222,18 +223,18 @@ it("moves live cards through blocked, attention and completion, retains hidden r
     }),
   ]);
   await tick();
-  expect(inColumn("Progress")).not.toBeNull();
+  expect(inColumn("In progress")).not.toBeNull();
 });
 
 it("does not import idle history, but captures that same conversation when it starts working", async () => {
   await render([session({ busy: false })]);
   await tick();
   expect(rows.size).toBe(0);
-  expect(inColumn("Blocked")).toBeNull();
+  expect(inColumn("Needs attention")).toBeNull();
   expect(inColumn("Done")).toBeNull();
   await render([session()]);
   await tick();
-  expect(inColumn("Progress")).not.toBeNull();
+  expect(inColumn("In progress")).not.toBeNull();
 });
 
 it("cancels pending observation when the workspace unmounts", async () => {

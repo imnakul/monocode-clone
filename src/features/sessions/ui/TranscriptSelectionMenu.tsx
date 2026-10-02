@@ -64,7 +64,7 @@ export function TranscriptSelectionMenu({
           </SelectionAction>
         ) : null}
         {onAddToTask ? (
-          <SelectionAction label="Add to Task Manager"
+          <SelectionAction label="Add Task"
             onSelect={() => onAddToTask(selection.text, selection.responseId)}
             onDismiss={onDismiss}>
             <CheckCircle aria-hidden="true" className="size-3.5" strokeWidth={1.75} />

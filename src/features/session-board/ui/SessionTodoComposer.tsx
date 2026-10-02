@@ -35,7 +35,7 @@ export function SessionTodoComposer({
   };
   return (
     <Modal
-      title={editing ? "Edit Session Manager Todo" : "Add to Session Manager"}
+      title={editing ? "Edit Draft" : "Add Draft to Sessions"}
       onClose={close}
       fitViewport
     >
@@ -49,7 +49,7 @@ export function SessionTodoComposer({
           initialLaunch={initialLaunch}
           onSubmitLaunch={submit}
           onDismiss={close}
-          submitLabel={editing ? "Save changes" : "Save Todo"}
+          submitLabel={editing ? "Save changes" : "Save Draft"}
         />
       </div>
     </Modal>

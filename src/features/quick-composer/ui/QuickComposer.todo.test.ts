@@ -161,7 +161,7 @@ it("saves an embedded Todo through its callback, preserving chosen settings and 
   );
   prompt = container.querySelector("textarea")!;
   expect(prompt.value).toBe("Handover\n\nWork on spec");
-  expect(container.textContent).toContain("Save Todo");
+  expect(container.textContent).toContain("Save Draft");
   vi.mocked(invoke).mockClear();
   await key("Enter");
   expect(save).toHaveBeenCalledWith(

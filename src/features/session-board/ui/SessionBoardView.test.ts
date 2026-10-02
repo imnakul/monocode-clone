@@ -66,7 +66,7 @@ const button = (label: string) =>
 it("keeps the board visible while opening sessions from different projects beside it", async () => {
   render();
   await act(async () => card("running").click());
-  expect(props.onOpenSession).toHaveBeenLastCalledWith("running", undefined);
+  expect(props.onOpenSession).toHaveBeenLastCalledWith("running", false);
   expect(props.onPaneVisible).toHaveBeenLastCalledWith(true);
   await act(async () =>
     card("stopped").dispatchEvent(
@@ -81,10 +81,12 @@ it("keeps the board visible while opening sessions from different projects besid
 });
 it("removes and clears run-scoped terminal cards without deleting sessions", async () => {
   render();
+  // Stopped runs are finished: they share the Done column and its Clear.
   await act(async () => button("Clear Done").click());
-  expect(hideBoardCards).toHaveBeenLastCalledWith([props.cards[1]]);
-  await act(async () => button("Clear Cancelled / Stopped").click());
-  expect(hideBoardCards).toHaveBeenLastCalledWith([props.cards[2]]);
+  expect(hideBoardCards).toHaveBeenLastCalledWith([
+    props.cards[1],
+    props.cards[2],
+  ]);
   await act(async () => button("Remove Session running from board").click());
   expect(hideBoardCards).toHaveBeenLastCalledWith([props.cards[0]]);
   props.cards = props.cards.map((entry) =>
@@ -123,7 +125,7 @@ it("filters by project and status and clears only the filtered terminal cards", 
   expect(container.querySelector('[data-board-card="two"]')).toBeNull();
   await act(async () => button("Clear Done").click());
   expect(hideBoardCards).toHaveBeenLastCalledWith([props.cards[0]]);
-  await pick("Board status", "Blocked");
+  await pick("Board status", "Needs attention");
   expect(card("blocked")).toBeTruthy();
   expect(container.querySelector('[data-board-card="one"]')).toBeNull();
 });
@@ -140,7 +142,7 @@ it("uses the Session Manager header and toolbar without native selects", async (
       (entry) => entry.textContent === "Reset",
     );
   expect(resetButton()).toBeUndefined();
-  await pick("Board status", "Blocked");
+  await pick("Board status", "Needs attention");
   expect(resetButton()).toBeDefined();
   await act(async () => resetButton()!.click());
   expect(resetButton()).toBeUndefined();
@@ -157,7 +159,12 @@ it("shares the full width equally between columns with a 256px minimum", async (
       "section[aria-label$=' column']",
     ),
   ];
-  expect(columns).toHaveLength(6);
+  expect(columns.map((column) => column.getAttribute("aria-label"))).toEqual([
+    "Draft column",
+    "In progress column",
+    "Needs attention column",
+    "Done column",
+  ]);
   for (const column of columns) {
     expect(column.classList.contains("flex-1")).toBe(true);
     expect(column.classList.contains("basis-0")).toBe(true);
@@ -172,12 +179,12 @@ it("keeps the board side at its split width when the session pane is open", asyn
   render();
   await act(async () => card("running").click());
   let side: HTMLElement | null = container.querySelector<HTMLElement>(
-    "section[aria-label='Todo column']",
+    "section[aria-label='Draft column']",
   )!.parentElement;
   while (side && !side.style.width) side = side.parentElement;
   expect(side?.style.width).toBe("48%");
   expect(
-    container.querySelector<HTMLElement>("section[aria-label='Todo column']")!
+    container.querySelector<HTMLElement>("section[aria-label='Draft column']")!
       .style.minWidth,
   ).toBe("256px");
 });
@@ -291,11 +298,11 @@ it("keeps the selected Windows project when its display path changes slash style
 it("fills by default, resizes every column to a fixed width, persists it and resets on double click", async () => {
   render();
   const todo = container.querySelector<HTMLElement>(
-    '[aria-label="Todo column"]',
+    '[aria-label="Draft column"]',
   )!;
   expect(todo.className).toContain("flex-1");
   const handle = container.querySelector<HTMLElement>(
-    '[aria-label="Resize Todo column"]',
+    '[aria-label="Resize Draft column"]',
   )!;
   act(() =>
     handle.dispatchEvent(
@@ -337,7 +344,7 @@ it("shows the session total in the header and faceted counts in the filters", as
     );
   expect(count()?.textContent).toBe("3");
   await pick("Board status", "Done");
-  expect(count()?.textContent).toBe("1 of 3");
+  expect(count()?.textContent).toBe("2 of 3");
   await act(async () =>
     container
       .querySelector<HTMLElement>('button[aria-label^="Board status:"]')!
@@ -355,9 +362,10 @@ it("shows the session total in the header and faceted counts in the filters", as
   );
   expect(statusCounts).toMatchObject({
     "All statuses": 3,
-    Progress: 1,
-    Done: 1,
-    Blocked: 0,
+    Draft: 0,
+    "In progress": 1,
+    "Needs attention": 0,
+    Done: 2,
   });
 });
 it("adds into the selected project, edits/deletes Todos, and starts beside the retained board", async () => {
@@ -366,7 +374,7 @@ it("adds into the selected project, edits/deletes Todos, and starts beside the r
   props.onAddTodo = vi.fn(); props.onEditTodo = vi.fn(async () => {}); props.onStartTodo = vi.fn(async () => {}); props.onDeleteTodo = vi.fn(async () => {});
   render();
   await pick("Board project", "two");
-  await act(async () => button("Add Todo").click());
+  await act(async () => button("Add Draft").click());
   expect(props.onAddTodo).toHaveBeenCalledWith("/projects/two");
   await act(async () => button("Edit Session prepared").click());
   expect(props.onEditTodo).toHaveBeenCalledWith("prepared");
@@ -402,8 +410,60 @@ it("treats the whole card as one hover surface and opens the session from anywhe
   expect(card("running").className).not.toContain("hover:bg-content/5");
   // Clicking the lower details (not the title button) still opens the session.
   const details = [...wrapper.querySelectorAll("p")].find((entry) =>
-    entry.textContent?.includes("Waiting on CI"),
+    entry.textContent?.includes("one"),
   )!;
   await act(async () => details.click());
   expect(props.onOpenSession).toHaveBeenCalledWith("running", false);
+});
+
+it("lays out live cards in three lines, adds a reason only when a run needs you, and shortens finished cards", () => {
+  props.cards = [
+    { ...row("live", "in_progress"), branch: "dev", queuedCount: 2 },
+    {
+      ...row("held", "blocked"),
+      reason: "The provider reached its usage limit",
+    },
+    { ...row("stopped", "stopped"), reason: "Stopped by you" },
+  ];
+  render();
+  const wrapper = (id: string) =>
+    container.querySelector<HTMLElement>(`[data-board-card="${id}"]`)!;
+  const live = wrapper("live");
+  expect(live.textContent).toContain("dev");
+  expect(live.textContent).toContain("2 queued");
+  expect(live.textContent).toContain("Model A");
+  expect(live.querySelector("[data-board-tag]")?.textContent).toContain(
+    "Working",
+  );
+  const held = wrapper("held");
+  expect(held.closest("[aria-label='Needs attention column']")).toBeTruthy();
+  expect(held.querySelector("[data-board-tag]")?.textContent).toBe(
+    "Usage limit",
+  );
+  expect(
+    [...held.querySelectorAll("p")].some(
+      (entry) => entry.textContent === "The provider reached its usage limit",
+    ),
+  ).toBe(true);
+  const stopped = wrapper("stopped");
+  expect(stopped.closest("[aria-label='Done column']")).toBeTruthy();
+  expect(stopped.querySelector("[data-board-tag]")?.textContent).toBe(
+    "Stopped",
+  );
+  // Finished cards keep two lines: no branch row and no reason box.
+  expect(stopped.querySelectorAll("p")).toHaveLength(0);
+});
+it("keeps the time and the card actions in one slot so they never overlap", () => {
+  props.cards = [row("prepared", "todo")];
+  props.onStartTodo = vi.fn(async () => {});
+  props.onEditTodo = vi.fn(async () => {});
+  props.onDeleteTodo = vi.fn(async () => {});
+  render();
+  const start = button("Start Session prepared");
+  const slot = start.parentElement!.parentElement!;
+  expect(slot.className).toContain("grid");
+  expect(slot.className).toContain("min-w-[72px]");
+  expect(slot.children[0].className).toContain("row-start-1");
+  expect(slot.children[1].className).toContain("row-start-1");
+  expect(button("Delete Todo Session prepared")).toBeTruthy();
 });

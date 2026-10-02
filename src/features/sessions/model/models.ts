@@ -670,7 +670,7 @@ export function saveFavoriteModels(ids: string[]) {
   }
 }
 
-function isHarnessId(value: string): value is HarnessId {
+export function isHarnessId(value: string): value is HarnessId {
   return HARNESS_ORDER.includes(value as HarnessId);
 }
 

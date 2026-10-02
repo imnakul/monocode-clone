@@ -925,7 +925,7 @@ describe("finished turn layout", () => {
       at('aria-label="Ask in sidechat"'),
       at(">Ran for 54m</span>"),
       at('aria-label="Save as note"'),
-      at('aria-label="Add to Session Manager"'),
+      at('aria-label="Add Draft to Sessions"'),
       at('aria-label="Copy response"'),
     ];
     expect([...order].sort((a, b) => a - b)).toEqual(order);

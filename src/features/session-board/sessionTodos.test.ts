@@ -256,7 +256,7 @@ it("guards stale terminal removal against a new run and rejects removing running
   await expect(manager.remove("todo", old.runId)).rejects.toThrow(
     "run changed",
   );
-  await expect(manager.remove("todo", "new-run")).rejects.toThrow("Only Done");
+  await expect(manager.remove("todo", "new-run")).rejects.toThrow("Only done or stopped");
 });
 it("rejects invalid payloads and remote projects without saving or starting", async () => {
   const { host, manager } = fixture();

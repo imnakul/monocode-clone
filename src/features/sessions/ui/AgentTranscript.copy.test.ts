@@ -307,12 +307,12 @@ it("opens Session Manager capture for the exact reply and handover fenced block 
     blocks: [{ id: "prompt", role: "user", text: "Give a handover", startedAt: 1000, durationMs: 500 }, { id: "answer", role: "assistant", text: response }],
     onAddToSessionManager: compose,
   })));
-  const buttons = [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Add to Session Manager"]')];
+  const buttons = [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Add Draft to Sessions"]')];
   expect(buttons).toHaveLength(2);
   await act(async () => buttons.find(button => button.classList.contains("markdown-code-copy"))!.click());
   expect(compose).toHaveBeenLastCalledWith(handover);
   await act(async () => buttons.find(button => !button.classList.contains("markdown-code-copy"))!.click());
   expect(compose).toHaveBeenLastCalledWith(response);
   await act(async () => root.render(createElement(AgentTranscript, { blocks: [{ id: "answer", role: "assistant", text: response }] })));
-  expect(container.querySelector('[aria-label="Add to Session Manager"]')).toBeNull();
+  expect(container.querySelector('[aria-label="Add Draft to Sessions"]')).toBeNull();
 });
