@@ -35,15 +35,24 @@ function cleanBoardText(value: string, limit: number): string {
     .join("");
 }
 export function boardRunId(session: Session): string | undefined {
-  const users = [...session.blocks]
-    .reverse()
-    .filter((block) => block.role === "user");
   const running =
     session.busy ||
     session.worktreePreparing ||
     session.backgroundTasks?.length;
-  const user =
-    (running ? users.find((block) => !block.draft) : undefined) ?? users[0];
+  // Walk backwards in place: copying long transcripts on every observation
+  // pass kept the main thread busy while sessions loaded or streamed.
+  let latestUser: (typeof session.blocks)[number] | undefined;
+  for (let index = session.blocks.length - 1; index >= 0; index--) {
+    const block = session.blocks[index];
+    if (block.role !== "user") continue;
+    latestUser ??= block;
+    if (!running) break;
+    if (!block.draft) {
+      latestUser = block;
+      break;
+    }
+  }
+  const user = latestUser;
   return user ? (user.draft ? `draft:${user.id}` : user.id) : undefined;
 }
 /** Durable terminal state is independent of whether the session has been viewed. */
@@ -62,13 +71,18 @@ export function projectBoardCard(
       break;
     }
   }
-  const turn = session.blocks.slice(userIndex + 1);
   const user = session.blocks[userIndex];
   const turnModel = user?.turnModel;
   const sameRun = previous?.runId === runId;
   let status: BoardStatus = sameRun ? previous.status : "todo";
   let reason: string | undefined = sameRun ? previous.reason : undefined;
-  const error = [...turn].reverse().find((block) => block.notice === "error");
+  let error: (typeof session.blocks)[number] | undefined;
+  for (let index = session.blocks.length - 1; index > userIndex; index--) {
+    if (session.blocks[index].notice === "error") {
+      error = session.blocks[index];
+      break;
+    }
+  }
   if (
     sameRun &&
     previous.status === "stopped" &&
@@ -247,17 +261,54 @@ async function store(card: BoardCard) {
   const saved = await invoke<BoardCard>("session_board_upsert", { card });
   cards = [...cards.filter((row) => row.sessionId !== saved.sessionId), saved];
 }
+/**
+ * Inputs a session was last projected from. A session is skipped while the
+ * object, its blocks array and length, and its stored card are all unchanged:
+ * the projection would return that same card, so there is nothing to store.
+ * State updates replace only the sessions that changed, so a pass touches a
+ * few sessions instead of re-reading every transcript every 150ms.
+ */
+type ObservedInput = {
+  session: Session;
+  blocks: Session["blocks"];
+  length: number;
+  previous: BoardCard | undefined;
+};
+const observed = new Map<string, ObservedInput>();
+
 export function observeBoardSessions(
   sessions: readonly Session[],
 ): Promise<void> {
   const version = ++observationVersion;
   return enqueue(async () => {
     if (version !== observationVersion) return;
+    const byId = new Map(cards.map((card) => [card.sessionId, card]));
     for (const session of sessions) {
-      const previous = cards.find((card) => card.sessionId === session.id);
+      const previous = byId.get(session.id);
+      const last = observed.get(session.id);
+      if (
+        last &&
+        last.session === session &&
+        last.blocks === session.blocks &&
+        last.length === session.blocks.length &&
+        last.previous === previous
+      )
+        continue;
       const next = projectBoardCard(session, previous);
       if (next && JSON.stringify(next) !== JSON.stringify(previous))
         await store(next);
+      // Key on the card now stored, so the next pass can skip this session.
+      observed.set(session.id, {
+        session,
+        blocks: session.blocks,
+        length: session.blocks.length,
+        previous: cards.find((card) => card.sessionId === session.id),
+      });
+    }
+    // Forget sessions that were closed or deleted so the cache cannot grow.
+    if (observed.size > sessions.length) {
+      const live = new Set(sessions.map((session) => session.id));
+      for (const id of observed.keys()) if (!live.has(id)) observed.delete(id);
     }
   });
 }
