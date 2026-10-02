@@ -22,6 +22,7 @@ import {
   GitPullRequest,
   Inbox,
   ListFilter,
+  MessageMultiple,
   PanelLeft,
   Pin,
   Plus,
@@ -2481,7 +2482,7 @@ function SidebarProjectPicker({
             <Zap className="size-3.5" strokeWidth={1.75} />
           </IconButton>
         ) : null}
-        {onOpenKanban ? <IconButton label="Kanban" active={kanbanActive} onClick={onOpenKanban}><PanelLeft className="size-3.5" /></IconButton> : null}
+        {onOpenKanban ? <IconButton label="Session board" active={kanbanActive} onClick={onOpenKanban}><MessageMultiple className="size-3.5" /></IconButton> : null}
       </div>
       {inboxMenu ? (
         <InboxNotificationMenu
@@ -2673,7 +2674,7 @@ function CompactProjectRail({
           active={automationsActive}
           onClick={action(automationsActive, onOpenAutomations)}
         />
-        {onOpenKanban ? <CompactRailAction label="Kanban" icon={PanelLeft} active={kanbanActive} onClick={action(kanbanActive, onOpenKanban)} /> : null}
+        {onOpenKanban ? <CompactRailAction label="Session board" icon={MessageMultiple} active={kanbanActive} onClick={action(kanbanActive, onOpenKanban)} /> : null}
       </div>
       <div className="min-h-2 flex-1" />
       <div

@@ -4,6 +4,7 @@ import {
   ChevronRight,
   DashboardSquare,
   Inbox,
+  MessageMultiple,
   PanelLeft,
   Plus,
   Search,
@@ -887,7 +888,7 @@ function TitleBarComponent({
                 <Inbox className="size-3.5" strokeWidth={1.75} />
               </IconButton>
             ) : null}
-            {projectless && railClosed && onOpenKanban ? <IconButton label="Kanban" onClick={onOpenKanban}><PanelLeft className="size-3.5" /></IconButton> : null}
+            {projectless && railClosed && onOpenKanban ? <IconButton label="Session board" onClick={onOpenKanban}><MessageMultiple className="size-3.5" /></IconButton> : null}
             {projectless && railClosed && onOpenTasks ? (
               <IconButton label="Tasks" onClick={onOpenTasks}>
                 <CheckCircle className="size-3.5" strokeWidth={1.75} />

@@ -1940,12 +1940,12 @@ it("forwards Alt-click opening without changing multi-selection modifiers",()=>{
   expect(props.onSelectSession).not.toHaveBeenCalled();
 });
 
-describe("Kanban navigation",()=>{
-  it.each([true,false])("opens Kanban below Automations with rail=%s",async(projectRailOpen)=>{
+describe("Session board navigation",()=>{
+  it.each([true,false])("opens Session board below Automations with rail=%s",async(projectRailOpen)=>{
     props.projectRailOpen=projectRailOpen;props.compactProjectRail=true;props.onSelectProject=vi.fn();props.onOpenProject=vi.fn();props.onOpenKanban=vi.fn();props.kanbanActive=true;
     await act(async()=>render());
     const buttons=[...container.querySelectorAll<HTMLButtonElement>("button")];
-    const kanban=buttons.find(button=>button.getAttribute("aria-label")?.startsWith("Kanban") || button.textContent?.trim()==="Kanban")!;
+    const kanban=buttons.find(button=>button.getAttribute("aria-label")?.startsWith("Session board") || button.textContent?.trim()==="Session board")!;
     const automations=buttons.find(button=>button.getAttribute("aria-label")?.startsWith("Automations") || button.textContent?.trim()==="Automations")!;
     expect(kanban).toBeDefined();expect(buttons.indexOf(kanban)).toBeGreaterThan(buttons.indexOf(automations));await act(async()=>kanban.click());expect(props.onOpenKanban).toHaveBeenCalledOnce();
   });

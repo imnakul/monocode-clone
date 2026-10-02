@@ -343,7 +343,7 @@ export function MenuBar({
             ),
           },
           { kind: "item", id: "open_inbox", label: "Inbox" },
-          ...(onOpenKanban ? [{ kind: "item" as const, id: "open_kanban", label: "Kanban" }] : []),
+          ...(onOpenKanban ? [{ kind: "item" as const, id: "open_kanban", label: "Session board" }] : []),
           ...(onOpenTasks ? [{ kind: "item" as const, id: "open_tasks", label: "Tasks" }] : []),
           ...(onOpenNotes
             ? [{ kind: "item" as const, id: "open_notes", label: "Notes" }]

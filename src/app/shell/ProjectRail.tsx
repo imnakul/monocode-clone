@@ -1,6 +1,6 @@
 import {
   CheckCircle,
-  PanelLeft,
+  MessageMultiple,
   BellOff,
   ChevronDown,
   ChevronRight,
@@ -424,7 +424,7 @@ export function ProjectRail({
               active={automationsActive}
               ariaLabel="Automations"
             />
-            {onOpenKanban ? <RailAction label="Kanban" icon={PanelLeft} onClick={onOpenKanban} active={kanbanActive} ariaLabel="Kanban" /> : null}
+            {onOpenKanban ? <RailAction label="Session board" icon={MessageMultiple} onClick={onOpenKanban} active={kanbanActive} ariaLabel="Session board" /> : null}
           </div>
 
           <div

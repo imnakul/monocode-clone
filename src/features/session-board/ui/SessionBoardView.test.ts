@@ -95,6 +95,18 @@ it("removes and clears run-scoped terminal cards without deleting sessions", asy
   render();
   expect(container.querySelector('[data-board-card="running"]')).toBeNull();
 });
+const pick = async (trigger: string, option: string) => {
+  await act(async () =>
+    container
+      .querySelector<HTMLElement>(`button[aria-label^="${trigger}:"]`)!
+      .click(),
+  );
+  await act(async () =>
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find((entry) => entry.textContent?.trim() === option)!
+      .click(),
+  );
+};
 it("filters by project and status and clears only the filtered terminal cards", async () => {
   props.cards = [
     row("one", "done"),
@@ -102,25 +114,67 @@ it("filters by project and status and clears only the filtered terminal cards", 
     row("blocked", "blocked"),
   ];
   render();
-  const project = container.querySelector<HTMLSelectElement>(
-    '[aria-label="Board project"]',
-  )!;
-  await act(async () => {
-    project.value = "/projects/one";
-    project.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  await pick("Board project", "one");
   expect(container.querySelector('[data-board-card="two"]')).toBeNull();
   await act(async () => button("Clear Done").click());
   expect(hideBoardCards).toHaveBeenLastCalledWith([props.cards[0]]);
-  const status = container.querySelector<HTMLSelectElement>(
-    '[aria-label="Board status"]',
-  )!;
-  await act(async () => {
-    status.value = "blocked";
-    status.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  await pick("Board status", "Blocked");
   expect(card("blocked")).toBeTruthy();
   expect(container.querySelector('[data-board-card="one"]')).toBeNull();
+});
+it("uses the Session board header and toolbar without native selects", async () => {
+  render();
+  expect(
+    container.querySelector('[role="region"]')?.getAttribute("aria-label"),
+  ).toBe("Session board");
+  expect(container.textContent).toContain("Session board");
+  expect(container.textContent).not.toContain("Kanban");
+  expect(container.querySelector("select")).toBeNull();
+  const resetButton = () =>
+    [...container.querySelectorAll("button")].find(
+      (entry) => entry.textContent === "Reset",
+    );
+  expect(resetButton()).toBeUndefined();
+  await pick("Board status", "Blocked");
+  expect(resetButton()).toBeDefined();
+  await act(async () => resetButton()!.click());
+  expect(resetButton()).toBeUndefined();
+  expect(
+    [...container.querySelectorAll("button")].some(
+      (entry) => entry.textContent === "Reset filters",
+    ),
+  ).toBe(false);
+});
+it("shares the full width equally between columns with a 256px minimum", async () => {
+  render();
+  const columns = [
+    ...container.querySelectorAll<HTMLElement>(
+      "section[aria-label$=' column']",
+    ),
+  ];
+  expect(columns).toHaveLength(6);
+  for (const column of columns) {
+    expect(column.classList.contains("flex-1")).toBe(true);
+    expect(column.classList.contains("basis-0")).toBe(true);
+    expect(column.style.minWidth).toBe("256px");
+    expect(column.classList.contains("w-64")).toBe(false);
+  }
+  expect(
+    container.querySelector<HTMLElement>("[data-board-card]")!.className,
+  ).not.toContain("border-stroke");
+});
+it("keeps the board side at its split width when the session pane is open", async () => {
+  render();
+  await act(async () => card("running").click());
+  let side: HTMLElement | null = container.querySelector<HTMLElement>(
+    "section[aria-label='Todo column']",
+  )!.parentElement;
+  while (side && !side.style.width) side = side.parentElement;
+  expect(side?.style.width).toBe("48%");
+  expect(
+    container.querySelector<HTMLElement>("section[aria-label='Todo column']")!
+      .style.minWidth,
+  ).toBe("256px");
 });
 it("reports an unavailable session and storage retry without opening an empty pane", async () => {
   props.onOpenSession = vi.fn(async () => {
