@@ -12,6 +12,7 @@ const boundary = vi.hoisted(() => ({
   open: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
   kill: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
   failure: false,
+  spawn: vi.fn(async () => {}),
 }));
 
 const authUrl = "https://accounts.google.com/o/oauth2/v2/auth?state=test-state&redirect_uri=http%3A%2F%2F127.0.0.1%3A54321%2F&response_type=code";
@@ -21,7 +22,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: boundary.open }));
 vi.mock("../../../platform/tauri/fs", () => ({ homeDir: async (): Promise<string> => "C:/Users/test" }));
 vi.mock("./child", () => ({
   resolveAntigravityBinary: async (): Promise<{ path: string }> => ({ path: "C:/ACP/agy_acp_server.exe" }),
-  spawnChild: async (): Promise<void> => {},
+  spawnChild: boundary.spawn,
   killChild: boundary.kill,
   unwatchChild: (): void => {},
   watchChild: (_id: string, line: (value: string) => void, _exit: (code: number | null) => void, stderr: (value: string) => void): void => {
@@ -48,6 +49,7 @@ afterEach(async (): Promise<void> => {
   boundary.failure = false;
   boundary.open.mockClear();
   boundary.kill.mockClear();
+  boundary.spawn.mockClear();
 });
 
 describe("Antigravity explicit sign-in", () => {
@@ -63,6 +65,7 @@ describe("Antigravity explicit sign-in", () => {
   // A setup click must authenticate, not create a conversation or consume a prompt.
   it("authenticates explicitly, opens a duplicate URL only once, and cleans up", async (): Promise<void> => {
     await signInAntigravity();
+    expect(boundary.spawn).toHaveBeenCalledWith(expect.any(String), "C:/ACP/agy_acp_server.exe", [], "C:/Users/test", undefined, "antigravity");
     expect(boundary.sent.map((message) => message.method)).toEqual(["initialize", "authenticate"]);
     expect(boundary.sent[1]?.params).toEqual({ methodId: "oauth-personal" });
     expect(boundary.open).toHaveBeenCalledExactlyOnceWith(authUrl);

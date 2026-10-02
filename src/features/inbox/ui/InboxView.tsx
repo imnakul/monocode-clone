@@ -35,10 +35,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import {
-  InboxFiltersMenu,
-  INBOX_FILTER_MENU_WIDTH,
-} from "./InboxFiltersMenu";
+import { InboxFiltersMenu, INBOX_FILTER_MENU_WIDTH } from "./InboxFiltersMenu";
 import { InboxConnectMenu } from "./InboxConnectMenu";
 import { InboxProviderMark } from "./InboxProviderMark";
 import { ProjectLogoIcon } from "../../projects/ui/ProjectLogoIcon";
@@ -108,8 +105,14 @@ import { copyText } from "../../../platform/tauri/clipboard";
 import { projectKey, projectName } from "../../../shared/lib/paths";
 import { IS_MAC } from "../../../platform/tauri/platform";
 import { playCue } from "../../settings/model/sounds";
-import { sameProjectPath, type RecentProject } from "../../projects/model/recents";
-import { sessionDisplayTitle, type LinkedWorkItem } from "../../sessions/model/session";
+import {
+  sameProjectPath,
+  type RecentProject,
+} from "../../projects/model/recents";
+import {
+  sessionDisplayTitle,
+  type LinkedWorkItem,
+} from "../../sessions/model/session";
 import type { SessionSummary } from "../../sessions/data/sessionStore";
 import {
   inboxItemMatchesLinkedWorkItem,
@@ -192,10 +195,7 @@ import {
   type InboxReplyTarget,
 } from "./InboxComments";
 import { InboxPrDiff } from "./InboxPrDiff";
-import {
-  InboxPrChecks,
-  PrChecksTab,
-} from "./InboxPrChecks";
+import { InboxPrChecks, PrChecksTab } from "./InboxPrChecks";
 import {
   InboxDiscussionPanel,
   type InboxSessionPortal,
@@ -802,11 +802,13 @@ export function InboxView({
 
   const inboxSeenTick = useInboxSeenTick();
   useEffect(() => {
-    rememberInboxItems(items.map((item) => ({
-      key: inboxItemKey(item),
-      updatedAt: item.updatedAt,
-      projectPath: item.projectPath,
-    })));
+    rememberInboxItems(
+      items.map((item) => ({
+        key: inboxItemKey(item),
+        updatedAt: item.updatedAt,
+        projectPath: item.projectPath,
+      })),
+    );
   }, [items]);
   const sourceEntries = useMemo(
     () =>
@@ -2794,10 +2796,7 @@ export function InboxDetail({
                           ? { ...item, projectPath: startProject }
                           : item;
                         void Promise.resolve(
-                          onStart(
-                            next,
-                            tracker ? details?.body : undefined,
-                          ),
+                          onStart(next, tracker ? details?.body : undefined),
                         )
                           .catch((err: unknown) => {
                             setStartError(
@@ -2915,56 +2914,36 @@ export function InboxDetail({
                 ) : null}
               </div>
             ) : null}
-          {isPr ? (
-            <div
-              role="tablist"
-              aria-label={
-                gitlab ? "Merge request sections" : "Pull request sections"
-              }
-              className="flex h-9 items-stretch gap-4"
-            >
-              <InboxDetailTab
-                label="Summary"
-                selected={tab === "summary"}
-                onSelect={() => setTab("summary")}
-              />
-              <InboxDetailTab
-                label="Code"
-                selected={tab === "code"}
-                onSelect={() => setTab("code")}
-              />
-            </div>
-          ) : null}
-          {isPr && !linear && onPullReview ? (
-            reviewReport ? (
-              <button
-                type="button"
-                title="Copy the CodeRabbit review into a new chat with a fix button per issue"
-                aria-label={`Pull CodeRabbit review for PR #${item.number} into chat`}
-                onClick={() => {
-                  try {
-                    onPullReview(item, reviewReport);
-                  } catch (err: unknown) {
-                    setStartError(
-                      err instanceof Error ? err.message : String(err),
-                    );
-                  }
-                }}
-                className="inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/70 hover:bg-content/10 hover:text-content"
-              >
-                Pull review
-              </button>
-            ) : thread && !threadLoading ? (
-              <button
-                type="button"
-                disabled
-                title="No CodeRabbit comments on this pull request"
-                className="inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/35 disabled:cursor-default"
-              >
-                Pull review
-              </button>
-            ) : null
-          ) : null}
+            {isPr && !linear && onPullReview ? (
+              reviewReport ? (
+                <button
+                  type="button"
+                  title="Copy the CodeRabbit review into a new chat with a fix button per issue"
+                  aria-label={`Pull CodeRabbit review for PR #${item.number} into chat`}
+                  onClick={() => {
+                    try {
+                      onPullReview(item, reviewReport);
+                    } catch (err: unknown) {
+                      setStartError(
+                        err instanceof Error ? err.message : String(err),
+                      );
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/70 hover:bg-content/10 hover:text-content"
+                >
+                  Pull review
+                </button>
+              ) : thread && !threadLoading ? (
+                <button
+                  type="button"
+                  disabled
+                  title="No CodeRabbit comments on this pull request"
+                  className="inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/35 disabled:cursor-default"
+                >
+                  Pull review
+                </button>
+              ) : null
+            ) : null}
           </div>
         </div>
         <div

@@ -251,7 +251,14 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
     },
   );
 
-  await spawnChild(input.sessionId, path, ["--acp"], input.cwd);
+  await spawnChild(
+    input.sessionId,
+    path,
+    ["--acp"],
+    input.cwd,
+    undefined,
+    "cline",
+  );
 
   try {
     try {
@@ -483,11 +490,7 @@ async function handleRequest(
     .catch(() => undefined);
 }
 
-async function handlePermission(
-  live: Live,
-  id: number,
-  params: unknown,
-) {
+async function handlePermission(live: Live, id: number, params: unknown) {
   const request = permissionRequestFromAcp(params);
   if (request.callId) {
     live.onEvent({
@@ -499,7 +502,11 @@ async function handlePermission(
     });
   }
 
-  const auto = clineAutoOption(live.runtimeMode, request.kind, request.optionIds);
+  const auto = clineAutoOption(
+    live.runtimeMode,
+    request.kind,
+    request.optionIds,
+  );
   if (auto) {
     await live.acp.respond(id, {
       outcome: { outcome: "selected", optionId: auto },

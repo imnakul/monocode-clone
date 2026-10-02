@@ -5,6 +5,15 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { QuickComposer } from "./QuickComposer";
 
+vi.mock("../../../platform/tauri/platform", () => ({
+  IS_MAC: true,
+  IS_WIN: false,
+  IS_LINUX: false,
+  MOD: "⌘",
+  ALT: "⌥",
+  SHIFT: "⇧",
+}));
+
 const native = vi.hoisted(() => ({
   shown: () => {},
 }));

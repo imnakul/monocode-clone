@@ -3,6 +3,7 @@ import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { probeHarnessAvailability } from "../../../integrations/harness/core/availability";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { SettingsView } from "./SettingsView";
 import { rememberNotificationProjects } from "../../notifications/model/notificationProjects";
@@ -19,10 +20,7 @@ import {
   clearCachedRateLimits,
   setCachedRateLimits,
 } from "../../providers/model/rateLimitsCache";
-import {
-  HARNESSES,
-  HARNESS_TITLE,
-} from "../../sessions/model/session";
+import { HARNESSES, HARNESS_TITLE } from "../../sessions/model/session";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined),
@@ -42,7 +40,7 @@ vi.mock("../../../integrations/harness/core/availability", () => ({
   hasProbedHarnessAvailability: () => true,
   getHarnessAvailabilitySnapshot: () => 0,
   subscribeHarnessAvailability: () => () => {},
-  probeHarnessAvailability: async () => {},
+  probeHarnessAvailability: vi.fn(async () => {}),
   harnessUnavailableHint: () => "",
 }));
 
@@ -96,6 +94,7 @@ function renderedSettingIds(): string[] {
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mockLocalStorage();
+  vi.mocked(probeHarnessAvailability).mockReset().mockResolvedValue();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -459,11 +458,13 @@ describe("settings pages", () => {
       ).codex,
     ).toBe("/opt/codex/bin/codex");
     await act(async () =>
-      Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-        (button) => button.textContent === "Cancel",
-      )!.click(),
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) => button.textContent === "Cancel")!
+        .click(),
     );
-    expect(document.querySelector('[aria-label="Retry Codex configured path"]')).not.toBeNull();
+    expect(
+      document.querySelector('[aria-label="Retry Codex configured path"]'),
+    ).not.toBeNull();
 
     failAutoCodex = true;
     await save("Codex", "");
@@ -730,9 +731,11 @@ describe("settings pages", () => {
           (entry) =>
             typeof navigator === "undefined" ||
             /Win/i.test(navigator.platform) ||
-            !["windows-wallpaper", "wallpaper-opacity", "wallpaper-effect"].includes(
-              entry.id,
-            ),
+            ![
+              "windows-wallpaper",
+              "wallpaper-opacity",
+              "wallpaper-effect",
+            ].includes(entry.id),
         )
         .map((entry) => entry.id);
       expect(renderedSettingIds().sort()).toEqual(expected.sort());
@@ -814,12 +817,9 @@ describe("settings pages", () => {
 
   it("saves a custom helper and exposes account selection only for Claude and Codex", async () => {
     await render("chat");
-    const helperRow = container.querySelector(
-      '[data-setting-id="ai-helper"]',
-    )!;
-    const modeButtons = helperRow.querySelectorAll<HTMLButtonElement>(
-      '[role="radio"]',
-    );
+    const helperRow = container.querySelector('[data-setting-id="ai-helper"]')!;
+    const modeButtons =
+      helperRow.querySelectorAll<HTMLButtonElement>('[role="radio"]');
     await act(async () => modeButtons[1]?.click());
 
     expect(
@@ -832,7 +832,9 @@ describe("settings pages", () => {
     const antigravity = document.querySelector<HTMLButtonElement>(
       '[role="option"][aria-disabled="true"]',
     )!;
-    expect(antigravity.textContent).toContain("Antigravity (not available yet)");
+    expect(antigravity.textContent).toContain(
+      "Antigravity (not available yet)",
+    );
     expect(antigravity.title).toContain("can't switch off");
     expect(antigravity.textContent).toContain("built-in tools");
 
@@ -902,10 +904,9 @@ describe("settings search", () => {
   it("finds file and session opening behavior controls", async () => {
     await render("general");
     await type("reuse current");
-    expect(options().map((item) => item.querySelector("span")?.textContent)).toEqual([
-      "File behaviour",
-      "Session behaviour",
-    ]);
+    expect(
+      options().map((item) => item.querySelector("span")?.textContent),
+    ).toEqual(["File behaviour", "Session behaviour"]);
   });
 
   it("finds and reveals project notifications separately from global notifications", async () => {
@@ -1174,4 +1175,28 @@ describe("providers scope inheritance", () => {
       "Hidden globally",
     );
   });
+});
+
+it("shows both page and row loading indicators until the initial provider check settles", async () => {
+  let finish!: () => void;
+  vi.mocked(probeHarnessAvailability).mockReturnValueOnce(
+    new Promise<void>((resolve) => {
+      finish = resolve;
+    }),
+  );
+  await render("providers");
+  expect(container.textContent).toContain("Checking providers…");
+  const buttons = Array.from(
+    container.querySelectorAll<HTMLButtonElement>("button"),
+  ).filter((button) => button.title.startsWith("Re-probe "));
+  expect(buttons.length).toBeGreaterThan(0);
+  for (const button of buttons) {
+    expect(button.disabled).toBe(true);
+    expect(
+      button.querySelector('span[aria-hidden="true"]')?.textContent,
+    ).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/);
+  }
+  await act(async () => finish());
+  expect(container.textContent).not.toContain("Checking providers…");
+  for (const button of buttons) expect(button.disabled).toBe(false);
 });

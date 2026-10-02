@@ -52,7 +52,9 @@ function listen<T>(
   return backend ? backend.listen(event, handler) : tauriListen(event, handler);
 }
 
-function configuredBinaryPath(provider: ConfigurableBinaryProvider): string | null {
+function configuredBinaryPath(
+  provider: ConfigurableBinaryProvider,
+): string | null {
   return runtimeProviderBinaryPath(provider) ?? getCustomBinary(provider);
 }
 
@@ -291,14 +293,12 @@ export async function spawnChild(
   command: string,
   args: string[],
   cwd: string,
-  account?: { provider: "claude" | "codex"; id: string },
-  binaryProvider?: ConfigurableBinaryProvider,
+  account: { provider: "claude" | "codex"; id: string } | undefined,
+  binaryProvider: ConfigurableBinaryProvider,
 ): Promise<void> {
   livePid.delete(sessionId);
   pendingExit.delete(sessionId);
-  const binaryPath = binaryProvider
-    ? configuredBinaryPath(binaryProvider)
-    : undefined;
+  const binaryPath = configuredBinaryPath(binaryProvider);
   const pid = await invoke<number>("harness_spawn", {
     sessionId,
     command,
@@ -342,7 +342,9 @@ export function killAllChildren(): Promise<void> {
   return invoke("harness_kill_all");
 }
 
-export function probeHarnessBinary(id: HarnessId): Promise<{ path: string; version?: string }> {
+export function probeHarnessBinary(
+  id: HarnessId,
+): Promise<{ path: string; version?: string }> {
   return invoke("harness_probe_provider", {
     provider: id,
     overridePath: configuredBinaryPath(id),

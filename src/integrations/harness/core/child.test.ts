@@ -128,7 +128,14 @@ describe("child bridge", () => {
     const onExit = vi.fn();
     child.watchChild("probe", vi.fn(), onExit);
 
-    const spawning = child.spawnChild("probe", "pi", ["--mode", "rpc"], "/repo");
+    const spawning = child.spawnChild(
+      "probe",
+      "pi",
+      ["--mode", "rpc"],
+      "/repo",
+      undefined,
+      "pi",
+    );
     mocks.handlers.get("harness-exit")?.({
       payload: { sessionId: "probe", code: 1, pid: 42 } as never,
     });
@@ -182,10 +189,13 @@ describe("child bridge", () => {
       ],
     ] as const) {
       await resolve();
-      expect(mocks.invoke).toHaveBeenLastCalledWith("harness_resolve_configured", {
-        provider,
-        binaryPath,
-      });
+      expect(mocks.invoke).toHaveBeenLastCalledWith(
+        "harness_resolve_configured",
+        {
+          provider,
+          binaryPath,
+        },
+      );
     }
 
     await child.execChild("/resolved", ["--version"], undefined, "opencode");
@@ -240,3 +250,35 @@ describe("child bridge", () => {
     release();
   });
 });
+
+it.each(["antigravity", "cline"] as const)(
+  "passes %s identity and its configured Windows runtime through the native guard",
+  async (provider) => {
+    const executable = `C:/ACP/${provider}.exe`;
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) =>
+        key === "monocode.providerBinaryPaths.v1"
+          ? JSON.stringify({ [provider]: executable })
+          : null,
+    });
+    mocks.invoke.mockResolvedValue(123);
+    const child = await loadChild();
+    await child.spawnChild(
+      "acp-session",
+      executable,
+      [],
+      "C:/Users/test",
+      undefined,
+      provider,
+    );
+    expect(mocks.invoke).toHaveBeenCalledWith("harness_spawn", {
+      sessionId: "acp-session",
+      command: executable,
+      args: [],
+      cwd: "C:/Users/test",
+      account: undefined,
+      binaryProvider: provider,
+      binaryPath: executable,
+    });
+  },
+);

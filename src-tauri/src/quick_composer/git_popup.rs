@@ -1,14 +1,21 @@
 use std::sync::Mutex;
 
+#[cfg(target_os = "macos")]
 use objc2::MainThreadMarker;
+#[cfg(target_os = "macos")]
 use objc2_app_kit::{NSApplication, NSEvent, NSEventType};
+#[cfg(target_os = "macos")]
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use serde::{Deserialize, Serialize};
-use tauri::window::{Effect, EffectState, EffectsBuilder};
+#[cfg(target_os = "macos")]
+use tauri::window::EffectState;
+use tauri::window::{Effect, EffectsBuilder};
 use tauri::{
     AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
     WindowEvent,
 };
+#[cfg(target_os = "windows")]
+use tauri::{PhysicalPosition, PhysicalSize};
 
 use crate::window::{QUICK_COMPOSER_GIT_LABEL, QUICK_COMPOSER_LABEL};
 
@@ -137,21 +144,26 @@ pub fn quick_git_fit(
             dismiss(&handle, false);
             return;
         }
-        let (Some(parent_ns), Some(popup_ns)) = (
-            crate::macos::ns_window(&parent),
-            crate::macos::ns_window(&window),
-        ) else {
-            return;
-        };
-        let parent_frame = parent_ns.frame();
-        let screen = parent_ns
-            .screen()
-            .map(|screen| screen.visibleFrame())
-            .unwrap_or(parent_frame);
-        let frame = popup_frame(parent_frame, screen, &request.anchor, height);
-        popup_ns.setFrame_display(frame, false);
-        popup_ns.invalidateShadow();
-        popup_ns.displayIfNeeded();
+        #[cfg(target_os = "macos")]
+        {
+            let (Some(parent_ns), Some(popup_ns)) = (
+                crate::macos::ns_window(&parent),
+                crate::macos::ns_window(&window),
+            ) else {
+                return;
+            };
+            let parent_frame = parent_ns.frame();
+            let screen = parent_ns
+                .screen()
+                .map(|screen| screen.visibleFrame())
+                .unwrap_or(parent_frame);
+            let frame = popup_frame(parent_frame, screen, &request.anchor, height);
+            popup_ns.setFrame_display(frame, false);
+            popup_ns.invalidateShadow();
+            popup_ns.displayIfNeeded();
+        }
+        #[cfg(target_os = "windows")]
+        position_popup(&parent, &window, &request.anchor, height);
         // Focus once for each opening, including reuse of an already visible panel.
         // Later content resizes must not steal focus.
         let should_present = state.1.lock().is_ok_and(|mut presented| {
@@ -168,6 +180,7 @@ pub fn quick_git_fit(
     .map_err(|err| err.to_string())
 }
 
+#[cfg(target_os = "macos")]
 fn popup_frame(parent: NSRect, screen: NSRect, anchor: &Anchor, height: f64) -> NSRect {
     let width = WIDTH.min(screen.size.width);
     let height = height.clamp(1.0, MAX_HEIGHT).min(screen.size.height);
@@ -186,6 +199,45 @@ fn popup_frame(parent: NSRect, screen: NSRect, anchor: &Anchor, height: f64) -> 
         screen.origin.y + screen.size.height - height,
     );
     NSRect::new(NSPoint::new(x, y), NSSize::new(width, height))
+}
+
+#[cfg(target_os = "windows")]
+fn position_popup(parent: &WebviewWindow, popup: &WebviewWindow, anchor: &Anchor, height: f64) {
+    let Some(monitor) = parent.current_monitor().ok().flatten() else {
+        let _ = popup.center();
+        let _ = popup.set_size(tauri::LogicalSize::new(
+            WIDTH,
+            height.clamp(1.0, MAX_HEIGHT),
+        ));
+        return;
+    };
+    let Ok(parent_position) = parent.outer_position() else {
+        return;
+    };
+    let scale = parent.scale_factor().unwrap_or(1.0).max(0.1);
+    let area = monitor.work_area();
+    let width = (WIDTH * scale).round().min(area.size.width as f64) as u32;
+    let height = (height.clamp(1.0, MAX_HEIGHT) * scale)
+        .round()
+        .min(area.size.height as f64) as u32;
+    let left = area.position.x as f64;
+    let top = area.position.y as f64;
+    let right = left + area.size.width as f64;
+    let bottom = top + area.size.height as f64;
+    let x =
+        (parent_position.x as f64 + anchor.x * scale).clamp(left, (right - width as f64).max(left));
+    let anchor_top = parent_position.y as f64 + anchor.y * scale;
+    let gap = 6.0 * scale;
+    let below = anchor_top + anchor.height * scale + gap;
+    let above = anchor_top - gap - height as f64;
+    let y = if below + height as f64 <= bottom {
+        below
+    } else {
+        above
+    }
+    .clamp(top, (bottom - height as f64).max(top));
+    let _ = popup.set_size(PhysicalSize::new(width, height));
+    let _ = popup.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
 }
 
 #[tauri::command]
@@ -233,6 +285,7 @@ fn complete(
         if restore_focus && parent.is_visible().unwrap_or(false) {
             super::present(&parent);
         }
+        #[cfg(target_os = "macos")]
         let trigger_click = blur
             && MainThreadMarker::new().is_some_and(|mtm| {
                 NSApplication::sharedApplication(mtm)
@@ -242,6 +295,11 @@ fn complete(
                         over_trigger(window.frame(), &request.anchor, NSEvent::mouseLocation())
                     })
             });
+        #[cfg(target_os = "windows")]
+        let trigger_click = blur
+            && app
+                .cursor_position()
+                .is_ok_and(|point| windows_trigger_hit(&parent, &request.anchor, point.x, point.y));
         let _ = parent.emit(
             "quick_git_result",
             serde_json::json!({ "id": request.id, "choice": choice, "restoreFocus": restore_focus,
@@ -250,6 +308,7 @@ fn complete(
     }
 }
 
+#[cfg(target_os = "macos")]
 fn over_trigger(parent: NSRect, anchor: &Anchor, point: NSPoint) -> bool {
     let left = parent.origin.x + anchor.x;
     let top = parent.origin.y + parent.size.height - anchor.y;
@@ -257,6 +316,16 @@ fn over_trigger(parent: NSRect, anchor: &Anchor, point: NSPoint) -> bool {
         && point.x <= left + anchor.width
         && point.y <= top
         && point.y >= top - anchor.height
+}
+
+#[cfg(target_os = "windows")]
+fn windows_trigger_hit(parent: &WebviewWindow, anchor: &Anchor, x: f64, y: f64) -> bool {
+    let (Ok(position), Ok(scale)) = (parent.outer_position(), parent.scale_factor()) else {
+        return false;
+    };
+    let left = position.x as f64 + anchor.x * scale;
+    let top = position.y as f64 + anchor.y * scale;
+    x >= left && x <= left + anchor.width * scale && y >= top && y <= top + anchor.height * scale
 }
 
 pub(super) fn dismiss(app: &AppHandle, restore_focus: bool) {
@@ -277,7 +346,7 @@ pub fn quick_composer_dismiss(app: AppHandle, window: WebviewWindow) -> Result<(
 }
 
 /// Boot the hidden webview after the workspace paints, before the first picker click.
-/// The nonactivating panel is presented only after content is measured.
+/// The popup is presented only after content is measured.
 pub(super) fn prepare(app: &AppHandle, parent: &WebviewWindow) -> tauri::Result<WebviewWindow> {
     if let Some(popup) = app.get_webview_window(QUICK_COMPOSER_GIT_LABEL) {
         return Ok(popup);
@@ -300,18 +369,14 @@ pub(super) fn prepare(app: &AppHandle, parent: &WebviewWindow) -> tauri::Result<
     .skip_taskbar(true)
     .visible(false)
     .focused(false)
-    .effects(
-        EffectsBuilder::new()
-            .effect(Effect::Popover)
-            .state(EffectState::Active)
-            .radius(12.0)
-            .build(),
-    )
+    .effects(picker_effects())
     .parent(parent)?
     .build()?;
+    #[cfg(target_os = "macos")]
     super::make_panel(&popup);
-    // Attaching an AppKit child can affect its ordering even when the builder
-    // requested invisibility. Keep the preloaded panel out until its first fit.
+    #[cfg(target_os = "windows")]
+    let _ = popup.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+    // Keep the preloaded popup out until its first fit.
     popup.hide()?;
     let handle = app.clone();
     let blurred = popup.clone();
@@ -331,9 +396,26 @@ pub(super) fn prepare(app: &AppHandle, parent: &WebviewWindow) -> tauri::Result<
     Ok(popup)
 }
 
+fn picker_effects() -> tauri::utils::config::WindowEffectsConfig {
+    let mut effects = EffectsBuilder::new();
+    #[cfg(target_os = "macos")]
+    {
+        effects = effects
+            .effect(Effect::Popover)
+            .state(EffectState::Active)
+            .radius(12.0);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        effects = effects.effect(Effect::Acrylic);
+    }
+    effects.build()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
     #[test]
     fn blur_only_marks_a_click_inside_the_current_trigger() {
         let parent = NSRect::new(NSPoint::new(-600.0, 400.0), NSSize::new(680.0, 140.0));
@@ -360,6 +442,7 @@ mod tests {
         let request: Request = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(serde_json::to_value(request).unwrap(), value);
     }
+    #[cfg(target_os = "macos")]
     #[test]
     fn menu_is_anchored_without_changing_the_composer_frame() {
         let parent = NSRect::new(NSPoint::new(200.0, 600.0), NSSize::new(680.0, 140.0));
@@ -384,6 +467,7 @@ mod tests {
         assert!(crate::window::is_workspace_window("main"));
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn menu_flips_and_clamps_at_screen_edges() {
         let parent = NSRect::new(NSPoint::new(1000.0, 0.0), NSSize::new(680.0, 140.0));

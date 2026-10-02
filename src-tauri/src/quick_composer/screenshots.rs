@@ -113,9 +113,25 @@ pub(super) fn persist(app: &AppHandle, files: &mut [QuickAttachment]) -> Result<
 pub fn cleanup_abandoned() {
     // Discard captures left by crashed/quit processes after 24 hours. A live
     // process owns its drafts regardless of their age. Never follow symlinks.
+    #[cfg(unix)]
     sweep(&root(), SystemTime::now(), |pid| unsafe {
         libc::kill(pid as i32, 0) == 0
     });
+    #[cfg(windows)]
+    sweep(&root(), SystemTime::now(), windows_process_is_alive);
+}
+
+#[cfg(windows)]
+fn windows_process_is_alive(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        return false;
+    }
+    unsafe { CloseHandle(process) };
+    true
 }
 
 fn sweep(root: &Path, now: SystemTime, alive: impl Fn(u32) -> bool) {

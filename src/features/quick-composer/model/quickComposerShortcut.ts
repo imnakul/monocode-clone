@@ -1,7 +1,9 @@
-import { IS_MAC } from "../../../platform/tauri/platform";
+import { IS_MAC, IS_WIN } from "../../../platform/tauri/platform";
 
 /** The same spelling is accepted by tauri-plugin-global-shortcut. */
-export const QUICK_COMPOSER_DEFAULT_SHORTCUT = "Command+Shift+Space";
+export const QUICK_COMPOSER_DEFAULT_SHORTCUT = IS_WIN
+  ? "Control+Shift+Space"
+  : "Command+Shift+Space";
 
 type Modifiers = Pick<
   KeyboardEvent,
@@ -63,14 +65,16 @@ export function isShortcut(value: string): boolean {
   );
 }
 
-/** An OS-wide hotkey must keep a Command or Control modifier. */
+/** Windows additionally allows explicit Alt hotkeys, including Alt+Space. */
 export function isGlobalShortcut(value: string): boolean {
   return (
     isShortcut(value) &&
     value
       .split("+")
       .slice(0, -1)
-      .some((part) => ["Command", "Control"].includes(part))
+      .some((part) =>
+        (IS_WIN ? PRIMARY_MODIFIERS : ["Command", "Control"]).includes(part),
+      )
   );
 }
 

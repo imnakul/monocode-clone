@@ -121,7 +121,7 @@ describe("official Antigravity ACP child boundary", (): void => {
   it("keeps two turns on one ACP process and resumes the tagged session after parking", async (): Promise<void> => {
     const first = agy.sendAntigravityTurn(input);
     await openSession(); const p1 = await request("session/prompt"); reply(p1.id, { stopReason: "end_turn" }); await first;
-    expect(boundary.spawn).toHaveBeenCalledWith(host.ANTIGRAVITY_RUNTIME_SESSION_ID, "/fake/agy_acp_server", [], "/home/test");
+    expect(boundary.spawn).toHaveBeenCalledWith(host.ANTIGRAVITY_RUNTIME_SESSION_ID, "/fake/agy_acp_server", [], "/home/test", undefined, "antigravity");
     expect(events).toContainEqual({ type: "session.providerBound", providerSessionId: "agy-acp:v1:S1" });
     const second = agy.sendAntigravityTurn({ ...input, text: "Next" });
     const p2 = await request("session/prompt", 2); expect(p2.params).toEqual({ sessionId: "S1", prompt: [{ type: "text", text: "Next" }] });
@@ -413,7 +413,7 @@ describe("official Antigravity ACP child boundary", (): void => {
     expect(restarted).not.toBe(runtime1);
     expect(restarted.executablePath).toBe("/fake/agy_acp_server_v2");
     expect(boundary.spawn).toHaveBeenCalledTimes(2);
-    expect(boundary.spawn).toHaveBeenLastCalledWith(host.ANTIGRAVITY_RUNTIME_SESSION_ID, "/fake/agy_acp_server_v2", [], "/home/test");
+    expect(boundary.spawn).toHaveBeenLastCalledWith(host.ANTIGRAVITY_RUNTIME_SESSION_ID, "/fake/agy_acp_server_v2", [], "/home/test", undefined, "antigravity");
     expect(boundary.kill).toHaveBeenCalled();
     await host.retireAntigravityRuntime();
   });

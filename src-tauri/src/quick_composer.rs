@@ -2,11 +2,10 @@
 //! whatever app is in front, and its prompt starts a session in a workspace
 //! window without bringing that window forward.
 //!
-//! The panel is a WKWebView window re-classed as a non-activating `NSPanel`.
-//! A plain `NSWindow` would have to activate MonoCode to take keys, which pulls
-//! the workspace window over the browser and leaves focus with MonoCode after
-//! the panel hides. A non-activating panel takes keys while the other app
-//! stays active, and it can join a full-screen Space.
+//! On macOS the panel is a WKWebView window re-classed as a non-activating
+//! `NSPanel`. Windows uses a transparent, always-on-top WebView window and the
+//! registered global-shortcut plugin. Both platforms share launch delivery,
+//! validation, and the companion workspace picker protocol.
 
 mod delivery;
 pub mod git_popup;
@@ -16,18 +15,28 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Mutex, OnceLock,
+    Mutex,
 };
 
+#[cfg(target_os = "macos")]
 use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, Sel};
+#[cfg(target_os = "macos")]
 use objc2::{msg_send, sel, ClassType, MainThreadMarker};
+#[cfg(target_os = "macos")]
 use objc2_app_kit::{
     NSApplication, NSPanel, NSStatusWindowLevel, NSWindow, NSWindowCollectionBehavior,
     NSWindowStyleMask,
 };
+#[cfg(target_os = "macos")]
 use objc2_foundation::NSObjectProtocol;
 use serde::{Deserialize, Serialize};
-use tauri::window::{Effect, EffectState, EffectsBuilder};
+#[cfg(target_os = "macos")]
+use std::sync::OnceLock;
+#[cfg(target_os = "macos")]
+use tauri::window::EffectState;
+use tauri::window::{Effect, EffectsBuilder};
+#[cfg(target_os = "windows")]
+use tauri::LogicalSize;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
@@ -42,6 +51,7 @@ const WIDTH: f64 = 680.0;
 const INITIAL_HEIGHT: f64 = 128.0;
 /// Must match the card's CSS radius so the blur, border, and native shadow
 /// share one outline.
+#[cfg(target_os = "macos")]
 const CORNER_RADIUS: f64 = 16.0;
 const MAX_HEIGHT: f64 = 520.0;
 /// Down from the top of the screen's work area, like Spotlight.
@@ -52,15 +62,25 @@ const MAX_PROMPT_BYTES: usize = 256 * 1024;
 const LAUNCH: &str = "quick_composer_launch";
 /// The panel refreshes its projects and focuses the prompt on every show.
 const SHOWN: &str = "quick_composer_shown";
+#[cfg(target_os = "macos")]
 const DEFAULT_SHORTCUT: &str = "Command+Shift+Space";
+#[cfg(target_os = "windows")]
+const DEFAULT_SHORTCUT: &str = "Control+Shift+Space";
 
 fn parse_shortcut(value: &str) -> Result<Shortcut, String> {
     let shortcut = Shortcut::from_str(value).map_err(|err| err.to_string())?;
-    if !shortcut
+    let command_or_control = shortcut
         .mods
-        .intersects(Modifiers::SUPER | Modifiers::CONTROL)
-    {
+        .intersects(Modifiers::SUPER | Modifiers::CONTROL);
+    #[cfg(target_os = "windows")]
+    let allowed_windows_alt = shortcut.mods.intersects(Modifiers::ALT);
+    #[cfg(not(target_os = "windows"))]
+    let allowed_windows_alt = false;
+    if !command_or_control && !allowed_windows_alt {
+        #[cfg(target_os = "macos")]
         return Err("Use Command or Control with another key.".into());
+        #[cfg(target_os = "windows")]
+        return Err("Use Control or an Alt-modified shortcut.".into());
     }
     Ok(shortcut)
 }
@@ -124,10 +144,8 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         tauri_plugin_global_shortcut::Builder::new()
             .with_handler(|app, _shortcut, event: ShortcutEvent| {
                 if event.state == ShortcutState::Pressed {
-                    // The handler runs inside a Carbon event callback, where
-                    // `run_on_main_thread` would run inline and any panic
-                    // aborts on the C frame. Hop off the thread so the work is
-                    // queued onto the event loop like any other task.
+                    // Defer work off the native keyboard callback before
+                    // entering Tauri's main-thread event loop.
                     let app = app.clone();
                     std::thread::spawn(move || toggle(&app));
                 }
@@ -156,12 +174,12 @@ pub async fn quick_composer_prepare(app: AppHandle, window: WebviewWindow) -> Re
             {
                 return Ok(true);
             }
-            let Some(mtm) = MainThreadMarker::new() else {
+            if !window.is_visible().unwrap_or(false) || !window.is_focused().unwrap_or(false) {
                 return Ok(false);
-            };
-            if !NSApplication::sharedApplication(mtm).isActive()
-                || !window.is_visible().unwrap_or(false)
-                || !window.is_focused().unwrap_or(false)
+            }
+            #[cfg(target_os = "macos")]
+            if !MainThreadMarker::new()
+                .is_some_and(|mtm| NSApplication::sharedApplication(mtm).isActive())
             {
                 return Ok(false);
             }
@@ -237,19 +255,28 @@ pub fn quick_composer_fit(window: WebviewWindow, height: f64) -> Result<(), Stri
     let panel = window.clone();
     window
         .run_on_main_thread(move || {
-            let Some(ns_window) = crate::macos::ns_window(&panel) else {
-                return;
-            };
-            // AppKit's origin is at the bottom left. Change size and origin in
-            // one frame update so resizing never briefly moves the top edge.
-            let mut frame = ns_window.frame();
             let height = height.clamp(1.0, MAX_HEIGHT);
-            frame.origin.y += frame.size.height - height;
-            frame.size.width = WIDTH;
-            frame.size.height = height;
-            ns_window.setFrame_display(frame, false);
-            ns_window.invalidateShadow();
-            ns_window.displayIfNeeded();
+            #[cfg(target_os = "macos")]
+            {
+                let Some(ns_window) = crate::macos::ns_window(&panel) else {
+                    return;
+                };
+                // AppKit's origin is at the bottom left. Change size and origin
+                // in one frame update so resizing keeps the top edge anchored.
+                let mut frame = ns_window.frame();
+                frame.origin.y += frame.size.height - height;
+                frame.size.width = WIDTH;
+                frame.size.height = height;
+                ns_window.setFrame_display(frame, false);
+                ns_window.invalidateShadow();
+                ns_window.displayIfNeeded();
+            }
+            #[cfg(target_os = "windows")]
+            {
+                // Windows uses top-left screen coordinates, so resizing the
+                // client area leaves the top edge anchored without a move.
+                let _ = panel.set_size(LogicalSize::new(WIDTH, height));
+            }
         })
         .map_err(|err| err.to_string())
 }
@@ -398,6 +425,7 @@ pub async fn quick_composer_capture(
     result
 }
 
+#[cfg(target_os = "macos")]
 fn capture_screenshot() -> Result<Option<String>, String> {
     let path = screenshots::new_path()?;
     let dir = path.parent().ok_or("Missing capture directory")?;
@@ -417,6 +445,85 @@ fn capture_screenshot() -> Result<Option<String>, String> {
         return Err(format!("Could not take a screenshot: {}", error.trim()));
     }
     Ok(None)
+}
+
+#[cfg(target_os = "windows")]
+fn capture_screenshot() -> Result<Option<String>, String> {
+    use std::time::{Duration, Instant};
+
+    use windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE};
+
+    let before = unsafe { GetClipboardSequenceNumber() };
+    let mut escape_was_down = unsafe { GetAsyncKeyState(i32::from(VK_ESCAPE)) } < 0;
+    open::that("ms-screenclip:")
+        .map_err(|err| format!("Could not open Windows screen capture: {err}"))?;
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(200));
+        let escape_is_down = unsafe { GetAsyncKeyState(i32::from(VK_ESCAPE)) } < 0;
+        if !escape_was_down && escape_is_down {
+            return Ok(None);
+        }
+        escape_was_down = escape_is_down;
+        let current = unsafe { GetClipboardSequenceNumber() };
+        if current == before || current == 0 {
+            continue;
+        }
+        let image = match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.get_image())
+        {
+            Ok(image) => image,
+            Err(arboard::Error::ContentNotAvailable) => {
+                return Err("Windows screen capture did not copy an image.".into());
+            }
+            Err(_) => return Err("Could not read the captured image from the clipboard.".into()),
+        };
+        let png_bytes = encode_capture_png(image.width, image.height, &image.bytes)?;
+        let path = screenshots::new_path()?;
+        if let Err(err) = std::fs::write(&path, png_bytes) {
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+            return Err(format!("Could not save the captured image: {err}"));
+        }
+        return Ok(Some(path.to_string_lossy().into_owned()));
+    }
+    // Escape is handled above. The timeout covers a selector that stays open
+    // or exits through an OS path without publishing a clipboard image.
+    Ok(None)
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn encode_capture_png(width: usize, height: usize, rgba: &[u8]) -> Result<Vec<u8>, String> {
+    let width = u32::try_from(width).map_err(|_| "Captured image is too large.")?;
+    let height = u32::try_from(height).map_err(|_| "Captured image is too large.")?;
+    let pixels = u64::from(width)
+        .checked_mul(u64::from(height))
+        .ok_or("Captured image is too large.")?;
+    if width == 0 || height == 0 || pixels > 40_000_000 {
+        return Err("Captured image is too large to attach.".into());
+    }
+    let expected_bytes = usize::try_from(pixels * 4).map_err(|_| "Captured image is too large.")?;
+    if rgba.len() != expected_bytes {
+        return Err("Captured image data is incomplete.".into());
+    }
+
+    let mut encoded = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut encoded, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder
+            .write_header()
+            .map_err(|err| format!("Could not encode captured image: {err}"))?;
+        writer
+            .write_image_data(rgba)
+            .map_err(|err| format!("Could not encode captured image: {err}"))?;
+        writer
+            .finish()
+            .map_err(|err| format!("Could not encode captured image: {err}"))?;
+    }
+    Ok(encoded)
 }
 
 /// Reading claims a launch without removing it. Failed parsing or handoff can
@@ -527,13 +634,7 @@ fn build(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     .shadow(true)
     // Popover follows the window's appearance, which the page sets to the
     // app theme. Active keeps it vibrant while another app is frontmost.
-    .effects(
-        EffectsBuilder::new()
-            .effect(Effect::Popover)
-            .state(EffectState::Active)
-            .radius(CORNER_RADIUS)
-            .build(),
-    )
+    .effects(window_effects())
     .always_on_top(true)
     .visible_on_all_workspaces(true)
     .skip_taskbar(true)
@@ -541,7 +642,10 @@ fn build(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     .focused(false)
     .build()?;
 
+    #[cfg(target_os = "macos")]
     make_panel(&panel);
+    #[cfg(target_os = "windows")]
+    let _ = panel.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
 
     // Keep the drop target visible when users switch apps to collect files.
     // Escape, the close button, the shortcut, and submission dismiss it.
@@ -560,6 +664,7 @@ fn show(app: &AppHandle, panel: &WebviewWindow) {
 
 /// Restore focus without resetting a draft or moving the panel after capture.
 fn present(panel: &WebviewWindow) {
+    #[cfg(target_os = "macos")]
     match crate::macos::ns_window(panel) {
         Some(ns_window) if is_panel(&ns_window) => {
             ns_window.orderFrontRegardless();
@@ -572,6 +677,28 @@ fn present(panel: &WebviewWindow) {
             let _ = panel.set_focus();
         }
     }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = panel.unminimize();
+        let _ = panel.show();
+        let _ = panel.set_focus();
+    }
+}
+
+fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
+    let mut effects = EffectsBuilder::new();
+    #[cfg(target_os = "macos")]
+    {
+        effects = effects
+            .effect(Effect::Popover)
+            .state(EffectState::Active)
+            .radius(CORNER_RADIUS);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        effects = effects.effect(Effect::Acrylic);
+    }
+    effects.build()
 }
 
 /// Center on the screen under the pointer, since that is where the user is.
@@ -596,6 +723,7 @@ fn place(app: &AppHandle, panel: &WebviewWindow) {
 /// A runtime `NSPanel` subclass rather than `define_class!`, because it has to
 /// carry Tao's `focusable` ivar: objc2 only re-classes an object into a class
 /// of exactly the same instance size, and Tao reads that ivar by name.
+#[cfg(target_os = "macos")]
 fn panel_class() -> Option<&'static AnyClass> {
     static CLASS: OnceLock<Option<&'static AnyClass>> = OnceLock::new();
     *CLASS.get_or_init(|| {
@@ -618,20 +746,24 @@ fn panel_class() -> Option<&'static AnyClass> {
     })
 }
 
+#[cfg(target_os = "macos")]
 extern "C-unwind" fn can_become_key_window(_this: &AnyObject, _cmd: Sel) -> Bool {
     Bool::YES
 }
 
+#[cfg(target_os = "macos")]
 extern "C-unwind" fn can_become_main_window(_this: &AnyObject, _cmd: Sel) -> Bool {
     Bool::NO
 }
 
+#[cfg(target_os = "macos")]
 fn is_panel(ns_window: &NSWindow) -> bool {
     panel_class().is_some_and(|class| ns_window.isKindOfClass(class))
 }
 
 /// Swap Tao's window class for a non-activating panel subclass in place, the
 /// way tauri-nspanel does. Tao and wry keep their delegate and views.
+#[cfg(target_os = "macos")]
 fn make_panel(window: &WebviewWindow) {
     let Some(ns_window) = crate::macos::ns_window(window) else {
         return;
@@ -687,7 +819,10 @@ mod tests {
     fn quick_composer_shortcut_requires_a_non_shift_modifier() {
         let original = parse_shortcut(DEFAULT_SHORTCUT).unwrap();
         assert_eq!(original.key, Code::Space);
+        #[cfg(target_os = "macos")]
         assert_eq!(original.mods, Modifiers::SUPER | Modifiers::SHIFT);
+        #[cfg(target_os = "windows")]
+        assert_eq!(original.mods, Modifiers::CONTROL | Modifiers::SHIFT);
         let custom = parse_shortcut("Control+Option+KeyK").unwrap();
         assert_eq!(custom.key, Code::KeyK);
         assert_eq!(custom.mods, Modifiers::CONTROL | Modifiers::ALT);
@@ -700,8 +835,24 @@ mod tests {
             Modifiers::CONTROL
         );
         assert!(parse_shortcut("Shift+Space").is_err());
+        #[cfg(target_os = "macos")]
         assert!(parse_shortcut("Option+KeyK").is_err());
+        #[cfg(target_os = "windows")]
+        assert_eq!(parse_shortcut("Option+KeyK").unwrap().mods, Modifiers::ALT);
         assert!(parse_shortcut("Command+InvalidKey").is_err());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_allows_alt_modified_shortcuts() {
+        let shortcut = parse_shortcut("Option+Space").unwrap();
+        assert_eq!(shortcut.key, Code::Space);
+        assert_eq!(shortcut.mods, Modifiers::ALT);
+        assert_eq!(
+            parse_shortcut("Option+Shift+Space").unwrap().mods,
+            Modifiers::ALT | Modifiers::SHIFT
+        );
+        assert_eq!(parse_shortcut("Option+KeyK").unwrap().key, Code::KeyK);
     }
 
     #[test]
@@ -748,6 +899,22 @@ mod tests {
         let request: QuickLaunch = serde_json::from_value(input.clone()).unwrap();
         assert_eq!(request.attachments.len(), 1);
         assert_eq!(serde_json::to_value(request).unwrap(), input);
+    }
+
+    #[test]
+    fn captured_rgba_is_bounded_and_encoded_as_png() {
+        let encoded = super::encode_capture_png(1, 1, &[255, 0, 0, 255]).unwrap();
+        let decoder = png::Decoder::new(std::io::Cursor::new(encoded.as_slice()));
+        let mut reader = decoder.read_info().unwrap();
+        assert_eq!(reader.info().width, 1);
+        assert_eq!(reader.info().height, 1);
+        let mut decoded = vec![0; reader.output_buffer_size().unwrap()];
+        let info = reader.next_frame(&mut decoded).unwrap();
+        assert_eq!(&decoded[..info.buffer_size()], &[255, 0, 0, 255]);
+
+        assert!(super::encode_capture_png(0, 1, &[]).is_err());
+        assert!(super::encode_capture_png(100_000, 100_000, &[]).is_err());
+        assert!(super::encode_capture_png(1, 1, &[255, 0, 0]).is_err());
     }
 
     #[test]

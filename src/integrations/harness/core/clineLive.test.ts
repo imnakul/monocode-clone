@@ -1,12 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+const boundary = vi.hoisted(() => ({ spawn: vi.fn(async () => undefined) }));
 const sent: string[] = [];
 let onLine: ((line: string) => void) | undefined;
 let onExit: ((code: number | null) => void) | undefined;
 
 vi.mock("./child", () => ({
   resolveClineBinary: async () => ({ path: "/fake/cline" }),
-  spawnChild: async () => undefined,
+  spawnChild: boundary.spawn,
   killChild: async () => undefined,
   unwatchChild: () => undefined,
   watchChild: (
@@ -80,6 +81,14 @@ async function handshake() {
   await waitFor(
     () => parse().some((m) => m.method === "initialize"),
     "initialize",
+  );
+  expect(boundary.spawn).toHaveBeenCalledWith(
+    expect.any(String),
+    "/fake/cline",
+    ["--acp"],
+    expect.any(String),
+    undefined,
+    "cline",
   );
   const initId = parse().find((m) => m.method === "initialize")!.id;
   reply(initId, { protocolVersion: 1 });
@@ -155,7 +164,9 @@ describe("cline live turn sequence", () => {
 
     await waitFor(
       () =>
-        events.some((e) => e.type === "approval.requested" && e.requestId === 1),
+        events.some(
+          (e) => e.type === "approval.requested" && e.requestId === 1,
+        ),
       "approval.requested",
     );
     respondClineApproval("t1", 1, "allow");
@@ -177,9 +188,10 @@ describe("cline live turn sequence", () => {
     reply(promptId, { stopReason: "end_turn" });
     await turn;
     expect(
-      events.filter((e) => e.type === "message.delta").map((e) =>
-        e.type === "message.delta" ? e.text : "",
-      ).join(""),
+      events
+        .filter((e) => e.type === "message.delta")
+        .map((e) => (e.type === "message.delta" ? e.text : ""))
+        .join(""),
     ).toBe("OK");
     expect(events.some((e) => e.type === "message.completed")).toBe(true);
     await stopClineSession("t1");

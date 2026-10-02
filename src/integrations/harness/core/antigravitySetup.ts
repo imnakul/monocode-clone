@@ -60,7 +60,7 @@ async function runSignIn(): Promise<void> {
     watchChild(AUTH_PROCESS_ID, (line): void => handleLine(line, true),
       (): void => rpc.close(new Error("Antigravity exited before sign-in completed.")),
       (line): void => handleLine(line, false));
-    await spawnChild(AUTH_PROCESS_ID, path, [], cwd);
+    await spawnChild(AUTH_PROCESS_ID, path, [], cwd, undefined, "antigravity");
     if (cancelled) throw new Error("Antigravity sign-in cancelled.");
     await rpc.request("initialize", {
       protocolVersion: 1,

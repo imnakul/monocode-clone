@@ -25,7 +25,7 @@ let root: Root;
 function recheckButtons(): HTMLButtonElement[] {
   return Array.from(
     container.querySelectorAll<HTMLButtonElement>("button"),
-  ).filter((button) => button.textContent === "Recheck");
+  ).filter((button) => button.title.startsWith("Re-probe "));
 }
 
 beforeEach(() => {
@@ -65,6 +65,7 @@ describe("Providers initial discovery", () => {
       "Checking providers",
     );
     expect(recheckButtons()).toHaveLength(HARNESSES.length);
+    expect(recheckButtons().every((button) => button.textContent?.includes("Checking…"))).toBe(true);
     expect(recheckButtons().every((button) => button.disabled)).toBe(true);
     recheckButtons()[0]?.click();
     expect(probeHarnessAvailability).toHaveBeenCalledTimes(1);

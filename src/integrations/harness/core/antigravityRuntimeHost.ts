@@ -193,7 +193,7 @@ async function startRuntime(executablePath: string): Promise<AntigravitySharedRu
   );
 
   try {
-    await spawnChild(ANTIGRAVITY_RUNTIME_SESSION_ID, executablePath, [], cwd);
+    await spawnChild(ANTIGRAVITY_RUNTIME_SESSION_ID, executablePath, [], cwd, undefined, "antigravity");
     const initialized = asRecord(
       await rpc.request("initialize", {
         protocolVersion: 1,

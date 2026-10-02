@@ -1,7 +1,7 @@
 import { parseQuickAttachments } from "./quickAttachments";
 import { isHarnessAvailable } from "../../../integrations/harness/core/availability";
 import { invoke } from "@tauri-apps/api/core";
-import { IS_MAC } from "../../../platform/tauri/platform";
+import { IS_MAC, IS_WIN } from "../../../platform/tauri/platform";
 import { loadQuickComposerShortcut } from "../../settings/model/settings";
 import { pathKey, projectName, prettyParent } from "../../../shared/lib/paths";
 import {
@@ -71,9 +71,9 @@ export type QuickLaunch = {
   reveal: boolean;
 };
 
-/** The panel exists on macOS only; elsewhere the shortcut is never claimed. */
+/** Native floating panel is available on macOS and Windows. */
 export function quickComposerSupported(): boolean {
-  return IS_MAC;
+  return IS_MAC || IS_WIN;
 }
 
 export async function setQuickComposerShortcut(

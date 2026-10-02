@@ -1,3 +1,4 @@
+import { IS_MAC, MOD } from "../../../platform/tauri/platform";
 import { QuickWorkspaceControls } from "./QuickWorkspaceControls";
 import {
   workspaceForProject,
@@ -424,15 +425,18 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
     }
     if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
       event.preventDefault();
-      void submit(event.metaKey);
+      void submit(IS_MAC ? event.metaKey : event.ctrlKey);
       return;
     }
-    if (event.metaKey && event.key.toLowerCase() === "p") {
+    if (
+      (IS_MAC ? event.metaKey : event.ctrlKey) &&
+      event.key.toLowerCase() === "p"
+    ) {
       event.preventDefault();
       openPicker("project");
       return;
     }
-    if (event.metaKey && event.key === ".") {
+    if ((IS_MAC ? event.metaKey : event.ctrlKey) && event.key === ".") {
       event.preventDefault();
       openPicker("model");
     }
@@ -636,7 +640,7 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => openPicker("project")}
           disabled={projects.length === 0}
-          title="Project (⌘P)"
+          title={`Project (${MOD}P)`}
           aria-expanded={picker === "project"}
           className={`flex min-w-0 max-w-[40%] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] disabled:opacity-50 ${picker === "project" ? "bg-selection-emphasis text-content" : "text-content/70 hover:bg-selection-hover hover:text-content"}`}
         >
@@ -656,7 +660,7 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
           type="button"
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => openPicker("model")}
-          title="Model (⌘.)"
+          title={`Model (${MOD}.)`}
           aria-expanded={picker === "model"}
           className={`flex min-w-0 max-w-[40%] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] ${picker === "model" ? "bg-selection-emphasis text-content" : "text-content/70 hover:bg-selection-hover hover:text-content"}`}
         >
@@ -677,7 +681,7 @@ export function QuickComposer({ onShown }: { onShown: () => void }) {
                 <Kbd>↵</Kbd> start
               </span>
               <span>
-                <Kbd>⌘↵</Kbd> start and open
+                <Kbd>{`${MOD}↵`}</Kbd> start and open
               </span>
             </>
           )}

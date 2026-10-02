@@ -1,5 +1,8 @@
 import { homeDir } from "../../../platform/tauri/fs";
-import { setHarnessModels, type AgentModel } from "../../../features/sessions/model/models";
+import {
+  setHarnessModels,
+  type AgentModel,
+} from "../../../features/sessions/model/models";
 import { AcpClient } from "./acp";
 import {
   killChild,
@@ -65,7 +68,7 @@ async function discoverViaAcp(): Promise<AgentModel[]> {
       (code) =>
         acp.close(new Error(`Cline probe exited (code ${code ?? "unknown"})`)),
     );
-    await spawnChild(PROBE_ID, path, ["--acp"], cwd);
+    await spawnChild(PROBE_ID, path, ["--acp"], cwd, undefined, "cline");
     return await withTimeout(
       DISCOVERY_TIMEOUT_MS,
       async () => {

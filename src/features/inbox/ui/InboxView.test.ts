@@ -261,7 +261,9 @@ describe("InboxDetail layout", () => {
   });
 
   it("keeps issue identity and actions outside the body scroller", () => {
-    const markup = renderDetail(detailItem({ projectPath: "/tmp/local-project" }));
+    const markup = renderDetail(
+      detailItem({ projectPath: "/tmp/local-project" }),
+    );
     const headerIndex = markup.indexOf("data-inbox-detail-header");
     const scrollIndex = markup.indexOf("data-inbox-detail-scroll");
     const header = markup.slice(headerIndex, scrollIndex);
@@ -297,6 +299,7 @@ describe("InboxDetail layout", () => {
     const header = markup.slice(headerIndex, scrollIndex);
 
     expect(header).toContain('aria-label="Pull request sections"');
+    expect(markup.match(/aria-label="Pull request sections"/g)).toHaveLength(1);
     expect(header).toContain("Summary");
     expect(header).toContain("Code");
   });
@@ -330,6 +333,11 @@ describe("InboxDetail layout", () => {
         }),
       ),
     ).not.toContain('aria-label="Checks:');
+    expect(
+      renderDetail(item({ kind: "pr", provider: "gitlab" })).match(
+        /aria-label="Merge request sections"/g,
+      ),
+    ).toHaveLength(1);
   });
 
   it("shows the Checks tab for linked pull requests in panel mode", () => {

@@ -700,9 +700,7 @@ export function SettingsView({
               {section === "migration" ? (
                 <MigrationView onImportSessions={onImportSessions} />
               ) : null}
-              {section === "experimentation" ? (
-                <ExperimentationPage />
-              ) : null}
+              {section === "experimentation" ? <ExperimentationPage /> : null}
             </div>
           </div>
         </RevealedSetting.Provider>
@@ -836,8 +834,9 @@ function SettingsSearch({
 function ExperimentationPage(): ReactElement {
   const [detailedContext, setDetailedContext] = useState(loadDetailedContext);
   const [remainingQuota, setRemainingQuota] = useState(loadRemainingQuota);
-  const [compactModelLabels, setCompactModelLabels] =
-    useState(loadCompactModelLabels);
+  const [compactModelLabels, setCompactModelLabels] = useState(
+    loadCompactModelLabels,
+  );
 
   const onDetailedContext = (next: boolean): void => {
     saveDetailedContext(next);
@@ -960,14 +959,16 @@ function GeneralPage({
   };
 
   const onQuickComposerEnabled = (next: boolean) => {
-    saveQuickComposerEnabled(next);
-    setQuickComposerEnabled(next);
     setQuickComposerError(null);
-    void setQuickComposerShortcut(next).catch((error: unknown) => {
-      // Another app already owns the combination. Leave the switch where the
-      // user put it so the next launch tries again, but say why it is dead.
-      setQuickComposerError(String(error));
-    });
+    void setQuickComposerShortcut(next)
+      .then(() => {
+        saveQuickComposerEnabled(next);
+        setQuickComposerEnabled(next);
+      })
+      .catch((error: unknown) => {
+        // Keep the previous persisted preference when native registration fails.
+        setQuickComposerError(String(error));
+      });
   };
 
   const onLiveAgentsEnabled = (next: boolean) => {
@@ -1099,11 +1100,11 @@ function GeneralPage({
         >
           <Toggle label="Notes" on={notesEnabled} onChange={onNotesEnabled} />
         </Row>
-        {IS_MAC && (
+        {(IS_MAC || IS_WIN) && (
           <Row
             id="quick-composer"
             label="Quick composer"
-            description={`Press ${quickComposerShortcutLabel(loadQuickComposerShortcut())} in any app to float a prompt over it and start a session without switching to MonoCode. Change the shortcut in Keybindings. Return starts it in the background; ⌘Return starts it and brings the session forward.`}
+            description={`Press ${quickComposerShortcutLabel(loadQuickComposerShortcut())} in any app to float a prompt over it and start a session without switching to MonoCode. Change the shortcut in Keybindings. Enter starts it in the background; ${IS_MAC ? "⌘Return" : "Ctrl+Enter"} starts it and brings the session forward.${IS_WIN ? " Alt+Space normally opens the Windows window menu; assigning it here uses it for Quick Composer while MonoCode is running." : ""}`}
           >
             {quickComposerError ? (
               <span className="text-[12px] text-content/45">
@@ -1540,14 +1541,19 @@ function AiHelperTargetEditor({
       "Not in the current model list. The provider will decide if it works.",
     );
   }
-  if (target.provider === "antigravity" && !HELPER_ISOLATION.antigravity.verified) {
+  if (
+    target.provider === "antigravity" &&
+    !HELPER_ISOLATION.antigravity.verified
+  ) {
     warnings.push(HELPER_ISOLATION.antigravity.reason ?? "");
   } else if (providerSelectOpen && HELPER_ISOLATION.antigravity.reason) {
     warnings.push(HELPER_ISOLATION.antigravity.reason);
   }
 
   const setProvider = (value: string) => {
-    const provider = AI_HELPER_PROVIDERS.find((candidate) => candidate === value);
+    const provider = AI_HELPER_PROVIDERS.find(
+      (candidate) => candidate === value,
+    );
     if (!provider || !HELPER_ISOLATION[provider].verified) return;
     onChange({ provider });
   };
@@ -2331,10 +2337,7 @@ function useAppearanceSettings(
   const collapsedProjectRailMode =
     controlledCollapsedProjectRailMode ?? storedCollapsedProjectRailMode;
 
-  useEffect(
-    () => subscribeWallpaperEffectError(setWallpaperEffectError),
-    [],
-  );
+  useEffect(() => subscribeWallpaperEffectError(setWallpaperEffectError), []);
 
   useEffect(() => subscribeUiScale(() => setUiScale(loadUiScale())), []);
 
@@ -3312,6 +3315,7 @@ function ShortcutEditor({
   onApply,
   onDisable,
   onReset,
+  preset,
 }: {
   name: string;
   display: string | null;
@@ -3319,6 +3323,7 @@ function ShortcutEditor({
   onApply: (shortcut: string) => void | Promise<void>;
   onDisable: () => void | Promise<void>;
   onReset: () => void | Promise<void>;
+  preset?: { shortcut: string; label: string; title: string };
 }) {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -3455,6 +3460,17 @@ function ShortcutEditor({
           </button>
         ) : null}
       </div>
+      {preset ? (
+        <button
+          type="button"
+          title={preset.title}
+          disabled={busy}
+          onClick={() => void run(() => onApply(preset.shortcut))}
+          className="mt-1 text-[10px] text-content/55 hover:text-content disabled:opacity-50"
+        >
+          {preset.label}
+        </button>
+      ) : null}
       {recording ? (
         <p
           className="pointer-events-none absolute top-1/2 right-full z-40 mr-3 -translate-y-1/2 text-[10px] whitespace-nowrap text-content/50"
@@ -3480,7 +3496,11 @@ function QuickComposerShortcutEditor() {
   const [enabled, setEnabled] = useState(loadQuickComposerEnabled);
   const apply = async (next: string) => {
     if (!isGlobalShortcut(next))
-      throw new Error("Quick Composer needs ⌘ or Ctrl as a global hotkey");
+      throw new Error(
+        IS_WIN
+          ? "Quick Composer needs Ctrl, Win or Alt as a global hotkey"
+          : "Quick Composer needs ⌘ or Ctrl as a global hotkey",
+      );
     // Validate before the native call: a rejected chord must not leave the OS
     // holding a registered global hotkey that settings does not know about.
     validateKeybindingShortcut("App: Quick Composer", next);
@@ -3504,6 +3524,16 @@ function QuickComposerShortcutEditor() {
   return (
     <ShortcutEditor
       name="quick composer"
+      preset={
+        IS_WIN
+          ? {
+              shortcut: "Option+Space",
+              label: "Use Alt+Space",
+              title:
+                "Alt+Space normally opens the Windows window menu. Assign it to Quick Composer while MonoCode is running.",
+            }
+          : undefined
+      }
       display={enabled ? quickComposerShortcutLabel(shortcut) : null}
       resetVisible={
         enabled !== true || shortcut !== QUICK_COMPOSER_DEFAULT_SHORTCUT
@@ -3602,7 +3632,7 @@ function KeybindingsPage() {
           return (
             <div
               key={row.command}
-              className="flex h-11 items-center border-b border-content/5 px-4 text-[12px] last:border-b-0"
+              className={`flex ${IS_WIN && row.command === "App: Quick Composer" ? "min-h-11 py-2" : "h-11"} items-center border-b border-content/5 px-4 text-[12px] last:border-b-0`}
             >
               <span
                 className={`min-w-0 flex-1 truncate ${disabled ? "text-content/45" : ""}`}
@@ -4186,18 +4216,18 @@ export function ProvidersPage({
           const pickerLocked =
             project != null && hiddenGlobally.includes(harness);
           const selectedModel = project
-            ? projectSettings.models?.[harness] ??
+            ? (projectSettings.models?.[harness] ??
               (projectSettings.defaultHarness === harness
                 ? projectSettings.defaultModel
                 : undefined) ??
               defaultModels[harness] ??
               (choice?.harness === harness
                 ? choice.model
-                : defaultModelId(harness))
-            : defaultModels[harness] ??
+                : defaultModelId(harness)))
+            : (defaultModels[harness] ??
               (choice?.harness === harness
                 ? choice.model
-                : defaultModelId(harness));
+                : defaultModelId(harness)));
           const isDefault = project
             ? effectiveDefaultHarness === harness
             : choice?.harness === harness;
@@ -4680,9 +4710,11 @@ function ProviderRow({
         <SecondaryButton
           onClick={() => void handleRecheck()}
           disabled={initialLoading || rechecking}
-          title={"Re-probe " + HARNESS_TITLE[harness] + " and refresh its model list"}
+          title={
+            "Re-probe " + HARNESS_TITLE[harness] + " and refresh its model list"
+          }
         >
-          {rechecking ? (
+          {initialLoading || rechecking ? (
             <>
               <TerminalSpinner />
               Checking…
@@ -4696,7 +4728,10 @@ function ProviderRow({
             label={HARNESS_TITLE[harness] + " model"}
             value={current.id}
             onChange={(next) => onModelChange(harness, next)}
-            options={models.map((item) => ({ value: item.id, label: item.name }))}
+            options={models.map((item) => ({
+              value: item.id,
+              label: item.name,
+            }))}
             className="w-52"
             menuWidth={280}
             maxHeight={420}

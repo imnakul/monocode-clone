@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../platform/tauri/platform", () => ({ IS_MAC: true }));
+vi.mock("../../../platform/tauri/platform", () => ({
+  IS_MAC: true,
+  IS_WIN: false,
+}));
 
 import {
   isGlobalShortcut,

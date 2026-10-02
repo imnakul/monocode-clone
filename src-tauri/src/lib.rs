@@ -30,7 +30,7 @@ mod pasteboard;
 mod pi_usage;
 mod project_logo;
 mod pty;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod quick_composer;
 mod rate_limits;
 mod reminders;
@@ -299,9 +299,12 @@ pub fn run() {
             menu::install(app.handle())?;
             #[cfg(target_os = "windows")]
             tray::install(app.handle())?;
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             {
                 quick_composer::init(app.handle())?;
+            }
+            #[cfg(target_os = "macos")]
+            {
                 macos::install_dock_menu(app.handle());
                 if let Some(window) = app.get_webview_window("main") {
                     macos::install(&window);
@@ -593,31 +596,31 @@ pub fn run() {
             window::quit_decision,
             window::quit_ready,
             window::set_window_glass_enabled,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             quick_composer::quick_composer_set_enabled,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             quick_composer::quick_composer_prepare,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             quick_composer::quick_composer_fit,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             quick_composer::quick_composer_submit,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             quick_composer::quick_composer_take,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             quick_composer::quick_composer_ack,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             quick_composer::screenshots::quick_composer_release_capture,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             quick_composer::quick_composer_capture,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             quick_composer::git_popup::quick_git_open,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             quick_composer::git_popup::quick_git_state,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             quick_composer::git_popup::quick_git_fit,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             quick_composer::git_popup::quick_git_complete,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             quick_composer::git_popup::quick_composer_dismiss,
             window_transfer::stage_window_transfer,
             window_transfer::take_window_transfer,

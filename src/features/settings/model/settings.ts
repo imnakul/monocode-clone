@@ -179,7 +179,12 @@ export type SettingsEntry = {
 };
 
 export const SETTINGS_INDEX: SettingsEntry[] = [
-  { id: "remote-machines", section: "connections", label: "Your machines", keywords: "ssh remote connect host server environment" },
+  {
+    id: "remote-machines",
+    section: "connections",
+    label: "Your machines",
+    keywords: "ssh remote connect host server environment",
+  },
   {
     id: "mcp-servers",
     section: "mcp",
@@ -216,7 +221,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     label: "Notes",
     keywords: "notebook markdown rail scratchpad",
   },
-  ...(IS_MAC
+  ...(IS_MAC || IS_WIN
     ? [
         {
           id: "quick-composer",
@@ -807,7 +812,11 @@ export type AiHelperTarget = {
 
 export type AiHelperSettings =
   | { mode: "automatic" }
-  | { mode: "custom"; primary: AiHelperTarget; fallback: AiHelperTarget | null };
+  | {
+      mode: "custom";
+      primary: AiHelperTarget;
+      fallback: AiHelperTarget | null;
+    };
 
 const AI_HELPER_KEY = "monocode.aiHelper";
 
@@ -1196,7 +1205,9 @@ export function saveDetailedContext(value: boolean): void {
   );
 }
 
-export function subscribeDetailedContext(onStoreChange: () => void): () => void {
+export function subscribeDetailedContext(
+  onStoreChange: () => void,
+): () => void {
   if (typeof window === "undefined") return () => {};
   window.addEventListener(DETAILED_CONTEXT_CHANGE_EVENT, onStoreChange);
   return () =>
@@ -1281,7 +1292,10 @@ export function subscribeCompactModelLabels(
   window.addEventListener(COMPACT_MODEL_LABELS_CHANGE_EVENT, onStoreChange);
   window.addEventListener("storage", onStorage);
   return () => {
-    window.removeEventListener(COMPACT_MODEL_LABELS_CHANGE_EVENT, onStoreChange);
+    window.removeEventListener(
+      COMPACT_MODEL_LABELS_CHANGE_EVENT,
+      onStoreChange,
+    );
     window.removeEventListener("storage", onStorage);
   };
 }
@@ -1307,7 +1321,7 @@ export const KEYBINDINGS: KeybindingRow[] = [
   { command: "App: Find in Files", keys: `${MOD}${SHIFT}F`, when: "Always" },
   { command: "App: Open Project", keys: `${MOD}O`, when: "Always" },
   { command: "App: New Window", keys: `${MOD}${SHIFT}N`, when: "Always" },
-  ...(IS_MAC
+  ...(IS_MAC || IS_WIN
     ? [
         {
           command: "App: Quick Composer",
@@ -1469,9 +1483,7 @@ function defaultShortcutsFor(command: string): string[] {
     return value ? [value] : [];
   };
   if (row.keys.includes("…")) {
-    return [1, 2, 3, 4, 5, 6, 7, 8].flatMap((digit) =>
-      chords(`Digit${digit}`),
-    );
+    return [1, 2, 3, 4, 5, 6, 7, 8].flatMap((digit) => chords(`Digit${digit}`));
   }
   if (/^[A-Za-z]$/.test(rest)) return chords(`Key${rest.toUpperCase()}`);
   if (/^[0-9]$/.test(rest)) return chords(`Digit${rest}`);
@@ -1491,9 +1503,7 @@ function shortcutOwners(): Map<string, string> {
         : defaultShortcutsFor(row.command);
     for (const chord of chords) owners.set(chord, row.command);
   }
-  for (const [command, override] of Object.entries(
-    loadKeybindingOverrides(),
-  )) {
+  for (const [command, override] of Object.entries(loadKeybindingOverrides())) {
     if (override.shortcut) owners.set(override.shortcut, command);
   }
   return owners;
