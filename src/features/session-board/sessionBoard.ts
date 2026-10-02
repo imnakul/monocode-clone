@@ -1,15 +1,115 @@
 import { invoke } from "@tauri-apps/api/core";
-import { hasPendingApproval, type Session } from "../sessions/model/session";
+import {
+  hasPendingApproval,
+  QUEUE_HOLD_REASON_STEER_CANCEL,
+  QUEUE_HOLD_REASON_USAGE_LIMIT,
+  type Session,
+} from "../sessions/model/session";
 
-export const BOARD_COLUMNS = {
-  todo: "Todo",
-  in_progress: "Progress",
+/**
+ * Stored run status. These values are the durable ledger and Operator's
+ * `session_manager` contract; the board groups them into fewer lanes.
+ */
+export type BoardStatus =
+  | "todo"
+  | "in_progress"
+  | "needs_attention"
+  | "blocked"
+  | "done"
+  | "stopped";
+export const BOARD_STATUSES: readonly BoardStatus[] = [
+  "todo",
+  "in_progress",
+  "needs_attention",
+  "blocked",
+  "done",
+  "stopped",
+];
+export function isBoardStatus(value: string): value is BoardStatus {
+  return BOARD_STATUSES.some((status) => status === value);
+}
+
+/** Session Manager columns. Each stored status folds into exactly one. */
+export const BOARD_LANES = {
+  draft: "Draft",
+  in_progress: "In progress",
   needs_attention: "Needs attention",
-  blocked: "Blocked",
   done: "Done",
-  stopped: "Cancelled / Stopped",
 } as const;
-export type BoardStatus = keyof typeof BOARD_COLUMNS;
+export type BoardLane = keyof typeof BOARD_LANES;
+
+const WAITING_PERMISSION_REASON = "Waiting for your permission";
+const WAITING_ANSWER_REASON = "Waiting for your answer";
+const USAGE_LIMIT_REASON = "The provider reached its usage limit";
+const QUEUE_REVIEW_REASON = "The queue needs review";
+const QUEUED_REASON = "Messages are queued";
+const INTERRUPTED_REASON = "Previous run was interrupted; review the session";
+const LEGACY_REASON = "Earlier run has no recorded result; review the session";
+
+/**
+ * Column a card shows in: blocked runs need you like any other attention
+ * case, a run you stopped is finished, and queued messages are about to run.
+ */
+export function boardLane(card: BoardCard): BoardLane {
+  switch (card.status) {
+    case "todo":
+      return card.reason === QUEUED_REASON ? "in_progress" : "draft";
+    case "in_progress":
+      return "in_progress";
+    case "needs_attention":
+    case "blocked":
+      return "needs_attention";
+    case "done":
+    case "stopped":
+      return "done";
+  }
+}
+
+export type BoardTagTone = "draft" | "working" | "attention" | "done" | "muted";
+
+/** Short state label for a card, e.g. "Permission" or "Usage limit". */
+export function boardCardTag(card: BoardCard): {
+  label: string;
+  tone: BoardTagTone;
+} {
+  switch (card.status) {
+    case "todo":
+      return card.reason === QUEUED_REASON
+        ? { label: "Queued", tone: "working" }
+        : { label: "Draft", tone: "draft" };
+    case "in_progress":
+      return { label: "Working…", tone: "working" };
+    case "needs_attention":
+      return {
+        label:
+          card.reason === WAITING_PERMISSION_REASON ? "Permission" : "Question",
+        tone: "attention",
+      };
+    case "blocked":
+      return { label: blockedTagLabel(card.reason), tone: "attention" };
+    case "done":
+      return { label: "Done", tone: "done" };
+    case "stopped":
+      return { label: "Stopped", tone: "muted" };
+  }
+}
+
+function blockedTagLabel(reason: string | undefined): string {
+  switch (reason) {
+    case USAGE_LIMIT_REASON:
+    case QUEUE_HOLD_REASON_USAGE_LIMIT:
+      return "Usage limit";
+    case QUEUE_HOLD_REASON_STEER_CANCEL:
+    case QUEUE_REVIEW_REASON:
+      return "Queue held";
+    case INTERRUPTED_REASON:
+      return "Interrupted";
+    case LEGACY_REASON:
+      return "Review";
+    default:
+      return "Failed";
+  }
+}
 export type BoardCard = {
   sessionId: string;
   runId: string;
@@ -98,7 +198,9 @@ export function projectBoardCard(
     session.pendingForm
   ) {
     status = "needs_attention";
-    reason = "Waiting for your input";
+    reason = hasPendingApproval(session.blocks)
+      ? WAITING_PERMISSION_REASON
+      : WAITING_ANSWER_REASON;
   } else if (
     session.usageLimit ||
     session.queueHoldReason ||
@@ -108,11 +210,9 @@ export function projectBoardCard(
     status = "blocked";
     reason =
       session.queueHoldReason ||
-      (session.usageLimit
-        ? "The provider reached its usage limit"
-        : undefined) ||
+      (session.usageLimit ? USAGE_LIMIT_REASON : undefined) ||
       error?.text ||
-      "The queue needs review";
+      QUEUE_REVIEW_REASON;
   } else if (
     session.busy ||
     session.worktreePreparing ||
@@ -127,7 +227,7 @@ export function projectBoardCard(
     session.queueStatus !== "paused"
   ) {
     status = "todo";
-    reason = "Messages are queued";
+    reason = QUEUED_REASON;
   } else if (
     session.blocks.some((block) => block.role === "user" && block.draft)
   ) {
@@ -135,13 +235,12 @@ export function projectBoardCard(
     reason = "Draft ready to send";
   } else if (sameRun && previous.status === "in_progress") {
     status = "blocked";
-    reason = "Previous run was interrupted; review the session";
+    reason = INTERRUPTED_REASON;
   } else if (
     !recordedOutcome &&
     (!sameRun ||
       (previous.status === "blocked" &&
-        previous.reason ===
-          "Earlier run has no recorded result; review the session"))
+        previous.reason === LEGACY_REASON))
   ) {
     // Idle history without an observed outcome is not evidence of a failed run.
     return null;
@@ -216,7 +315,7 @@ async function hydrateBoard(): Promise<void> {
               card: {
                 ...stored[index],
                 status: "blocked",
-                reason: "Previous run was interrupted; review the session",
+                reason: INTERRUPTED_REASON,
                 updatedAt: Date.now(),
               },
             });

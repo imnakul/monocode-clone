@@ -370,7 +370,7 @@ export function sessionTodoManager(host: SessionTodoHost) {
         );
       if (card.status !== "done" && card.status !== "stopped")
         throw new Error(
-          "Only Done or Cancelled / Stopped cards can be removed by Operator",
+          "Only done or stopped cards can be removed by Operator",
         );
       await hideBoardCards([card]);
       return { id, removed: true };

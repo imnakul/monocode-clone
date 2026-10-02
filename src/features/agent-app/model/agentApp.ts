@@ -1,4 +1,4 @@
-import { BOARD_COLUMNS, type BoardStatus } from "../../session-board/sessionBoard";
+import { isBoardStatus } from "../../session-board/sessionBoard";
 import type { sessionTodoManager } from "../../session-board/sessionTodos";
 import { parseQuickAttachments } from "../../quick-composer/model/quickAttachments";
 import { filterTasks, taskStatus, type Task, type TaskUpsert, type TaskChanges, type TaskFilters } from "../../tasks";
@@ -329,8 +329,8 @@ export async function handleAgentApp(
       const status =
         input.status === undefined
           ? undefined
-          : (requiredString(input.status, "status", 30) as BoardStatus);
-      if (status && !Object.prototype.hasOwnProperty.call(BOARD_COLUMNS, status))
+          : requiredString(input.status, "status", 30);
+      if (status !== undefined && !isBoardStatus(status))
         throw new Error("Unknown Session Manager status");
       const projectCwd =
         input.projectCwd === undefined

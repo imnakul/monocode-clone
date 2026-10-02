@@ -119,7 +119,7 @@ export function QuickComposer({
   initialLaunch,
   onSubmitLaunch,
   onDismiss,
-  submitLabel = "Save Todo",
+  submitLabel = "Save Draft",
 }: {
   onShown: () => void;
   initialLaunch?: QuickLaunch;

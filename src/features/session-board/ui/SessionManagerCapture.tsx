@@ -26,8 +26,8 @@ export function AddToSessionManagerButton({
   return (
     <button
       type="button"
-      title="Add to Session Manager"
-      aria-label="Add to Session Manager"
+      title="Add Draft to Sessions"
+      aria-label="Add Draft to Sessions"
       disabled={disabled}
       className={
         code

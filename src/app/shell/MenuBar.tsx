@@ -8,8 +8,10 @@ import { ALT, MOD, SHIFT } from "../../platform/tauri/platform";
 import { runUpdateFlow } from "../model/updater";
 import { SharedHoverHighlight } from "../../features/sessions/ui/SharedHoverHighlight";
 import {
+  keybindingPressed,
   keybindingShortcutLabel,
   loadAutosave,
+  MENU_BAR_TOGGLE_COMMAND,
   loadKeybindingOverrides,
   saveAutosave,
   subscribeAutosave,
@@ -17,6 +19,25 @@ import {
 } from "../../features/settings/model/settings";
 
 type MenuKey = "file" | "view" | "terminal";
+
+const MENU_BAR_VISIBLE_KEY = "monocode.menuBarVisible";
+
+/** The menu bar shows unless the user hid it with View: Toggle Menu Bar. */
+function loadMenuBarVisible(): boolean {
+  try {
+    return localStorage.getItem(MENU_BAR_VISIBLE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function saveMenuBarVisible(visible: boolean): void {
+  try {
+    localStorage.setItem(MENU_BAR_VISIBLE_KEY, String(visible));
+  } catch {
+    /* storage unavailable: the choice just won't persist */
+  }
+}
 
 type Props = {
   onNew: () => void;
@@ -63,7 +84,7 @@ export function MenuBar({
   onZoomOut,
   onZoomReset,
 }: Props) {
-  const [_open, setOpen] = useState(false);
+  const [visible, setVisible] = useState(loadMenuBarVisible);
   const [activeMenu, setActiveMenu] = useState<MenuKey | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(
     null,
@@ -86,45 +107,34 @@ export function MenuBar({
   const shortcut = (command: string, keys: string) =>
     keybindingShortcutLabel(command, keys) ?? undefined;
 
-  // Toggle with standalone Alt key tap
-  useEffect(() => {
-    let altPressedAlone = false;
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Alt") {
-        altPressedAlone = true;
-      } else if (altPressedAlone) {
-        altPressedAlone = false;
-      }
-    };
-
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === "Alt" && altPressedAlone) {
-        setOpen((prev) => {
-          if (prev) {
-            setActiveMenu(null);
-            setMenuAnchor(null);
-            return false;
-          }
-          return true;
-        });
-        altPressedAlone = false;
-      }
-    };
-
-    const onBlur = () => {
-      altPressedAlone = false;
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
-    window.addEventListener("blur", onBlur);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
-      window.removeEventListener("blur", onBlur);
-    };
+  const toggleVisible = useCallback(() => {
+    setActiveMenu(null);
+    setMenuAnchor(null);
+    setVisible((current) => {
+      saveMenuBarVisible(!current);
+      return !current;
+    });
   }, []);
+
+  // View: Toggle Menu Bar (Alt+O by default, rebindable in Keybindings).
+  // The listener stays mounted while the bar is hidden so it can come back.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.repeat) return;
+      const defaultMatch =
+        event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        event.code === "KeyO";
+      if (!keybindingPressed(MENU_BAR_TOGGLE_COMMAND, event, defaultMatch))
+        return;
+      event.preventDefault();
+      toggleVisible();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleVisible]);
 
   const openDropdown = useCallback((key: MenuKey, target: HTMLElement) => {
     const rect = target.getBoundingClientRect();
@@ -140,7 +150,6 @@ export function MenuBar({
   const handlePick = useCallback(
     (id: string) => {
       closeMenu();
-      setOpen(false);
 
       switch (id) {
         case "new_tab":
@@ -196,6 +205,9 @@ export function MenuBar({
         case "toggle_sidebar":
           onToggleSidebar();
           break;
+        case "toggle_menu_bar":
+          toggleVisible();
+          break;
         case "toggle_session_sidebar":
           onToggleSessionSidebar();
           break;
@@ -242,6 +254,7 @@ export function MenuBar({
       onZoomIn,
       onZoomOut,
       onZoomReset,
+      toggleVisible,
     ],
   );
 
@@ -342,6 +355,12 @@ export function MenuBar({
               `${MOD}${SHIFT}B`,
             ),
           },
+          {
+            kind: "item",
+            id: "toggle_menu_bar",
+            label: "Hide Menu Bar",
+            shortcut: shortcut(MENU_BAR_TOGGLE_COMMAND, `${ALT}O`),
+          },
           { kind: "item", id: "open_inbox", label: "Inbox" },
           ...(onOpenKanban ? [{ kind: "item" as const, id: "open_kanban", label: "Session Manager" }] : []),
           ...(onOpenTasks ? [{ kind: "item" as const, id: "open_tasks", label: "Task Manager" }] : []),
@@ -405,6 +424,8 @@ export function MenuBar({
     { key: "view", label: "View" },
     { key: "terminal", label: "Terminal" },
   ];
+
+  if (!visible) return null;
 
   return (
     <div

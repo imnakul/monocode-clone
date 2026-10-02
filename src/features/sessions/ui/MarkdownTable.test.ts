@@ -105,7 +105,7 @@ describe("table actions", () => {
 });
 
 describe("table actions layout", () => {
-  it("shows icon-only Add to Note, Add to Session Manager and Copy, in that order", async () => {
+  it("shows icon-only Add to Note, Add Draft to Sessions and Copy, in that order", async () => {
     const compose = vi.fn();
     const { SessionManagerCaptureContext } = await import(
       "../../session-board/ui/SessionManagerCapture"
@@ -126,7 +126,7 @@ describe("table actions layout", () => {
     const buttons = [...group.querySelectorAll("button")];
     expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
       "Add table to Note",
-      "Add to Session Manager",
+      "Add Draft to Sessions",
       "Copy table",
     ]);
     for (const button of buttons) expect(button.textContent).toBe("");

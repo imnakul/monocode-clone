@@ -1314,6 +1314,9 @@ export function subscribeCompactModelLabels(
 
 const CTRL = IS_MAC ? "⌃" : "Ctrl+";
 
+/** Shows or hides the in-window menu bar (Windows and Linux only). */
+export const MENU_BAR_TOGGLE_COMMAND = "View: Toggle Menu Bar";
+
 export type KeybindingRow = {
   command: string;
   keys: string;
@@ -1355,6 +1358,9 @@ export const KEYBINDINGS: KeybindingRow[] = [
     when: "Draft session composer",
   },
   { command: "View: Reload", keys: `${MOD}${SHIFT}R`, when: "Always" },
+  ...(IS_MAC
+    ? []
+    : [{ command: MENU_BAR_TOGGLE_COMMAND, keys: `${ALT}O`, when: "Always" }]),
   { command: "View: Zoom In", keys: `${MOD}+`, when: "Always" },
   { command: "View: Zoom Out", keys: `${MOD}-`, when: "Always" },
   { command: "View: Reset Zoom", keys: `${MOD}0`, when: "Always" },

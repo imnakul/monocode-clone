@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import type { Session } from "../sessions/model/session";
 import {
+  QUEUE_HOLD_REASON_USAGE_LIMIT,
+} from "../sessions/model/session";
+import {
+  boardCardTag,
+  boardLane,
+  isBoardStatus,
   projectBoardCard,
   visibleBoardCards,
   type BoardCard,
@@ -157,6 +163,53 @@ describe("session board lifecycle", () => {
       model: "Actual Model",
       title: "A title",
     });
+  });
+});
+describe("board lanes and tags", () => {
+  it("folds six stored statuses into four columns", () => {
+    expect(boardLane(card("todo"))).toBe("draft");
+    expect(
+      boardLane({ ...card("todo"), reason: "Messages are queued" }),
+    ).toBe("in_progress");
+    expect(boardLane(card("in_progress"))).toBe("in_progress");
+    expect(boardLane(card("needs_attention"))).toBe("needs_attention");
+    expect(boardLane(card("blocked"))).toBe("needs_attention");
+    expect(boardLane(card("done"))).toBe("done");
+    expect(boardLane(card("stopped"))).toBe("done");
+  });
+  it("names why a run needs you and how it finished", () => {
+    const tag = (status: BoardCard["status"], reason?: string) =>
+      boardCardTag({ ...card(status), reason }).label;
+    expect(tag("todo")).toBe("Draft");
+    expect(tag("todo", "Messages are queued")).toBe("Queued");
+    expect(tag("needs_attention", "Waiting for your permission")).toBe(
+      "Permission",
+    );
+    expect(tag("needs_attention", "Waiting for your answer")).toBe("Question");
+    expect(tag("blocked", "The provider reached its usage limit")).toBe(
+      "Usage limit",
+    );
+    expect(tag("blocked", QUEUE_HOLD_REASON_USAGE_LIMIT)).toBe("Usage limit");
+    expect(
+      tag("blocked", "Previous run was interrupted; review the session"),
+    ).toBe("Interrupted");
+    expect(tag("blocked", "Authentication failed")).toBe("Failed");
+    expect(tag("done")).toBe("Done");
+    expect(tag("stopped")).toBe("Stopped");
+  });
+  it("tells a permission request from a question", () => {
+    expect(
+      projectBoardCard(
+        session({
+          busy: true,
+          pendingQuestion: {} as Session["pendingQuestion"],
+        }),
+      )?.reason,
+    ).toBe("Waiting for your answer");
+  });
+  it("accepts only stored statuses for Operator filters", () => {
+    expect(isBoardStatus("blocked")).toBe(true);
+    expect(isBoardStatus("draft")).toBe(false);
   });
 });
 describe("durable board ledger", () => {

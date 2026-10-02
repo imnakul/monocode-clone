@@ -441,7 +441,7 @@ function formatGitLabel(repo?: string, branch?: string): string {
   return branch || repo || "";
 }
 
-function formatRelative(value: number, now: number): string {
+export function formatRelative(value: number, now: number): string {
   if (!Number.isFinite(value) || value <= 0) return "";
   const seconds = Math.max(0, Math.round((now - value) / 1000));
   if (seconds < 60) return "now";
