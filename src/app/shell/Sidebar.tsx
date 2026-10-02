@@ -235,8 +235,8 @@ type Props = {
   status: "idle" | "error";
   /** First listing for this project has not arrived yet. */
   pending: boolean;
-  onSelectSession: (sessionId: string) => void;
-  onSelectRemoteSession?: (project: string, sessionId: string) => void;
+  onSelectSession: (sessionId: string, intent?: { altKey?: boolean }) => void;
+  onSelectRemoteSession?: (project: string, sessionId: string, intent?: { altKey?: boolean }) => void;
   onRemoteSessionDeleted?: (sessionId: string) => void;
   onSessionNavigationOrder?: (ids: readonly string[]) => void;
   onPrefetchSession?: (sessionId: string) => void;
@@ -290,7 +290,7 @@ type Props = {
   recents?: RecentProject[];
   busyProjectPaths?: Iterable<string>;
   liveAgents?: LiveAgent[];
-  onSelectAgent?: (sessionId: string) => void;
+  onSelectAgent?: (sessionId: string, intent?: { altKey?: boolean }) => void;
   onSelectProject?: (path: string) => void;
   onOpenProject?: () => void;
   onRemoveProject?: (path: string, options: { purgeData: boolean }) => void;
@@ -301,12 +301,14 @@ type Props = {
   onOpenInboxItem?: (item: LinkedWorkItem, sessionId: string) => void;
   onOpenNotes?: () => void;
   onOpenTasks?: () => void;
+  onOpenKanban?: () => void;
   onOpenAutomations?: () => void;
   onGoToFile?: () => void;
   searchActive?: boolean;
   inboxActive?: boolean;
   notesActive?: boolean;
   tasksActive?: boolean;
+  kanbanActive?: boolean;
   automationsActive?: boolean;
   notesEnabled?: boolean;
   onToggleProjectRail?: () => void;
@@ -400,12 +402,14 @@ function SidebarComponent({
   onOpenInboxItem,
   onOpenNotes,
   onOpenTasks,
+  onOpenKanban,
   onOpenAutomations,
   onGoToFile,
   searchActive = false,
   inboxActive = false,
   notesActive = false,
   tasksActive = false,
+  kanbanActive = false,
   automationsActive = false,
   notesEnabled = true,
   onToggleProjectRail,
@@ -481,7 +485,7 @@ function SidebarComponent({
     }
   };
   const onSelectSession = remoteProject
-    ? (sessionId: string) => onSelectRemoteSession?.(cwd, sessionId)
+    ? (sessionId: string, intent?: { altKey?: boolean }) => onSelectRemoteSession?.(cwd, sessionId, intent)
     : onSelectLocalSession;
   const onPrefetchSession = remoteProject ? undefined : onPrefetchLocalSession;
   const onPlaceSessionOnPane = remoteProject ? undefined : onPlaceLocalSessionOnPane;
@@ -777,7 +781,7 @@ function SidebarComponent({
   const sidebarAvailable =
     !searchActive &&
     !inboxActive &&
-    !notesActive && !tasksActive &&
+    !notesActive && !tasksActive && !kanbanActive &&
     !automationsActive &&
     !settingsOpen &&
     inProject;
@@ -789,7 +793,7 @@ function SidebarComponent({
     open &&
     !searchActive &&
     !inboxActive &&
-    !notesActive && !tasksActive &&
+    !notesActive && !tasksActive && !kanbanActive &&
     !settingsOpen;
   const sidebarVisible = open && sidebarAvailable;
   // With the sidebar collapsed beside the compact rail, its tab shortcuts
@@ -1388,7 +1392,7 @@ function SidebarComponent({
 
   const onSessionCardSelect = (
     sessionId: string,
-    event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
+    event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey?: boolean },
   ) => {
     contextSelectionRef.current = false;
     setSessionMenu(null);
@@ -1428,7 +1432,8 @@ function SidebarComponent({
     }
     setSelectedSessionIds(new Set());
     setDrawerOpen(false);
-    onSelectSession(sessionId);
+    if (event.altKey) onSelectSession(sessionId, { altKey: true });
+    else onSelectSession(sessionId);
   };
 
   // Cards are memoized. Their handlers go through one stable set that calls
@@ -1459,7 +1464,7 @@ function SidebarComponent({
     () => ({
       select: (
         sessionId: string,
-        event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
+        event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey?: boolean },
       ) => cardHandlers.current.onSessionCardSelect(sessionId, event),
       openWorkItem: (item: LinkedWorkItem, sessionId: string) =>
         cardHandlers.current.onOpenInboxItem?.(item, sessionId),
@@ -1709,11 +1714,13 @@ function SidebarComponent({
               onOpenNotificationSettings={onOpenNotificationSettings}
               onOpenNotes={notesEnabled ? onOpenNotes : undefined}
               onOpenTasks={onOpenTasks}
+              onOpenKanban={onOpenKanban}
               onOpenAutomations={onOpenAutomations}
               searchActive={searchActive}
               inboxActive={inboxActive}
               notesActive={notesActive}
               tasksActive={tasksActive}
+          kanbanActive={kanbanActive}
               automationsActive={automationsActive}
               inboxUnseen={inboxUnseen}
             />
@@ -2246,8 +2253,10 @@ function SidebarComponent({
           onOpenNotificationSettings={onOpenNotificationSettings}
           onOpenNotes={notesEnabled ? onOpenNotes : undefined}
           onOpenTasks={onOpenTasks}
+          onOpenKanban={onOpenKanban}
           notesActive={notesActive}
           tasksActive={tasksActive}
+          kanbanActive={kanbanActive}
           onOpenAutomations={onOpenAutomations}
           automationsActive={automationsActive}
           onOpenSettings={onOpenSettings}
@@ -2277,8 +2286,10 @@ function SidebarComponent({
           notesEnabled={notesEnabled}
           onOpenNotes={onOpenNotes}
           onOpenTasks={onOpenTasks}
+          onOpenKanban={onOpenKanban}
           notesActive={notesActive}
           tasksActive={tasksActive}
+          kanbanActive={kanbanActive}
           onOpenAutomations={onOpenAutomations}
           automationsActive={automationsActive}
           onTogglePanel={onToggleProjectRail}
@@ -2361,11 +2372,13 @@ function SidebarProjectPicker({
   onOpenNotificationSettings,
   onOpenNotes,
   onOpenTasks,
+  onOpenKanban,
   onOpenAutomations,
   searchActive = false,
   inboxActive = false,
   notesActive = false,
   tasksActive = false,
+  kanbanActive = false,
   automationsActive = false,
   inboxUnseen = false,
 }: {
@@ -2381,11 +2394,13 @@ function SidebarProjectPicker({
   onOpenNotificationSettings?: (projectPath?: string) => void;
   onOpenNotes?: () => void;
   onOpenTasks?: () => void;
+  onOpenKanban?: () => void;
   onOpenAutomations?: () => void;
   searchActive?: boolean;
   inboxActive?: boolean;
   notesActive?: boolean;
   tasksActive?: boolean;
+  kanbanActive?: boolean;
   automationsActive?: boolean;
   inboxUnseen?: boolean;
 }) {
@@ -2466,6 +2481,7 @@ function SidebarProjectPicker({
             <Zap className="size-3.5" strokeWidth={1.75} />
           </IconButton>
         ) : null}
+        {onOpenKanban ? <IconButton label="Kanban" active={kanbanActive} onClick={onOpenKanban}><PanelLeft className="size-3.5" /></IconButton> : null}
       </div>
       {inboxMenu ? (
         <InboxNotificationMenu
@@ -2503,8 +2519,10 @@ function CompactProjectRail({
   onOpenNotificationSettings,
   onOpenNotes,
   onOpenTasks,
+  onOpenKanban,
   notesActive,
   tasksActive = false,
+  kanbanActive = false,
   onOpenAutomations,
   automationsActive,
   onOpenSettings,
@@ -2532,8 +2550,10 @@ function CompactProjectRail({
   onOpenNotificationSettings?: (projectPath?: string) => void;
   onOpenNotes?: () => void;
   onOpenTasks?: () => void;
+  onOpenKanban?: () => void;
   notesActive: boolean;
   tasksActive?: boolean;
+  kanbanActive?: boolean;
   onOpenAutomations?: () => void;
   automationsActive: boolean;
   onOpenSettings?: () => void;
@@ -2548,7 +2568,7 @@ function CompactProjectRail({
   const action = (active: boolean, open?: () => void) =>
     active && onLeaveActive ? onLeaveActive : open;
   const workspaceActive =
-    !searchActive && !inboxActive && !notesActive && !tasksActive && !automationsActive;
+    !searchActive && !inboxActive && !notesActive && !tasksActive && !kanbanActive && !automationsActive;
   const openWorkspaceTab = (nextTab: SidebarTab) => {
     if (!workspaceActive) onLeaveActive?.();
     onTabChange(nextTab);
@@ -2653,6 +2673,7 @@ function CompactProjectRail({
           active={automationsActive}
           onClick={action(automationsActive, onOpenAutomations)}
         />
+        {onOpenKanban ? <CompactRailAction label="Kanban" icon={PanelLeft} active={kanbanActive} onClick={action(kanbanActive, onOpenKanban)} /> : null}
       </div>
       <div className="min-h-2 flex-1" />
       <div
@@ -3089,7 +3110,7 @@ const SessionCard = memo(function SessionCard({
   now: number;
   onSelect: (
     sessionId: string,
-    event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
+    event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey?: boolean },
   ) => void;
   onOpenWorkItem?: (item: LinkedWorkItem, sessionId: string) => void;
   onPrefetch?: (sessionId: string) => void;

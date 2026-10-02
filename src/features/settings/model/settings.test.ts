@@ -999,6 +999,11 @@ describe("settings search", () => {
       settingId: "format-on-save",
       label: "Format on save",
     });
+
+    expect(searchSettings("reuse current").map((result) => result.settingId)).toEqual([
+      "file-opening-behavior",
+      "session-opening-behavior",
+    ]);
   });
 
   it("returns a whole page with no setting id", () => {

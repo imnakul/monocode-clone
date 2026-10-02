@@ -35,6 +35,7 @@ type Props = {
   onOpenInbox?: () => void;
   onOpenNotes?: () => void;
   onOpenTasks?: () => void;
+  onOpenKanban?: () => void;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onZoomReset?: () => void;
@@ -57,6 +58,7 @@ export function MenuBar({
   onOpenInbox,
   onOpenNotes,
   onOpenTasks,
+  onOpenKanban,
   onZoomIn,
   onZoomOut,
   onZoomReset,
@@ -162,6 +164,9 @@ export function MenuBar({
         case "open_inbox":
           onOpenInbox?.();
           break;
+        case "open_kanban":
+          onOpenKanban?.();
+          break;
         case "open_tasks":
           onOpenTasks?.();
           break;
@@ -230,6 +235,7 @@ export function MenuBar({
       onOpenInbox,
       onOpenNotes,
       onOpenTasks,
+      onOpenKanban,
       onShowSourceControl,
       onToggleSidebar,
       onToggleSessionSidebar,
@@ -337,6 +343,7 @@ export function MenuBar({
             ),
           },
           { kind: "item", id: "open_inbox", label: "Inbox" },
+          ...(onOpenKanban ? [{ kind: "item" as const, id: "open_kanban", label: "Kanban" }] : []),
           ...(onOpenTasks ? [{ kind: "item" as const, id: "open_tasks", label: "Tasks" }] : []),
           ...(onOpenNotes
             ? [{ kind: "item" as const, id: "open_notes", label: "Notes" }]

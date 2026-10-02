@@ -5,9 +5,11 @@ import { createPortal } from "react-dom";
 export function SessionSurface({
   host,
   children,
+  fallbackClassName,
 }: {
   host?: HTMLElement;
   children: ReactNode;
+  fallbackClassName?: string;
 }) {
   const fallback = useRef<HTMLDivElement>(null);
   const [container] = useState(() => {
@@ -21,7 +23,7 @@ export function SessionSurface({
   }, [host, container]);
   return (
     <>
-      <div ref={fallback} className="h-full min-h-0 min-w-0" />
+      <div ref={fallback} className={fallbackClassName ?? "h-full min-h-0 min-w-0"} />
       {createPortal(children, container)}
     </>
   );

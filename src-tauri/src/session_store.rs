@@ -988,6 +988,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     )?;
     crate::notes::ensure_notes_table(conn)?;
     crate::tasks::ensure_tasks_table(conn)?;
+    crate::session_board::ensure_session_board_table(conn)?;
     crate::reminders::ensure_table(conn)?;
     crate::automations::ensure_tables(conn)?;
     ensure_orchestration_history(conn)?;
@@ -4273,6 +4274,66 @@ mod tests {
             )
             .unwrap();
         assert_eq!(tasks_table, 1);
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 18);
+    }
+
+    #[test]
+    fn migration_restores_session_board_table_without_changing_current_version() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        conn.execute_batch(
+            "INSERT INTO sessions (id,cwd,harness,model,runtime_mode,title,blocks_json,created_at,updated_at)
+             VALUES ('session-preserve','/work','claude','model','default','Keep session','[]',1,1);
+             INSERT INTO notes (id,slug,title,body,created_at,updated_at)
+             VALUES ('note-preserve','note-preserve','Keep note','Body',1,1);
+             INSERT INTO tasks (id,title,body,status,created_at,updated_at)
+             VALUES ('task-preserve','Keep task','Body','todo',1,1);
+             DROP TABLE session_board_cards;",
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let board_table: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'session_board_cards'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(board_table, 1);
+        assert_eq!(
+            conn.query_row(
+                "SELECT title FROM sessions WHERE id='session-preserve'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "Keep session"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT title FROM notes WHERE id='note-preserve'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "Keep note"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT title FROM tasks WHERE id='task-preserve'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "Keep task"
+        );
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
                 row.get(0)

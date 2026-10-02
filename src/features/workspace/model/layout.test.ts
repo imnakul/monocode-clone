@@ -41,6 +41,7 @@ import {
   splitPane,
   splitSizesAtBoundary,
   updateTerminalTab,
+  type FilePaneTab,
   type WorkspaceTab,
 } from "./layout";
 
@@ -161,6 +162,150 @@ describe("preview tabs", () => {
     tabs = open(tabs, "/r/d.ts", "/r", true);
     tabs = open(tabs, "/r/e.ts", "/r");
     expect(files()).toEqual([["/r/e.ts"], ["/other/c.ts"], ["/r/d.ts"]]);
+  });
+
+  it("reuses a clean focused filesystem file without disturbing its session split", () => {
+    let tab = openEditorTab(newTab("session-1"), newFileTab("/r/a.ts", "/r"), {
+      pin: true,
+    });
+    const layout = tab.layout;
+    const sessionLeaves = layoutLeaves(layout).map((pane) => pane.id);
+
+    tab = openEditorTab(tab, newFileTab("/r/b.ts", "/r"), {
+      reuseCurrent: true,
+    });
+
+    expect(tab.layout).toBe(layout);
+    expect(layoutLeaves(tab.layout).map((pane) => pane.id)).toEqual(sessionLeaves);
+    expect(tab.editorPanes[0]?.files.map((file) => file.path)).toEqual([
+      "/r/b.ts",
+    ]);
+    expect(tab.editorPanes[0]?.files[0]?.preview).toBeUndefined();
+  });
+
+  it("preserves dirty files and virtual tabs when current reuse is requested", () => {
+    let tab = openEditorTab(newTab("session-1"), newFileTab("/r/dirty.ts", "/r"));
+    const dirtyId = tab.editorPanes[0]!.files[0]!.id;
+    tab = openEditorTab(tab, newFileTab("/r/next.ts", "/r"), {
+      reuseCurrent: true,
+      dirtyFileIds: new Set([dirtyId]),
+    });
+    expect(tab.editorPanes[0]?.files.map((file) => file.path)).toEqual([
+      "/r/dirty.ts",
+      "/r/next.ts",
+    ]);
+    expect(tab.editorPanes[0]?.files[0]?.preview).toBeUndefined();
+
+    const plan = newPlanTab("session-1", "block-1", "Plan", "/r");
+    const withPlan = openEditorTab(tab, plan, { reuseCurrent: true });
+    expect(withPlan.editorPanes[0]?.files.map((file) => file.path)).toContain(
+      "plan:block-1",
+    );
+    expect(withPlan.editorPanes[0]?.files.map((file) => file.path)).toContain(
+      "/r/dirty.ts",
+    );
+  });
+
+  it("reuses only a safe file-only top-bar tab and focuses an already-open file first", () => {
+    const append = (tabs: WorkspaceTab[], tab: WorkspaceTab) => [...tabs, tab];
+    const current = newEditorWorkspaceTab(newFileTab("/r/current.ts", "/r"));
+    const incoming = newFileTab("/other/next.ts", "/other");
+    const created = newEditorWorkspaceTab({ ...incoming, preview: true });
+    const reused = openWorkspaceFile(
+      [current],
+      incoming,
+      created,
+      append,
+      false,
+      { reuseTabId: current.id },
+    );
+    expect(reused.tabs).toHaveLength(1);
+    expect(reused.tabId).toBe(current.id);
+    expect(reused.tabs[0]?.editorPanes[0]?.files[0]?.path).toBe(
+      "/other/next.ts",
+    );
+
+    const alreadyOpen = newEditorWorkspaceTab(
+      newFileTab("/other/open.ts", "/other"),
+    );
+    const target = newFileTab("/other/open.ts", "/other");
+    const focused = openWorkspaceFile(
+      [current, alreadyOpen],
+      target,
+      newEditorWorkspaceTab({ ...target, preview: true }),
+      append,
+      false,
+      { reuseTabId: current.id },
+    );
+    expect(focused.tabs).toHaveLength(2);
+    expect(focused.tabId).toBe(alreadyOpen.id);
+    expect(focused.tabs[0]?.editorPanes[0]?.files[0]?.path).toBe(
+      "/r/current.ts",
+    );
+  });
+
+  it("opens elsewhere when the selected top-bar tab is split, virtual, or dirty", () => {
+    const append = (tabs: WorkspaceTab[], tab: WorkspaceTab) => [...tabs, tab];
+    const openInto = (
+      current: WorkspaceTab,
+      file: FilePaneTab,
+      dirtyFileIds?: ReadonlySet<string>,
+    ) =>
+      openWorkspaceFile(
+        [current],
+        file,
+        newEditorWorkspaceTab({ ...file, preview: true }),
+        append,
+        false,
+        { reuseTabId: current.id, dirtyFileIds },
+      );
+
+    const split = openEditorTab(
+      newTab("session-1"),
+      newFileTab("/r/current.ts", "/r"),
+      { pin: true },
+    );
+    const splitResult = openInto(split, newFileTab("/r/new.ts", "/r"));
+    expect(splitResult.tabs).toHaveLength(2);
+    expect(splitResult.tabs[0]).toBe(split);
+
+    const virtual = newEditorWorkspaceTab(
+      newPlanTab("session-1", "block-1", "Plan", "/r"),
+    );
+    const virtualResult = openInto(virtual, newFileTab("/r/new.ts", "/r"));
+    expect(virtualResult.tabs).toHaveLength(2);
+    expect(virtualResult.tabs[0]).toBe(virtual);
+
+    const previewFile = { ...newFileTab("/r/dirty.ts", "/r"), preview: true };
+    const dirtyPreview = newEditorWorkspaceTab(previewFile);
+    const dirtyResult = openInto(
+      dirtyPreview,
+      newFileTab("/r/new.ts", "/r"),
+      new Set([previewFile.id]),
+    );
+    expect(dirtyResult.tabs).toHaveLength(2);
+    expect(dirtyResult.tabs[0]?.editorPanes[0]?.files[0]?.path).toBe(
+      "/r/dirty.ts",
+    );
+  });
+
+  it("does not replace a dirty project preview during normal workspace opening", () => {
+    const append = (tabs: WorkspaceTab[], tab: WorkspaceTab) => [...tabs, tab];
+    const previewFile = { ...newFileTab("/r/dirty.ts", "/r"), preview: true };
+    const current = newEditorWorkspaceTab(previewFile);
+    const incoming = newFileTab("/r/new.ts", "/r");
+    const result = openWorkspaceFile(
+      [current],
+      incoming,
+      newEditorWorkspaceTab({ ...incoming, preview: true }),
+      append,
+      false,
+      { dirtyFileIds: new Set([previewFile.id]) },
+    );
+    expect(result.tabs).toHaveLength(2);
+    expect(result.tabs[0]?.editorPanes[0]?.files[0]?.path).toBe(
+      "/r/dirty.ts",
+    );
   });
 });
 

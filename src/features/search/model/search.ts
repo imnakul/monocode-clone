@@ -42,6 +42,8 @@ export type FileOpenOptions = {
   exact?: boolean;
   /** Open as a permanent tab instead of the pane's preview tab. */
   pin?: boolean;
+  altKey?: boolean;
+  newTab?: boolean;
 };
 
 export type OpenFileFn = (

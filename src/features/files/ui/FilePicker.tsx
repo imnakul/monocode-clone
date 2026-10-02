@@ -163,9 +163,9 @@ export function FilePicker({
 
   if (!open) return null;
 
-  const pick = (file: RankedFile) => {
+  const pick = (file: RankedFile, altKey?: boolean) => {
     rememberOpenedFile(cwd, file.path);
-    onOpenFile(file.path, undefined, { exact: true });
+    onOpenFile(file.path, undefined, { exact: true, ...(altKey ? { altKey } : {}) });
     onClose();
   };
   const runAction = (action: RankedAction) => {
@@ -374,7 +374,7 @@ function FileList({
   active: number;
   query: string;
   onActive: (index: number) => void;
-  onPick: (file: RankedFile) => void;
+  onPick: (file: RankedFile, altKey?: boolean) => void;
 }) {
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeRef = useRef<HTMLButtonElement>(null);
@@ -429,7 +429,7 @@ function FileList({
             aria-selected={highlighted}
             onMouseDown={(e) => e.preventDefault()}
             onMouseEnter={() => onRowEnter(index)}
-            onClick={() => onPick(file)}
+            onClick={(event) => onPick(file, event.altKey)}
             className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm leading-none ${
               highlighted ? "bg-selection text-content" : "text-content"
             }`}

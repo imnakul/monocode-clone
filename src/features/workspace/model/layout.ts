@@ -297,28 +297,102 @@ export function openWorkspaceFile(
   created: WorkspaceTab,
   insert: (tabs: WorkspaceTab[], tab: WorkspaceTab) => WorkspaceTab[],
   pin = false,
+  options: OpenWorkspaceFileOptions = {},
 ): { tabs: WorkspaceTab[]; tabId: string; paneId?: string } {
   const key = editorTabKey(file);
   const project = pathKey(file.projectCwd ?? file.cwd);
   const existing = tabs
     .flatMap((tab) => tab.editorPanes.map((pane) => ({ tab, pane })))
     .find(({ pane }) => pane.files.some((open) => editorTabKey(open) === key));
-  const hit =
-    existing?.tab ??
-    (pin
-      ? undefined
-      : tabs.find((tab) => {
-          const open = previewWorkspaceFile(tab);
-          return !!open && pathKey(open.projectCwd ?? open.cwd) === project;
-        }));
+  if (existing) {
+    return {
+      tabs: tabs.map((tab) =>
+        tab === existing.tab
+          ? openEditorTab(tab, file, { pin, dirtyFileIds: options.dirtyFileIds })
+          : tab,
+      ),
+      tabId: existing.tab.id,
+      paneId: existing.pane.id,
+    };
+  }
+
+  const reuseTab = !pin && isReusableFilesystemFile(file)
+    ? tabs.find((tab) => tab.id === options.reuseTabId)
+    : undefined;
+  const reusePane = reuseTab
+    ? reusableWorkspaceFilePane(reuseTab, options.dirtyFileIds)
+    : undefined;
+  if (reuseTab && reusePane) {
+    return {
+      tabs: tabs.map((tab) =>
+        tab === reuseTab
+          ? openEditorTab(tab, file, {
+              reuseCurrent: true,
+              dirtyFileIds: options.dirtyFileIds,
+            })
+          : tab,
+      ),
+      tabId: reuseTab.id,
+      paneId: reusePane.id,
+    };
+  }
+
+  const hit = pin
+    ? undefined
+    : tabs.find((tab) => {
+        const open = previewWorkspaceFile(tab);
+        return (
+          !!open &&
+          !options.dirtyFileIds?.has(open.id) &&
+          pathKey(open.projectCwd ?? open.cwd) === project
+        );
+      });
   if (!hit) return { tabs: insert(tabs, created), tabId: created.id };
   return {
     tabs: tabs.map((tab) =>
-      tab === hit ? openEditorTab(tab, file, { pin }) : tab,
+      tab === hit
+        ? openEditorTab(tab, file, {
+            pin,
+            dirtyFileIds: options.dirtyFileIds,
+          })
+        : tab,
     ),
     tabId: hit.id,
-    paneId: existing?.pane.id ?? hit.editorPanes[0].id,
+    paneId: hit.editorPanes[0].id,
   };
+}
+
+export type OpenWorkspaceFileOptions = {
+  /** Active top-bar tab to reuse, when it is a safe file-only workspace tab. */
+  reuseTabId?: string;
+  /** Files with unsaved contents must never be replaced. */
+  dirtyFileIds?: ReadonlySet<string>;
+};
+
+function reusableWorkspaceFilePane(
+  tab: WorkspaceTab,
+  dirtyFileIds?: ReadonlySet<string>,
+): EditorPane | undefined {
+  if (
+    tab.layout.type !== "leaf" ||
+    tab.editorPanes.length !== 1 ||
+    (tab.terminalPanes ?? []).length > 0
+  ) {
+    return undefined;
+  }
+  const pane = tab.editorPanes[0];
+  if (!pane || tab.layout.id !== pane.id || tab.focusedId !== pane.id) {
+    return undefined;
+  }
+  const active = pane.files.find((file) => file.id === pane.activeFileId);
+  if (
+    !active ||
+    !isReusableFilesystemFile(active) ||
+    dirtyFileIds?.has(active.id)
+  ) {
+    return undefined;
+  }
+  return pane;
 }
 
 /** `path` carries the label: an agent tab has no file behind it. */
@@ -569,6 +643,10 @@ export type OpenEditorTabOptions = {
   split?: "left" | "right";
   /** Open (or promote an existing tab) as permanent instead of preview. */
   pin?: boolean;
+  /** Replace the focused clean filesystem file in its editor pane. */
+  reuseCurrent?: boolean;
+  /** Files with unsaved contents must never be replaced. */
+  dirtyFileIds?: ReadonlySet<string>;
 };
 
 /** Tabs opened by browsing lists: files, per-file diffs, commits, session diffs. */
@@ -580,6 +658,10 @@ export function isPreviewableTab(file: FilePaneTab): boolean {
     !file.releaseNotes &&
     !file.changes
   );
+}
+
+function isReusableFilesystemFile(file: FilePaneTab): boolean {
+  return isFilesystemTab(file) && !file.review && !file.changes;
 }
 
 function withoutPreview(file: FilePaneTab): FilePaneTab {
@@ -655,6 +737,38 @@ export function openEditorTab(
     };
   }
 
+  if (options.reuseCurrent && !options.pin && isReusableFilesystemFile(file)) {
+    const pane = tab.editorPanes.find((entry) => entry.id === tab.focusedId);
+    const active = pane?.files.find((entry) => entry.id === pane.activeFileId);
+    if (
+      pane &&
+      active &&
+      isReusableFilesystemFile(active) &&
+      !options.dirtyFileIds?.has(active.id)
+    ) {
+      const replacement =
+        active.preview && isPreviewableTab(file)
+          ? { ...file, preview: true }
+          : withoutPreview(file);
+      return {
+        ...tab,
+        focusedId: pane.id,
+        diffFocused: false,
+        editorPanes: tab.editorPanes.map((entry) =>
+          entry.id === pane.id
+            ? {
+                ...entry,
+                files: entry.files.map((open) =>
+                  open.id === active.id ? replacement : open,
+                ),
+                activeFileId: replacement.id,
+              }
+            : entry,
+        ),
+      };
+    }
+  }
+
   file =
     isPreviewableTab(file) && !options.pin
       ? { ...file, preview: true }
@@ -662,15 +776,22 @@ export function openEditorTab(
   const focusedPane = tab.editorPanes.find((pane) => pane.id === tab.focusedId);
   const targetPane = focusedPane ?? tab.editorPanes[0];
   if (targetPane) {
-    const previewIndex = file.preview
-      ? targetPane.files.findIndex((entry) => entry.preview)
-      : -1;
-    const files =
-      previewIndex >= 0
-        ? targetPane.files.map((entry, index) =>
-            index === previewIndex ? file : entry,
-          )
-        : [...targetPane.files, file];
+    const replacePreview = file.preview
+      ? targetPane.files.find(
+          (entry) =>
+            entry.preview && !options.dirtyFileIds?.has(entry.id),
+        )
+      : undefined;
+    const keptFiles = targetPane.files.map((entry) =>
+      entry.preview && options.dirtyFileIds?.has(entry.id)
+        ? withoutPreview(entry)
+        : entry,
+    );
+    const files = replacePreview
+      ? keptFiles.map((entry) =>
+          entry.id === replacePreview.id ? file : entry,
+        )
+      : [...keptFiles, file];
     return {
       ...tab,
       focusedId: targetPane.id,

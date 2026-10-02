@@ -1,5 +1,6 @@
 import {
   CheckCircle,
+  PanelLeft,
   BellOff,
   ChevronDown,
   ChevronRight,
@@ -108,8 +109,10 @@ type Props = {
   notesEnabled?: boolean;
   onOpenNotes?: () => void;
   onOpenTasks?: () => void;
+  onOpenKanban?: () => void;
   notesActive?: boolean;
   tasksActive?: boolean;
+  kanbanActive?: boolean;
   onOpenAutomations?: () => void;
   automationsActive?: boolean;
   onTogglePanel?: () => void;
@@ -118,7 +121,7 @@ type Props = {
   onRemoveProject?: (path: string, options: { purgeData: boolean }) => void;
   liveAgents?: LiveAgent[];
   activeSessionId?: string;
-  onSelectAgent?: (sessionId: string) => void;
+  onSelectAgent?: (sessionId: string, intent?: { altKey?: boolean }) => void;
   settingsOpen?: boolean;
   settingsSection?: SettingsSectionId;
   onOpenSettings?: () => void;
@@ -152,8 +155,10 @@ export function ProjectRail({
   notesEnabled = true,
   onOpenNotes,
   onOpenTasks,
+  onOpenKanban,
   notesActive = false,
   tasksActive = false,
+  kanbanActive = false,
   onOpenAutomations,
   automationsActive = false,
   onTogglePanel,
@@ -419,6 +424,7 @@ export function ProjectRail({
               active={automationsActive}
               ariaLabel="Automations"
             />
+            {onOpenKanban ? <RailAction label="Kanban" icon={PanelLeft} onClick={onOpenKanban} active={kanbanActive} ariaLabel="Kanban" /> : null}
           </div>
 
           <div
@@ -441,7 +447,7 @@ export function ProjectRail({
                 searchActive={
                   searchActive ||
                   inboxActive ||
-                  notesActive || tasksActive ||
+                  notesActive || tasksActive || kanbanActive ||
                   automationsActive
                 }
                 onSelect={onSelectProject}
@@ -475,7 +481,7 @@ export function ProjectRail({
                       searchActive={
                         searchActive ||
                         inboxActive ||
-                        notesActive || tasksActive ||
+                        notesActive || tasksActive || kanbanActive ||
                         automationsActive
                       }
                       onSelect={onSelectProject}
@@ -519,7 +525,7 @@ export function ProjectRail({
               sortable={projectSortable}
               pinned={false}
               searchActive={
-                searchActive || inboxActive || notesActive || tasksActive || automationsActive
+                searchActive || inboxActive || notesActive || tasksActive || kanbanActive || automationsActive
               }
               onSelect={onSelectProject}
               onTogglePin={toggleProjectPin}

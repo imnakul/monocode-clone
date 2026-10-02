@@ -428,6 +428,13 @@ import {
   type SettingsSectionId,
 } from "../model/settings";
 import { loadSoundsEnabled, playCue, saveSoundsEnabled } from "../model/sounds";
+import {
+  loadFileOpeningBehavior,
+  loadSessionOpeningBehavior,
+  saveFileOpeningBehavior,
+  saveSessionOpeningBehavior,
+  type OpeningBehavior,
+} from "../model/openingBehavior";
 import { setQuickComposerShortcut } from "../../quick-composer/model/quickComposer";
 import {
   isGlobalShortcut,
@@ -884,6 +891,12 @@ function ExperimentationPage(): ReactElement {
   );
 }
 
+const OPENING_BEHAVIOR_OPTIONS: { value: OpeningBehavior; label: string }[] = [
+  { value: "new", label: "New tab" },
+  { value: "current", label: "Current tab" },
+  { value: "both", label: "Both" },
+];
+
 function GeneralPage({
   onOpenWhatsNew,
 }: {
@@ -896,6 +909,12 @@ function GeneralPage({
   const [notificationPermission, setNotificationPermission] =
     useState<NotificationPermission>(cachedNotificationPermission);
   const [notesEnabled, setNotesEnabled] = useState(loadNotesEnabled);
+  const [fileOpeningBehavior, setFileOpeningBehavior] = useState(
+    loadFileOpeningBehavior,
+  );
+  const [sessionOpeningBehavior, setSessionOpeningBehavior] = useState(
+    loadSessionOpeningBehavior,
+  );
   const [liveAgentsEnabled, setLiveAgentsEnabled] = useState(
     loadLiveAgentsEnabled,
   );
@@ -959,6 +978,16 @@ function GeneralPage({
   const onFileTabMode = (next: FileTabMode) => {
     saveFileTabMode(next);
     setFileTabMode(next);
+  };
+
+  const onFileOpeningBehavior = (next: OpeningBehavior) => {
+    saveFileOpeningBehavior(next);
+    setFileOpeningBehavior(next);
+  };
+
+  const onSessionOpeningBehavior = (next: OpeningBehavior) => {
+    saveSessionOpeningBehavior(next);
+    setSessionOpeningBehavior(next);
   };
 
   const onTabAnimationsEnabled = (next: boolean) => {
@@ -1026,6 +1055,30 @@ function GeneralPage({
               { value: "workspace", label: "Top bar" },
             ]}
             onChange={onFileTabMode}
+          />
+        </Row>
+        <Row
+          id="file-opening-behavior"
+          label="File behaviour"
+          description="Choose whether a file opens in a new tab or reuses the current file tab. Both reuses on a normal click and opens a new tab with Alt+click. Unsaved files are never replaced."
+        >
+          <Segmented
+            label="File behaviour"
+            value={fileOpeningBehavior}
+            options={OPENING_BEHAVIOR_OPTIONS}
+            onChange={onFileOpeningBehavior}
+          />
+        </Row>
+        <Row
+          id="session-opening-behavior"
+          label="Session behaviour"
+          description="Choose whether a session opens in a new tab or reuses the focused session tab when it is safe. Both reuses on a normal click and opens a new tab with Alt+click."
+        >
+          <Segmented
+            label="Session behaviour"
+            value={sessionOpeningBehavior}
+            options={OPENING_BEHAVIOR_OPTIONS}
+            onChange={onSessionOpeningBehavior}
           />
         </Row>
         <Row

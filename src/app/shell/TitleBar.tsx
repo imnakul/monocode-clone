@@ -99,6 +99,7 @@ type Props = {
   onOpenInbox?: () => void;
   onOpenNotes?: () => void;
   onOpenTasks?: () => void;
+  onOpenKanban?: () => void;
   onClose: (id: string) => void;
   onCloseMany: (ids: string[], fallbackId: string) => void;
   onArchiveTab?: (id: string) => void;
@@ -637,6 +638,7 @@ function TitleBarComponent({
   onOpenInbox,
   onOpenNotes,
   onOpenTasks,
+  onOpenKanban,
   onClose,
   onCloseMany,
   onArchiveTab,
@@ -873,7 +875,7 @@ function TitleBarComponent({
   const showTrailingActions =
     (projectless &&
       railClosed &&
-      Boolean(onOpenInbox || onOpenNotes || onOpenTasks || onOpenSettings)) ||
+      Boolean(onOpenInbox || onOpenNotes || onOpenTasks || onOpenKanban || onOpenSettings)) ||
     (railClosed && !projectless);
   const trailingControls =
     showTrailingActions || !IS_MAC ? (
@@ -885,6 +887,7 @@ function TitleBarComponent({
                 <Inbox className="size-3.5" strokeWidth={1.75} />
               </IconButton>
             ) : null}
+            {projectless && railClosed && onOpenKanban ? <IconButton label="Kanban" onClick={onOpenKanban}><PanelLeft className="size-3.5" /></IconButton> : null}
             {projectless && railClosed && onOpenTasks ? (
               <IconButton label="Tasks" onClick={onOpenTasks}>
                 <CheckCircle className="size-3.5" strokeWidth={1.75} />

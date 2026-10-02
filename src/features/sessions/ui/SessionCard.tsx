@@ -67,7 +67,7 @@ export function SessionCard({
   dropTarget?: boolean;
   compact?: boolean;
   now: number;
-  onSelect: (sessionId: string) => void;
+  onSelect: (sessionId: string, event?: { altKey: boolean }) => void;
   onPrefetch?: (sessionId: string) => void;
   onPlaceOnPane?: (sessionId: string, targetId: string, edge: PaneEdge) => void;
   onListDrop?: (draggedId: string, target: SessionListDropTarget) => void;
@@ -247,9 +247,10 @@ export function SessionCard({
       data-tauri-drag-region="false"
       onPointerDown={onPointerDown}
       onPointerEnter={() => onPrefetch?.(session.id)}
-      onClick={() => {
+      onClick={(event) => {
         if (performance.now() < skipClickUntil.current) return;
-        onSelect(session.id);
+        if (event.altKey) onSelect(session.id, { altKey: true });
+        else onSelect(session.id);
       }}
       onContextMenu={onContextMenu}
       onKeyDown={onKeyDown}

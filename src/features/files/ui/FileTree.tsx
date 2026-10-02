@@ -1136,11 +1136,11 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
     };
   }, [entry.isDir, entry.path, open, epoch]);
 
-  const onClick = () => {
+  const onClick = (event: React.MouseEvent) => {
     if (consumeFileClick()) return;
     onSelect(entry.path);
     if (entry.isDir) onToggle(entry.path);
-    else onOpenFile(entry.path, undefined, { exact: true });
+    else onOpenFile(entry.path, undefined, { exact: true, ...(event.altKey ? { altKey: true } : {}) });
   };
 
   const siblings = (peekDir(parentPath(entry.path)) ?? [])

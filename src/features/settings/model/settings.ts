@@ -239,6 +239,18 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     keywords: "editor open top workspace normal session pane beside chat",
   },
   {
+    id: "file-opening-behavior",
+    section: "general",
+    label: "File behaviour",
+    keywords: "open new current both tab reuse current alt click unsaved file",
+  },
+  {
+    id: "session-opening-behavior",
+    section: "general",
+    label: "Session behaviour",
+    keywords: "open new current both tab reuse current alt click session chat",
+  },
+  {
     id: "tab-animations",
     section: "general",
     label: "Tab animations",

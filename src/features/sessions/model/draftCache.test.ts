@@ -66,3 +66,18 @@ describe("draftCache", () => {
     expect(getComposerMcpTags("mcp-one")).toEqual([]);
   });
 });
+
+it("protects attachment-only input and ongoing work from current-tab replacement", async () => {
+  const { protectSessionOpening, setComposerPendingInput } = await import("./draftCache");
+  const session = { id: "protected-opening", harness: "claude", model: "m", runtimeMode: "supervised", cwd: "/project", title: "Work", blocks: [] } as import("./session").Session;
+  expect(protectSessionOpening(session)).toBe(false);
+  setComposerPendingInput(session.id, true);
+  expect(protectSessionOpening(session)).toBe(true);
+  setComposerPendingInput(session.id, false);
+  expect(protectSessionOpening({ ...session, busy: true })).toBe(true);
+  expect(protectSessionOpening({ ...session, blocks: [{ id: "draft", role: "user", text: "Later", draft: true }] })).toBe(true);
+  setComposerDraft(session.id, "Unsent draft");
+  expect(protectSessionOpening(session)).toBe(true);
+  clearComposerDraft(session.id);
+  expect(protectSessionOpening(session)).toBe(false);
+});

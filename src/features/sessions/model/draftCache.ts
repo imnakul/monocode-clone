@@ -50,4 +50,23 @@ export function setComposerMcpTags(sessionId: string, tags: McpTag[]): void {
 export function clearComposerDraft(sessionId: string): void {
   drafts.delete(sessionId);
   mcpTags.delete(sessionId);
+  pendingInput.delete(sessionId);
+}
+
+const pendingInput = new Set<string>();
+export function setComposerPendingInput(sessionId: string, pending: boolean): void {
+  if (pending) pendingInput.add(sessionId);
+  else pendingInput.delete(sessionId);
+}
+export function hasComposerPendingInput(sessionId: string): boolean {
+  return pendingInput.has(sessionId);
+}
+
+/** Replacing a session pane must retain any unfinished composer input or run. */
+export function protectSessionOpening(session: import("./session").Session): boolean {
+  return !!(
+    session.busy || session.worktreePreparing || session.backgroundTasks?.length ||
+    session.queuedMessages?.length || session.blocks.some(block => block.draft) ||
+    getComposerDraft(session.id) || hasComposerPendingInput(session.id)
+  );
 }

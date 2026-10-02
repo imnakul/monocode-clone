@@ -325,6 +325,7 @@ type Props = {
   onUsageLimitDismiss?: () => void;
   onOpenFile?: (path: string) => void;
   onDraftChange?: (text: string) => void;
+  onPendingInputChange?: (pending: boolean) => void;
   onRecallLastTurnReady?: (recall: () => void) => void;
   onEditingLastTurnChange?: (editing: boolean) => void;
   children?: ReactNode;
@@ -671,6 +672,7 @@ export function Composer({
   onUsageLimitDismiss,
   onOpenFile,
   onDraftChange,
+  onPendingInputChange,
   onRecallLastTurnReady,
   onEditingLastTurnChange,
   children,
@@ -782,6 +784,9 @@ export function Composer({
   mentionRef.current = mention;
 
   attachmentsRef.current = attachments;
+  useEffect(() => {
+    onPendingInputChange?.(draft.length > 0 || attachments.length > 0);
+  }, [draft, attachments.length, onPendingInputChange]);
 
   const mentionOpen =
     !remote && mention !== null && (looksLikeProject(cwd) || notesEnabled);

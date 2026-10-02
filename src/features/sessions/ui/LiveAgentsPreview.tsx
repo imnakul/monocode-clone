@@ -22,7 +22,7 @@ const LIVE_AGENT_CAP = 4;
 type Props = {
   agents: LiveAgent[];
   activeSessionId?: string;
-  onSelect?: (sessionId: string) => void;
+  onSelect?: (sessionId: string, intent?: { altKey?: boolean }) => void;
   bottomSpacing?: boolean;
   groupLabels?: Record<string, string>;
   groupColors?: Record<string, number>;
@@ -142,7 +142,7 @@ function LiveAgentCard({
   agent: LiveAgent;
   now: number;
   selected: boolean;
-  onSelect?: (sessionId: string) => void;
+  onSelect?: (sessionId: string, intent?: { altKey?: boolean }) => void;
   groupLabels: Record<string, string>;
   groupColors: Record<string, number>;
   groupCustomColors: Record<string, string>;
@@ -178,7 +178,7 @@ function LiveAgentCard({
         .join(", ")}
       aria-current={selected ? "true" : undefined}
       data-live-agent-card={agent.id}
-      onClick={() => onSelect?.(agent.id)}
+      onClick={(event) => event.altKey ? onSelect?.(agent.id, { altKey: true }) : onSelect?.(agent.id)}
       className={`relative flex w-full flex-col rounded-md px-2 py-1.5 text-left ${
         selected ? "bg-selection" : "hover:bg-content/8"
       }`}

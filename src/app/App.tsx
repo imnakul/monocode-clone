@@ -558,6 +558,14 @@ import {
 
 import { PaneTree } from "../features/workspace/ui/PaneTree";
 import { SessionPane } from "../features/sessions/ui/SessionPane";
+import { useSessionBoard } from "../features/session-board/useSessionBoard";
+import { boardRunId, recordBoardOutcome } from "../features/session-board/sessionBoard";
+import {
+  loadFileOpeningBehavior,
+  loadSessionOpeningBehavior,
+  resolveOpeningBehavior,
+} from "../features/settings/model/openingBehavior";
+import { protectSessionOpening } from "../features/sessions/model/draftCache";
 import { SessionSurface } from "../features/sessions/ui/SessionSurface";
 import { ProjectTerminalDock } from "../features/terminal/ui/ProjectTerminalDock";
 import { lazySurface } from "../shared/ui/lazySurface";
@@ -724,6 +732,10 @@ const InboxView = lazySurface(
 const LinkedWorkItemPanel = lazySurface(async () => {
   const module = await import("../features/inbox/ui/InboxView");
   return { default: module.LinkedWorkItemPanel };
+});
+const SessionBoardView = lazySurface(async () => {
+  const module = await import("../features/session-board/ui/SessionBoardView");
+  return { default: module.SessionBoardView };
 });
 const TasksView = lazySurface(async () => {
   const module = await import("../features/tasks/ui/TasksView");
@@ -1092,7 +1104,12 @@ function Workspace({
     useState<InboxSessionPortal | null>(null);
   const openingInboxSessions = useRef(new Map<string, Promise<string>>());
   const [recordsViewOpen, setRecordsViewOpen] = useState(false);
-  const [recordKind, setRecordKind] = useState<"notes" | "tasks">("notes");
+  const [recordKind, setRecordKind] = useState<"notes" | "tasks" | "kanban">("notes");
+  const boardOpen = recordsViewOpen && recordKind === "kanban";
+  const [boardWorkspaceHost, setBoardWorkspaceHost] = useState<HTMLElement | null>(null);
+  const [boardPaneVisible, setBoardPaneVisible] = useState(false);
+  const boardStopRequests = useRef(new Map<string, string | undefined>());
+  const sessionBoard = useSessionBoard(sessions);
   const recordKindRef = useRef(recordKind);
   recordKindRef.current = recordKind;
   const [automationsViewOpen, setAutomationsViewOpen] = useState(false);
@@ -1127,7 +1144,7 @@ function Workspace({
     search: false,
     inbox: false,
     notes: false,
-    recordKind: "notes" as "notes" | "tasks",
+    recordKind: "notes" as "notes" | "tasks" | "kanban",
     automations: false,
   });
   const [updateNotice, setUpdateNotice] = useState(installedUpdate);
@@ -1241,11 +1258,13 @@ function Workspace({
     workspaceVisible:
       !searchViewOpen &&
       !inboxViewOpen &&
-      !recordsViewOpen &&
+      (!recordsViewOpen || (boardOpen && boardPaneVisible)) &&
       !automationsViewOpen &&
       !settingsOpen,
     inboxSessionId: inboxViewOpen ? inboxAskPortal?.sessionId : undefined,
   };
+  const boardPaneVisibleRef = useRef(false);
+  boardPaneVisibleRef.current = boardOpen && boardPaneVisible;
   const recordsViewOpenRef = useRef(recordsViewOpen);
   recordsViewOpenRef.current = recordsViewOpen;
   const automationsViewOpenRef = useRef(automationsViewOpen);
@@ -1818,7 +1837,7 @@ function Workspace({
 
   const activeSessionId = inboxViewOpen
     ? inboxAskPortal?.sessionId
-    : active?.id;
+    : boardOpen && !boardPaneVisible ? undefined : active?.id;
   const activeSessionIdRef = useRef(activeSessionId);
   activeSessionIdRef.current = activeSessionId;
 
@@ -1878,7 +1897,7 @@ function Workspace({
             !projectTerminalFocusedRef.current &&
             !searchViewOpenRef.current &&
             !inboxViewOpenRef.current &&
-            !recordsViewOpenRef.current &&
+            (!recordsViewOpenRef.current || boardPaneVisibleRef.current) &&
             !automationsViewOpenRef.current &&
             !settingsOpenRef.current
           ) {
@@ -2476,7 +2495,7 @@ function Workspace({
   ]);
 
   const onSelectRemoteSession = useCallback(
-    (project: string, remoteSessionId: string) => {
+    (project: string, remoteSessionId: string, intent?: { altKey?: boolean }) => {
       setSearchViewOpen(false);
       setInboxViewOpen(false);
       setRecordsViewOpen(false);
@@ -2499,6 +2518,14 @@ function Workspace({
       const tab = newTab(session.id);
       rememberRemoteSession(session.id, remoteSessionId);
       setSessions((prev) => [...prev, session]);
+      const opening = resolveOpeningBehavior(loadSessionOpeningBehavior(), intent);
+      const currentTab = tabsRef.current.find(entry => entry.id === activeTabIdRef.current);
+      const current = sessionsRef.current.find(entry => entry.id === currentTab?.focusedId);
+      const unconfirmedRemote = current && remoteProjectFor(current.cwd) && !remoteSessionFor(current.id);
+      if (opening.reuseCurrent && currentTab && current && !unconfirmedRemote && !protectSessionOpening(current)) {
+        const next = switchSessionInTab(tabsRef.current, currentTab.id, current.id, session.id);
+        if (next) { setTabs(next); setProjectCwd(project); setComposerFocused(true); return; }
+      }
       appendTab(tab, project);
       setActiveTabId(tab.id);
     },
@@ -4376,7 +4403,7 @@ function Workspace({
   }, [inboxAskPortal, inboxViewOpen]);
 
   const onSelectHistorySession = useCallback(
-    async (sessionId: string) => {
+    async (sessionId: string, intent?: { altKey?: boolean; newTab?: boolean }) => {
       let session = await ensureOpenSession(sessionId);
       if (!session || session.inboxAsk) return;
       const parentId =
@@ -4391,6 +4418,20 @@ function Workspace({
       if (focusOpenSession(session.id)) {
         if (linkedUpdate) revealLinkedSessionUpdate(session.id, linkedUpdate);
         return;
+      }
+      const opening = resolveOpeningBehavior(loadSessionOpeningBehavior(), intent);
+      const currentTab = tabsRef.current.find(tab => tab.id === activeTabIdRef.current);
+      const currentSession = sessionsRef.current.find(entry => entry.id === currentTab?.focusedId);
+      const protectedInput = currentSession && protectSessionOpening(currentSession);
+      if (opening.reuseCurrent && currentTab && currentSession && !protectedInput) {
+        const next = switchSessionInTab(tabsRef.current, currentTab.id, currentSession.id, session.id);
+        if (next) {
+          setTabs(next);
+          setProjectCwd(session.cwd);
+          setComposerFocused(true);
+          if (linkedUpdate) revealLinkedSessionUpdate(session.id, linkedUpdate);
+          return;
+        }
       }
       if (replaceBlankPaneWithSession(session)) {
         if (linkedUpdate) revealLinkedSessionUpdate(session.id, linkedUpdate);
@@ -5045,7 +5086,7 @@ function Workspace({
           surfaceOpen: Boolean(
             searchViewOpenRef.current ||
             inboxViewOpenRef.current ||
-            recordsViewOpenRef.current ||
+            (recordsViewOpenRef.current && !boardPaneVisibleRef.current) ||
             automationsViewOpenRef.current ||
             settingsOpenRef.current ||
             filePickerOpenRef.current ||
@@ -5924,7 +5965,8 @@ function Workspace({
           undefined,
           fileProjectCwd,
         );
-        const pin = !!options?.pin;
+        const opening = resolveOpeningBehavior(loadFileOpeningBehavior(), options);
+        const pin = opening.pin;
         if (loadFileTabMode() === "workspace") {
           // Built once: the updater may run twice in StrictMode.
           const created = newEditorWorkspaceTab(
@@ -5942,6 +5984,7 @@ function Workspace({
                 created,
                 (tabs, tab) => insertBesideActive(tabs, tab, fileProjectCwd),
                 pin,
+                { reuseTabId: opening.reuseCurrent ? tab.id : undefined, dirtyFileIds: dirtyFilesRef.current },
               );
               target = result;
               return result.tabs;
@@ -5970,6 +6013,8 @@ function Workspace({
             return openEditorTab(entry, file, {
               split: focusedSession?.blocks.length === 0 ? "left" : "right",
               pin,
+              reuseCurrent: opening.reuseCurrent,
+              dirtyFileIds: dirtyFilesRef.current,
             });
           }),
         );
@@ -7444,6 +7489,10 @@ function Workspace({
           }
         })
         .finally(() => {
+          if (turnGen.current.get(sessionId) === gen) {
+            const completed = sessionsRef.current.find(entry => entry.id === sessionId);
+            if (completed) void recordBoardOutcome(completed, controlOutcome.status === "completed" ? "done" : "blocked", controlOutcome.error).catch(() => {});
+          }
           editedResend?.reject();
           if (editedResend) editedResends.finish(sessionId);
           options?.onSettled?.(
@@ -9005,6 +9054,10 @@ function Workspace({
   const onStop = useCallback(
     (sessionId: string, managed = false) => {
       const remote = sessionsRef.current.find((s) => s.id === sessionId);
+      if (remote && remote.queueStatus !== "steering") {
+        boardStopRequests.current.set(sessionId, boardRunId(remote));
+        void recordBoardOutcome(remote, "stopped", "Stopped by you").catch(() => {});
+      }
       if (remote && remoteProjectFor(remote.cwd)) {
         remoteSessionActions(sessionId)?.stop();
         return;
@@ -9266,15 +9319,15 @@ function Workspace({
   );
 
   const onOpenApprovalSession = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, intent?: { altKey?: boolean }) => {
       const parentId =
         sessionsRef.current.find((session) => session.id === sessionId)
           ?.orchestrationLeadId ?? orchestrator.forSession(sessionId)?.leadId;
       if (parentId && parentId !== sessionId) {
         setInspectedWorkerId(sessionId);
-        if (!focusOpenSession(parentId)) void onSelectHistorySession(parentId);
+        if (!focusOpenSession(parentId)) void onSelectHistorySession(parentId, intent);
       } else if (!focusOpenSession(sessionId)) {
-        void onSelectHistorySession(sessionId);
+        void onSelectHistorySession(sessionId, intent);
       }
     },
     [focusOpenSession, onSelectHistorySession],
@@ -10084,12 +10137,12 @@ function Workspace({
   );
 
   const onSelectLiveAgent = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, intent?: { altKey?: boolean }) => {
       setSearchViewOpen(false);
       setInboxViewOpen(false);
       setRecordsViewOpen(false);
       setAutomationsViewOpen(false);
-      onOpenApprovalSession(sessionId);
+      onOpenApprovalSession(sessionId, intent);
     },
     [onOpenApprovalSession],
   );
@@ -10456,6 +10509,18 @@ function Workspace({
     });
   }, []);
 
+  const onOpenKanban = useCallback(() => {
+    startTransition(() => {
+      setFilePickerOpen(false);
+      setSettingsOpen(false);
+      setSearchViewOpen(false);
+      setInboxViewOpen(false);
+      setAutomationsViewOpen(false);
+      setRecordKind("kanban");
+      setRecordsViewOpen(true);
+    });
+  }, []);
+
   const onLeaveNotes = useCallback(() => {
     setRecordsViewOpen(false);
   }, []);
@@ -10562,7 +10627,7 @@ function Workspace({
     setSearchViewOpen(returnView.search);
     setInboxViewOpen(returnView.inbox);
     setRecordKind(returnView.recordKind);
-    setRecordsViewOpen(returnView.notes && (returnView.recordKind === "tasks" || loadNotesEnabled()));
+    setRecordsViewOpen(returnView.notes && (returnView.recordKind !== "notes" || loadNotesEnabled()));
     setAutomationsViewOpen(returnView.automations);
     setSettingsOpen(false);
   }, []);
@@ -10883,7 +10948,7 @@ function Workspace({
           const surfaceOpen =
             searchViewOpenRef.current ||
             inboxViewOpenRef.current ||
-            recordsViewOpenRef.current ||
+            (recordsViewOpenRef.current && !boardPaneVisibleRef.current) ||
             automationsViewOpenRef.current ||
             settingsOpenRef.current ||
             filePickerOpenRef.current ||
@@ -10966,7 +11031,7 @@ function Workspace({
       if (
         !searchViewOpenRef.current &&
         !inboxViewOpenRef.current &&
-        !recordsViewOpenRef.current &&
+        (!recordsViewOpenRef.current || boardPaneVisibleRef.current) &&
         !automationsViewOpenRef.current &&
         !(
           e.target instanceof Element &&
@@ -11168,6 +11233,17 @@ function Workspace({
     }
     if (lastRemoteSnapshot.current.get(shellId) === snapshot) return;
     lastRemoteSnapshot.current.set(shellId, snapshot);
+    const previous = sessionsRef.current.find(entry => entry.id === shellId);
+    const project = previous && remoteProjectFor(previous.cwd);
+    if (previous && project) {
+      const next = remoteSessionState(previous, snapshot, project);
+      if (previous.busy && !next.busy) {
+        const failure = [...next.blocks].reverse().find(block => block.notice === "error");
+        const stopped = boardStopRequests.current.has(shellId) && boardStopRequests.current.get(shellId) === boardRunId(next);
+        boardStopRequests.current.delete(shellId);
+        void recordBoardOutcome(next, stopped ? "stopped" : failure ? "blocked" : "done", stopped ? "Stopped by you" : failure?.text).catch(() => {});
+      }
+    }
     setSessions((current) => {
       const shell = current.find((entry) => entry.id === shellId);
       if (!shell) return current;
@@ -11271,6 +11347,7 @@ function Workspace({
       onOpenInbox={onOpenInbox}
       onOpenNotes={notesEnabled ? onOpenNotes : undefined}
       onOpenTasks={onOpenTasks}
+      onOpenKanban={onOpenKanban}
       onClose={onCloseTitleTab}
       onCloseMany={onCloseTabs}
       onArchiveTab={onArchiveTitleTab}
@@ -11380,12 +11457,14 @@ function Workspace({
               onOpenInboxItem={onOpenLinkedWorkItem}
               onOpenNotes={notesEnabled ? onOpenNotes : undefined}
               onOpenTasks={onOpenTasks}
+              onOpenKanban={onOpenKanban}
               onOpenAutomations={onOpenAutomations}
               onGoToFile={onGoToFile}
               searchActive={searchViewOpen}
               inboxActive={inboxViewOpen}
               notesActive={recordsViewOpen && recordKind === "notes"}
               tasksActive={recordsViewOpen && recordKind === "tasks"}
+              kanbanActive={boardOpen}
               automationsActive={automationsViewOpen}
               notesEnabled={notesEnabled}
               projectRailOpen={projectRailOpen}
@@ -11407,12 +11486,16 @@ function Workspace({
             />
 
             <div className="body-glass flex min-h-0 min-w-0 flex-1 flex-col">
+              <SessionSurface
+                host={boardOpen ? boardWorkspaceHost ?? undefined : undefined}
+                fallbackClassName={chromeSurfaceOpen ? "hidden" : "flex min-h-0 min-w-0 flex-1"}
+              >
               <div
                 className={
                   searchViewOpen ||
                   settingsOpen ||
                   inboxViewOpen ||
-                  recordsViewOpen ||
+                  (recordsViewOpen && !boardOpen) ||
                   automationsViewOpen
                     ? "hidden"
                     : "flex min-h-0 min-w-0 flex-1 flex-col"
@@ -11421,14 +11504,14 @@ function Workspace({
                   searchViewOpen ||
                   settingsOpen ||
                   inboxViewOpen ||
-                  recordsViewOpen ||
+                  (recordsViewOpen && !boardOpen) ||
                   automationsViewOpen
                 }
                 inert={
                   searchViewOpen ||
                   settingsOpen ||
                   inboxViewOpen ||
-                  recordsViewOpen ||
+                  (recordsViewOpen && !boardOpen) ||
                   automationsViewOpen ||
                   undefined
                 }
@@ -11453,6 +11536,7 @@ function Workspace({
                     onOpenInbox={onOpenInbox}
                     onOpenNotes={notesEnabled ? onOpenNotes : undefined}
                     onOpenTasks={onOpenTasks}
+                    onOpenKanban={onOpenKanban}
                     onZoomIn={() => {
                       const next = saveUiScale(zoomInUiScale(loadUiScale()));
                       void applyUiScale(next);
@@ -11526,7 +11610,7 @@ function Workspace({
                               <PaneTree
                                 {...sessionPaneProps}
                                 visible={
-                                  tab.id === activeTabId && !inboxViewOpen
+                                  tab.id === activeTabId && !inboxViewOpen && (!boardOpen || boardPaneVisible)
                                 }
                                 layout={tab.layout}
                                 sessions={sessions}
@@ -11601,6 +11685,7 @@ function Workspace({
                   ))}
                 </main>
               </div>
+              </SessionSurface>
               {searchViewOpen ? (
                 <SearchView
                   open
@@ -11690,6 +11775,25 @@ function Workspace({
                     setRecordsViewOpen(false);
                     if (blockId) requestTranscriptJump(sessionId, blockId);
                     await onSelectHistorySession(sessionId);
+                  }}
+                />
+              ) : null}
+              {boardOpen ? (
+                <SessionBoardView
+                  cards={sessionBoard.cards}
+                  loading={!sessionBoard.ready}
+                  error={sessionBoard.error}
+                  activeSessionId={active?.id}
+                  onWorkspaceHost={setBoardWorkspaceHost}
+                  onPaneVisible={setBoardPaneVisible}
+                  besideRail={projectRailOpen || compactProjectRail}
+                  compactRail={compactRailActive}
+                  onClose={onLeaveNotes}
+                  onToggleSidebar={onToggleSidebar}
+                  onOpenSession={async (sessionId, altKey) => {
+                    const session = await ensureOpenSession(sessionId);
+                    if (!session) throw new Error("This session is no longer available. You can remove its card.");
+                    await onSelectHistorySession(sessionId, { altKey });
                   }}
                 />
               ) : null}

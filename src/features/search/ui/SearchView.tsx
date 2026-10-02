@@ -330,15 +330,15 @@ export function SearchView({
     if (active >= hits.length) setActive(0);
   }, [active, hits.length]);
 
-  const openHit = (hit: AppSearchHit | null) => {
+  const openHit = (hit: AppSearchHit | null, altKey?: boolean) => {
     if (!hit) return;
     if (hit.kind === "file") {
-      onOpenFile(hit.path, undefined, { exact: true });
+      onOpenFile(hit.path, undefined, { exact: true, ...(altKey ? { altKey } : {}) });
     } else if (hit.kind === "content") {
       onOpenFile(
         hit.path,
         { line: hit.line, column: hit.column },
-        { exact: true },
+        { exact: true, ...(altKey ? { altKey } : {}) },
       );
     } else if (hit.kind === "conversation") {
       onOpenSession(hit.sessionId);
@@ -520,7 +520,7 @@ function ResultList({
   active: number;
   query: string;
   onActive: (index: number) => void;
-  onOpen: (hit: AppSearchHit) => void;
+  onOpen: (hit: AppSearchHit, altKey?: boolean) => void;
 }) {
   const activeRef = useRef<HTMLButtonElement>(null);
   const pointer = useRef({ x: Number.NaN, y: Number.NaN, allow: false });
@@ -573,7 +573,7 @@ function ResultList({
             aria-selected={highlighted}
             onMouseDown={(event) => event.preventDefault()}
             onMouseEnter={() => onRowEnter(index)}
-            onClick={() => onOpen(hit)}
+            onClick={(event) => onOpen(hit, event.altKey)}
             className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] leading-none ${
               highlighted ? "bg-selection text-content" : "text-content"
             }`}

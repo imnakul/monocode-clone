@@ -77,7 +77,7 @@ import {
   loadNotesEnabled,
   subscribeNotesEnabled,
 } from "../../settings/model/settings";
-import { getComposerDraft, setComposerDraft } from "../model/draftCache";
+import { getComposerDraft, setComposerDraft, setComposerPendingInput } from "../model/draftCache";
 import { resolveModel } from "../model/models";
 import { isAstraModel } from "../model/astraWelcome";
 import { isOpus55Model } from "../model/opusWelcome";
@@ -643,6 +643,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
           ? undefined
           : session.composerSeed)
       }
+      onPendingInputChange={(pending) => setComposerPendingInput(session.id, pending)}
       onDraftChange={(text) => {
         draftRef.current = text;
         setComposerDraft(session.id, text);

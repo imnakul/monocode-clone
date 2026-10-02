@@ -1,0 +1,210 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
+import type { Session } from "../sessions/model/session";
+import {
+  projectBoardCard,
+  visibleBoardCards,
+  type BoardCard,
+} from "./sessionBoard";
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+function session(overrides: Partial<Session> = {}): Session {
+  return {
+    id: "session-1",
+    harness: "claude",
+    model: "model",
+    runtimeMode: "supervised",
+    cwd: "/project",
+    title: "Run",
+    blocks: [{ id: "turn-1", role: "user", text: "Work" }],
+    ...overrides,
+  };
+}
+function card(status: BoardCard["status"]): BoardCard {
+  return { ...projectBoardCard(session(), undefined, 1)!, status };
+}
+describe("session board lifecycle", () => {
+  it("uses structured activity, approvals, queues, drafts and errors", () => {
+    expect(projectBoardCard(session({ busy: true }))?.status).toBe(
+      "in_progress",
+    );
+    expect(
+      projectBoardCard(
+        session({
+          busy: true,
+          queueStatus: "held",
+          queueHoldReason: "Quota expired",
+        }),
+      )?.status,
+    ).toBe("blocked");
+    expect(
+      projectBoardCard(
+        session({
+          busy: true,
+          pendingQuestion: {} as Session["pendingQuestion"],
+        }),
+      )?.status,
+    ).toBe("needs_attention");
+    expect(
+      projectBoardCard(
+        session({
+          blocks: [{ id: "draft", role: "user", text: "Later", draft: true }],
+        }),
+      )?.status,
+    ).toBe("todo");
+    expect(
+      projectBoardCard(
+        session({
+          blocks: [
+            ...session().blocks,
+            {
+              id: "error",
+              role: "system",
+              text: "Authentication failed",
+              notice: "error",
+            },
+          ],
+        }),
+      )?.reason,
+    ).toBe("Authentication failed");
+  });
+  it("retains completed and stopped results when viewed and metadata changes", () => {
+    expect(
+      projectBoardCard(session({ title: "Renamed", busy: false }), card("done"))
+        ?.status,
+    ).toBe("done");
+    expect(
+      projectBoardCard(
+        session({ usageLimit: {} as Session["usageLimit"] }),
+        card("stopped"),
+      )?.status,
+    ).toBe("stopped");
+    expect(projectBoardCard(session(), card("done"), 20)?.updatedAt).toBe(1);
+  });
+  it("a new turn or draft reappears after removing the prior run", () => {
+    const removed = { ...card("done"), hiddenRunId: "turn-1" };
+    expect(visibleBoardCards([removed])).toEqual([]);
+    const next = projectBoardCard(
+      session({
+        busy: true,
+        blocks: [
+          ...session().blocks,
+          { id: "turn-2", role: "user", text: "Again" },
+        ],
+      }),
+      removed,
+    )!;
+    expect(next.status).toBe("in_progress");
+    expect(visibleBoardCards([next])).toEqual([next]);
+  });
+  it("does not create cards for empty, ephemeral or inbox sessions", () => {
+    expect(projectBoardCard(session({ blocks: [] }))).toBeNull();
+    expect(projectBoardCard(session({ ephemeral: true }))).toBeNull();
+    expect(
+      projectBoardCard(session({ inboxAsk: {} as Session["inboxAsk"] })),
+    ).toBeNull();
+  });
+  it("stores the model that ran the turn and normalizes the title", () => {
+    const next = projectBoardCard(
+      session({
+        title: "  A   title  ",
+        model: "next-choice",
+        blocks: [
+          {
+            id: "turn-1",
+            role: "user",
+            text: "Work",
+            turnModel: {
+              harness: "codex",
+              id: "actual-model",
+              name: "Actual Model",
+            },
+          },
+        ],
+      }),
+    )!;
+    expect(next).toMatchObject({
+      harness: "codex",
+      model: "Actual Model",
+      title: "A title",
+    });
+  });
+});
+describe("durable board ledger", () => {
+  let rows: Map<string, BoardCard>;
+  beforeEach(() => {
+    vi.resetModules();
+    rows = new Map();
+    vi.mocked(invoke)
+      .mockReset()
+      .mockImplementation(async (command, args) => {
+        if (command === "session_board_list") return [...rows.values()];
+        if (command === "session_board_upsert") {
+          const incoming = args!.card as BoardCard;
+          const saved = {
+            ...incoming,
+            hiddenRunId: rows.get(incoming.sessionId)?.hiddenRunId,
+          };
+          rows.set(saved.sessionId, saved);
+          return saved;
+        }
+        if (command === "session_board_hide") {
+          for (const key of args!.cards as BoardCard[]) {
+            const row = rows.get(key.sessionId);
+            if (row?.runId === key.runId)
+              rows.set(row.sessionId, { ...row, hiddenRunId: row.runId });
+          }
+          return [...rows.values()];
+        }
+        throw new Error(command);
+      });
+  });
+  it("restores terminal cards and diagnoses interrupted runs on restart", async () => {
+    rows.set("done", { ...card("done"), sessionId: "done" });
+    rows.set("busy", { ...card("in_progress"), sessionId: "busy" });
+    const board = await import("./sessionBoard");
+    await board.loadBoard();
+    expect(
+      board.boardSnapshot().cards.find((row) => row.sessionId === "done")
+        ?.status,
+    ).toBe("done");
+    expect(
+      board.boardSnapshot().cards.find((row) => row.sessionId === "busy")
+        ?.status,
+    ).toBe("blocked");
+  });
+  it("keeps hide tombstones during observation and keeps new runs visible", async () => {
+    const board = await import("./sessionBoard");
+    await board.recordBoardOutcome(session(), "done");
+    await board.hideBoardCards(board.boardSnapshot().cards);
+    await board.observeBoardSessions([session()]);
+    expect(board.visibleBoardCards(board.boardSnapshot().cards)).toEqual([]);
+    await board.observeBoardSessions([
+      session({
+        busy: true,
+        blocks: [{ id: "next", role: "user", text: "Again" }],
+      }),
+    ]);
+    expect(board.visibleBoardCards(board.boardSnapshot().cards)).toHaveLength(
+      1,
+    );
+  });
+  it("records provider failure and explicit stop without inferring assistant prose", async () => {
+    const board = await import("./sessionBoard");
+    await board.recordBoardOutcome(session(), "blocked", "provider failed");
+    expect(board.boardSnapshot().cards[0].status).toBe("blocked");
+    await board.recordBoardOutcome(session(), "stopped", "Stopped by you");
+    await board.observeBoardSessions([session()]);
+    expect(board.boardSnapshot().cards[0].status).toBe("stopped");
+  });
+  it("exposes storage failures and retries without losing session state", async () => {
+    const board = await import("./sessionBoard");
+    vi.mocked(invoke).mockRejectedValueOnce(new Error("Database unavailable"));
+    await board.loadBoard();
+    expect(board.boardSnapshot().error).toContain("Database unavailable");
+    expect(board.boardSnapshot().ready).toBe(false);
+    await board.loadBoard();
+    await board.observeBoardSessions([session({ busy: true })]);
+    expect(board.boardSnapshot().error).toBeNull();
+    expect(board.boardSnapshot().cards[0].status).toBe("in_progress");
+  });
+});

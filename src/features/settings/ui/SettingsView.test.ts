@@ -114,6 +114,40 @@ afterEach(async () => {
 });
 
 describe("settings pages", () => {
+  it("shows independent file and session opening preferences on General", async () => {
+    await render("general");
+
+    const fileGroup = container.querySelector<HTMLElement>(
+      '[role="radiogroup"][aria-label="File behaviour"]',
+    )!;
+    const sessionGroup = container.querySelector<HTMLElement>(
+      '[role="radiogroup"][aria-label="Session behaviour"]',
+    )!;
+    expect(fileGroup.querySelector('[aria-checked="true"]')?.textContent).toBe(
+      "Both",
+    );
+    expect(
+      sessionGroup.querySelector('[aria-checked="true"]')?.textContent,
+    ).toBe("New tab");
+
+    await act(async () => {
+      Array.from(fileGroup.querySelectorAll<HTMLButtonElement>("[role=radio]"))
+        .find((button) => button.textContent === "Current tab")
+        ?.click();
+      Array.from(
+        sessionGroup.querySelectorAll<HTMLButtonElement>("[role=radio]"),
+      )
+        .find((button) => button.textContent === "Both")
+        ?.click();
+    });
+    expect(localStorage.getItem("monocode.fileOpeningBehavior")).toBe(
+      "current",
+    );
+    expect(localStorage.getItem("monocode.sessionOpeningBehavior")).toBe(
+      "both",
+    );
+  });
+
   it("keeps account emails blurred until clicked and hides them when settings reopen", async () => {
     vi.mocked(invoke).mockImplementation(async (command, args) => {
       if (command === "provider_account_identity") {
@@ -863,6 +897,15 @@ describe("settings search", () => {
 
     await act(async () => options()[0]!.click());
     expect(onSelectSection).toHaveBeenCalledWith("chat");
+  });
+
+  it("finds file and session opening behavior controls", async () => {
+    await render("general");
+    await type("reuse current");
+    expect(options().map((item) => item.querySelector("span")?.textContent)).toEqual([
+      "File behaviour",
+      "Session behaviour",
+    ]);
   });
 
   it("finds and reveals project notifications separately from global notifications", async () => {

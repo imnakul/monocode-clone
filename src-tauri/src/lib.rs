@@ -37,6 +37,7 @@ mod reminders;
 mod remote;
 mod remote_ssh;
 mod search;
+mod session_board;
 mod session_import;
 mod session_store;
 mod skills;
@@ -565,6 +566,9 @@ pub fn run() {
             tasks::tasks_get,
             tasks::tasks_upsert,
             tasks::tasks_delete,
+            session_board::session_board_list,
+            session_board::session_board_upsert,
+            session_board::session_board_hide,
             checkpoint::session_checkpoint_ensure,
             checkpoint::session_checkpoint_prepare,
             checkpoint::session_checkpoint_capture,
