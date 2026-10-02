@@ -1,4 +1,12 @@
-import { loadTasks, getTask, upsertTask, updateTask, deleteTask } from "../features/tasks";
+import {
+  loadTasks,
+  getTask,
+  upsertTask,
+  updateTask,
+  deleteTask,
+  type Task,
+} from "../features/tasks";
+import { TaskTabActionsContext } from "../features/tasks/ui/TaskTabActionsContext";
 import { acceptQuickLaunch } from "./model/quickLaunchSession";
 import {
   cancelScheduledFlush,
@@ -164,6 +172,7 @@ import {
   neighborLeafId,
   newEditorWorkspaceTab,
   newFileTab,
+  newTaskTab,
   newGitDiffTab,
   newPlanTab,
   newTab,
@@ -6032,6 +6041,72 @@ function Workspace({
     [activateTab, insertBesideActive],
   );
 
+  /** Opens a task as a pinned tab beside the session, like a file. */
+  const onOpenTaskBeside = useCallback(
+    (task: Task) => {
+      const file = newTaskTab(task);
+      setRecordsViewOpen(false);
+      const tab = tabsRef.current.find(
+        (entry) => entry.id === activeTabIdRef.current,
+      );
+      if (!tab) {
+        const created = newEditorWorkspaceTab(file);
+        setTabs((prev) => insertBesideActive(prev, created, file.projectCwd));
+        setActiveTabId(created.id);
+      } else if (loadFileTabMode() === "workspace") {
+        const created = newEditorWorkspaceTab(file);
+        let target: { tabId: string; paneId?: string } | undefined;
+        flushSync(() => {
+          setTabs((prev) => {
+            const result = openWorkspaceFile(
+              prev,
+              file,
+              created,
+              (tabs, inserted) =>
+                insertBesideActive(tabs, inserted, file.projectCwd),
+              true,
+              { dirtyFileIds: dirtyFilesRef.current },
+            );
+            target = result;
+            return result.tabs;
+          });
+        });
+        if (target?.paneId) activateTab(target.tabId, target.paneId);
+        else if (target) setActiveTabId(target.tabId);
+      } else {
+        setTabs((prev) =>
+          prev.map((entry) =>
+            entry.id === tab.id
+              ? openEditorTab(entry, file, {
+                  split: "right",
+                  pin: true,
+                  dirtyFileIds: dirtyFilesRef.current,
+                })
+              : entry,
+          ),
+        );
+      }
+      setProjectTerminalFocused(false);
+      setComposerFocused(false);
+    },
+    [activateTab, insertBesideActive],
+  );
+
+  const onOpenTaskSource = useCallback(
+    async (sessionId: string, blockId?: string) => {
+      if (!(await ensureOpenSession(sessionId)))
+        throw new Error("The source session is no longer available");
+      setRecordsViewOpen(false);
+      if (blockId) requestTranscriptJump(sessionId, blockId);
+      await onSelectHistorySession(sessionId);
+    },
+    [ensureOpenSession, onSelectHistorySession],
+  );
+  const taskTabActions = useMemo(
+    () => ({ onOpenSource: onOpenTaskSource }),
+    [onOpenTaskSource],
+  );
+
   const onOpenPlan = useCallback(
     (sessionId: string, blockId: string) => {
       const tab = tabsRef.current.find((entry) => entry.id === activeTabId);
@@ -11486,6 +11561,7 @@ function Workspace({
             />
 
             <div className="body-glass flex min-h-0 min-w-0 flex-1 flex-col">
+              <TaskTabActionsContext.Provider value={taskTabActions}>
               <SessionSurface
                 host={boardOpen ? boardWorkspaceHost ?? undefined : undefined}
                 fallbackClassName={chromeSurfaceOpen ? "hidden" : "flex min-h-0 min-w-0 flex-1"}
@@ -11686,6 +11762,7 @@ function Workspace({
                 </main>
               </div>
               </SessionSurface>
+              </TaskTabActionsContext.Provider>
               {searchViewOpen ? (
                 <SearchView
                   open
@@ -11769,14 +11846,8 @@ function Workspace({
                   recents={recents}
                   onClose={onLeaveNotes}
                   onToggleSidebar={onToggleSidebar}
-                  onOpenSource={async (sessionId, blockId) => {
-                    if (!(await ensureOpenSession(sessionId)))
-                      throw new Error("The source session is no longer available");
-                    setRecordsViewOpen(false);
-                    if (blockId) requestTranscriptJump(sessionId, blockId);
-                    await onSelectHistorySession(sessionId);
-                  }}
-                  onOpenBeside={() => undefined}
+                  onOpenSource={onOpenTaskSource}
+                  onOpenBeside={onOpenTaskBeside}
                 />
               ) : null}
               {boardOpen ? (
@@ -12072,16 +12143,20 @@ function toTitleTab(
         ? `plan:${file.plan.blockId}`
         : file.releaseNotes
           ? `release-notes:${file.releaseNotes.version}`
-          : file.path;
+          : file.task
+            ? `task:${file.task.taskId}`
+            : file.path;
     if (seenKeys.has(key)) return;
     seenKeys.add(key);
     files.push(
       file.plan?.title?.trim() ||
         (file.releaseNotes
           ? releaseNotesTitle(file.releaseNotes.version)
-          : file.terminal
-            ? terminalTabLabel(file)
-            : basename(file.path)),
+          : file.task
+            ? file.task.title
+            : file.terminal
+              ? terminalTabLabel(file)
+              : basename(file.path)),
     );
   };
   const focusedPane =
