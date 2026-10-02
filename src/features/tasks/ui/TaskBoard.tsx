@@ -353,7 +353,7 @@ function TaskCard({
       data-shared-hover-preserve={active ? "" : undefined}
       onPointerDown={onPointerDown}
       className={`group relative touch-none rounded-md ${
-        active ? "bg-selection" : "bg-content/3 hover:bg-content/5"
+        active ? "bg-selection" : "surface-tint"
       } ${dragging ? "opacity-40" : ""}`}
     >
       <button

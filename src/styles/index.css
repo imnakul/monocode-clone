@@ -1481,6 +1481,27 @@ html.is-windows.has-app-wallpaper.glass-body .body-glass {
   -webkit-backdrop-filter: none;
 }
 
+/* In-app surfaces (board columns, cards, sticky table headers) reuse the
+   Menu surface tint and Menu backdrop blur settings, so one slider tunes menus
+   and these surfaces together. Utilities, so they cascade like Tailwind's own
+   bg-* classes instead of overriding them from outside a layer. */
+@utility surface-tint {
+  background-color: color-mix(
+    in srgb,
+    var(--color-content) var(--popover-surface-opacity),
+    transparent
+  );
+}
+
+@utility surface-blur {
+  -webkit-backdrop-filter: blur(var(--popover-backdrop-blur));
+  /* Same @supports guard as .popover-surface: without it the minifier keeps
+     only the -webkit- alias, which stops tracking the slider in WebView2. */
+  @supports (backdrop-filter: blur(0px)) {
+    backdrop-filter: blur(var(--popover-backdrop-blur));
+  }
+}
+
 /* Quick Composer panels are separate transparent windows. Where the OS blurs
    the desktop behind them (macOS vibrancy, Windows Acrylic) they share the
    workspace's Glass strength tint; elsewhere a firmer fill keeps text legible. */

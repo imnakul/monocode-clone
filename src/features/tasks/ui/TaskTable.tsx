@@ -125,7 +125,7 @@ export function TaskTable({
         </colgroup>
         {/* One sticky, blurred header layer instead of a blur per cell: each
             backdrop-filter is its own GPU layer, recomputed on every scroll. */}
-        <thead className="sticky top-0 z-20 bg-content/3 backdrop-blur-xl">
+        <thead className="surface-tint surface-blur sticky top-0 z-20">
           <tr>
             {columns.map((id) => {
               const meta = TASK_COLUMNS[id];

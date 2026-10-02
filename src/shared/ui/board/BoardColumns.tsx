@@ -62,7 +62,9 @@ export function BoardColumn({
       style={fixed === null ? { minWidth: fillMin } : { width: fixed }}
       className={`relative flex min-h-0 flex-col rounded-lg transition-colors duration-100 ${
         fixed === null ? "flex-1 basis-0" : "flex-none"
-      } ${highlighted ? "bg-content/5 ring-1 ring-accent/40" : "bg-content/3"}`}
+      } surface-blur ${
+        highlighted ? "bg-content/5 ring-1 ring-accent/40" : "surface-tint"
+      }`}
     >
       <div className="flex h-9 shrink-0 items-center gap-2 px-3 text-[12px] font-medium">
         {icon}

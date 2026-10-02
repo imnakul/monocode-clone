@@ -324,7 +324,8 @@ it("draws session cards on the translucent board surface, not an opaque one", ()
   const wrapper = container.querySelector<HTMLElement>(
     '[data-board-card="running"]',
   )!;
-  expect(wrapper.className).toContain("bg-content/3");
+  // Menu surface tint: a translucent fill that follows the settings slider.
+  expect(wrapper.className).toContain("surface-tint");
   expect(wrapper.className).not.toContain("bg-background-base");
 });
 
@@ -395,8 +396,9 @@ it("treats the whole card as one hover surface and opens the session from anywhe
   const wrapper = container.querySelector<HTMLElement>(
     '[data-board-card="running"]',
   )!;
-  // The card body owns hover; the inner session button adds no fill of its own.
-  expect(wrapper.className).toContain("hover:bg-content/8");
+  // The whole card is the gliding hover item; the inner button is not one.
+  expect(wrapper.hasAttribute("data-shared-hover-item")).toBe(true);
+  expect(card("running").hasAttribute("data-shared-hover-item")).toBe(false);
   expect(card("running").className).not.toContain("hover:bg-content/5");
   // Clicking the lower details (not the title button) still opens the session.
   const details = [...wrapper.querySelectorAll("p")].find((entry) =>

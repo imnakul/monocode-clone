@@ -423,7 +423,7 @@ export function SessionBoardView({
                       <SharedHoverHighlight />
                       {rows.map((card) => (
                         <div
-                          className="group group/board-card relative mb-2 cursor-default rounded-md bg-content/3 transition-colors duration-100 hover:bg-content/8"
+                          className="surface-tint group group/board-card relative mb-2 cursor-default rounded-md transition-colors duration-100"
                           key={card.sessionId}
                           data-board-card={card.sessionId}
                           data-shared-hover-item
