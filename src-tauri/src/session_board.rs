@@ -66,8 +66,8 @@ pub(crate) fn ensure_session_board_table(conn: &Connection) -> rusqlite::Result<
 
 #[tauri::command(async)]
 pub fn session_board_list(store: State<'_, SessionStore>) -> Result<Vec<SessionBoardCard>, String> {
-    let conn = store.lock_conn()?;
-    list_cards(&conn).map_err(|error| error.to_string())
+    let mut conn = store.lock_conn()?;
+    list_current_cards(&mut conn).map_err(|error| error.to_string())
 }
 
 #[tauri::command(async)]
@@ -209,6 +209,29 @@ fn list_cards(conn: &Connection) -> rusqlite::Result<Vec<SessionBoardCard>> {
             .then_with(|| a.session_id.cmp(&b.session_id))
     });
     Ok(cards)
+}
+
+/// Repair only the synthetic historical fallback; absence of an outcome is not
+/// a provider failure. Keep user-owned hide tombstones and all real outcomes.
+fn list_current_cards(conn: &mut Connection) -> rusqlite::Result<Vec<SessionBoardCard>> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let cards = list_cards(&tx)?;
+    for card in &cards {
+        if card.status == SessionBoardStatus::Blocked
+            && card.reason.as_deref()
+                == Some("Earlier run has no recorded result; review the session")
+            && card.queued_count == 0
+            && card.hidden_run_id.is_none()
+        {
+            tx.execute(
+                "DELETE FROM session_board_cards WHERE session_id = ?1",
+                params![card.session_id],
+            )?;
+        }
+    }
+    let remaining = list_cards(&tx)?;
+    tx.commit()?;
+    Ok(remaining)
 }
 
 fn get_card(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<SessionBoardCard>> {
@@ -570,6 +593,73 @@ mod tests {
             assert_eq!(restored.hidden_run_id.as_deref(), Some("provider:run:1"));
         }
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn list_repairs_only_synthetic_history_and_preserves_outcomes_and_hidden_runs() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let mut conn = store.lock_conn().unwrap();
+        let reason = "Earlier run has no recorded result; review the session";
+        for (id, status, why, queued) in [
+            ("legacy", SessionBoardStatus::Blocked, reason, 0),
+            ("hidden", SessionBoardStatus::Blocked, reason, 0),
+            ("quota", SessionBoardStatus::Blocked, "Quota expired", 0),
+            (
+                "interrupted",
+                SessionBoardStatus::Blocked,
+                "Previous run was interrupted; review the session",
+                0,
+            ),
+            ("done", SessionBoardStatus::Done, reason, 0),
+            ("stopped", SessionBoardStatus::Stopped, reason, 0),
+            ("resumed", SessionBoardStatus::InProgress, reason, 0),
+            ("queued", SessionBoardStatus::Blocked, reason, 2),
+        ] {
+            let mut entry = card(id, "run-1", status);
+            entry.reason = Some(why.into());
+            entry.queued_count = queued;
+            upsert_card(&mut conn, entry).unwrap();
+        }
+        hide_cards(
+            &mut conn,
+            &[SessionBoardHideRequest {
+                session_id: "hidden".into(),
+                run_id: "run-1".into(),
+            }],
+            true,
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id,cwd,harness,model,runtime_mode,title,blocks_json,created_at,updated_at)
+             VALUES ('legacy','/work','claude','model','default','Original conversation','[]',1,1)",
+            [],
+        ).unwrap();
+        let remaining = list_current_cards(&mut conn).unwrap();
+        assert_eq!(remaining.len(), 7);
+        assert!(get_card(&conn, "legacy").unwrap().is_none());
+        assert_eq!(
+            get_card(&conn, "hidden")
+                .unwrap()
+                .unwrap()
+                .hidden_run_id
+                .as_deref(),
+            Some("run-1")
+        );
+        assert_eq!(remaining, list_current_cards(&mut conn).unwrap());
+        assert_eq!(
+            conn.query_row("SELECT title FROM sessions WHERE id='legacy'", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap(),
+            "Original conversation"
+        );
+        // An old conversation can run again, even with the same turn identity.
+        upsert_card(
+            &mut conn,
+            card("legacy", "run-1", SessionBoardStatus::InProgress),
+        )
+        .unwrap();
+        assert_eq!(list_current_cards(&mut conn).unwrap().len(), 8);
     }
 
     #[test]

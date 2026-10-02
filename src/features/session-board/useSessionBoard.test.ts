@@ -225,6 +225,17 @@ it("moves live cards through blocked, attention and completion, retains hidden r
   expect(inColumn("Progress")).not.toBeNull();
 });
 
+it("does not import idle history, but captures that same conversation when it starts working", async () => {
+  await render([session({ busy: false })]);
+  await tick();
+  expect(rows.size).toBe(0);
+  expect(inColumn("Blocked")).toBeNull();
+  expect(inColumn("Done")).toBeNull();
+  await render([session()]);
+  await tick();
+  expect(inColumn("Progress")).not.toBeNull();
+});
+
 it("cancels pending observation when the workspace unmounts", async () => {
   await render([session()]);
   await act(async () => root.render(null));

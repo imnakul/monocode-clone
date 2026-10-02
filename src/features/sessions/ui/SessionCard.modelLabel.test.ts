@@ -99,6 +99,12 @@ describe("session card model labels", () => {
     }
   });
 
+  it.each([true, false])("renders one provider icon per card (compact=%s)", (compact) => {
+    // Claude uses an image mark; spinner/status icons are independent.
+    const markup = renderCard(compact);
+    expect(markup.match(/<img /g)).toHaveLength(1);
+  });
+
   it("shows the active turn model on regular cards too", () => {
     const markup = renderCard(false);
     expect(markup).toContain("GPT-5.1 custom alias");
