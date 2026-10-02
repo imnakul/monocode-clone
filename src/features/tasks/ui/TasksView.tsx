@@ -1,40 +1,75 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle, Plus, Search, Trash2 } from "../../../shared/ui/icons";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  CheckCircle,
+  ChevronDown,
+  LoaderCircle,
+  Plus,
+} from "../../../shared/ui/icons";
 import { OverlayNav } from "../../../app/shell/TitleBar";
 import { WindowControls } from "../../../app/shell/WindowControls";
 import { IS_MAC } from "../../../platform/tauri/platform";
-import { projectName, pathKey } from "../../../shared/lib/paths";
-import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
+import { pathKey, projectName } from "../../../shared/lib/paths";
 import {
+  ExplorerMenu,
+  type ExplorerMenuItem,
+} from "../../files/ui/ExplorerMenu";
+import { noteProjectChoices, type NoteProjectChoice } from "../../notes/notes";
+import {
+  loadRecents,
   looksLikeProject,
   type RecentProject,
 } from "../../projects/model/recents";
-import { SearchableProjectPicker } from "../../projects/ui/SearchableProjectPicker";
-import { NoteSource, NoteTagsEditor } from "../../notes/ui/NotesView";
-import { notePreview } from "../../notes/notes";
-import { AgentMarkdown } from "../../sessions/ui/AgentMarkdown";
+import { useProjectMarks } from "../../projects/ui/ProjectMark";
 import {
-  MarkdownModeToggle,
-  useMarkdownMode,
-} from "../../sessions/ui/MarkdownModeToggle";
+  TASK_COLUMNS,
+  TASK_COLUMN_IDS,
+  isTaskColumnId,
+  loadBoardState,
+  loadTableState,
+  loadTaskView,
+  saveBoardState,
+  saveTableState,
+  saveTaskView,
+  type TaskBoardState,
+  type TaskTableState,
+  type TaskViewId,
+} from "../taskViewState";
 import {
   createTask,
   deleteTask,
   filterTasks,
   loadTasks,
+  peekTasks,
   TASKS_CHANGED_EVENT,
   TASK_STATUSES,
   TASK_STATUS_LABELS,
   updateTask,
   type Task,
-  type TaskChanges,
   type TaskFilters,
   type TaskStatus,
 } from "../tasks";
+import { TaskBoard } from "./TaskBoard";
+import { TaskList } from "./TaskList";
+import { TaskPeekPane } from "./TaskPeekPane";
+import { TaskTable } from "./TaskTable";
+import { TasksToolbar } from "./TasksToolbar";
+import { TasksViewSwitch } from "./TasksViewSwitch";
 
-const control =
-  "min-w-0 rounded-md border border-content/10 bg-background-base px-2 py-1 text-[12px] text-content outline-none focus-visible:ring-2 focus-visible:ring-accent";
-let rememberedTaskId: string | null = null;
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+const headerButton =
+  "grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:opacity-40";
+
+type Menu = { kind: "create" | "columns"; x: number; y: number };
 
 export function TasksView({
   besideRail = false,
@@ -44,6 +79,7 @@ export function TasksView({
   onClose,
   onToggleSidebar,
   onOpenSource,
+  onOpenBeside,
 }: {
   besideRail?: boolean;
   compactRail?: boolean;
@@ -52,15 +88,28 @@ export function TasksView({
   onClose: () => void;
   onToggleSidebar?: () => void;
   onOpenSource: (sessionId: string, blockId?: string) => void | Promise<void>;
+  onOpenBeside: (task: Task) => void;
 }) {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(rememberedTaskId);
-  const [loading, setLoading] = useState(true);
+  const [tasks, setTasks] = useState<Task[]>(() => peekTasks() ?? []);
+  const [loading, setLoading] = useState(() => peekTasks() == null);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [filters, setFilters] = useState<TaskFilters>({});
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<TaskViewId>(loadTaskView);
+  const [table, setTable] = useState<TaskTableState>(loadTableState);
+  const [board, setBoard] = useState<TaskBoardState>(loadBoardState);
+  const [menu, setMenu] = useState<Menu | null>(null);
+  const marks = useProjectMarks();
+  const root = useRef<HTMLDivElement>(null);
   const alive = useRef(true);
   const refreshId = useRef(0);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const menuRef = useRef(menu);
+  menuRef.current = menu;
+
   const refresh = useCallback(async () => {
     const id = ++refreshId.current;
     try {
@@ -71,7 +120,7 @@ export function TasksView({
       setLoading(false);
     } catch (error) {
       if (!alive.current || id !== refreshId.current) return;
-      setError(error instanceof Error ? error.message : String(error));
+      setError(message(error));
       setLoading(false);
     }
   }, []);
@@ -84,21 +133,44 @@ export function TasksView({
       window.removeEventListener(TASKS_CHANGED_EVENT, refresh);
     };
   }, [refresh]);
+
+  const visible = useMemo(() => filterTasks(tasks, filters), [tasks, filters]);
+  // The selection survives filters and view switches; only deletion clears it.
+  const selected = useMemo(
+    () => tasks.find((task) => task.id === selectedId) ?? null,
+    [tasks, selectedId],
+  );
+  useEffect(() => {
+    if (selectedId && !loading && !selected) setSelectedId(null);
+  }, [selectedId, selected, loading]);
+  const selectedRef = useRef(selectedId);
+  selectedRef.current = selected ? selectedId : null;
+
+  const closePeek = useCallback(() => {
+    const id = selectedRef.current;
+    setSelectedId(null);
+    if (!id) return;
+    requestAnimationFrame(() =>
+      root.current
+        ?.querySelector<HTMLElement>(`[data-task-id="${CSS.escape(id)}"]`)
+        ?.focus(),
+    );
+  }, []);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      // Let open project/tag controls consume Escape first.
-      onClose();
+      // Menus and pickers dismiss themselves; don't close the view under them.
+      if (menuRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (selectedRef.current) closePeek();
+      else onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  const visible = useMemo(() => filterTasks(tasks, filters), [tasks, filters]);
-  const selected =
-    visible.find((task) => task.id === selectedId) ?? visible[0] ?? null;
-  useEffect(() => {
-    rememberedTaskId = selected?.id ?? null;
-  }, [selected?.id]);
+  }, [closePeek]);
+
   const projects = useMemo(() => {
     const paths = [
       ...recents.map((project) => project.path),
@@ -107,27 +179,200 @@ export function TasksView({
     ];
     return [...new Map(paths.map((path) => [pathKey(path), path])).values()];
   }, [recents, tasks, cwd]);
+
   const create = async (projectCwd?: string) => {
+    if (creating) return;
     setCreating(true);
-    setError(null);
+    setActionError(null);
     try {
       const task = await createTask({ projectCwd, status: "todo" });
       if (!alive.current) return;
       setFilters({});
-      setSelectedId(task.id);
       await refresh();
+      if (alive.current) setSelectedId(task.id);
     } catch (error) {
-      if (alive.current) setError(String(error));
+      if (alive.current) setActionError(message(error));
     } finally {
       if (alive.current) setCreating(false);
     }
   };
   const remove = async (id: string) => {
     await deleteTask(id);
+    if (alive.current)
+      setSelectedId((current) => (current === id ? null : current));
     await refresh();
   };
+  const changeStatus = (task: Task, status: TaskStatus) => {
+    setActionError(null);
+    updateTask(task.id, { status }).catch((reason: unknown) => {
+      if (alive.current)
+        setActionError(`Could not move "${task.title}": ${message(reason)}`);
+    });
+  };
+  const saveView = (next: TaskViewId) => {
+    setView(next);
+    saveTaskView(next);
+  };
+  const updateTable = (next: TaskTableState) => {
+    setTable(next);
+    saveTableState(next);
+  };
+  const updateBoard = (next: TaskBoardState) => {
+    setBoard(next);
+    saveBoardState(next);
+  };
+  const addTagFilter = (tag: string) =>
+    setFilters((current) => ({
+      ...current,
+      tags: [...new Set([...(current.tags ?? []), tag])],
+    }));
+  const patchTask = (saved: Task) =>
+    setTasks((current) =>
+      current.map((task) => (task.id === saved.id ? saved : task)),
+    );
+
+  const createChoices = useMemo<NoteProjectChoice[]>(
+    () =>
+      menu?.kind === "create" ? noteProjectChoices(cwd, loadRecents()) : [],
+    [cwd, menu?.kind],
+  );
+  const menuItems = useMemo<ExplorerMenuItem[]>(() => {
+    if (menu?.kind === "create") {
+      const items: ExplorerMenuItem[] = [];
+      for (const choice of createChoices) {
+        if (choice.kind === "personal") items.push({ kind: "sep" });
+        items.push({
+          kind: "item",
+          id: choice.id,
+          label:
+            choice.kind === "personal" ? "Personal" : projectName(choice.path),
+          checked: choice.current,
+        });
+      }
+      return items;
+    }
+    if (menu?.kind === "columns" && view === "table")
+      return TASK_COLUMN_IDS.filter((id) => TASK_COLUMNS[id].hideable).map(
+        (id): ExplorerMenuItem => ({
+          kind: "item",
+          id,
+          label: TASK_COLUMNS[id].header,
+          checked: !table.hidden.includes(id),
+        }),
+      );
+    if (menu?.kind === "columns")
+      return TASK_STATUSES.map((status): ExplorerMenuItem => ({
+        kind: "item",
+        id: status,
+        label: TASK_STATUS_LABELS[status],
+        checked: !board.hidden.includes(status),
+      }));
+    return [];
+  }, [menu?.kind, createChoices, view, table.hidden, board.hidden]);
+
+  const onPickMenu = (id: string) => {
+    const kind = menu?.kind;
+    setMenu(null);
+    if (kind === "create") {
+      const choice = createChoices.find((item) => item.id === id);
+      if (choice)
+        void create(choice.kind === "project" ? choice.path : undefined);
+      return;
+    }
+    if (view === "table" && isTaskColumnId(id)) {
+      updateTable({
+        ...table,
+        hidden: table.hidden.includes(id)
+          ? table.hidden.filter((item) => item !== id)
+          : [...table.hidden, id],
+      });
+      return;
+    }
+    const status = TASK_STATUSES.find((item) => item === id);
+    if (status)
+      updateBoard({
+        ...board,
+        hidden: board.hidden.includes(status)
+          ? board.hidden.filter((item) => item !== status)
+          : [...board.hidden, status],
+      });
+  };
+  const openMenu = (kind: Menu["kind"], anchor: HTMLElement) => {
+    const rect = anchor.getBoundingClientRect();
+    setMenu({ kind, x: rect.left, y: rect.bottom + 4 });
+  };
+
+  const filteredEmpty = tasks.length > 0 && visible.length === 0;
+  const body =
+    loading && tasks.length === 0 ? (
+      <div className="flex justify-center py-10 text-content/40">
+        <LoaderCircle
+          aria-label="Loading tasks"
+          className="size-4 animate-spin"
+          strokeWidth={1.75}
+        />
+      </div>
+    ) : error && tasks.length === 0 ? (
+      <p role="alert" className="px-4 py-3 text-[12px] text-red-400/90">
+        Could not load tasks: {error}{" "}
+        <button
+          type="button"
+          className="underline hover:no-underline"
+          onClick={() => void refresh()}
+        >
+          Retry
+        </button>
+      </p>
+    ) : tasks.length === 0 ? (
+      <EmptyState>
+        No tasks yet. Capture a selection from a transcript, or create one here.
+      </EmptyState>
+    ) : filteredEmpty ? (
+      <EmptyState>
+        No tasks match these filters
+        <button
+          type="button"
+          onClick={() => setFilters({})}
+          className="mt-2 h-7 rounded-md px-3 text-[12px] text-content/70 hover:bg-content/10 hover:text-content"
+        >
+          Reset filters
+        </button>
+      </EmptyState>
+    ) : view === "list" ? (
+      <TaskList
+        tasks={visible}
+        selectedId={selected?.id ?? null}
+        marks={marks}
+        onSelect={setSelectedId}
+        onTagClick={addTagFilter}
+      />
+    ) : view === "table" ? (
+      <TaskTable
+        tasks={visible}
+        state={table}
+        selectedId={selected?.id ?? null}
+        marks={marks}
+        onStateChange={updateTable}
+        onSelect={setSelectedId}
+        onTagClick={addTagFilter}
+        onStatusChange={changeStatus}
+      />
+    ) : (
+      <TaskBoard
+        tasks={visible}
+        state={board}
+        selectedId={selected?.id ?? null}
+        marks={marks}
+        onStateChange={updateBoard}
+        onSelect={setSelectedId}
+        onTagClick={addTagFilter}
+        onSaved={patchTask}
+      />
+    );
+
   return (
     <div
+      ref={root}
       role="region"
       aria-label="Tasks"
       data-app-tasks
@@ -139,391 +384,128 @@ export function TasksView({
       >
         {IS_MAC && compactRail ? <div className="w-4 shrink-0" /> : null}
         {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
-        {!besideRail ? (
+        {besideRail ? null : (
           <OverlayNav onBack={onClose} onToggleSidebar={onToggleSidebar} />
-        ) : null}
+        )}
         <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-[13px]">
-          <CheckCircle className="size-3.5 text-content/45" />
-          Tasks
+          <CheckCircle
+            className="size-3.5 shrink-0 text-content/45"
+            strokeWidth={1.75}
+          />
+          <span className="min-w-0 truncate text-content">Tasks</span>
         </div>
-        {!IS_MAC ? <WindowControls /> : null}
-      </div>
-      <div className="flex min-h-0 min-w-0 flex-1">
-        <aside className="flex w-72 min-h-0 shrink-0 flex-col border-r border-stroke">
-          <div className="space-y-2 border-b border-stroke p-2">
-            <div className="flex items-center gap-1">
-              <Search className="size-3.5 text-content/45" />
-              <input
-                className={`${control} flex-1`}
-                aria-label="Search tasks"
-                placeholder="Search tasks"
-                value={filters.query ?? ""}
-                onChange={(event) =>
-                  setFilters({ ...filters, query: event.target.value })
-                }
-              />
-            </div>
-            <div className="flex gap-2">
-              <select
-                className={`${control} flex-1`}
-                aria-label="Filter task status"
-                value={filters.statuses?.[0] ?? ""}
-                onChange={(event) =>
-                  setFilters({
-                    ...filters,
-                    statuses: event.target.value
-                      ? [event.target.value as TaskStatus]
-                      : [],
-                  })
-                }
-              >
-                <option value="">All statuses</option>
-                {TASK_STATUSES.map((status) => (
-                  <option key={status} value={status}>
-                    {TASK_STATUS_LABELS[status]}
-                  </option>
-                ))}
-              </select>
-              <select
-                className={`${control} flex-1`}
-                aria-label="Filter task project"
-                value={
-                  filters.projectCwd === null
-                    ? "personal"
-                    : (filters.projectCwd ?? "")
-                }
-                onChange={(event) =>
-                  setFilters({
-                    ...filters,
-                    projectCwd:
-                      event.target.value === "personal"
-                        ? null
-                        : event.target.value || undefined,
-                  })
-                }
-              >
-                <option value="">All projects</option>
-                <option value="personal">Personal</option>
-                {projects.map((path) => (
-                  <option key={path} value={path}>
-                    {projectName(path)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex gap-2">
-              <input
-                className={`${control} flex-1`}
-                aria-label="Filter task tags"
-                placeholder="Tags, comma separated"
-                value={(filters.tags ?? []).join(",")}
-                onChange={(event) =>
-                  setFilters({
-                    ...filters,
-                    tags: event.target.value.split(","),
-                  })
-                }
-              />
-              <select
-                className={control}
-                aria-label="Task tag matching"
-                value={filters.tagMatch ?? "all"}
-                onChange={(event) =>
-                  setFilters({
-                    ...filters,
-                    tagMatch: event.target.value as "all" | "any",
-                  })
-                }
-              >
-                <option value="all">All tags</option>
-                <option value="any">Any tag</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                className={`${control} inline-flex items-center gap-1`}
-                aria-label="New task"
-                disabled={creating}
-                onClick={() =>
-                  void create(cwd && looksLikeProject(cwd) ? cwd : undefined)
-                }
-              >
-                <Plus className="size-3.5" />
-                New task
-              </button>
-              <button
-                className={control}
-                disabled={creating}
-                onClick={() => void create()}
-              >
-                New Personal task
-              </button>
-              <button
-                className="ml-auto text-[11px] text-content/50 hover:text-content"
-                onClick={() => setFilters({})}
-              >
-                Reset filters
-              </button>
-            </div>
-          </div>
-          {error ? (
-            <div role="alert" className="p-3 text-xs text-red-400">
-              {error}{" "}
-              <button className="underline" onClick={() => void refresh()}>
-                Retry
-              </button>
-            </div>
-          ) : null}
-          <div
-            className="min-h-0 flex-1 overflow-y-auto p-2"
-            aria-label="Task list"
+        <div className="flex shrink-0 items-center gap-1 pr-2">
+          <TasksViewSwitch view={view} onChange={saveView} />
+          <button
+            type="button"
+            title="New task"
+            aria-label="New task"
+            disabled={creating}
+            onClick={() =>
+              void create(cwd && looksLikeProject(cwd) ? cwd : undefined)
+            }
+            className={headerButton}
           >
-            {loading ? (
-              <p className="p-2 text-xs text-content/50">Loading tasks…</p>
-            ) : null}
-            {!loading && !visible.length ? (
-              <p className="p-2 text-xs text-content/50">
-                {tasks.length ? "No tasks match these filters" : "No tasks yet"}
+            {creating ? (
+              <LoaderCircle
+                className="size-3.5 animate-spin"
+                strokeWidth={1.75}
+              />
+            ) : (
+              <Plus className="size-3.5" strokeWidth={1.75} />
+            )}
+          </button>
+          <button
+            type="button"
+            title="Choose where the task is filed"
+            aria-label="Choose where the task is filed"
+            aria-expanded={menu?.kind === "create"}
+            disabled={creating}
+            onClick={(event) => openMenu("create", event.currentTarget)}
+            className={headerButton}
+          >
+            <ChevronDown className="size-3.5" strokeWidth={1.75} />
+          </button>
+        </div>
+        {IS_MAC ? null : <WindowControls />}
+      </div>
+      <TasksToolbar
+        filters={filters}
+        tasks={tasks}
+        projects={projects}
+        showColumns={view !== "list"}
+        columnsOpen={menu?.kind === "columns"}
+        onChange={setFilters}
+        onOpenColumns={(anchor) => openMenu("columns", anchor)}
+      />
+      {menu ? (
+        <ExplorerMenu
+          x={menu.x}
+          y={menu.y}
+          ariaLabel={
+            menu.kind === "create"
+              ? "Choose where the task is filed"
+              : "Choose visible columns"
+          }
+          header={
+            menu.kind === "create" ? (
+              <p className="px-2 py-1 text-[11px] text-content/50">
+                File task under…
               </p>
-            ) : null}
-            {visible.map((task) => (
-              <button
-                key={task.id}
-                type="button"
-                aria-current={selected?.id === task.id ? "true" : undefined}
-                onClick={() => setSelectedId(task.id)}
-                className={`mb-1 block w-full rounded-lg p-3 text-left ${selected?.id === task.id ? "bg-content/8" : "hover:bg-content/5"}`}
-              >
-                <span className="block truncate text-[13px]">{task.title}</span>
-                <span className="mt-1 block text-[11px] text-content/50">
-                  {TASK_STATUS_LABELS[task.status]} ·{" "}
-                  {task.projectCwd ? projectName(task.projectCwd) : "Personal"}
-                </span>
-                <span className="mt-1 line-clamp-2 text-[12px] text-content/45">
-                  {notePreview(task.body, task.title)}
-                </span>
-                {task.tags.length ? (
-                  <span className="mt-1 block truncate text-[11px] text-content/50">
-                    {task.tags.map((tag) => `#${tag}`).join(" ")}
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-          <div className="border-t border-stroke px-3 py-2 text-[11px] text-content/45">
-            {visible.length} of {tasks.length} tasks
-          </div>
-        </aside>
+            ) : undefined
+          }
+          items={menuItems}
+          onPick={onPickMenu}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
+      {error && tasks.length > 0 ? (
+        <p
+          role="alert"
+          className="shrink-0 px-4 py-1 text-[12px] text-red-400/90"
+        >
+          Could not refresh tasks: {error}{" "}
+          <button
+            type="button"
+            className="underline hover:no-underline"
+            onClick={() => void refresh()}
+          >
+            Retry
+          </button>
+        </p>
+      ) : null}
+      {actionError ? (
+        <p
+          role="alert"
+          className="shrink-0 px-4 py-1 text-[12px] text-red-400/90"
+        >
+          {actionError}
+        </p>
+      ) : null}
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">{body}</div>
         {selected ? (
-          <TaskEditor
-            key={selected.id}
+          <TaskPeekPane
             task={selected}
             recents={recents}
             cwd={cwd}
+            onClose={closePeek}
             onDelete={remove}
             onOpenSource={onOpenSource}
+            onOpenBeside={onOpenBeside}
           />
-        ) : (
-          <div className="flex flex-1 items-center justify-center text-sm text-content/45">
-            Select or create a task
-          </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
 }
 
-function TaskEditor({
-  task,
-  recents,
-  cwd,
-  onDelete,
-  onOpenSource,
-}: {
-  task: Task;
-  recents: RecentProject[];
-  cwd?: string;
-  onDelete: (id: string) => Promise<void>;
-  onOpenSource: (sessionId: string, blockId?: string) => void | Promise<void>;
-}) {
-  const [edits, setEdits] = useState<TaskChanges>({});
-  const editsRef = useRef<TaskChanges>({});
-  const [error, setError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const deletingRef = useRef(false);
-  const alive = useRef(true);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const source = useRef<HTMLTextAreaElement>(null);
-  const lock = useLockOverscroll<HTMLDivElement>();
-  const [mode, setMode] = useMarkdownMode(`task:${task.id}`);
-  const title = edits.title ?? task.title;
-  const body = edits.body ?? task.body;
-  const tags = edits.tags ?? task.tags;
-  const status = edits.status ?? task.status;
-  const project =
-    edits.projectCwd === null
-      ? undefined
-      : (edits.projectCwd ?? task.projectCwd);
-  const save = useCallback(async () => {
-    clearTimeout(timer.current);
-    const snapshot = editsRef.current;
-    if (!Object.keys(snapshot).length || deletingRef.current) return;
-    try {
-      await updateTask(task.id, snapshot);
-      const remaining = { ...editsRef.current };
-      for (const key of Object.keys(snapshot) as (keyof TaskChanges)[]) {
-        if (remaining[key] === snapshot[key]) delete remaining[key];
-      }
-      editsRef.current = remaining;
-      if (alive.current) {
-        setEdits(remaining);
-        setError(null);
-      }
-    } catch (error) {
-      if (alive.current)
-        setError(error instanceof Error ? error.message : String(error));
-    }
-  }, [task.id]);
-  const edit = (changes: TaskChanges, immediate = false) => {
-    editsRef.current = { ...editsRef.current, ...changes };
-    setEdits(editsRef.current);
-    clearTimeout(timer.current);
-    if (immediate) void save();
-    else timer.current = setTimeout(() => void save(), 400);
-  };
-  useEffect(() => {
-    alive.current = true;
-    if (!task.body.trim() && task.title === "Untitled") setMode("source");
-    return () => {
-      alive.current = false;
-      clearTimeout(timer.current);
-      void save();
-    };
-    // The editor is keyed by task ID; changing its saved fields must not reset it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [save]);
+function EmptyState({ children }: { children: ReactNode }) {
   return (
-    <div
-      ref={lock}
-      className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6 select-text"
-    >
-      <div className="mx-auto max-w-3xl space-y-3">
-        <input
-          className="w-full bg-transparent text-xl font-semibold outline-none"
-          aria-label="Task title"
-          maxLength={200}
-          placeholder="Untitled"
-          value={title}
-          onChange={(event) => edit({ title: event.target.value })}
-          onBlur={() => void save()}
-        />
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            className={control}
-            aria-label="Task status"
-            value={status}
-            onChange={(event) =>
-              edit({ status: event.target.value as TaskStatus }, true)
-            }
-          >
-            {TASK_STATUSES.map((value) => (
-              <option key={value} value={value}>
-                {TASK_STATUS_LABELS[value]}
-              </option>
-            ))}
-          </select>
-          <span className="text-xs text-content/50">
-            {project ? projectName(project) : "Personal"}
-          </span>
-          <SearchableProjectPicker
-            cwd={project ?? "~"}
-            recents={recents}
-            railCwd={cwd}
-            mode="move"
-            itemKind="task"
-            onSelectProject={(path) =>
-              edit({ projectCwd: looksLikeProject(path) ? path : null }, true)
-            }
-          />
-          {project ? (
-            <button
-              className={control}
-              onClick={() => edit({ projectCwd: null }, true)}
-            >
-              Move to Personal
-            </button>
-          ) : null}
-        </div>
-        <NoteTagsEditor
-          label="Add task tag"
-          tags={tags}
-          onChange={(tags) => edit({ tags })}
-        />
-        <div className="flex flex-wrap items-center gap-2 text-xs text-content/50">
-          <span>Updated {new Date(task.updatedAt).toLocaleString()}</span>
-          {task.completedAt ? (
-            <span>Completed {new Date(task.completedAt).toLocaleString()}</span>
-          ) : null}
-          {task.sourceSessionId ? (
-            <button
-              className={control}
-              onClick={async () => {
-                try {
-                  await onOpenSource(task.sourceSessionId!, task.sourceBlockId);
-                } catch (error) {
-                  setError(String(error));
-                }
-              }}
-            >
-              Open source session
-            </button>
-          ) : null}
-          <button
-            className={`${control} inline-flex items-center gap-1 hover:text-red-400`}
-            disabled={deleting}
-            onClick={async () => {
-              deletingRef.current = true;
-              setDeleting(true);
-              clearTimeout(timer.current);
-              try {
-                await onDelete(task.id);
-              } catch (error) {
-                deletingRef.current = false;
-                if (alive.current) {
-                  setDeleting(false);
-                  setError(String(error));
-                }
-              }
-            }}
-          >
-            <Trash2 className="size-3.5" />
-            Delete task
-          </button>
-        </div>
-        {error ? (
-          <div role="alert" className="text-xs text-red-400">
-            Task action failed: {error}{" "}
-            <button className="underline" onClick={() => void save()}>
-              Retry
-            </button>
-          </div>
-        ) : null}
-        <div className="flex justify-end border-b border-stroke pb-2">
-          <MarkdownModeToggle mode={mode} onChange={setMode} markdown={body} />
-        </div>
-        {mode === "source" ? (
-          <NoteSource
-            value={body}
-            textareaRef={source}
-            autoFocus={!body.trim()}
-            label="Task Markdown"
-            onChange={(body) => edit({ body })}
-          />
-        ) : body.trim() ? (
-          <AgentMarkdown text={body} cwd={project} hardBreaks />
-        ) : (
-          <p className="text-sm text-content/45">No description</p>
-        )}
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
+      <CheckCircle className="mb-3 size-6 text-content/30" strokeWidth={1.75} />
+      <div className="flex flex-col items-center text-[13px] text-content/45">
+        {children}
       </div>
     </div>
   );

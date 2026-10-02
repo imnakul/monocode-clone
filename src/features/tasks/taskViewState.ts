@@ -1,9 +1,5 @@
 import { projectName } from "../../shared/lib/paths";
-import {
-  TASK_STATUSES,
-  type Task,
-  type TaskStatus,
-} from "./tasks";
+import { TASK_STATUSES, type Task, type TaskStatus } from "./tasks";
 
 export const TASK_VIEW_IDS = ["list", "table", "board"] as const;
 export type TaskViewId = (typeof TASK_VIEW_IDS)[number];
@@ -215,8 +211,7 @@ export function defaultSortDir(column: TaskColumnId): "asc" | "desc" {
 
 /** Next sort after clicking a header: new column starts at its default, same column flips. */
 export function nextSort(current: TaskSort, column: TaskColumnId): TaskSort {
-  if (current.column !== column)
-    return { column, dir: defaultSortDir(column) };
+  if (current.column !== column) return { column, dir: defaultSortDir(column) };
   return { column, dir: current.dir === "asc" ? "desc" : "asc" };
 }
 

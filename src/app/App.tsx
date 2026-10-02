@@ -11776,6 +11776,7 @@ function Workspace({
                     if (blockId) requestTranscriptJump(sessionId, blockId);
                     await onSelectHistorySession(sessionId);
                   }}
+                  onOpenBeside={() => undefined}
                 />
               ) : null}
               {boardOpen ? (
