@@ -11780,6 +11780,8 @@ function Workspace({
               ) : null}
               {boardOpen ? (
                 <SessionBoardView
+                  cwd={projectCwd}
+                  recents={recents}
                   cards={sessionBoard.cards}
                   loading={!sessionBoard.ready}
                   error={sessionBoard.error}

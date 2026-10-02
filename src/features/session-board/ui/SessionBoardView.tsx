@@ -7,6 +7,10 @@ import { projectName, pathKey } from "../../../shared/lib/paths";
 import { SessionCard } from "../../sessions/ui/SessionCard";
 import type { HarnessId } from "../../sessions/model/session";
 import {
+  projectRailItems,
+  type RecentProject,
+} from "../../projects/model/recents";
+import {
   BOARD_COLUMNS,
   hideBoardCards,
   loadBoard,
@@ -19,6 +23,8 @@ const control =
   "rounded-md border border-content/10 bg-background-base px-2 py-1 text-xs text-content outline-none focus-visible:ring-2 focus-visible:ring-accent";
 export function SessionBoardView({
   cards,
+  cwd,
+  recents = [],
   loading,
   error,
   activeSessionId,
@@ -31,6 +37,8 @@ export function SessionBoardView({
   onToggleSidebar,
 }: {
   cards: readonly BoardCard[];
+  cwd?: string;
+  recents?: RecentProject[];
   loading: boolean;
   error: string | null;
   activeSessionId?: string;
@@ -75,12 +83,20 @@ export function SessionBoardView({
     const timer = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(timer);
   }, []);
-  const projects = useMemo(
-    () => [
-      ...new Map(cards.map((card) => [pathKey(card.cwd), card.cwd])).values(),
-    ],
-    [cards],
-  );
+  const projects = useMemo(() => {
+    const paths = new Map(
+      projectRailItems(recents, cwd ?? "").map(({ path }) => [
+        pathKey(path),
+        path,
+      ]),
+    );
+    // Keep projects from durable cards even after they leave the recent-project rail.
+    for (const card of cards) {
+      if (card.cwd && !paths.has(pathKey(card.cwd)))
+        paths.set(pathKey(card.cwd), card.cwd);
+    }
+    return [...paths.values()];
+  }, [cards, recents, cwd]);
   const visible = visibleBoardCards(cards).filter(
     (card) =>
       (!project || pathKey(project) === pathKey(card.cwd)) &&
@@ -173,7 +189,7 @@ export function SessionBoardView({
         >
           <option value="">All projects</option>
           {projects.map((path) => (
-            <option key={path} value={path}>
+            <option key={pathKey(path)} value={pathKey(path)} title={path}>
               {projectName(path)}
             </option>
           ))}

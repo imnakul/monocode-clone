@@ -17,6 +17,8 @@ export function useSessionBoard(sessions: readonly Session[]) {
     return () => {
       unsubscribe();
       clearTimeout(timer.current);
+      // StrictMode replays setup after cleanup; a cancelled timer is no longer pending.
+      timer.current = undefined;
     };
   }, []);
   useEffect(() => {
