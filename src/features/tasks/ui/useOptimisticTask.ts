@@ -1,15 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { updateTask, type Task, type TaskStatus } from "../tasks";
 
-type Override = { status: TaskStatus; token: number };
+/** Fields a board drop can change. `projectCwd: null` moves to Personal. */
+export type TaskMovePatch = {
+  status?: TaskStatus;
+  projectCwd?: string | null;
+};
+
+type Override = { patch: TaskMovePatch; token: number };
 
 /**
- * Optimistic status moves. Each move gets a token per task; only the latest
+ * Optimistic board moves. Each move gets a token per task; only the latest
  * token may clear its override or report a failure, so a slow earlier write
- * never flips the card back. `updateTask` serializes writes per task, so the
- * latest move is also the last one persisted.
+ * never flips the card back. Patches for the same task merge, and
+ * `updateTask` serializes writes per task, so the latest move is also the
+ * last one persisted.
  */
-export function useOptimisticStatus(onSaved?: (task: Task) => void) {
+export function useOptimisticTask(onSaved?: (task: Task) => void) {
   const [overrides, setOverrides] = useState<Record<string, Override>>({});
   const [error, setError] = useState<string | null>(null);
   const seq = useRef(new Map<string, number>());
@@ -33,16 +40,16 @@ export function useOptimisticStatus(onSaved?: (task: Task) => void) {
   }, []);
 
   const move = useCallback(
-    (task: Pick<Task, "id" | "title">, status: TaskStatus) => {
+    (task: Pick<Task, "id" | "title">, patch: TaskMovePatch) => {
       const token = (seq.current.get(task.id) ?? 0) + 1;
       seq.current.set(task.id, token);
       const title = task.title;
       setError(null);
       setOverrides((current) => ({
         ...current,
-        [task.id]: { status, token },
+        [task.id]: { patch: { ...current[task.id]?.patch, ...patch }, token },
       }));
-      updateTask(task.id, { status }).then(
+      updateTask(task.id, patch).then(
         (saved) => {
           if (!alive.current || seq.current.get(task.id) !== token) return;
           // Land the persisted row before dropping the override so the card
@@ -64,14 +71,22 @@ export function useOptimisticStatus(onSaved?: (task: Task) => void) {
     [clear],
   );
 
-  const statusOf = useCallback(
-    (task: Pick<Task, "id" | "status">): TaskStatus =>
-      overrides[task.id]?.status ?? task.status,
+  /** The task as the board should show it, with any pending move applied. */
+  const view = useCallback(
+    (task: Task): Task => {
+      const patch = overrides[task.id]?.patch;
+      if (!patch) return task;
+      const next: Task = { ...task };
+      if (patch.status) next.status = patch.status;
+      if (patch.projectCwd !== undefined)
+        next.projectCwd = patch.projectCwd ?? undefined;
+      return next;
+    },
     [overrides],
   );
 
   return {
-    statusOf,
+    view,
     move,
     error,
     dismissError: () => setError(null),

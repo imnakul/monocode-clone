@@ -28,6 +28,30 @@ import {
 } from "../sessionBoard";
 
 const COLUMN_MIN_WIDTH = 256;
+const COLUMN_RESIZE_MIN = 220;
+const COLUMN_RESIZE_MAX = 560;
+const COLUMN_WIDTH_KEY = "monocode.sessionBoard.columnWidth";
+
+/** Fixed session column width, or null to fill the board. */
+function loadColumnWidth(): number | null {
+  try {
+    const value = Number(localStorage.getItem(COLUMN_WIDTH_KEY));
+    return Number.isFinite(value) && value > 0
+      ? Math.min(COLUMN_RESIZE_MAX, Math.max(COLUMN_RESIZE_MIN, value))
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveColumnWidth(width: number | null) {
+  try {
+    if (width === null) localStorage.removeItem(COLUMN_WIDTH_KEY);
+    else localStorage.setItem(COLUMN_WIDTH_KEY, String(width));
+  } catch {
+    /* storage unavailable: the width just won't persist */
+  }
+}
 export function SessionBoardView({
   cards,
   cwd,
@@ -63,6 +87,12 @@ export function SessionBoardView({
   const [selected, setSelected] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [columnWidth, setColumnWidth] = useState(loadColumnWidth);
+  const [liveColumnWidth, setLiveColumnWidth] = useState<number | null>(null);
+  const commitColumnWidth = (next: number | null) => {
+    setColumnWidth(next);
+    saveColumnWidth(next);
+  };
   const [width, setWidth] = useState(() => {
     try {
       return Math.max(
@@ -300,7 +330,16 @@ export function SessionBoardView({
                       id={key}
                       label={label}
                       count={rows.length}
-                      minWidth={COLUMN_MIN_WIDTH}
+                      fillMin={COLUMN_MIN_WIDTH}
+                      resize={{
+                        width: columnWidth,
+                        liveWidth: liveColumnWidth,
+                        min: COLUMN_RESIZE_MIN,
+                        max: COLUMN_RESIZE_MAX,
+                        onLive: setLiveColumnWidth,
+                        onCommit: commitColumnWidth,
+                        onReset: () => commitColumnWidth(null),
+                      }}
                       actions={
                         key === "done" || key === "stopped" ? (
                           <button
@@ -319,7 +358,7 @@ export function SessionBoardView({
                     >
                       {rows.map((card) => (
                         <div
-                          className="group relative mb-2 rounded-md bg-background-base/60 hover:bg-content/5"
+                          className="group relative mb-2 rounded-md bg-content/3 transition-colors duration-100 hover:bg-content/5"
                           key={card.sessionId}
                           data-board-card={card.sessionId}
                         >

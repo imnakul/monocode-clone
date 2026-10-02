@@ -6,8 +6,13 @@ import {
   TABLE_KEY,
   VIEW_KEY,
   defaultBoardState,
+  GROUPING_KEY,
+  defaultGrouping,
   defaultTableState,
+  groupTasks,
+  groupTasksByProject,
   groupTasksByStatus,
+  loadGrouping,
   loadBoardState,
   loadPeekWidth,
   loadTableState,
@@ -61,7 +66,7 @@ describe("task view persistence", () => {
     state.widths.title = 400;
     state.hidden = ["tags"];
     state.sort = { column: "title", dir: "asc" };
-    state.collapsed = ["draft", "review"];
+    state.collapsed = ["status:draft", "project:/work/app"];
     saveTableState(state);
     expect(loadTableState()).toEqual(state);
   });
@@ -73,7 +78,7 @@ describe("task view persistence", () => {
         widths: { title: 5, status: "wide", bogus: 200, tags: 9999 },
         hidden: ["title", "tags", "nope", 3],
         sort: { column: "nope", dir: "asc" },
-        collapsed: ["review", "nope"],
+        collapsed: ["review", "nope", "project:/work/app", 4],
       }),
     );
     const state = loadTableState();
@@ -83,7 +88,8 @@ describe("task view persistence", () => {
     expect(state.widths.tags).toBe(640);
     expect(state.hidden).toEqual(["tags"]);
     expect(state.sort).toEqual(defaults.sort);
-    expect(state.collapsed).toEqual(["review"]);
+    // Bare status ids from older saves become status group keys.
+    expect(state.collapsed).toEqual(["status:review", "project:/work/app"]);
   });
 
   it("falls back to defaults for malformed JSON and wrong shapes", () => {
@@ -95,14 +101,31 @@ describe("task view persistence", () => {
     expect(loadBoardState()).toEqual(defaultBoardState());
   });
 
-  it("clamps board column width and filters hidden statuses", () => {
+  it("clamps board column width and filters hidden statuses and projects", () => {
     localStorage.setItem(
       BOARD_KEY,
-      JSON.stringify({ columnWidth: 10, hidden: ["review", "x"] }),
+      JSON.stringify({
+        width: 10,
+        hidden: ["review", "x"],
+        hiddenProjects: ["project:/work/app", "bogus", 3],
+      }),
     );
-    expect(loadBoardState()).toEqual({ columnWidth: 220, hidden: ["review"] });
-    saveBoardState({ columnWidth: 300, hidden: [] });
-    expect(loadBoardState()).toEqual({ columnWidth: 300, hidden: [] });
+    expect(loadBoardState()).toEqual({
+      width: 220,
+      hidden: ["review"],
+      hiddenProjects: ["project:/work/app"],
+    });
+    saveBoardState({ width: 300, hidden: [], hiddenProjects: [] });
+    expect(loadBoardState()).toEqual({
+      width: 300,
+      hidden: [],
+      hiddenProjects: [],
+    });
+  });
+
+  it("starts filling the board when an old save only has a minimum column width", () => {
+    localStorage.setItem(BOARD_KEY, JSON.stringify({ columnWidth: 300 }));
+    expect(loadBoardState().width).toBeNull();
   });
 
   it("never throws when localStorage throws", () => {
@@ -168,5 +191,53 @@ describe("sorting and grouping", () => {
     ]);
     expect(groups.map((group) => group.status)).toEqual(["draft", "review"]);
     expect(groups[1].tasks.map((t) => t.id)).toEqual(["a", "c"]);
+  });
+});
+
+describe("grouping", () => {
+  it("defaults per view and drops invalid choices individually", () => {
+    expect(loadGrouping()).toEqual(defaultGrouping());
+    localStorage.setItem(
+      GROUPING_KEY,
+      JSON.stringify({ list: "project", table: "bogus", board: "none" }),
+    );
+    // A board always needs columns, so "none" falls back to status.
+    expect(loadGrouping()).toEqual({
+      list: "project",
+      table: "status",
+      board: "status",
+    });
+    localStorage.setItem(GROUPING_KEY, "{oops");
+    expect(loadGrouping()).toEqual(defaultGrouping());
+  });
+
+  it("groups by project by name, merges Windows path spellings and puts Personal last", () => {
+    const groups = groupTasksByProject([
+      task({ id: "p", projectCwd: undefined }),
+      task({ id: "z", projectCwd: "/work/zeta" }),
+      task({ id: "w1", projectCwd: "E:/Work/Alpha" }),
+      task({ id: "w2", projectCwd: "e:\\work\\alpha\\" }),
+    ]);
+    expect(groups.map((group) => [group.label, group.tasks.map((t) => t.id)]))
+      .toEqual([
+        ["Alpha", ["w1", "w2"]],
+        ["zeta", ["z"]],
+        ["Personal", ["p"]],
+      ]);
+    expect(groups[2]).toMatchObject({
+      key: "project:personal",
+      projectCwd: null,
+    });
+  });
+
+  it("returns one group for no grouping and readable labels for status groups", () => {
+    const tasks = [task({ id: "a", status: "review" }), task({ id: "b" })];
+    expect(groupTasks(tasks, "none").map((group) => group.tasks.length)).toEqual(
+      [2],
+    );
+    expect(groupTasks(tasks, "status").map((group) => group.label)).toEqual([
+      "Todo",
+      "Review",
+    ]);
   });
 });

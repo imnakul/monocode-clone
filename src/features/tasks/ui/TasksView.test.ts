@@ -12,6 +12,7 @@ import {
 } from "../tasks";
 import {
   BOARD_KEY,
+  GROUPING_KEY,
   PEEK_WIDTH_KEY,
   TABLE_KEY,
   VIEW_KEY,
@@ -669,7 +670,10 @@ describe("table view", () => {
   it("groups by status, hides empty groups, collapses and persists", async () => {
     await openTable();
     const groups = [...container.querySelectorAll<HTMLElement>("tbody")].map(
-      (entry) => entry.querySelector("button")?.textContent?.trim(),
+      (entry) =>
+        [...(entry.querySelector("button")?.querySelectorAll("span") ?? [])]
+          .map((span) => span.textContent?.trim())
+          .join(" "),
     );
     expect(groups).toEqual(["Todo 1", "Progress 1", "Blocked 1"]);
     expect(headerLabels()).toEqual([
@@ -686,7 +690,7 @@ describe("table view", () => {
     expect(todo.getAttribute("aria-expanded")).toBe("false");
     expect(container.textContent).not.toContain("Personal reminder");
     expect(JSON.parse(localStorage.getItem(TABLE_KEY)!).collapsed).toEqual([
-      "todo",
+      "status:todo",
     ]);
     await act(async () => root.render(null));
     await render();
@@ -822,9 +826,13 @@ describe("board view", () => {
     ]);
   });
 
-  it("resizes the minimum column width and persists it", async () => {
+  it("fills the board by default, resizes to a fixed width, persists it and resets on double click", async () => {
     await openBoard();
+    const column = byLabel("Todo column");
+    expect(column.className).toContain("flex-1");
+    expect(column.style.minWidth).toBe("260px");
     const handle = byLabel("Resize Todo column");
+    // happy-dom has no layout, so the drag starts from the fill minimum.
     await act(async () => {
       handle.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -839,8 +847,19 @@ describe("board view", () => {
         new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true }),
       );
     });
-    expect(JSON.parse(localStorage.getItem(BOARD_KEY)!).columnWidth).toBe(276);
-    expect(byLabel("Todo column").style.minWidth).toBe("276px");
+    expect(JSON.parse(localStorage.getItem(BOARD_KEY)!).width).toBe(276);
+    // Every column shares the fixed width and stops stretching.
+    for (const label of ["Todo column", "Review column"]) {
+      expect(byLabel(label).style.width).toBe("276px");
+      expect(byLabel(label).className).toContain("flex-none");
+    }
+    await act(async () => {
+      byLabel("Resize Todo column").dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true }),
+      );
+    });
+    expect(JSON.parse(localStorage.getItem(BOARD_KEY)!).width).toBeNull();
+    expect(byLabel("Todo column").className).toContain("flex-1");
   });
 
   describe("drag and optimistic moves", () => {
@@ -1004,5 +1023,136 @@ describe("persisted peek width", () => {
     expect(peek()!.style.width).toBe(
       `${Math.min(720, Math.round(window.innerWidth * 0.6))}px`,
     );
+  });
+});
+
+describe("grouping", () => {
+  const groupHeaders = () =>
+    [...container.querySelectorAll<HTMLButtonElement>("[data-task-group]")]
+      .map((entry) =>
+        [...entry.querySelectorAll("span")]
+          .map((span) => span.textContent?.trim())
+          .filter(Boolean)
+          .join(" "),
+      );
+
+  it("groups the List by project with Personal last, collapses a group and persists the choice", async () => {
+    await render();
+    expect(groupHeaders()).toEqual([]);
+    await pickOption("Group tasks", "Group by project");
+    expect(groupHeaders()).toEqual(["other 1", "project 1", "Personal 1"]);
+    const personal = container.querySelector<HTMLButtonElement>(
+      '[data-task-group="project:personal"]',
+    )!;
+    await click(personal);
+    expect(personal.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain("Personal reminder");
+    expect(JSON.parse(localStorage.getItem(GROUPING_KEY)!).list).toBe(
+      "project",
+    );
+    await act(async () => root.render(null));
+    await render();
+    expect(groupHeaders()).toEqual(["other 1", "project 1", "Personal 1"]);
+  });
+
+  it("groups the List by status in workflow order", async () => {
+    await render();
+    await pickOption("Group tasks", "Group by status");
+    expect(groupHeaders()).toEqual(["Todo 1", "Progress 1", "Blocked 1"]);
+  });
+
+  it("lets the Table group by project or not at all, independently of the List", async () => {
+    await render();
+    await switchView("Table");
+    await pickOption("Group tasks", "Group by project");
+    expect(groupHeaders()).toEqual(["other 1", "project 1", "Personal 1"]);
+    await pickOption("Group tasks", "No grouping");
+    expect(groupHeaders()).toEqual([]);
+    expect(container.querySelectorAll("tr[data-task-row]")).toHaveLength(3);
+    await switchView("List");
+    expect(groupHeaders()).toEqual([]);
+    expect(JSON.parse(localStorage.getItem(GROUPING_KEY)!)).toEqual({
+      list: "none",
+      table: "none",
+      board: "status",
+    });
+  });
+
+  describe("board by project", () => {
+    let over: Element | null = null;
+    beforeEach(() => {
+      over = null;
+      document.elementFromPoint = () => over;
+    });
+    const pointer = (type: string, target: EventTarget, x: number, y: number) =>
+      act(async () => {
+        target.dispatchEvent(
+          new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+            button: 0,
+          }),
+        );
+      });
+    async function drag(title: string, to: string) {
+      await pointer("pointerdown", card(title), 10, 10);
+      await pointer("pointermove", window, 30, 30);
+      over = byLabel(`${to} column`);
+      await pointer("pointermove", window, 40, 40);
+      await pointer("pointerup", window, 40, 40);
+      await act(async () => {
+        await tick();
+      });
+    }
+    async function openProjectBoard() {
+      await render();
+      await switchView("Board");
+      await pickOption("Group tasks", "Group by project");
+    }
+    const columnLabels = () =>
+      [
+        ...container.querySelectorAll<HTMLElement>(
+          "section[aria-label$=' column']",
+        ),
+      ].map((entry) => entry.getAttribute("aria-label"));
+
+    it("shows one column per project with Personal last", async () => {
+      await openProjectBoard();
+      expect(columnLabels()).toEqual([
+        "other column",
+        "project column",
+        "Personal column",
+      ]);
+    });
+
+    it("moves a card to another project by dragging and keeps its status", async () => {
+      await openProjectBoard();
+      await drag("Fix installer", "other");
+      expect(
+        card("Fix installer").closest('[aria-label="other column"]'),
+      ).not.toBeNull();
+      expect(rows.get("first")?.projectCwd).toBe("/work/other");
+      expect(rows.get("first")?.status).toBe("blocked");
+    });
+
+    it("moves a card to Personal by dropping it on the Personal column", async () => {
+      await openProjectBoard();
+      await drag("Ship docs", "Personal");
+      expect(rows.get("docs")?.projectCwd).toBeUndefined();
+      expect(
+        card("Ship docs").closest('[aria-label="Personal column"]'),
+      ).not.toBeNull();
+    });
+
+    it("hides a project column from Columns and persists it", async () => {
+      await openProjectBoard();
+      await pickMenuItem(byLabel("Choose visible columns"), "other");
+      expect(columnLabels()).toEqual(["project column", "Personal column"]);
+      expect(
+        JSON.parse(localStorage.getItem(BOARD_KEY)!).hiddenProjects,
+      ).toEqual(["project:/work/other"]);
+    });
   });
 });

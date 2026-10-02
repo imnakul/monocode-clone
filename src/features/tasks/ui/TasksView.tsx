@@ -31,13 +31,19 @@ import {
   TASK_COLUMNS,
   TASK_COLUMN_IDS,
   isTaskColumnId,
+  TASK_GROUP_BYS,
+  TASK_GROUP_LABELS,
+  groupTasksByProject,
   loadBoardState,
+  loadGrouping,
+  saveGrouping,
   loadTableState,
   loadTaskView,
   saveBoardState,
   saveTableState,
   saveTaskView,
   type TaskBoardState,
+  type TaskGrouping,
   type TaskTableState,
   type TaskViewId,
 } from "../taskViewState";
@@ -61,6 +67,25 @@ import { TaskPeekPane } from "./TaskPeekPane";
 import { TaskTable } from "./TaskTable";
 import { TasksToolbar } from "./TasksToolbar";
 import { TasksViewSwitch } from "./TasksViewSwitch";
+import {
+  SearchableSelect,
+  type SearchableSelectOption,
+} from "../../../shared/ui/SearchableSelect";
+
+const GROUP_OPTIONS: Record<TaskViewId, SearchableSelectOption[]> = {
+  list: (["none", "status", "project"] as const).map((value) => ({
+    value,
+    label: TASK_GROUP_LABELS[value],
+  })),
+  table: (["status", "project", "none"] as const).map((value) => ({
+    value,
+    label: TASK_GROUP_LABELS[value],
+  })),
+  board: (["status", "project"] as const).map((value) => ({
+    value,
+    label: TASK_GROUP_LABELS[value],
+  })),
+};
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -98,6 +123,9 @@ export function TasksView({
   const [view, setView] = useState<TaskViewId>(loadTaskView);
   const [table, setTable] = useState<TaskTableState>(loadTableState);
   const [board, setBoard] = useState<TaskBoardState>(loadBoardState);
+  const [grouping, setGrouping] = useState<TaskGrouping>(loadGrouping);
+  // List group collapsing is a per-visit convenience; it is not persisted.
+  const [listCollapsed, setListCollapsed] = useState<string[]>([]);
   const [menu, setMenu] = useState<Menu | null>(null);
   const marks = useProjectMarks();
   const root = useRef<HTMLDivElement>(null);
@@ -215,6 +243,22 @@ export function TasksView({
     setTable(next);
     saveTableState(next);
   };
+  const changeGrouping = (value: string) => {
+    const by = TASK_GROUP_BYS.find((id) => id === value);
+    if (!by) return;
+    const next: TaskGrouping =
+      view === "board"
+        ? { ...grouping, board: by === "project" ? "project" : "status" }
+        : { ...grouping, [view]: by };
+    setGrouping(next);
+    saveGrouping(next);
+  };
+  const toggleListGroup = (key: string) =>
+    setListCollapsed((current) =>
+      current.includes(key)
+        ? current.filter((item) => item !== key)
+        : [...current, key],
+    );
   const updateBoard = (next: TaskBoardState) => {
     setBoard(next);
     saveBoardState(next);
@@ -258,6 +302,15 @@ export function TasksView({
           checked: !table.hidden.includes(id),
         }),
       );
+    if (menu?.kind === "columns" && grouping.board === "project")
+      return groupTasksByProject(visible).map(
+        (group): ExplorerMenuItem => ({
+          kind: "item",
+          id: group.key,
+          label: group.label,
+          checked: !board.hiddenProjects.includes(group.key),
+        }),
+      );
     if (menu?.kind === "columns")
       return TASK_STATUSES.map((status): ExplorerMenuItem => ({
         kind: "item",
@@ -266,7 +319,16 @@ export function TasksView({
         checked: !board.hidden.includes(status),
       }));
     return [];
-  }, [menu?.kind, createChoices, view, table.hidden, board.hidden]);
+  }, [
+    menu?.kind,
+    createChoices,
+    view,
+    table.hidden,
+    board.hidden,
+    board.hiddenProjects,
+    grouping.board,
+    visible,
+  ]);
 
   const onPickMenu = (id: string) => {
     const kind = menu?.kind;
@@ -283,6 +345,15 @@ export function TasksView({
         hidden: table.hidden.includes(id)
           ? table.hidden.filter((item) => item !== id)
           : [...table.hidden, id],
+      });
+      return;
+    }
+    if (grouping.board === "project") {
+      updateBoard({
+        ...board,
+        hiddenProjects: board.hiddenProjects.includes(id)
+          ? board.hiddenProjects.filter((item) => item !== id)
+          : [...board.hiddenProjects, id],
       });
       return;
     }
@@ -339,15 +410,19 @@ export function TasksView({
     ) : view === "list" ? (
       <TaskList
         tasks={visible}
+        groupBy={grouping.list}
+        collapsed={listCollapsed}
         selectedId={selected?.id ?? null}
         marks={marks}
         onSelect={setSelectedId}
         onTagClick={addTagFilter}
+        onToggleGroup={toggleListGroup}
       />
     ) : view === "table" ? (
       <TaskTable
         tasks={visible}
         state={table}
+        groupBy={grouping.table}
         selectedId={selected?.id ?? null}
         marks={marks}
         onStateChange={updateTable}
@@ -359,6 +434,7 @@ export function TasksView({
       <TaskBoard
         tasks={visible}
         state={board}
+        groupBy={grouping.board}
         selectedId={selected?.id ?? null}
         marks={marks}
         onStateChange={updateBoard}
@@ -412,7 +488,20 @@ export function TasksView({
             onChooseLocation={(anchor) => openMenu("create", anchor)}
           />
         }
-        trailing={<TasksViewSwitch view={view} onChange={saveView} />}
+        trailing={
+          <>
+            <SearchableSelect
+              variant="pill"
+              label="Group tasks"
+              value={grouping[view]}
+              options={GROUP_OPTIONS[view]}
+              searchable={false}
+              align="end"
+              onChange={changeGrouping}
+            />
+            <TasksViewSwitch view={view} onChange={saveView} />
+          </>
+        }
       />
       {menu ? (
         <ExplorerMenu

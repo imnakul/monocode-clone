@@ -28,7 +28,8 @@ export function useProjectMarks(): ProjectMarks {
   return { logos, mascots, colors, customColors };
 }
 
-export function ProjectMark({
+/** The project's logo, or its mascot when it has none. */
+export function ProjectIcon({
   cwd,
   logos,
   mascots,
@@ -40,35 +41,42 @@ export function ProjectMark({
   const logoPath = resolveTabGroupLogo(key, logos);
   const mascotName = resolveTabGroupMascot(key, mascots);
   const mascotColor = resolveTabGroupColor(key, colors, customColors, project);
+  return logoPath ? (
+    <ProjectLogoIcon
+      path={logoPath}
+      className="size-3.5 shrink-0 rounded-sm"
+      imageClassName="size-3.5"
+    />
+  ) : (
+    <ProjectMascot
+      project={project}
+      color={mascotColor}
+      name={mascotName}
+      className="size-3 shrink-0"
+    />
+  );
+}
+
+export function ProjectMark({ cwd, ...marks }: { cwd: string } & ProjectMarks) {
   return (
     <span className="flex min-w-0 items-center gap-1.5">
-      {logoPath ? (
-        <ProjectLogoIcon
-          path={logoPath}
-          className="size-3.5 shrink-0 rounded-sm"
-          imageClassName="size-3.5"
-        />
-      ) : (
-        <ProjectMascot
-          project={project}
-          color={mascotColor}
-          name={mascotName}
-          className="size-3 shrink-0"
-        />
-      )}
-      <span className="min-w-0 truncate">{project}</span>
+      <ProjectIcon cwd={cwd} {...marks} />
+      <span className="min-w-0 truncate">{projectName(cwd)}</span>
     </span>
   );
 }
 
 /** Same visual weight as a project mark, so unbound items don't read as blank. */
+export function PersonalIcon() {
+  return (
+    <StickyNote className="size-3 shrink-0 text-content/50" strokeWidth={1.75} />
+  );
+}
+
 export function PersonalMark() {
   return (
     <span className="flex min-w-0 items-center gap-1.5">
-      <StickyNote
-        className="size-3 shrink-0 text-content/50"
-        strokeWidth={1.75}
-      />
+      <PersonalIcon />
       <span className="min-w-0 truncate">Personal</span>
     </span>
   );

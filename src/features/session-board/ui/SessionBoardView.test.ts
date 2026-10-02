@@ -195,7 +195,9 @@ it("reports an unavailable session and storage retry without opening an empty pa
 it("hides the session pane without removing its card and supports keyboard resizing", async () => {
   render();
   await act(async () => card("running").click());
-  const divider = container.querySelector<HTMLElement>('[role="separator"]')!;
+  const divider = container.querySelector<HTMLElement>(
+    '[aria-label="Board and session divider"]',
+  )!;
   act(() =>
     divider.dispatchEvent(
       new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
@@ -277,4 +279,46 @@ it("keeps the selected Windows project when its display path changes slash style
   );
   expect(card("running")).not.toBeNull();
   expect(container.querySelector('[data-board-card="other"]')).toBeNull();
+});
+
+it("fills by default, resizes every column to a fixed width, persists it and resets on double click", async () => {
+  render();
+  const todo = container.querySelector<HTMLElement>(
+    '[aria-label="Todo column"]',
+  )!;
+  expect(todo.className).toContain("flex-1");
+  const handle = container.querySelector<HTMLElement>(
+    '[aria-label="Resize Todo column"]',
+  )!;
+  act(() =>
+    handle.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    ),
+  );
+  act(() =>
+    handle.dispatchEvent(
+      new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true }),
+    ),
+  );
+  expect(localStorage.getItem("monocode.sessionBoard.columnWidth")).toBe(
+    "272",
+  );
+  expect(
+    container.querySelector<HTMLElement>('[aria-label="Done column"]')!.style
+      .width,
+  ).toBe("272px");
+  act(() =>
+    handle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
+  );
+  expect(localStorage.getItem("monocode.sessionBoard.columnWidth")).toBeNull();
+  expect(todo.className).toContain("flex-1");
+});
+
+it("draws session cards on the translucent board surface, not an opaque one", () => {
+  render();
+  const wrapper = container.querySelector<HTMLElement>(
+    '[data-board-card="running"]',
+  )!;
+  expect(wrapper.className).toContain("bg-content/3");
+  expect(wrapper.className).not.toContain("bg-background-base");
 });

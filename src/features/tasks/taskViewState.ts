@@ -1,5 +1,10 @@
-import { projectName } from "../../shared/lib/paths";
-import { TASK_STATUSES, type Task, type TaskStatus } from "./tasks";
+import { pathKey, projectName } from "../../shared/lib/paths";
+import {
+  TASK_STATUSES,
+  TASK_STATUS_LABELS,
+  type Task,
+  type TaskStatus,
+} from "./tasks";
 
 export const TASK_VIEW_IDS = ["list", "table", "board"] as const;
 export type TaskViewId = (typeof TASK_VIEW_IDS)[number];
@@ -32,25 +37,46 @@ export const PEEK_MIN_WIDTH = 360;
 export const PEEK_MAX_WIDTH = 720;
 export const PEEK_DEFAULT_WIDTH = 440;
 export const BOARD_COLUMN_MIN = 220;
-export const BOARD_COLUMN_MAX = 400;
-export const BOARD_COLUMN_DEFAULT = 260;
+export const BOARD_COLUMN_MAX = 560;
+/** Minimum column width while columns fill the board. */
+export const BOARD_COLUMN_FILL_MIN = 260;
+
+export const TASK_GROUP_BYS = ["none", "status", "project"] as const;
+export type TaskGroupBy = (typeof TASK_GROUP_BYS)[number];
+export type BoardGroupBy = Exclude<TaskGroupBy, "none">;
+/** Grouping chosen per view; a board always needs columns. */
+export type TaskGrouping = {
+  list: TaskGroupBy;
+  table: TaskGroupBy;
+  board: BoardGroupBy;
+};
+export const TASK_GROUP_LABELS: Record<TaskGroupBy, string> = {
+  none: "No grouping",
+  status: "Group by status",
+  project: "Group by project",
+};
 
 export type TaskSort = { column: TaskColumnId; dir: "asc" | "desc" };
 export type TaskTableState = {
   widths: Record<TaskColumnId, number>;
   hidden: TaskColumnId[];
   sort: TaskSort;
-  collapsed: TaskStatus[];
+  /** Collapsed group keys (`status:<id>` or `project:<key>`). */
+  collapsed: string[];
 };
 export type TaskBoardState = {
-  columnWidth: number;
+  /** Fixed column width, or null to fill the board. */
+  width: number | null;
   hidden: TaskStatus[];
+  /** Hidden project columns by group key. */
+  hiddenProjects: string[];
 };
 
 export const VIEW_KEY = "monocode.tasks.view";
 export const PEEK_WIDTH_KEY = "monocode.tasks.peekWidth";
 export const TABLE_KEY = "monocode.tasks.table";
 export const BOARD_KEY = "monocode.tasks.board";
+export const GROUPING_KEY = "monocode.tasks.grouping";
 
 export function defaultTableState(): TaskTableState {
   return {
@@ -70,8 +96,9 @@ export function defaultTableState(): TaskTableState {
 
 export function defaultBoardState(): TaskBoardState {
   return {
-    columnWidth: BOARD_COLUMN_DEFAULT,
+    width: null,
     hidden: ["draft", "deferred"],
+    hiddenProjects: [],
   };
 }
 
@@ -170,7 +197,15 @@ export function parseTableState(value: unknown): TaskTableState {
     (value.sort.dir === "asc" || value.sort.dir === "desc")
   )
     state.sort = { column: value.sort.column, dir: value.sort.dir };
-  const collapsed = uniqueFiltered(value.collapsed, isTaskStatusId);
+  const collapsed = uniqueFiltered(
+    Array.isArray(value.collapsed)
+      ? value.collapsed.map((item: unknown) =>
+          // Older saves stored bare status ids.
+          isTaskStatusId(item) ? statusGroupKey(item) : item,
+        )
+      : undefined,
+    isGroupKey,
+  );
   if (collapsed) state.collapsed = collapsed;
   return state;
 }
@@ -184,17 +219,13 @@ export function saveTableState(state: TaskTableState) {
 export function parseBoardState(value: unknown): TaskBoardState {
   const state = defaultBoardState();
   if (!isRecord(value)) return state;
-  if (
-    typeof value.columnWidth === "number" &&
-    Number.isFinite(value.columnWidth)
-  )
-    state.columnWidth = clampNumber(
-      value.columnWidth,
-      BOARD_COLUMN_MIN,
-      BOARD_COLUMN_MAX,
-    );
+  // `columnWidth` from earlier saves was a minimum, not a width; start filling.
+  if (typeof value.width === "number" && Number.isFinite(value.width))
+    state.width = clampNumber(value.width, BOARD_COLUMN_MIN, BOARD_COLUMN_MAX);
   const hidden = uniqueFiltered(value.hidden, isTaskStatusId);
   if (hidden) state.hidden = hidden;
+  const hiddenProjects = uniqueFiltered(value.hiddenProjects, isGroupKey);
+  if (hiddenProjects) state.hiddenProjects = hiddenProjects;
   return state;
 }
 export function loadBoardState(): TaskBoardState {
@@ -258,4 +289,96 @@ export function groupTasksByStatus(
     status,
     tasks: tasks.filter((task) => task.status === status),
   })).filter((group) => group.tasks.length > 0);
+}
+
+export function defaultGrouping(): TaskGrouping {
+  return { list: "none", table: "status", board: "status" };
+}
+
+function isTaskGroupBy(value: unknown): value is TaskGroupBy {
+  return TASK_GROUP_BYS.some((id) => id === value);
+}
+
+export function parseGrouping(value: unknown): TaskGrouping {
+  const grouping = defaultGrouping();
+  if (!isRecord(value)) return grouping;
+  if (isTaskGroupBy(value.list)) grouping.list = value.list;
+  if (isTaskGroupBy(value.table)) grouping.table = value.table;
+  if (value.board === "status" || value.board === "project")
+    grouping.board = value.board;
+  return grouping;
+}
+export function loadGrouping(): TaskGrouping {
+  return parseGrouping(readJson(GROUPING_KEY));
+}
+export function saveGrouping(grouping: TaskGrouping) {
+  write(GROUPING_KEY, JSON.stringify(grouping));
+}
+
+export type TaskGroup = {
+  key: string;
+  label: string;
+  /** Set for status groups. */
+  status?: TaskStatus;
+  /** Set for project groups: the project path, or null for Personal. */
+  projectCwd?: string | null;
+  tasks: Task[];
+};
+
+export const PERSONAL_GROUP_KEY = "project:personal";
+
+export function statusGroupKey(status: TaskStatus): string {
+  return `status:${status}`;
+}
+
+export function projectGroupKey(projectCwd: string | undefined | null): string {
+  return projectCwd ? `project:${pathKey(projectCwd)}` : PERSONAL_GROUP_KEY;
+}
+
+function isGroupKey(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 1024 &&
+    (value.startsWith("status:") || value.startsWith("project:"))
+  );
+}
+
+/** Project groups ordered by name, Personal last. Row order is preserved. */
+export function groupTasksByProject(tasks: readonly Task[]): TaskGroup[] {
+  const groups = new Map<string, TaskGroup>();
+  for (const task of tasks) {
+    const key = projectGroupKey(task.projectCwd);
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        key,
+        label: task.projectCwd ? projectName(task.projectCwd) : "Personal",
+        projectCwd: task.projectCwd ?? null,
+        tasks: [],
+      };
+      groups.set(key, group);
+    }
+    group.tasks.push(task);
+  }
+  return [...groups.values()].sort((a, b) => {
+    if (a.key === PERSONAL_GROUP_KEY) return 1;
+    if (b.key === PERSONAL_GROUP_KEY) return -1;
+    return compareText(a.label, b.label) || a.key.localeCompare(b.key);
+  });
+}
+
+/** Groups for List and Table. `none` yields one group holding every task. */
+export function groupTasks(
+  tasks: readonly Task[],
+  by: TaskGroupBy,
+): TaskGroup[] {
+  if (by === "project") return groupTasksByProject(tasks);
+  if (by === "status")
+    return groupTasksByStatus(tasks).map((group) => ({
+      key: statusGroupKey(group.status),
+      label: TASK_STATUS_LABELS[group.status],
+      status: group.status,
+      tasks: group.tasks,
+    }));
+  return [{ key: "all", label: "All tasks", tasks: [...tasks] }];
 }

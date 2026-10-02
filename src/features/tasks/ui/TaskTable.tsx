@@ -7,20 +7,23 @@ import {
   TASK_COLUMN_IDS,
   TASK_COLUMN_MAX_WIDTH,
   clampColumnWidth,
-  groupTasksByStatus,
+  groupTasks,
   nextSort,
   sortTasks,
   type TaskColumnId,
+  type TaskGroupBy,
   type TaskTableState,
 } from "../taskViewState";
-import { TASK_STATUS_LABELS, type Task, type TaskStatus } from "../tasks";
-import { ResizeHandle } from "./ResizeHandle";
-import { TaskStatusIcon, TaskStatusMenu } from "./TaskStatusIcon";
+import type { Task, TaskStatus } from "../tasks";
+import { ResizeHandle } from "../../../shared/ui/ResizeHandle";
+import { TaskGroupHeader } from "./TaskGroupHeader";
+import { TaskStatusMenu } from "./TaskStatusIcon";
 import { relativeTime, TaskProjectMark, TaskTagChips } from "./TaskTags";
 
 export function TaskTable({
   tasks,
   state,
+  groupBy,
   selectedId,
   marks,
   onStateChange,
@@ -30,6 +33,7 @@ export function TaskTable({
 }: {
   tasks: readonly Task[];
   state: TaskTableState;
+  groupBy: TaskGroupBy;
   selectedId: string | null;
   marks: ProjectMarks;
   onStateChange: (state: TaskTableState) => void;
@@ -47,15 +51,15 @@ export function TaskTable({
     live?.column === id ? live.width : state.widths[id];
   const total = columns.reduce((sum, id) => sum + widthOf(id), 0);
   const groups = useMemo(
-    () => groupTasksByStatus(sortTasks(tasks, state.sort)),
-    [tasks, state.sort],
+    () => groupTasks(sortTasks(tasks, state.sort), groupBy),
+    [tasks, state.sort, groupBy],
   );
-  const toggleGroup = (status: TaskStatus) =>
+  const toggleGroup = (key: string) =>
     onStateChange({
       ...state,
-      collapsed: state.collapsed.includes(status)
-        ? state.collapsed.filter((item) => item !== status)
-        : [...state.collapsed, status],
+      collapsed: state.collapsed.includes(key)
+        ? state.collapsed.filter((item) => item !== key)
+        : [...state.collapsed, key],
     });
 
   const cell = (task: Task, id: TaskColumnId): ReactNode => {
@@ -133,7 +137,7 @@ export function TaskTable({
                         : "descending"
                       : undefined
                   }
-                  className="sticky top-0 z-20 h-8 bg-background-base px-3 text-left text-[11px] font-normal text-content/50"
+                  className="sticky top-0 z-20 h-8 border-b border-stroke bg-content/3 px-3 text-left text-[11px] font-normal text-content/50 backdrop-blur-xl"
                 >
                   <button
                     type="button"
@@ -180,34 +184,26 @@ export function TaskTable({
           </tr>
         </thead>
         {groups.map((group) => {
-          const collapsed = state.collapsed.includes(group.status);
+          const grouped = groupBy !== "none";
+          const collapsed = grouped && state.collapsed.includes(group.key);
           return (
-            <tbody key={group.status}>
-              <tr>
-                <th
-                  colSpan={columns.length}
-                  scope="colgroup"
-                  className="sticky top-8 z-10 h-8 bg-background-base px-2 text-left font-normal"
-                >
-                  <button
-                    type="button"
-                    aria-expanded={!collapsed}
-                    onClick={() => toggleGroup(group.status)}
-                    className="inline-flex h-6 items-center gap-1.5 rounded-md px-1.5 text-[12px] font-medium text-content/80 hover:bg-content/5 hover:text-content"
+            <tbody key={group.key}>
+              {grouped ? (
+                <tr>
+                  <th
+                    colSpan={columns.length}
+                    scope="colgroup"
+                    className="sticky top-8 z-10 h-8 bg-content/2 px-2 text-left font-normal backdrop-blur-xl"
                   >
-                    <ChevronDown
-                      aria-hidden
-                      className={`size-3 text-content/45 ${
-                        collapsed ? "-rotate-90" : ""
-                      }`}
+                    <TaskGroupHeader
+                      group={group}
+                      collapsed={collapsed}
+                      marks={marks}
+                      onToggle={() => toggleGroup(group.key)}
                     />
-                    <TaskStatusIcon status={group.status} />
-                    <span>
-                      {TASK_STATUS_LABELS[group.status]} {group.tasks.length}
-                    </span>
-                  </button>
-                </th>
-              </tr>
+                  </th>
+                </tr>
+              ) : null}
               {collapsed
                 ? null
                 : group.tasks.map((task) => {
@@ -225,7 +221,7 @@ export function TaskTable({
                             return;
                           onSelect(task.id);
                         }}
-                        className={`h-9 cursor-pointer ${
+                        className={`h-9 cursor-pointer transition-colors duration-100 ${
                           active
                             ? "bg-selection text-content"
                             : "text-content/80 hover:bg-content/5"

@@ -1,8 +1,10 @@
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import { suppressTextSelection } from "../../../shared/lib/drag";
 import { X } from "../../../shared/ui/icons";
@@ -12,10 +14,12 @@ import {
 } from "../../../shared/ui/board/BoardColumns";
 import type { ProjectMarks } from "../../projects/ui/ProjectMark";
 import {
-  BOARD_COLUMN_DEFAULT,
+  BOARD_COLUMN_FILL_MIN,
   BOARD_COLUMN_MAX,
   BOARD_COLUMN_MIN,
-  isTaskStatusId,
+  groupTasksByProject,
+  projectGroupKey,
+  type BoardGroupBy,
   type TaskBoardState,
 } from "../taskViewState";
 import {
@@ -24,10 +28,10 @@ import {
   type Task,
   type TaskStatus,
 } from "../tasks";
-import { ResizeHandle } from "./ResizeHandle";
+import { TaskGroupIcon } from "./TaskGroupHeader";
 import { TaskStatusIcon, TaskStatusMenu } from "./TaskStatusIcon";
 import { relativeTime, TaskProjectMark, TaskTagChips } from "./TaskTags";
-import { useOptimisticStatus } from "./useOptimisticStatus";
+import { useOptimisticTask, type TaskMovePatch } from "./useOptimisticTask";
 
 const DRAG_THRESHOLD = 4;
 
@@ -38,20 +42,32 @@ type DragView = {
   offsetX: number;
   offsetY: number;
   width: number;
-  over: TaskStatus | null;
+  over: string | null;
 };
 
-function statusAtPoint(x: number, y: number): TaskStatus | null {
-  const column = document
-    .elementFromPoint(x, y)
-    ?.closest("[data-task-column]")
-    ?.getAttribute("data-task-column");
-  return isTaskStatusId(column) ? column : null;
+/** One board column: a status, or a project (Personal included). */
+type ColumnDef = {
+  key: string;
+  label: string;
+  icon: ReactNode;
+  /** What dropping a card here changes. */
+  patch: TaskMovePatch;
+  tasks: Task[];
+};
+
+function columnAtPoint(x: number, y: number): string | null {
+  return (
+    document
+      .elementFromPoint(x, y)
+      ?.closest("[data-task-column]")
+      ?.getAttribute("data-task-column") ?? null
+  );
 }
 
 export function TaskBoard({
   tasks,
   state,
+  groupBy,
   selectedId,
   marks,
   onStateChange,
@@ -61,6 +77,7 @@ export function TaskBoard({
 }: {
   tasks: readonly Task[];
   state: TaskBoardState;
+  groupBy: BoardGroupBy;
   selectedId: string | null;
   marks: ProjectMarks;
   onStateChange: (state: TaskBoardState) => void;
@@ -68,21 +85,41 @@ export function TaskBoard({
   onTagClick: (tag: string) => void;
   onSaved: (task: Task) => void;
 }) {
-  const { statusOf, move, error, dismissError } = useOptimisticStatus(onSaved);
+  const { view, move, error, dismissError } = useOptimisticTask(onSaved);
   const [drag, setDrag] = useState<DragView | null>(null);
   const [liveWidth, setLiveWidth] = useState<number | null>(null);
   const suppressClick = useRef(false);
   const abortDrag = useRef<(() => void) | null>(null);
-  const statusOfRef = useRef(statusOf);
-  statusOfRef.current = statusOf;
-  const moveRef = useRef(move);
-  moveRef.current = move;
-  useEffect(() => () => abortDrag.current?.(), []);
-
-  const columns = TASK_STATUSES.filter(
-    (status) => !state.hidden.includes(status),
+  const shown = useMemo(() => tasks.map(view), [tasks, view]);
+  const columns = useMemo<ColumnDef[]>(
+    () =>
+      groupBy === "project"
+        ? groupTasksByProject(shown)
+            .filter((group) => !state.hiddenProjects.includes(group.key))
+            .map((group) => ({
+              key: group.key,
+              label: group.label,
+              icon: <TaskGroupIcon group={group} marks={marks} />,
+              patch: { projectCwd: group.projectCwd ?? null },
+              tasks: group.tasks,
+            }))
+        : TASK_STATUSES.filter((status) => !state.hidden.includes(status)).map(
+            (status) => ({
+              key: status,
+              label: TASK_STATUS_LABELS[status],
+              icon: <TaskStatusIcon status={status} />,
+              patch: { status },
+              tasks: shown.filter((task) => task.status === status),
+            }),
+          ),
+    [groupBy, shown, state.hidden, state.hiddenProjects, marks],
   );
-  const columnWidth = liveWidth ?? state.columnWidth;
+  /** Column key a task currently belongs to, with pending moves applied. */
+  const keyOf = (task: Task) =>
+    groupBy === "project" ? projectGroupKey(task.projectCwd) : task.status;
+  const dropRef = useRef({ columns, keyOf, view, move });
+  dropRef.current = { columns, keyOf, view, move };
+  useEffect(() => () => abortDrag.current?.(), []);
 
   const beginDrag = (event: ReactPointerEvent<HTMLElement>, task: Task) => {
     if (event.button !== 0) return;
@@ -101,7 +138,7 @@ export function TaskBoard({
     let restoreSelection: () => void = () => {};
     let previousCursor = "";
 
-    const stop = (dropOn: TaskStatus | null) => {
+    const stop = (dropOn: string | null) => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
@@ -122,8 +159,11 @@ export function TaskBoard({
           suppressClick.current = false;
         }, 0);
       }
-      if (dropOn && dropOn !== statusOfRef.current(task))
-        moveRef.current(task, dropOn);
+      if (!dropOn) return;
+      const latest = dropRef.current;
+      const target = latest.columns.find((column) => column.key === dropOn);
+      if (target && dropOn !== latest.keyOf(latest.view(task)))
+        latest.move(task, target.patch);
     };
     const onMove = (move: globalThis.PointerEvent) => {
       if (move.pointerId !== pointerId) return;
@@ -150,12 +190,12 @@ export function TaskBoard({
         offsetX: startX - rect.left,
         offsetY: startY - rect.top,
         width: rect.width,
-        over: statusAtPoint(move.clientX, move.clientY),
+        over: columnAtPoint(move.clientX, move.clientY),
       });
     };
     const onUp = (up: globalThis.PointerEvent) => {
       if (up.pointerId !== pointerId) return;
-      stop(active ? statusAtPoint(up.clientX, up.clientY) : null);
+      stop(active ? columnAtPoint(up.clientX, up.clientY) : null);
     };
     const onCancel = (cancel: globalThis.PointerEvent) => {
       if (cancel.pointerId !== pointerId) return;
@@ -194,65 +234,59 @@ export function TaskBoard({
       ) : null}
       <div className="min-h-0 flex-1">
         <BoardColumns>
-          {columns.map((status) => {
-            const cards = tasks.filter((task) => statusOf(task) === status);
-            return (
-              <BoardColumn
-                key={status}
-                id={status}
-                label={TASK_STATUS_LABELS[status]}
-                icon={<TaskStatusIcon status={status} />}
-                count={cards.length}
-                minWidth={columnWidth}
-                highlighted={drag?.over === status}
-                columnProps={{ "data-task-column": status }}
-                actions={
-                  <ResizeHandle
-                    label={`Resize ${TASK_STATUS_LABELS[status]} column`}
-                    value={columnWidth}
-                    min={BOARD_COLUMN_MIN}
-                    max={BOARD_COLUMN_MAX}
-                    defaultValue={BOARD_COLUMN_DEFAULT}
-                    placement="top-0 -right-1.5 h-9"
-                    onLive={setLiveWidth}
-                    onCommit={(width) =>
-                      onStateChange({ ...state, columnWidth: width })
-                    }
-                  />
-                }
-              >
-                {cards.length === 0 ? (
-                  <p className="px-2 py-3 text-center text-[12px] text-content/35">
-                    No tasks
-                  </p>
-                ) : (
-                  <ul className="flex flex-col gap-1.5" role="list">
-                    {cards.map((task) => (
-                      <li key={task.id}>
-                        <TaskCard
-                          task={task}
-                          status={status}
-                          active={selectedId === task.id}
-                          dragging={drag?.task.id === task.id}
-                          marks={marks}
-                          onPointerDown={(event) => beginDrag(event, task)}
-                          onSelect={() => {
-                            if (suppressClick.current) return;
-                            onSelect(task.id);
-                          }}
-                          onTagClick={onTagClick}
-                          onStatusChange={(next) => move(task, next)}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </BoardColumn>
-            );
-          })}
+          {columns.map((column) => (
+            <BoardColumn
+              key={column.key}
+              id={column.key}
+              label={column.label}
+              icon={column.icon}
+              count={column.tasks.length}
+              fillMin={BOARD_COLUMN_FILL_MIN}
+              highlighted={drag?.over === column.key}
+              columnProps={{ "data-task-column": column.key }}
+              resize={{
+                width: state.width,
+                liveWidth,
+                min: BOARD_COLUMN_MIN,
+                max: BOARD_COLUMN_MAX,
+                onLive: setLiveWidth,
+                onCommit: (width) => onStateChange({ ...state, width }),
+                onReset: () => onStateChange({ ...state, width: null }),
+              }}
+            >
+              {column.tasks.length === 0 ? (
+                <p className="px-2 py-3 text-center text-[12px] text-content/35">
+                  No tasks
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-1.5" role="list">
+                  {column.tasks.map((task) => (
+                    <li key={task.id}>
+                      <TaskCard
+                        task={task}
+                        status={task.status}
+                        active={selectedId === task.id}
+                        dragging={drag?.task.id === task.id}
+                        marks={marks}
+                        onPointerDown={(event) => beginDrag(event, task)}
+                        onSelect={() => {
+                          if (suppressClick.current) return;
+                          onSelect(task.id);
+                        }}
+                        onTagClick={onTagClick}
+                        onStatusChange={(next) => move(task, { status: next })}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </BoardColumn>
+          ))}
           {columns.length === 0 ? (
             <p className="m-auto text-[12px] text-content/45">
-              No columns shown. Use Columns to choose statuses.
+              {groupBy === "project"
+              ? "No project columns shown. Use Columns to choose projects."
+              : "No columns shown. Use Columns to choose statuses."}
             </p>
           ) : null}
         </BoardColumns>
@@ -267,8 +301,8 @@ export function TaskBoard({
           }}
         >
           <TaskCard
-            task={drag.task}
-            status={statusOf(drag.task)}
+            task={view(drag.task)}
+            status={view(drag.task).status}
             active={false}
             dragging={false}
             marks={marks}

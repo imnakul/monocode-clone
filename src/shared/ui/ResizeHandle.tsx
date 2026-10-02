@@ -1,11 +1,12 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import { suppressTextSelection } from "../../../shared/lib/drag";
+import { suppressTextSelection } from "../lib/drag";
 
 const KEY_STEP = 16;
 
 /**
  * Vertical drag handle for a column edge. The live value is reported through
  * `onLive` while dragging; `onCommit` fires once on pointerup/keyup/double-click.
+ * Double-click restores `defaultValue`, or calls `onReset` when given.
  */
 export function ResizeHandle({
   label,
@@ -16,6 +17,8 @@ export function ResizeHandle({
   onLive,
   onCommit,
   placement = "inset-y-0 -right-1",
+  getStartValue,
+  onReset,
 }: {
   label: string;
   value: number;
@@ -26,6 +29,10 @@ export function ResizeHandle({
   onCommit: (value: number) => void;
   /** Tailwind position classes relative to the nearest positioned ancestor. */
   placement?: string;
+  /** Where a drag starts when `value` is not the rendered size (fill layouts). */
+  getStartValue?: () => number;
+  /** Double-click action instead of committing `defaultValue`. */
+  onReset?: () => void;
 }) {
   const [dragging, setDragging] = useState(false);
   const liveRef = useRef<number | null>(null);
@@ -48,7 +55,7 @@ export function ResizeHandle({
     const handle = event.currentTarget;
     const pointerId = event.pointerId;
     const startX = event.clientX;
-    const startValue = liveRef.current ?? value;
+    const startValue = liveRef.current ?? getStartValue?.() ?? value;
     try {
       handle.setPointerCapture(pointerId);
     } catch {
@@ -92,7 +99,7 @@ export function ResizeHandle({
     if (!delta) return;
     event.preventDefault();
     event.stopPropagation();
-    setLive(clamp((liveRef.current ?? value) + delta));
+    setLive(clamp((liveRef.current ?? getStartValue?.() ?? value) + delta));
   };
 
   return (
@@ -116,7 +123,8 @@ export function ResizeHandle({
       onDoubleClick={(event) => {
         event.stopPropagation();
         setLive(null);
-        onCommit(clamp(defaultValue));
+        if (onReset) onReset();
+        else onCommit(clamp(defaultValue));
       }}
     />
   );
