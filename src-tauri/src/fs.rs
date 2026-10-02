@@ -5933,10 +5933,12 @@ pub async fn move_path(from: String, dest_parent: String) -> Result<String, Stri
         .map_err(|e| e.to_string())?
 }
 
-/// `explorer /select,` argument; Explorer wants native separators.
+/// Explorer requires the `/select,` switch itself to remain unquoted while
+/// paths containing spaces are quoted as its value. `Command::raw_arg` is used
+/// below because its normal Windows argument quoting wraps the whole switch.
 #[cfg(target_os = "windows")]
 fn reveal_arg(path_str: &str) -> String {
-    format!("/select,{}", path_str.replace('/', "\\"))
+    format!("/select,\"{}\"", path_str.replace('/', "\\"))
 }
 
 /// Explorer's exit code after `/select` is not a reliable result — it opens
@@ -5974,12 +5976,12 @@ pub fn reveal_path(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
         // Explorer's exit code after /select dispatch is not a reliable
-        // result: it opens the right location yet still exits nonzero, which
-        // surfaced as a false "Could not reveal" error. Success here means
-        // Explorer was dispatched; only a spawn failure is an error.
+        // result: it opens the right location yet still exits nonzero. Keep
+        // the switch unquoted and quote only its path value for spaces.
         let mut cmd = Command::new("explorer");
-        cmd.arg(reveal_arg(&path.to_string_lossy()));
+        cmd.raw_arg(reveal_arg(&path.to_string_lossy()));
         spawn_reveal(cmd)
     }
 
@@ -8901,8 +8903,11 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn reveal_arg_selects_the_native_path() {
-        assert_eq!(reveal_arg("C:/repo/notes.md"), "/select,C:\\repo\\notes.md");
+    fn reveal_arg_quotes_only_the_path_with_native_separators() {
+        assert_eq!(
+            reveal_arg("C:/Users/Me/My notes.md"),
+            "/select,\"C:\\Users\\Me\\My notes.md\""
+        );
     }
 
     #[cfg(target_os = "windows")]

@@ -22,6 +22,8 @@ type SpawnFn = () => Promise<void>;
 const wanted = new Set<string>();
 const starting = new Map<string, Promise<void>>();
 const live = new Set<string>();
+/** Invalidates a pending spawn if the user closes the terminal before it ends. */
+const generations = new Map<string, number>();
 /** Spawn failure message by id. While present, only an explicit retry spawns. */
 const failed = new Map<string, string>();
 /** Exit state survives a view remount for the current app session. */
@@ -102,18 +104,23 @@ export function requestTerminalStart(
   if (!options?.force && failed.has(id)) {
     return Promise.reject(new Error(failed.get(id) ?? "Terminal failed to start."));
   }
+  const generation = generations.get(id) ?? 0;
   let task: Promise<void>;
   try {
     task = spawn().then(
       () => {
-        starting.delete(id);
-        failed.delete(id);
-        if (wanted.has(id)) live.add(id);
+        if (starting.get(id) === task) starting.delete(id);
+        if ((generations.get(id) ?? 0) === generation && wanted.has(id)) {
+          failed.delete(id);
+          live.add(id);
+        }
         emit();
       },
       (error: unknown) => {
-        starting.delete(id);
-        failed.set(id, error instanceof Error ? error.message : String(error));
+        if (starting.get(id) === task) starting.delete(id);
+        if ((generations.get(id) ?? 0) === generation && wanted.has(id)) {
+          failed.set(id, error instanceof Error ? error.message : String(error));
+        }
         emit();
         throw error;
       },
@@ -151,6 +158,7 @@ export function retryTerminalStart(id: string, spawn: SpawnFn): Promise<void> {
  */
 export function forgetTerminal(id: string): void {
   if (!id) return;
+  generations.set(id, (generations.get(id) ?? 0) + 1);
   let changed = false;
   if (wanted.delete(id)) changed = true;
   if (live.delete(id)) changed = true;
@@ -164,6 +172,7 @@ export function resetTerminalLifecycle(): void {
   wanted.clear();
   starting.clear();
   live.clear();
+  generations.clear();
   failed.clear();
   exited.clear();
   version = 0;

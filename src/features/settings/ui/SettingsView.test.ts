@@ -20,7 +20,11 @@ import {
   clearCachedRateLimits,
   setCachedRateLimits,
 } from "../../providers/model/rateLimitsCache";
-import { HARNESSES, HARNESS_TITLE } from "../../sessions/model/session";
+import {
+  HARNESSES,
+  HARNESS_TITLE,
+} from "../../sessions/model/session";
+import { saveMaskEmails, saveShowRemainingUsage } from "../model/displayPrefs";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined),
@@ -148,6 +152,7 @@ describe("settings pages", () => {
   });
 
   it("keeps account emails blurred until clicked and hides them when settings reopen", async () => {
+    saveMaskEmails(true);
     vi.mocked(invoke).mockImplementation(async (command, args) => {
       if (command === "provider_account_identity") {
         const { provider } = args as { provider: string };
@@ -183,7 +188,66 @@ describe("settings pages", () => {
     ).toHaveLength(2);
   });
 
+  it("defaults to remaining usage with masked emails", async () => {
+    vi.mocked(invoke).mockImplementation(async (command) =>
+      command === "provider_account_identity"
+        ? { email: "user@example.com", plan: "Pro" }
+        : undefined,
+    );
+    setCachedRateLimits("claude", "default", {
+      provider: "claude",
+      session: {
+        usedPercent: 23,
+        windowMinutes: 300,
+        resetsAt: Date.now() + 3_600_000,
+      },
+      weekly: null,
+      monthly: null,
+      resetCredits: null,
+      updatedAt: Date.now(),
+      error: null,
+      status: "ok",
+    });
+
+    await render("providers");
+
+    const remaining = container.querySelector(
+      '[aria-label="5h limit remaining"]',
+    );
+    expect(remaining?.getAttribute("aria-valuenow")).toBe("77");
+    expect(remaining?.querySelector("span")?.getAttribute("style")).toBe(
+      "width: 77%;",
+    );
+    const revealedEmail = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Reveal email"]',
+    );
+    expect(revealedEmail?.querySelector("span")?.className).toContain(
+      "blur-[5px]",
+    );
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Show remaining usage"]',
+        )!
+        .click(),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Mask account emails"]')!
+        .click(),
+    );
+
+    const used = container.querySelector(
+      '[aria-label="5h limit used"]',
+    );
+    expect(used?.getAttribute("aria-valuenow")).toBe("23");
+    expect(container.textContent).toContain("user@example.com");
+    expect(container.querySelector('[aria-label="Reveal email"]')).toBeNull();
+  });
+
   it("shows account usage bars as remaining capacity", async () => {
+    saveShowRemainingUsage(true);
     setCachedRateLimits("claude", "default", {
       provider: "claude",
       session: {

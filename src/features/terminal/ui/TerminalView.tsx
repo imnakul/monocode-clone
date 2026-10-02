@@ -46,6 +46,13 @@ type Props = {
   onMetaChange?: (patch: TerminalMetaPatch) => void;
 };
 
+/**
+ * A same-id view must wait for a prior teardown before it attaches or spawns.
+ * Cleanup only kills when the lifecycle no longer wants the terminal, so
+ * ordinary remounts reattach to the existing shell.
+ */
+const stoppingPtys = new Map<string, Promise<void>>();
+
 function cssColor(expr: string, fallback: string): string {
   const probe = document.createElement("span");
   probe.style.color = expr;
@@ -293,44 +300,52 @@ function LiveTerminalView({ id, cwd, active, onMetaChange }: Props) {
 
     let oscBuffer = "";
 
-    const unsubscribe = subscribePty(
-      id,
-      (data, start) => {
-        const onMeta = onMetaChangeRef.current;
-        if (onMeta) {
-          const text = new TextDecoder().decode(data);
-          const scanned = scanOscCwd(text, oscBuffer);
-          oscBuffer = scanned.rest;
-          if (scanned.cwd) {
-            const patch: TerminalMetaPatch = { cwd: scanned.cwd };
-            if (!runningProcessRef.current) {
-              patch.title = defaultTerminalTitle(scanned.cwd);
+    let unsubscribe = () => {};
+    const start = (): Promise<void> => {
+      if (closed) return Promise.resolve();
+      unsubscribe = subscribePty(
+        id,
+        (data, start) => {
+          if (closed) return;
+          const onMeta = onMetaChangeRef.current;
+          if (onMeta) {
+            const text = new TextDecoder().decode(data);
+            const scanned = scanOscCwd(text, oscBuffer);
+            oscBuffer = scanned.rest;
+            if (scanned.cwd) {
+              const patch: TerminalMetaPatch = { cwd: scanned.cwd };
+              if (!runningProcessRef.current) {
+                patch.title = defaultTerminalTitle(scanned.cwd);
+              }
+              onMeta(patch);
             }
-            onMeta(patch);
           }
-        }
-        syncedRef.current = Math.max(syncedRef.current, start + data.length);
-        term.write(data);
-      },
-      (code) => {
-        if (closed) return;
-        const status = code == null ? "" : ` (${code})`;
-        setExitCode(code);
-        markTerminalExited(id, code);
-        term.writeln(`\r\n[process exited${status}]`);
-      },
-    );
+          syncedRef.current = Math.max(syncedRef.current, start + data.length);
+          term.write(data);
+        },
+        (code) => {
+          if (closed) return;
+          const status = code == null ? "" : ` (${code})`;
+          setExitCode(code);
+          markTerminalExited(id, code);
+          term.writeln(`\r\n[process exited${status}]`);
+        },
+      );
+      if (hasTerminalSpawned(id)) spawned.current = true;
+      return requestTerminalStart(id, () =>
+        spawnPty(id, cwd, term.cols, term.rows),
+      );
+    };
 
     // Deferred first spawn: restored terminals mount dormant and never reach
     // here until the user starts them. Concurrent mounts (Strict Mode
     // setup/cleanup/setup, repeated Start) share one spawn promise; a
     // remount after a successful spawn only reattaches and resyncs output.
-    const alreadyLive = hasTerminalSpawned(id);
-    const starting = requestTerminalStart(id, () =>
-      spawnPty(id, cwd, term.cols, term.rows),
-    );
+    // A terminal that was explicitly closed waits for its prior kill to finish
+    // before the replacement view subscribes or starts the same id again.
+    const previousStop = stoppingPtys.get(id);
+    const starting = previousStop ? previousStop.then(start) : start();
     currentAttemptRef.current = starting;
-    if (alreadyLive) spawned.current = true;
     starting
       .then(() => {
         if (closed) return;
@@ -529,9 +544,14 @@ function LiveTerminalView({ id, cwd, active, onMetaChange }: Props) {
       // still wants the session). Only kill when nobody wants the id: that
       // keeps a shared pending spawn alive across remounts while still
       // cleaning up a child whose close landed mid-spawn.
-      void currentAttemptRef.current.catch(() => undefined).then(() => {
-        if (!isTerminalWanted(id)) void killPty(id);
-      });
+      const shouldKill = !isTerminalWanted(id);
+      const stopping = currentAttemptRef.current
+        .catch(() => undefined)
+        .then(() => (shouldKill ? killPty(id) : undefined))
+        .finally(() => {
+          if (stoppingPtys.get(id) === stopping) stoppingPtys.delete(id);
+        });
+      stoppingPtys.set(id, stopping);
       term.dispose();
       termRef.current = null;
       spawned.current = false;

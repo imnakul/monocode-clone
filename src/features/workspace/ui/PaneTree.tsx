@@ -57,6 +57,7 @@ import type { Worktree } from "../../source-control/model/worktrees";
 import { type ReviewIssue } from "../../inbox/model/githubTasks";
 
 type Shared = {
+  workspaceSwitchingSessionId?: string;
   visible: boolean;
   sessions: Session[];
   editorPanes: EditorPane[];
@@ -223,6 +224,7 @@ function PaneTreeComponent({
   composerFocusToken,
   recents,
   hideProjectPicker,
+  workspaceSwitchingSessionId,
   onFocus,
   onClose,
   onSelectFile,
@@ -474,6 +476,7 @@ function PaneTreeComponent({
             ) : session ? (
               <SessionPane
                 session={session}
+                workspaceSwitchingSessionId={workspaceSwitchingSessionId}
                 reviewUndoLocked={sessions.some(
                   (other) =>
                     other.id !== session.id &&
