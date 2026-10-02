@@ -317,7 +317,7 @@ it("fills by default, resizes every column to a fixed width, persists it and res
   expect(localStorage.getItem("monocode.sessionBoard.columnWidth")).toBe("272");
   expect(
     container.querySelector<HTMLElement>('[aria-label="Done column"]')!.style
-      .width,
+      .flexBasis,
   ).toBe("272px");
   act(() =>
     handle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
@@ -466,4 +466,34 @@ it("keeps the time and the card actions in one slot so they never overlap", () =
   expect(slot.children[0].className).toContain("row-start-1");
   expect(slot.children[1].className).toContain("row-start-1");
   expect(button("Delete Todo Session prepared")).toBeTruthy();
+});
+
+it("shrinks a saved column width to fit the board instead of overflowing it", () => {
+  localStorage.setItem("monocode.sessionBoard.columnWidth", "520");
+  render();
+  const done = container.querySelector<HTMLElement>(
+    '[aria-label="Done column"]',
+  )!;
+  // Preferred width, never a floor: it may shrink down to the resize minimum.
+  expect(done.style.flexBasis).toBe("520px");
+  expect(done.style.width).toBe("");
+  expect(done.style.minWidth).toBe("220px");
+  expect(done.className).toContain("shrink");
+  expect(done.className).not.toContain("flex-none");
+});
+it("shows the session list title and model name, not the stored prefix and raw id", () => {
+  props.cards = [
+    {
+      ...row("named", "in_progress"),
+      harness: "opencode",
+      title: "opencode · trying this out",
+      model: "opencode:opencode/unknown-free-model",
+    },
+  ];
+  render();
+  const named = container.querySelector<HTMLElement>(
+    '[data-board-card="named"]',
+  )!;
+  expect(card("named").textContent).toBe("trying this out");
+  expect(named.textContent).not.toContain("opencode:opencode/");
 });

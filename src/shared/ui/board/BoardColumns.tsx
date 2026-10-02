@@ -59,9 +59,16 @@ export function BoardColumn({
       ref={section}
       aria-label={`${label} column`}
       data-board-column={id}
-      style={fixed === null ? { minWidth: fillMin } : { width: fixed }}
+      // A fixed width is the preferred width, not a floor: columns shrink to
+      // fit the board (down to the resize minimum) instead of overflowing,
+      // e.g. a width chosen for fewer columns or a wider window.
+      style={
+        fixed === null
+          ? { minWidth: fillMin }
+          : { flexBasis: fixed, minWidth: resize?.min ?? fillMin }
+      }
       className={`relative flex min-h-0 flex-col rounded-lg transition-colors duration-100 ${
-        fixed === null ? "flex-1 basis-0" : "flex-none"
+        fixed === null ? "flex-1 basis-0" : "shrink grow-0"
       } surface-blur ${
         highlighted ? "bg-content/5 ring-1 ring-accent/40" : "surface-tint"
       }`}

@@ -9,7 +9,11 @@ import {
   Square,
   X,
 } from "../../../shared/ui/icons";
-import { isHarnessId } from "../../sessions/model/models";
+import { isHarnessId, resolveModel } from "../../sessions/model/models";
+import {
+  sessionDisplayTitle,
+  type HarnessId,
+} from "../../sessions/model/session";
 import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
 import { formatRelative } from "../../sessions/ui/SessionCard";
 import { TerminalSpinner } from "../../sessions/ui/TerminalSpinner";
@@ -66,6 +70,11 @@ export function BoardSessionCard({
   onDelete?: () => void;
   onRemove: () => void;
 }): ReactNode {
+  const harness = isHarnessId(card.harness) ? card.harness : null;
+  // Same labels as the session list: no "Provider · " title prefix, and the
+  // model's display name rather than its raw provider id.
+  const title = harness ? sessionDisplayTitle(card.title, harness) : card.title;
+  const model = boardModelLabel(harness, card.model);
   const draft = isDraftTodo(card);
   const finished = lane === "done";
   const tag = boardCardTag(card);
@@ -80,7 +89,7 @@ export function BoardSessionCard({
         key="start"
         type="button"
         disabled={busy}
-        aria-label={`Start ${card.title}`}
+        aria-label={`Start ${title}`}
         title="Start"
         onClick={onStart}
         className={iconAction}
@@ -94,7 +103,7 @@ export function BoardSessionCard({
         key="edit"
         type="button"
         disabled={busy}
-        aria-label={`Edit ${card.title}`}
+        aria-label={`Edit ${title}`}
         title="Edit"
         onClick={onEdit}
         className={iconAction}
@@ -108,7 +117,7 @@ export function BoardSessionCard({
       type="button"
       disabled={busy}
       aria-label={
-        canDelete ? `Delete Todo ${card.title}` : `Remove ${card.title} from board`
+        canDelete ? `Delete Todo ${title}` : `Remove ${title} from board`
       }
       title={canDelete ? "Delete draft" : "Remove from board"}
       onClick={canDelete ? onDelete : onRemove}
@@ -138,11 +147,11 @@ export function BoardSessionCard({
         <button
           type="button"
           data-session-card={card.sessionId}
-          title={card.title}
+          title={title}
           onClick={(event) => onOpen(event.altKey)}
           className="line-clamp-2 min-w-0 flex-1 rounded-sm text-left text-[13px] font-medium leading-[18px] text-content outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
         >
-          {card.title}
+          {title}
         </button>
         {/* Time and actions share one grid cell: the slot keeps its width. */}
         <div
@@ -203,18 +212,15 @@ export function BoardSessionCard({
             <span aria-hidden className="text-content/30">
               {" · "}
             </span>
-            {card.model}
+            {model}
           </span>
         ) : (
           <span className="flex min-w-0 items-center gap-1.5 text-content/55">
-            {isHarnessId(card.harness) ? (
-              <HarnessIcon
-                harness={card.harness}
-                className="size-3 shrink-0"
-              />
+            {harness ? (
+              <HarnessIcon harness={harness} className="size-3 shrink-0" />
             ) : null}
             <span className="truncate" title={card.model}>
-              {card.model}
+              {model}
             </span>
           </span>
         )}
@@ -233,6 +239,25 @@ export function BoardSessionCard({
         </p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Display name for a stored model. Cards usually store the name already; a raw
+ * provider id ("opencode:opencode/space-bunny-free") resolves through the
+ * catalog only on an exact match, otherwise its last segment is shown, so an
+ * unknown id never borrows another model's name.
+ */
+function boardModelLabel(harness: HarnessId | null, stored: string): string {
+  if (!stored.includes(":")) return stored;
+  if (harness) {
+    const resolved = resolveModel(harness, stored);
+    if (resolved.id === stored) return resolved.name;
+  }
+  return (
+    stored.slice(
+      Math.max(stored.lastIndexOf("/"), stored.lastIndexOf(":")) + 1,
+    ) || stored
   );
 }
 

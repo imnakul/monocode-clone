@@ -860,8 +860,8 @@ describe("board view", () => {
     expect(JSON.parse(localStorage.getItem(BOARD_KEY)!).width).toBe(276);
     // Every column shares the fixed width and stops stretching.
     for (const label of ["Todo column", "Review column"]) {
-      expect(byLabel(label).style.width).toBe("276px");
-      expect(byLabel(label).className).toContain("flex-none");
+      expect(byLabel(label).style.flexBasis).toBe("276px");
+      expect(byLabel(label).className).toContain("shrink");
     }
     await act(async () => {
       byLabel("Resize Todo column").dispatchEvent(
