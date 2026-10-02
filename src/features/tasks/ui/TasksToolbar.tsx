@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { projectName } from "../../../shared/lib/paths";
 import { Search, SlidersHorizontal, X } from "../../../shared/ui/icons";
 import {
@@ -32,6 +32,8 @@ export function TasksToolbar({
   columnsOpen,
   onChange,
   onOpenColumns,
+  leading,
+  trailing,
 }: {
   filters: TaskFilters;
   tasks: readonly Task[];
@@ -40,6 +42,10 @@ export function TasksToolbar({
   columnsOpen: boolean;
   onChange: (filters: TaskFilters) => void;
   onOpenColumns: (anchor: HTMLElement) => void;
+  /** Primary actions shown before the filters (New task). */
+  leading?: ReactNode;
+  /** View controls pinned to the right end of the row. */
+  trailing?: ReactNode;
 }) {
   const statusOptions = useMemo<SearchableSelectOption[]>(
     () => [
@@ -75,8 +81,9 @@ export function TasksToolbar({
     filters.projectCwd === null ? PERSONAL : (filters.projectCwd ?? "");
   return (
     <>
-      <div className="flex h-9 shrink-0 items-center gap-1.5 px-2">
-        <div className="relative flex h-7 min-w-0 max-w-64 flex-1 items-center">
+      <div className="flex h-10 shrink-0 items-center gap-1.5 px-2">
+        {leading}
+        <div className="relative flex h-7 min-w-28 max-w-64 flex-1 items-center">
           <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
           <input
             value={filters.query ?? ""}
@@ -128,23 +135,6 @@ export function TasksToolbar({
             onChange({ ...filters, tags: normalizeNoteTags([...tags, tag]) })
           }
         />
-        {showColumns ? (
-          <button
-            type="button"
-            title="Choose visible columns"
-            aria-label="Choose visible columns"
-            aria-expanded={columnsOpen}
-            onClick={(event) => onOpenColumns(event.currentTarget)}
-            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[12px] text-content/60 hover:bg-content/10 hover:text-content"
-          >
-            <SlidersHorizontal
-              aria-hidden
-              className="size-3.5"
-              strokeWidth={1.75}
-            />
-            Columns
-          </button>
-        ) : null}
         {hasActiveFilters(filters) ? (
           <button
             type="button"
@@ -154,6 +144,26 @@ export function TasksToolbar({
             Reset
           </button>
         ) : null}
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
+          {showColumns ? (
+            <button
+              type="button"
+              title="Choose visible columns"
+              aria-label="Choose visible columns"
+              aria-expanded={columnsOpen}
+              onClick={(event) => onOpenColumns(event.currentTarget)}
+              className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[12px] text-content/60 hover:bg-content/10 hover:text-content"
+            >
+              <SlidersHorizontal
+                aria-hidden
+                className="size-3.5"
+                strokeWidth={1.75}
+              />
+              Columns
+            </button>
+          ) : null}
+          {trailing}
+        </div>
       </div>
       {tags.length ? (
         <div className="flex min-h-7 shrink-0 flex-wrap items-center gap-1.5 px-3 pb-1">

@@ -66,8 +66,6 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const headerButton =
-  "grid size-6 shrink-0 place-items-center rounded-md text-content/45 hover:bg-content/10 hover:text-content disabled:opacity-40";
 
 type Menu = { kind: "create" | "columns"; x: number; y: number };
 
@@ -394,39 +392,6 @@ export function TasksView({
           />
           <span className="min-w-0 truncate text-content">Tasks</span>
         </div>
-        <div className="flex shrink-0 items-center gap-1 pr-2">
-          <TasksViewSwitch view={view} onChange={saveView} />
-          <button
-            type="button"
-            title="New task"
-            aria-label="New task"
-            disabled={creating}
-            onClick={() =>
-              void create(cwd && looksLikeProject(cwd) ? cwd : undefined)
-            }
-            className={headerButton}
-          >
-            {creating ? (
-              <LoaderCircle
-                className="size-3.5 animate-spin"
-                strokeWidth={1.75}
-              />
-            ) : (
-              <Plus className="size-3.5" strokeWidth={1.75} />
-            )}
-          </button>
-          <button
-            type="button"
-            title="Choose where the task is filed"
-            aria-label="Choose where the task is filed"
-            aria-expanded={menu?.kind === "create"}
-            disabled={creating}
-            onClick={(event) => openMenu("create", event.currentTarget)}
-            className={headerButton}
-          >
-            <ChevronDown className="size-3.5" strokeWidth={1.75} />
-          </button>
-        </div>
         {IS_MAC ? null : <WindowControls />}
       </div>
       <TasksToolbar
@@ -437,6 +402,17 @@ export function TasksView({
         columnsOpen={menu?.kind === "columns"}
         onChange={setFilters}
         onOpenColumns={(anchor) => openMenu("columns", anchor)}
+        leading={
+          <NewTaskButton
+            creating={creating}
+            menuOpen={menu?.kind === "create"}
+            onCreate={() =>
+              void create(cwd && looksLikeProject(cwd) ? cwd : undefined)
+            }
+            onChooseLocation={(anchor) => openMenu("create", anchor)}
+          />
+        }
+        trailing={<TasksViewSwitch view={view} onChange={saveView} />}
       />
       {menu ? (
         <ExplorerMenu
@@ -507,6 +483,59 @@ function EmptyState({ children }: { children: ReactNode }) {
       <div className="flex flex-col items-center text-[13px] text-content/45">
         {children}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Primary "New task" split button: the main part files the task under the
+ * current project (or Personal); the chevron chooses where it is filed.
+ */
+function NewTaskButton({
+  creating,
+  menuOpen,
+  onCreate,
+  onChooseLocation,
+}: {
+  creating: boolean;
+  menuOpen: boolean;
+  onCreate: () => void;
+  onChooseLocation: (anchor: HTMLElement) => void;
+}): ReactNode {
+  return (
+    <div className="flex h-7 shrink-0 items-stretch overflow-hidden rounded-md bg-content text-background-base">
+      <button
+        type="button"
+        title="New task"
+        aria-label="New task"
+        disabled={creating}
+        onClick={onCreate}
+        className="inline-flex items-center gap-1.5 pl-2.5 pr-2 text-[12px] font-medium transition-colors duration-100 hover:bg-background-base/10 active:bg-background-base/20 disabled:opacity-60"
+      >
+        {creating ? (
+          <LoaderCircle
+            aria-hidden
+            className="size-3.5 animate-spin"
+            strokeWidth={1.75}
+          />
+        ) : (
+          <Plus aria-hidden className="size-3.5" strokeWidth={1.75} />
+        )}
+        New task
+      </button>
+      <span aria-hidden className="my-1.5 w-px bg-background-base/20" />
+      <button
+        type="button"
+        title="Choose where the task is filed"
+        aria-label="Choose where the task is filed"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        disabled={creating}
+        onClick={(event) => onChooseLocation(event.currentTarget)}
+        className="grid w-6 place-items-center transition-colors duration-100 hover:bg-background-base/10 active:bg-background-base/20 disabled:opacity-60"
+      >
+        <ChevronDown aria-hidden className="size-3.5" strokeWidth={1.75} />
+      </button>
     </div>
   );
 }

@@ -331,6 +331,28 @@ describe("Tasks list view", () => {
   });
 });
 
+describe("toolbar layout", () => {
+  it("puts New task first, filters next and the view switch last in one row", async () => {
+    await render();
+    const newTask = container.querySelector('[aria-label="New task"]')!;
+    const search = container.querySelector('[aria-label="Filter tasks"]')!;
+    const views = container.querySelector('[aria-label="Tasks view"]')!;
+    const row = newTask.closest("div.h-10")!;
+    expect(row.contains(search)).toBe(true);
+    expect(row.contains(views)).toBe(true);
+    expect(
+      newTask.compareDocumentPosition(search) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      search.compareDocumentPosition(views) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const header = container.querySelector("[data-tauri-drag-region]")!;
+    expect(header.contains(newTask)).toBe(false);
+    expect(header.contains(views)).toBe(false);
+  });
+});
+
 describe("filters", () => {
   it("combines search, status, project and tags with all/any and resets", async () => {
     await render();
