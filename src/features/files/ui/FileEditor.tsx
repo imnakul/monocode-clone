@@ -456,6 +456,7 @@ export function FileEditor({
       )}
       {markdown || svg ? (
         <MarkdownViewShell
+          markdown={markdown ? draft : undefined}
           mode={mode}
           onModeChange={setMode}
           preview={

@@ -6,6 +6,8 @@ import { invalidateNotes, loadNotes, NOTES_CHANGED_EVENT, type Note, type NoteUp
 import { NotesView } from "./NotesView";
 import { savePinnedProjects, saveProjectRailOrder } from "../../projects/model/recents";
 
+const copy = vi.hoisted(() => vi.fn(async (_text: string) => {}));
+vi.mock("../../../platform/tauri/clipboard", async (original) => ({ ...(await original<typeof import("../../../platform/tauri/clipboard")>()), copyText: copy }));
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", async (original) => ({
   ...(await original<typeof import("@tauri-apps/api/core")>()),
@@ -31,6 +33,7 @@ const recents = [
 ];
 
 beforeEach(() => {
+  copy.mockClear();
   invalidateNotes();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const storage = new Map<string, string>();
@@ -533,4 +536,19 @@ it("clears a failed move error when the saved project is selected again", async 
   expect(stored.sourceCwd).toBe("/work/Edefyn");
   expect(projectButton()?.textContent).toContain("Edefyn");
   expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+
+it("copies the full current unsaved Markdown beside Preview and Source", async () => {
+  await render();
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(button => button.textContent === "Source")!.click());
+  const text = "---\ntitle: Draft\n---\n# Unsaved\n\n| A |\n| --- |\n| row |";
+  const textarea = container.querySelector<HTMLTextAreaElement>('[aria-label="Note Markdown"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, text);
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Copy Markdown"]')!.click());
+  expect(copy).toHaveBeenCalledWith(text);
+  expect(container.querySelector('[role="tablist"] [aria-label="Copy Markdown"]')).toBeNull();
 });

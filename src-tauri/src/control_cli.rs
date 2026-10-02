@@ -82,7 +82,7 @@ const ACTIONS: [&str; 12] = [
     "list", "delegate", "get", "steer", "message", "retry", "cancel", "wait", "review", "finish",
     "respond", "answer",
 ];
-const APP_ACTIONS: [&str; 13] = [
+const APP_ACTIONS: [&str; 17] = [
     "models.list",
     "sessions.list",
     "sessions.read",
@@ -96,6 +96,10 @@ const APP_ACTIONS: [&str; 13] = [
     "notes.list",
     "notes.read",
     "notes.write",
+    "tasks.list",
+    "tasks.read",
+    "tasks.write",
+    "tasks.delete",
 ];
 const APP_USAGE: &str = r#"MonoCode app access — use in a thread enabled by /operator.
 
@@ -153,6 +157,28 @@ Actions:
                   to derive it from the body. Use {"id":"...","body":"..."}
                   to edit an existing note; title and tags are also optional.
                   Omitted fields stay unchanged. Reuse --request-id on retries.
+  tasks.list     {"statuses":["todo","in_progress"],
+                  "tags":["work"],"tagMatch":"all","projectCwd":null,
+                  "query":"release","limit":30,"offset":0}
+                  Filter by either status or statuses (statuses is OR), tags
+                  (all by default, or any), projectCwd, and query over
+                  title/body/tags/project labels.
+                  Filter categories combine with AND. Omit projectCwd for all
+                  projects; use null for Personal. Returns total, offset and
+                  task summaries; use tasks.read for the full Markdown body.
+  tasks.read     {"id":"..."}  Read one task, including its Markdown body.
+  tasks.write    {"id":"...","title":"Plan","body":"Markdown",
+                  "status":"todo","tags":["work"],"projectCwd":null,
+                  "sourceSessionId":"...","sourceBlockId":"..."}
+                  Create or edit a task. Status values: draft, todo,
+                  in_progress (Progress), blocked, review, completed, deferred.
+                  Completing records a completion time; reopening clears it.
+                  New tasks default to Todo and this
+                  project when omitted; sourceSessionId defaults to this
+                  session. Existing tasks accept partial fields;
+                  omitted fields stay unchanged. Use null for Personal or to
+                  clear source links. Reuse --request-id on retries.
+  tasks.delete   {"id":"..."}  Delete one task.
 
 The output is one JSON line: {"ok":true,"result":...} or {"ok":false,"error":"..."}.
 Use --input - to pass JSON on stdin. Never print MonoCode credentials.
@@ -556,5 +582,24 @@ mod tests {
         assert!(denied.get("requestId").is_none());
         let uncertain = with_retry_hint(json!({"ok":false,"error":"timeout"}), "id-1");
         assert_eq!(uncertain["retryWith"], "--request-id id-1");
+    }
+
+    #[test]
+    fn app_mode_exposes_task_crud_and_documents_combined_filters() {
+        for action in ["tasks.list", "tasks.read", "tasks.write", "tasks.delete"] {
+            assert!(matches!(
+                parse_args_for(&args(&[action, "--json", "{}"]), true),
+                Ok(Parsed::Call(_, _, _))
+            ));
+            assert!(app_help().contains(action));
+        }
+
+        let text = app_help();
+        assert!(text.contains("\"statuses\":[\"todo\",\"in_progress\"]"));
+        assert!(!text.contains("\"status\":\"todo\",\"statuses\""));
+        assert!(text.contains("Filter categories combine with AND"));
+        assert!(text.contains("use null for Personal"));
+        assert!(text.contains("Omitted fields stay unchanged"));
+        assert!(parse_args_for(&args(&["tasks.unknown"]), true).is_err());
     }
 }

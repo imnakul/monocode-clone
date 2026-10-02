@@ -1,3 +1,4 @@
+import { MarkdownCopyButton } from "./MarkdownCopyButton";
 import { useEffect, useState, type ReactNode } from "react";
 
 export type MarkdownViewMode = "preview" | "source";
@@ -25,27 +26,31 @@ export function useMarkdownMode(
 }
 
 type ToggleProps = {
+  markdown?: string;
   mode: MarkdownViewMode;
   onChange: (mode: MarkdownViewMode) => void;
 };
 
-export function MarkdownModeToggle({ mode, onChange }: ToggleProps) {
+export function MarkdownModeToggle({ mode, onChange, markdown }: ToggleProps) {
   return (
-    <div
-      role="tablist"
-      aria-label="Markdown view"
-      className="flex rounded-md border border-content/10 bg-content/10 p-0.5 backdrop-blur-md"
-    >
-      <ModeTab
-        label="Preview"
-        selected={mode === "preview"}
-        onSelect={() => onChange("preview")}
-      />
-      <ModeTab
-        label="Source"
-        selected={mode === "source"}
-        onSelect={() => onChange("source")}
-      />
+    <div className="flex items-center gap-1.5">
+      <div
+        role="tablist"
+        aria-label="Markdown view"
+        className="flex rounded-md border border-content/10 bg-content/10 p-0.5 backdrop-blur-md"
+      >
+        <ModeTab
+          label="Preview"
+          selected={mode === "preview"}
+          onSelect={() => onChange("preview")}
+        />
+        <ModeTab
+          label="Source"
+          selected={mode === "source"}
+          onSelect={() => onChange("source")}
+        />
+      </div>
+      {markdown !== undefined ? <MarkdownCopyButton text={markdown} /> : null}
     </div>
   );
 }
@@ -77,6 +82,7 @@ function ModeTab({
 }
 
 type ShellProps = {
+  markdown?: string;
   mode: MarkdownViewMode;
   onModeChange: (mode: MarkdownViewMode) => void;
   preview: ReactNode;
@@ -90,13 +96,18 @@ export function MarkdownViewShell({
   preview,
   source,
   actions,
+  markdown,
 }: ShellProps) {
   return (
     <div className="markdown-view-shell relative min-h-0 min-w-0 flex-1">
       <div className="markdown-view-actions pointer-events-none absolute right-2 z-20">
         <div className="pointer-events-auto flex items-center gap-1.5">
           {actions}
-          <MarkdownModeToggle mode={mode} onChange={onModeChange} />
+          <MarkdownModeToggle
+            mode={mode}
+            onChange={onModeChange}
+            markdown={markdown}
+          />
         </div>
       </div>
       <div

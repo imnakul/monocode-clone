@@ -45,6 +45,7 @@ type Props = {
   railCwd?: string;
   busy?: boolean;
   mode?: "switch" | "move";
+  itemKind?: "note" | "task";
   className?: string;
   buttonClassName?: string;
   appearance?: "ghost" | "filled";
@@ -68,6 +69,7 @@ export function SearchableProjectPicker({
   railCwd,
   busy = false,
   mode = "switch",
+  itemKind = "note",
   className,
   buttonClassName,
   appearance = "ghost",
@@ -189,7 +191,7 @@ export function SearchableProjectPicker({
     }
   };
 
-  const action = mode === "move" ? "Move note to project" : "Switch project";
+  const action = mode === "move" ? `Move ${itemKind} to project` : "Switch project";
 
   return (
     <div
@@ -204,7 +206,7 @@ export function SearchableProjectPicker({
         aria-label={
           inProject
             ? `${action}, current project ${label}`
-            : "Choose project for note"
+            : `Choose project for ${itemKind}`
         }
         aria-expanded={open}
         aria-haspopup="dialog"

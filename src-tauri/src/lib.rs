@@ -41,6 +41,7 @@ mod session_import;
 mod session_store;
 mod skills;
 pub mod ssh_askpass;
+mod tasks;
 #[cfg(target_os = "windows")]
 mod tray;
 mod window;
@@ -560,6 +561,10 @@ pub fn run() {
             notes::notes_delete,
             notes::notes_save_image,
             notes::notes_image_path,
+            tasks::tasks_list,
+            tasks::tasks_get,
+            tasks::tasks_upsert,
+            tasks::tasks_delete,
             checkpoint::session_checkpoint_ensure,
             checkpoint::session_checkpoint_prepare,
             checkpoint::session_checkpoint_capture,

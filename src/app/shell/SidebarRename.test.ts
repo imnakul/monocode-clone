@@ -1912,3 +1912,21 @@ it("labels preserved sessions as having no branch selected", () => {
   expect(card().textContent).not.toContain("No branch selected");
   expect(card().textContent).toContain("project/main");
 });
+
+
+describe("Tasks navigation", () => {
+  it.each([true, false])("opens Tasks with projectRailOpen=%s while Notes are disabled", async (projectRailOpen) => {
+    props.projectRailOpen = projectRailOpen;
+    props.compactProjectRail = true;
+    props.notesEnabled = false;
+    props.tasksActive = true;
+    props.onOpenTasks = vi.fn();
+    props.onSelectProject = vi.fn();
+    props.onOpenProject = vi.fn();
+    await act(async () => render());
+    const tasks = [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.getAttribute("aria-label")?.startsWith("Tasks") || button.textContent?.trim() === "Tasks");
+    expect(tasks).toBeDefined();
+    await act(async () => tasks!.click());
+    expect(props.onOpenTasks).toHaveBeenCalledOnce();
+  });
+});

@@ -342,6 +342,7 @@ function PlanSurface({
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <MarkdownViewShell
+        markdown={block.text}
         mode={mode}
         onModeChange={setMode}
         preview={

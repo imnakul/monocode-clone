@@ -17,6 +17,7 @@ import {
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { MarkdownCopyButton } from "../../sessions/ui/MarkdownCopyButton";
 import { useMarkdownMode } from "../../sessions/ui/MarkdownModeToggle";
 import { ProjectLogoIcon } from "../../projects/ui/ProjectLogoIcon";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
@@ -1011,21 +1012,24 @@ function NoteEditor({
             </div>
           ) : null}
         </header>
-        <div
-          role="tablist"
-          aria-label="Note sections"
-          className="flex h-9 items-stretch gap-4 border-b border-stroke"
-        >
-          <NoteDetailTab
-            label="Preview"
-            selected={mode === "preview"}
-            onSelect={() => setMode("preview")}
-          />
-          <NoteDetailTab
-            label="Source"
-            selected={mode === "source"}
-            onSelect={() => setMode("source")}
-          />
+        <div className="flex items-center justify-between border-b border-stroke">
+          <div
+            role="tablist"
+            aria-label="Note sections"
+            className="flex h-9 items-stretch gap-4"
+          >
+            <NoteDetailTab
+              label="Preview"
+              selected={mode === "preview"}
+              onSelect={() => setMode("preview")}
+            />
+            <NoteDetailTab
+              label="Source"
+              selected={mode === "source"}
+              onSelect={() => setMode("source")}
+            />
+          </div>
+          <MarkdownCopyButton text={body} />
         </div>
         <div
           ref={dropZoneRef}
@@ -1085,7 +1089,8 @@ function NoteEditor({
   );
 }
 
-function NoteSource({
+export function NoteSource({
+  label = "Note Markdown",
   value,
   onChange,
   textareaRef,
@@ -1094,6 +1099,7 @@ function NoteSource({
   value: string;
   onChange: (value: string) => void;
   textareaRef: { current: HTMLTextAreaElement | null };
+  label?: string;
   autoFocus?: boolean;
 }) {
   const lines = value.split("\n");
@@ -1126,6 +1132,7 @@ function NoteSource({
         style={{ left: gutterWidth }}
       />
       <textarea
+        aria-label={label}
         ref={textareaRef}
         value={value}
         autoFocus={autoFocus}
@@ -1139,10 +1146,12 @@ function NoteSource({
   );
 }
 
-function NoteTagsEditor({
+export function NoteTagsEditor({
+  label = "Add note tag",
   tags = [],
   onChange,
 }: {
+  label?: string;
   tags?: string[];
   onChange: (tags: string[]) => void;
 }) {
@@ -1199,7 +1208,7 @@ function NoteTagsEditor({
               onChange(tags.slice(0, -1));
             }
           }}
-          aria-label="Add note tag"
+          aria-label={label}
           placeholder="Add tag…"
           spellCheck={false}
           autoComplete="off"

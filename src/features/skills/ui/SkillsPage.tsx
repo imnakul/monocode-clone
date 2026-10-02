@@ -447,6 +447,7 @@ export function SkillsPage({
               </p>
               <div className="flex justify-end">
                 <MarkdownModeToggle
+                  markdown={previewText ?? undefined}
                   mode={previewMode}
                   onChange={setPreviewMode}
                 />

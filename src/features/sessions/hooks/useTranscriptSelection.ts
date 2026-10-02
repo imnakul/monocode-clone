@@ -59,14 +59,15 @@ export function useTranscriptSelection(
         setSelection(null);
         return;
       }
+      const responseId = responseIdForNode(nativeSelection.anchorNode, root);
       const text = validateTranscriptSelection({
         text: nativeSelection.toString(),
         collapsed: nativeSelection.isCollapsed,
-        anchorResponseId: responseIdForNode(nativeSelection.anchorNode, root),
+        anchorResponseId: responseId,
         focusResponseId: responseIdForNode(nativeSelection.focusNode, root),
       });
       const rect = text ? firstRangeRect(nativeSelection.getRangeAt(0)) : null;
-      setSelection(text && rect ? { text, rect } : null);
+      setSelection(text && rect ? { text, rect, ...(responseId ? { responseId } : {}) } : null);
     };
     const scheduleReport = () => {
       cancelFrame();

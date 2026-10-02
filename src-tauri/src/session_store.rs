@@ -814,6 +814,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     }
     if current < 10 {
         crate::notes::ensure_notes_table(conn)?;
+        crate::tasks::ensure_tasks_table(conn)?;
         conn.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (10, ?1)",
             params![now_millis()],
@@ -855,6 +856,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     }
     if current < 13 {
         crate::notes::ensure_notes_table(conn)?;
+        crate::tasks::ensure_tasks_table(conn)?;
         conn.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (13, ?1)",
             params![now_millis()],
@@ -985,6 +987,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
                         is_draft, automation_id);",
     )?;
     crate::notes::ensure_notes_table(conn)?;
+    crate::tasks::ensure_tasks_table(conn)?;
     crate::reminders::ensure_table(conn)?;
     crate::automations::ensure_tables(conn)?;
     ensure_orchestration_history(conn)?;
@@ -4246,6 +4249,30 @@ mod tests {
         let conn = store.conn.lock().unwrap();
         assert!(migrate(&conn).is_ok());
         assert!(migrate(&conn).is_ok());
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 18);
+    }
+
+    #[test]
+    fn migration_restores_tasks_table_even_when_existing_versions_are_recorded() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.conn.lock().unwrap();
+        conn.execute_batch("DROP TABLE tasks;").unwrap();
+
+        migrate(&conn).unwrap();
+
+        let tasks_table: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tasks'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tasks_table, 1);
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
                 row.get(0)

@@ -62,6 +62,21 @@ describe("TranscriptSelectionMenu", () => {
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
+  it("adds selected text as a Todo with its response source and preserves it after failure", async () => {
+    const onAddToTask = vi.fn().mockRejectedValueOnce(new Error("Disk full")).mockResolvedValue(undefined);
+    const onDismiss = vi.fn();
+    act(() => root.render(createElement(TranscriptSelectionMenu, {
+      selection: { text: "Investigate installer", responseId: "cline:42", rect: new DOMRect(10, 20, 100, 20) }, onAddToTask, onDismiss,
+    })));
+    const todo = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Add as Todo"))!;
+    await act(async () => todo.click());
+    expect(onAddToTask).toHaveBeenCalledWith("Investigate installer", "cline:42");
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("Disk full");
+    await act(async () => todo.click());
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
   it("offers the selected text to both chat and notes", () => {
     const onAddToChat = vi.fn();
     const onAddToNotes = vi.fn();

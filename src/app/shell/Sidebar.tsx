@@ -9,6 +9,7 @@ import {
   Archive,
   Chatting,
   Check,
+  CheckCircle,
   ChevronDown,
   ChevronRight,
   CircleAlert,
@@ -299,11 +300,13 @@ type Props = {
   onOpenInbox?: () => void;
   onOpenInboxItem?: (item: LinkedWorkItem, sessionId: string) => void;
   onOpenNotes?: () => void;
+  onOpenTasks?: () => void;
   onOpenAutomations?: () => void;
   onGoToFile?: () => void;
   searchActive?: boolean;
   inboxActive?: boolean;
   notesActive?: boolean;
+  tasksActive?: boolean;
   automationsActive?: boolean;
   notesEnabled?: boolean;
   onToggleProjectRail?: () => void;
@@ -396,11 +399,13 @@ function SidebarComponent({
   onOpenInbox,
   onOpenInboxItem,
   onOpenNotes,
+  onOpenTasks,
   onOpenAutomations,
   onGoToFile,
   searchActive = false,
   inboxActive = false,
   notesActive = false,
+  tasksActive = false,
   automationsActive = false,
   notesEnabled = true,
   onToggleProjectRail,
@@ -772,7 +777,7 @@ function SidebarComponent({
   const sidebarAvailable =
     !searchActive &&
     !inboxActive &&
-    !notesActive &&
+    !notesActive && !tasksActive &&
     !automationsActive &&
     !settingsOpen &&
     inProject;
@@ -784,7 +789,7 @@ function SidebarComponent({
     open &&
     !searchActive &&
     !inboxActive &&
-    !notesActive &&
+    !notesActive && !tasksActive &&
     !settingsOpen;
   const sidebarVisible = open && sidebarAvailable;
   // With the sidebar collapsed beside the compact rail, its tab shortcuts
@@ -1703,10 +1708,12 @@ function SidebarComponent({
               onOpenInbox={onOpenInbox}
               onOpenNotificationSettings={onOpenNotificationSettings}
               onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+              onOpenTasks={onOpenTasks}
               onOpenAutomations={onOpenAutomations}
               searchActive={searchActive}
               inboxActive={inboxActive}
               notesActive={notesActive}
+              tasksActive={tasksActive}
               automationsActive={automationsActive}
               inboxUnseen={inboxUnseen}
             />
@@ -2238,7 +2245,9 @@ function SidebarComponent({
           inboxActive={inboxActive}
           onOpenNotificationSettings={onOpenNotificationSettings}
           onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+          onOpenTasks={onOpenTasks}
           notesActive={notesActive}
+          tasksActive={tasksActive}
           onOpenAutomations={onOpenAutomations}
           automationsActive={automationsActive}
           onOpenSettings={onOpenSettings}
@@ -2267,7 +2276,9 @@ function SidebarComponent({
           inboxActive={inboxActive}
           notesEnabled={notesEnabled}
           onOpenNotes={onOpenNotes}
+          onOpenTasks={onOpenTasks}
           notesActive={notesActive}
+          tasksActive={tasksActive}
           onOpenAutomations={onOpenAutomations}
           automationsActive={automationsActive}
           onTogglePanel={onToggleProjectRail}
@@ -2349,10 +2360,12 @@ function SidebarProjectPicker({
   onOpenInbox,
   onOpenNotificationSettings,
   onOpenNotes,
+  onOpenTasks,
   onOpenAutomations,
   searchActive = false,
   inboxActive = false,
   notesActive = false,
+  tasksActive = false,
   automationsActive = false,
   inboxUnseen = false,
 }: {
@@ -2367,10 +2380,12 @@ function SidebarProjectPicker({
   onOpenInbox?: () => void;
   onOpenNotificationSettings?: (projectPath?: string) => void;
   onOpenNotes?: () => void;
+  onOpenTasks?: () => void;
   onOpenAutomations?: () => void;
   searchActive?: boolean;
   inboxActive?: boolean;
   notesActive?: boolean;
+  tasksActive?: boolean;
   automationsActive?: boolean;
   inboxUnseen?: boolean;
 }) {
@@ -2437,6 +2452,11 @@ function SidebarProjectPicker({
             <StickyNote className="size-3.5" strokeWidth={1.75} />
           </IconButton>
         ) : null}
+        {onOpenTasks ? (
+          <IconButton label="Tasks" active={tasksActive} onClick={onOpenTasks}>
+            <CheckCircle className="size-3.5" strokeWidth={1.75} />
+          </IconButton>
+        ) : null}
         {onOpenAutomations ? (
           <IconButton
             label="Automations"
@@ -2482,7 +2502,9 @@ function CompactProjectRail({
   inboxActive,
   onOpenNotificationSettings,
   onOpenNotes,
+  onOpenTasks,
   notesActive,
+  tasksActive = false,
   onOpenAutomations,
   automationsActive,
   onOpenSettings,
@@ -2509,7 +2531,9 @@ function CompactProjectRail({
   inboxActive: boolean;
   onOpenNotificationSettings?: (projectPath?: string) => void;
   onOpenNotes?: () => void;
+  onOpenTasks?: () => void;
   notesActive: boolean;
+  tasksActive?: boolean;
   onOpenAutomations?: () => void;
   automationsActive: boolean;
   onOpenSettings?: () => void;
@@ -2524,7 +2548,7 @@ function CompactProjectRail({
   const action = (active: boolean, open?: () => void) =>
     active && onLeaveActive ? onLeaveActive : open;
   const workspaceActive =
-    !searchActive && !inboxActive && !notesActive && !automationsActive;
+    !searchActive && !inboxActive && !notesActive && !tasksActive && !automationsActive;
   const openWorkspaceTab = (nextTab: SidebarTab) => {
     if (!workspaceActive) onLeaveActive?.();
     onTabChange(nextTab);
@@ -2618,6 +2642,10 @@ function CompactProjectRail({
             active={notesActive}
             onClick={action(notesActive, onOpenNotes)}
           />
+        ) : null}
+        {onOpenTasks ? (
+          <CompactRailAction label="Tasks" icon={CheckCircle} active={tasksActive}
+            onClick={action(tasksActive, onOpenTasks)} />
         ) : null}
         <CompactRailAction
           label="Automations"

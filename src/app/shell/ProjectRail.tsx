@@ -1,4 +1,5 @@
 import {
+  CheckCircle,
   BellOff,
   ChevronDown,
   ChevronRight,
@@ -106,7 +107,9 @@ type Props = {
   inboxActive?: boolean;
   notesEnabled?: boolean;
   onOpenNotes?: () => void;
+  onOpenTasks?: () => void;
   notesActive?: boolean;
+  tasksActive?: boolean;
   onOpenAutomations?: () => void;
   automationsActive?: boolean;
   onTogglePanel?: () => void;
@@ -148,7 +151,9 @@ export function ProjectRail({
   inboxActive = false,
   notesEnabled = true,
   onOpenNotes,
+  onOpenTasks,
   notesActive = false,
+  tasksActive = false,
   onOpenAutomations,
   automationsActive = false,
   onTogglePanel,
@@ -406,6 +411,7 @@ export function ProjectRail({
                 ariaLabel="Notes"
               />
             ) : null}
+            {onOpenTasks ? <RailAction label="Tasks" icon={CheckCircle} onClick={onOpenTasks} active={tasksActive} ariaLabel="Tasks" /> : null}
             <RailAction
               label="Automations"
               icon={Zap}
@@ -435,7 +441,7 @@ export function ProjectRail({
                 searchActive={
                   searchActive ||
                   inboxActive ||
-                  notesActive ||
+                  notesActive || tasksActive ||
                   automationsActive
                 }
                 onSelect={onSelectProject}
@@ -469,7 +475,7 @@ export function ProjectRail({
                       searchActive={
                         searchActive ||
                         inboxActive ||
-                        notesActive ||
+                        notesActive || tasksActive ||
                         automationsActive
                       }
                       onSelect={onSelectProject}
@@ -513,7 +519,7 @@ export function ProjectRail({
               sortable={projectSortable}
               pinned={false}
               searchActive={
-                searchActive || inboxActive || notesActive || automationsActive
+                searchActive || inboxActive || notesActive || tasksActive || automationsActive
               }
               onSelect={onSelectProject}
               onTogglePin={toggleProjectPin}
