@@ -66,8 +66,12 @@ without dropping local queue, terminal, task-composer or human-message wiring.
 `npm run check` passes: 5,286 frontend tests / 483 files, TypeScript clean,
 fmt/Clippy clean, 596 Rust tests passed / 2 ignored. Production build passes
 (43.47s) with the prior CSS optimizer and chunk-size warnings. Diff and
-unresolved-file checks are clean. Source is staged; merge commit and remote
-SHA are pending. No manual desktop testing or installer build performed.
+unresolved-file checks are clean. Source merge
+`1f399abecb6fc6529b0a39532ddd0322785c0c92` is published and verified on the
+new remote branch. Both baseline/upstream parents are ancestors; zero pinned
+upstream commits are absent. Final read-only upstream-main check still
+returns `00d68d3`. Documentation handoff follows the source merge without
+source changes. No manual desktop testing or installer build performed.
 
 ## Concurrent local updates — decision pending
 

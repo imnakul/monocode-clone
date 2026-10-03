@@ -7,6 +7,7 @@ Base branch: `origin/nakul/windows-support-upstream-0.7.0`
 Base commit: `670568689a027c26cefeb2cc1e4b40389339593c`
 Previously included upstream: `6bd432cada0f492f076cc93f7ccb3027f4ff7102`
 Incoming main: `00d68d342eff3adf23a320fa5e2be97d5e212683` (version 0.7.0)
+Source merge: `1f399abecb6fc6529b0a39532ddd0322785c0c92`
 Push target: `origin` = `https://github.com/imnakul/monocode-clone.git` only.
 
 ## Idea
@@ -92,20 +93,22 @@ they stay there untouched. The new worktree starts from the exact base.
 - [x] Affected regressions pass as part of the full suite; TypeScript passes.
 - [x] Full `npm run check` passes (web + fmt/Clippy/Rust tests).
 - [x] Production build and diff checks pass.
-- [ ] Records updated; commit contains the exact tested source.
-- [ ] Push the new fork branch and verify both parents are ancestors.
-- [ ] Hand over the manual desktop checklist; mark Review until verified.
+- [x] Records updated; source merge contains the exact tested source.
+- [x] Push the new fork branch and verify both parents are ancestors.
+- [x] Hand over the manual desktop checklist; mark Review until verified.
 
 ## Issues and fixes
 
 Current checkpoint: user replied "Yes do it" after the seven improvements
 and preservation choices were explained. All eight resolutions are approved.
-Remote branch exists at the unchanged base; source integration is staged.
+Remote source merge is verified at `1f399ab`; its parents are the original
+baseline and pinned upstream main. All seven incoming commits are contained.
 Read-only preview and approved choices are recorded in
 [`upstream-merge-2026-10-03-after-070.md`](../notes/archive/upstream-merge-2026-10-03-after-070.md).
-Next action: root commits/pushes the tested pinned integration and hands off
-desktop checks. Source integration and root preservation review are
-complete; further local updates await the separate user's choice below.
+Next action: user/manual desktop checks and the separate four-local-commit
+inclusion choice below. Source integration, root preservation review,
+automated gates and fork publication are complete. A read-only final check
+confirmed upstream main still equals the pinned `00d68d3`.
 Conflict decisions: approved before source merge on 2026-10-03.
 Validation: `npm run check` passed in this new worktree: 5,286 web tests in
 483 files, TypeScript clean, fmt/Clippy clean, 596 Rust tests passed / 2
@@ -140,8 +143,8 @@ merge still requires the complete upstream validation gate.
 
 ## Done
 
-Source integration and automated verification are complete for the seven
-pinned incoming commits. Commit/push is the next step. Four newer local
+Source integration, automated verification and remote publication are complete
+for all seven incoming commits, merge `1f399ab`. Four newer local
 commits remain excluded pending the separate inclusion/conflict decision;
 they are preserved on the original remote branch. Native desktop verification
 is pending, so this spec is Review rather than Done.
