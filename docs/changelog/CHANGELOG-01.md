@@ -1060,3 +1060,6 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - What / why: first installer of the upstream-merged Windows stack
   (48 upstream commits + catalog fixes + home fallback + hover system).
 - Caveats: details thin — predates this changelog.
+
+---
+Archived 2026-10-03: this file reached about 140 KB. New entries go to [CHANGELOG-02.md](CHANGELOG-02.md).

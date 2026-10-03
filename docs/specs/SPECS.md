@@ -8,8 +8,8 @@ Draft means a proposal is still being shaped. Review means implementation awaits
 Imported historical feature plans are labeled Done at Nakul's request; their original caveats remain in the documents.
 Uncertain and superseded material lives in [notes/archive](../notes/archive/README.md).
 
-Display order: Draft → Review / Blocked → Todo → Progress → Done. Review and Blocked share one section while retaining their individual status labels. Each group is sorted by local file creation time, newest first.
-Creation times come from the Windows filesystem, not the last edit date. Copies or restored files can have different creation times.
+Display order: Draft → Review / Blocked → Todo → Progress → Done. Review and Blocked share one section while retaining their individual status labels. Each group is newest first by the date in its Created column (the date the spec was written; no filesystem lookup needed).
+Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 ## Draft
 
@@ -46,6 +46,7 @@ _No specs in this status._
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
+| 2026-10-02 | [Done — Tasks: Notes parity, List / Table / Board views, peek pane, open beside session](tasks-views-redesign.md) | Built on the 0.6.0 and 0.7.0 integration branches (commits `b5bec1a`…`2990ad0`), later extended with sliding peek pane and shrink-to-fit columns. Changelog 02. Desktop checks done by Nakul. |
 | 2026-10-01 18:39:35 | [Done — Upstream intake after v0.1.55: analysis, plan and round-1 spec (analyst trial) — spec](upstream-intake-analyst-trial.md) | Analysis only, no merge. Run by GPT-6 based Codex in 72 minutes; output in `docs/notes/upstream-intake-2026-10-01/`. Claude's rating: 45 of 55 — exact on facts, generic on judgement; delegation list in the Handoff retro. The round-1 spec it drafted stays Draft. |
 | 2026-10-01 14:30:26 | [Done — Provider batch follow-up fixes — spec](provider-batch-followup-fixes.md) | Fixes A–E in `b905b8c`, `0a27328`, `4423fd8`; Composer test fix F in `35b1f2b`; AC-13 test line in `d691035`. Claude's review passed with no rework. Closed 2026-10-01: Nakul reported build 0.1.55-local5-provider-fixes fine (per-check results not itemized; caveats stay in the spec). Pushed to the fork at `c2c8bf6`. |
 | 2026-09-30 21:01:07 | [Done — Codex MCP forms — spec](codex-mcp-forms.md) | Committed `3a47202` from Luna's patch after Claude's review (8.5/10). Not tried against a real form-sending MCP server; covered by tests only. Closed 2026-10-01: Nakul reported build 0.1.55-local5-provider-fixes fine (per-check results not itemized; caveats stay in the spec). Pushed to the fork at `c2c8bf6`. |

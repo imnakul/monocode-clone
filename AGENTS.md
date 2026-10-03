@@ -1,9 +1,25 @@
 This repository is indexed with SocratiCode. Follow the global SocratiCode
 usage rules.
 
-Always before making any change, planning feature, finding bug, issues, reviews, testing or anything - make sure to read docs/WORKING-AGREEMENT.md, docs/changelog/CHANGELOG.md, docs/specs/SPECS.md, and docs/WINDOWS-CHANGES.md, then open the relevant numbered changelog, spec, or notes file to understand flow, rules, and history.
+This is a fork of MonoCode with Windows support and local features. Before any change,
+read `docs/WORKING-AGREEMENT.md` (short: rules, task tiers, tests, records). Then open only
+the docs the task needs, using the map below. Do not read whole large files; search them by
+keyword (`grep -n`) and open the matching section.
 
-Docs directory is local only for features we are developing, bug fixing, enhancements, and all being done locally at imnakul/windows-support
+## Docs map — what to open, and when
+
+| Open this | When | Notes |
+|---|---|---|
+| `docs/WORKING-AGREEMENT.md` | Always, once per session | Rules, tiers, test gates, record templates |
+| `docs/LOCAL-FEATURES.md` | Before changing or merging anything that could remove fork behaviour; after adding one | Register of what this fork has that upstream does not (L-01…). Search by area or symbol |
+| `docs/changelog/CHANGELOG.md` | To add an entry (every change), or to look up history | Index; open only the file marked Current, and search it by keyword or date |
+| `docs/specs/SPECS.md` | Medium or Large tasks, or when resuming planned work | Index with status; then open the one spec you need |
+| `docs/WINDOWS-CHANGES.md` | Windows-specific work, builds, installers, CRLF/console/PTY issues | Read the index table at the top, then jump to one section |
+| `docs/NOTES.md` | Taking upstream changes in (intake runbook); product calls (§0) are decided and not reopened | |
+| `docs/notes/archive/upstream-merge-*.md` | During an upstream merge, for past conflict decisions | |
+| `docs/PLANNED.md` | Roadmap or "what next" questions | |
+| `docs/FEATURES.md` | Comparing with the T3 reference app | |
+| `docs/notes/…` | Only when a spec or changelog entry links to a file there | Large research records and logs; never browse |
 
 ## Desktop UI verification from MonoCode
 

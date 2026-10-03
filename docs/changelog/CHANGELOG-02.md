@@ -1,0 +1,108 @@
+# Changelog 02
+
+Newest first. One short entry per change (format in `docs/WORKING-AGREEMENT.md` → Records).
+Entries dated 2026-10-02 to 2026-10-03 were backfilled from commits made in cloud sessions
+that did not have the docs; file lists name the main files only.
+
+## 2026-10-03 — Lighter docs process, docs map and local-features catch-up
+- What: Rules rewritten for task tiers (Small/Medium/Large), test tiers, one record per change and no worktree or installer per feature; the long pre-read list was replaced by a docs map in AGENTS.md. Windows log got an index; changelog rolled over to this file; 15 local features registered.
+- Files: `AGENTS.md` (docs map); `docs/WORKING-AGREEMENT.md` (rewritten, all rules kept); `docs/WINDOWS-CHANGES.md` (index at top); `docs/changelog/CHANGELOG.md` (index, 40 KB rollover); `docs/LOCAL-FEATURES.md` (L-02 updated, L-41–L-55 added); `docs/specs/SPECS.md` (Tasks views row, ordering rule).
+- Verified: docs only; no code changed | manual: none
+- Commit: see git log for this entry
+
+## 2026-10-03 — Project sidebar session cards glide
+- What: The project Sessions list used its own card without the shared-hover marker, so it never glided (a recorded performance log showed zero hover events there). Cards are now glide items; state fills are kept. Overlay wording for resting card tints clarified.
+- Files: `src/app/shell/Sidebar.tsx` (session card, `data-shared-hover-item`, removed instant hover fill); `src/shared/debug/PerfOverlay.tsx`, `src/shared/debug/perfRecorder.ts` (own-background wording); `src/app/shell/SidebarRename.test.ts` (new test)
+- Verified: tsc ✅ tests ✅ (5,180) build ✅ | manual: hover the project Sessions list
+- Commit: 9ed1c50
+
+## 2026-10-03 — Speed pill, full-row selected model, one board edge
+- What: Output speed (Fast or service tier) is its own one-click pill beside Effort; the selected model fills its whole row; the last board column has no resize handle so only one draggable line sits beside a side pane.
+- Files: `src/features/sessions/ui/ModelPicker.tsx` (`SpeedPill`, `isSpeedSetting`, `data-model-row`); `src/styles/index.css` (selected row fill); `src/shared/ui/board/BoardColumns.tsx` (last handle hidden); `ModelPicker.test.ts`
+- Verified: tsc ✅ tests ✅ (5,179) build ✅ | manual: done by Nakul ✅
+- Commit: 3f4f86a
+
+## 2026-10-03 — Board counts, log recording, sliding panes, 2×2 board
+- What: Session Manager sidebar entry shows coloured In progress / Needs attention / Done counts; the performance overlay records and saves a Markdown log; Session and Task Manager side panes slide in and out; the Session Manager board reflows to 2×2 when narrow; model picker rows glide as whole rows.
+- Files: `src/features/session-board/useBoardCounts.ts`, `ui/BoardCountPills.tsx`; `src/app/shell/ProjectRail.tsx` (`SessionManagerRailAction`), `RailAction.tsx` (`trailing`); `src/shared/debug/perfRecorder.ts`; `src/shared/hooks/usePresence.ts`; `src/shared/ui/board/BoardColumns.tsx` (`boardColumnsPerRow`, wrap); `SessionBoardView.tsx`, `TasksView.tsx`, `TaskPeekPane.tsx`; `ModelPicker.tsx`
+- Verified: tsc ✅ tests ✅ (5,179) build ✅ | manual: done by Nakul ✅
+- Commit: cbe08b2
+
+## 2026-10-03 — Performance overlay
+- What: View: Toggle Performance Overlay (Ctrl+Alt+Shift+P): FPS, stutters, long tasks and hover glide/snap/hide with the reason a glide ended. No cost while closed.
+- Files: `src/shared/debug/perfDebug.ts`, `PerfOverlay.tsx`; `src/features/sessions/ui/SharedHoverHighlight.tsx` (reports); `src/features/settings/model/settings.ts` (keybinding); `src/app/shell/MenuBar.tsx` (menu item); `src/main.tsx` (mount)
+- Verified: tsc ✅ tests ✅ (5,175) build ✅
+- Commit: 4fae052
+
+## 2026-10-02 — Session Manager fit and clean labels (0.7.0 branch)
+- What: A saved column width shrinks to fit instead of overflowing; cards show the session list title (no provider prefix) and the model display name.
+- Files: `src/shared/ui/board/BoardColumns.tsx` (flex-basis + shrink); `src/features/session-board/ui/BoardSessionCard.tsx` (`boardModelLabel`)
+- Verified: tsc ✅ tests ✅ (5,171) build ✅
+- Commit: e192f2d
+
+## 2026-10-02 — Session Manager four columns, compact cards, menu bar toggle
+- What: Columns Draft / In progress / Needs attention / Done with reason tags (stored statuses unchanged for Operator); new 3-line card with a 4th reason line and 2-line finished cards; buttons renamed to "Add Draft to Sessions" and "Add Task"; Alt+O toggles the menu bar.
+- Files: `src/features/session-board/sessionBoard.ts` (`boardLane`, `boardCardTag`, `isBoardStatus`); `ui/BoardSessionCard.tsx` (new); `ui/SessionBoardView.tsx`; `src/features/agent-app/model/agentApp.ts`; `src-tauri/src/control_cli.rs` (help text); `src/app/shell/MenuBar.tsx`; `src/features/settings/model/settings.ts`
+- Verified: tsc ✅ tests ✅ (5,091) build ✅ | Rust help text not compiled here
+- Commit: b6ad68b
+
+## 2026-10-02 — Session board observer no longer re-reads every transcript
+- What: The background tracker re-projected every session each 150 ms pass while sessions loaded or streamed (startup lag, WebView2 CPU spikes). It now skips unchanged sessions; about 46 ms → 0.18 ms per pass in a 300-session test.
+- Files: `src/features/session-board/sessionBoard.ts` (`observeBoardSessions`, `boardRunId`); `sessionBoard.test.ts`
+- Verified: tsc ✅ tests ✅ (5,083) build ✅
+- Commit: 3cf8be9
+
+## 2026-10-02 — Gliding hover everywhere, surfaces follow menu settings
+- What: Glide continuity in the rail, Notes, Automations, Task and Session Manager (whole card); costly per-card blur removed; board surfaces use the Menu surface tint and backdrop blur.
+- Files: `src/app/shell/ProjectRail.tsx`, `SettingsRail.tsx`, `MenuBar.tsx` (continuity); `src/features/automations/ui/AutomationsView.tsx`; `src/features/session-board/ui/SessionBoardView.tsx`; `src/styles/index.css` (`surface-tint`, `surface-blur`)
+- Verified: tsc ✅ tests ✅ build ✅
+- Commit: 0244e71, a07c7af
+
+## 2026-10-02 — Glass Quick Composer, icon-only table actions, new reply footer
+- What: Quick Composer (global and in-app) uses transparent glass; table actions are icons plus Add to Session Manager; reply header shows only the model, footer holds actions and "Ran for X · time".
+- Files: `src/features/quick-composer/main.tsx`, `ui/QuickComposer.tsx`, `ui/QuickGitPopup.tsx`; `src/features/sessions/ui/MarkdownTable.tsx`; `src/features/sessions/ui/AgentTranscript.tsx` (`TurnDuration`)
+- Verified: tsc ✅ tests ✅ build ✅
+- Commit: 8d4d3c6
+
+## 2026-10-02 — Task Manager views (List / Table / Board) and task tabs
+- What: Tasks rebuilt as List (default), Table and Board with a peek pane; open a task beside the session as a workspace tab; group by project; resizable columns; counts in headers, filters and menus; toolbar row with New task first and the view switch on the right.
+- Files: `src/features/tasks/ui/*` (TasksView, TaskList, TaskTable, TaskBoard, TaskPeekPane…); `src/features/tasks/taskViewState.ts`, `taskFacets.ts`; `src/shared/ui/board/BoardColumns.tsx`, `ResizeHandle.tsx`, `ResultCount.tsx`; `src/features/workspace/model/layout.ts`, `workspaceSnapshot.ts`; `src/app/App.tsx`
+- Verified: tsc ✅ tests ✅ build ✅ | spec: `docs/specs/tasks-views-redesign.md`
+- Commit: e6cd476, 246641f, b5bec1a, ad90d9f, c772e75, aa521d1, d82ecdc, fbb6fcc, 9ebb676, 11c5464, 2990ad0
+
+## 2026-10-02 — Session Manager drafts runnable, Operator control (other agent)
+- What: Unsent session drafts prepared with the Quick Composer, edited and started from the board or Operator `session_manager.*`; navigation renamed to Task Manager / Session Manager; duplicate session icons and false historical Blocked cards fixed.
+- Files: `src/features/session-board/sessionTodos.ts`, `ui/SessionTodoComposer.tsx`, `ui/SessionManagerCapture.tsx`; `src/features/agent-app/model/agentApp.ts`; `src-tauri/src/control_cli.rs`
+- Verified: per commit message (4,980 web tests, Rust fmt/clippy/574 tests)
+- Commit: a87a5f7, 8c3ca2e
+
+## 2026-10-02 — Session board, tab-opening preferences, Windows Quick Composer (other agent)
+- What: Persistent session board across restarts; separate file/session tab-opening preferences; Quick Composer on Windows with a global shortcut; ACP launch identity fix; live board updates and project filters restored.
+- Files: `src/features/session-board/*`, `src-tauri/src/session_board.rs`; `src/features/settings/model/openingBehavior.ts`; `src-tauri/src/quick_composer.rs`, `src/features/quick-composer/model/quickComposerShortcut.ts`; `src/integrations/harness/core/child.ts`
+- Verified: per commit messages (4,927–4,946 web tests, Rust checks, host tests)
+- Commit: a0b440c, bee3eea, 983d195
+
+## 2026-10-02 — Persistent Tasks, table actions, Haze, queue holds (other agent)
+- What: Tasks with statuses, tags, filters and Operator actions; Copy Markdown; table Copy and Add to Note; Wallpaper Haze; compact model labels experiment; queue holds persisted independently of quota notices; old Tasks tables upgraded at startup.
+- Files: `src/features/tasks/tasks.ts`, `src-tauri/src/tasks.rs`; `src/features/sessions/ui/MarkdownCopyButton.tsx`, `MarkdownTable.tsx`; `src/features/settings/model/wallpaperHaze.ts`; `src/features/sessions/model/messageQueue.ts`
+- Verified: per commit messages (4,860 web tests, host tests)
+- Commit: 5e06791, f4aa072, 91b12ca
+
+## 2026-10-02 — Upstream MonoCode 0.7.0 merged
+- What: Upstream main through `6bd432c` (0.7.0 plus its docs commit) merged into the Windows line. Kept: Tasks and Session board, Windows terminal replay and lazy startup, provider discovery, appearance, remaining-usage and email-masking defaults. Combined terminal teardown ordering; Explorer reveal keeps hidden launches and fixes paths with spaces. Version `0.7.0-local1-upstream-sync`.
+- Files: merge commit; see `git show --stat 3113550`
+- Verified: per merge message (5,160 web tests, TypeScript, build, 96 host tests, Rust fmt/clippy/575 tests) | manual: Windows-native build and smoke checks
+- Commit: 3113550 (later syncs: ca3c6ad, 023318e)
+
+## 2026-10-02 — Tasks views work synced with upstream-branch fixes
+- What: The Tasks views branch took in the live Kanban fix, Session Manager Todos and session board fixes from the 0.6.0 integration branch.
+- Files: merge commits only
+- Verified: full web suite and TypeScript at each merge
+- Commit: 72bd770, 656a6c1, ec385c7
+
+## 2026-10-01 — Upstream MonoCode 0.6.0 merged
+- What: Upstream main through `1e97594` (v0.6.0 plus ten commits) merged, keeping both histories. Kept: shared Antigravity ACP runtime and Google sign-in, Cline, Windows discovery/console/appearance, durable queue and steer, provider forks and hot switching, helper isolation, quota/context details, CRLF and deleted-file handling. Upstream remote-host support adapted to the shared ACP runtime and Cline; SQLite migrations combined.
+- Files: merge commit; see `git show --stat 9dcc239`
+- Verified: per merge message (full web suite, TypeScript, build, host tests, Rust fmt/clippy/tests, Windows GNU cross-compile) | manual: native desktop and installer checks
+- Commit: 9dcc239
+

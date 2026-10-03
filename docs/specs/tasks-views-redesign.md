@@ -1,7 +1,7 @@
 # Tasks: Notes parity, List / Table / Board views, peek pane, open beside session — spec
 
 - Tier: complex (persistence of view state, optimistic async status moves, pointer drag, workspace snapshot schema)
-- Snapshot: `bee3eea` on `claude/tasks-ui-review-views-u5xmmg`, 2026-10-02 · Status: draft
+- Snapshot: `bee3eea` on `claude/tasks-ui-review-views-u5xmmg`, 2026-10-02 · Status: Done (built on the 0.6.0 and 0.7.0 integration branches; see Changelog 02)
 - If `git rev-parse --short HEAD` is not `bee3eea`, diff `bee3eea..HEAD` for the files listed in "Implementation plan" before starting and report any conflict.
 
 ## Goal and user story

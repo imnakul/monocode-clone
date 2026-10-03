@@ -1,7 +1,52 @@
 # Windows changes — tracking log
 
-Local-only file (docs/ is gitignored, never pushed). How we did things and
-what we did, so we — and anyone later — can retrace steps while debugging.
+Windows-specific learnings: how we did things and what we did, so anyone can retrace steps
+while debugging. Tracked on the Windows branches (fork material, never sent upstream).
+
+**How to use:** find the topic in the index, then search for the heading text
+(`grep -n "<heading text>" docs/WINDOWS-CHANGES.md`) and read only that section.
+**How to add:** put a new section directly under this index (newest first) and add its row at
+the top of the table. Do not rewrite older sections.
+
+## Index
+
+| Date | Section heading (search this) | Area |
+|---|---|---|
+| 2 Oct 2026 | Windows 0.6.0 installer | installer, versioning, known test failures |
+| 1 Oct 2026 | 0.1.55-local5-provider-fixes | providers |
+| 28 Sept 2026 | Lead checkout chooser removed | orchestration |
+| 26 Sept 2026 | Orchestration native-dev handoff continuation | orchestration |
+| 25 Sept 2026 | Local handoff files and lead control | orchestration |
+| 25 Sept 2026 | Hari current orchestration integration | orchestration |
+| 25 Sept 2026 | Corrected same-version wallpaper installer | wallpaper, installer |
+| 25 Sept 2026 | Wallpaper effect choices | wallpaper |
+| 25 Sept 2026 | Installed local3 Halftone failure | wallpaper, installed-vs-dev |
+| 24 Sept 2026 | Compact rail shared hover + wallpaper Halftone | hover, wallpaper |
+| 24 Sept 2026 | 0.1.55-local3-rail-wallpaper release | installer |
+| 23 Sept 2026 | Providers initial discovery indicator | providers |
+| 23 Sept 2026 | 0.1.51-local1-upstream-import | upstream merge |
+| 15 Sept 2026 | Lazy terminal + harness startup | terminal, startup |
+| 12 Sept 2026 | 0.1.35-local5-queue-durability | queue, SQLite migration |
+| 11 Sept 2026 | 0.1.35-local4-token-usage | tokens, CRLF editor, diff, keyboard, hover |
+| 8 Sept 2026 | ignored local files in chat mentions | mentions |
+| 8 Sept 2026 | local3-reveal-tabs | Explorer reveal, tab fade |
+| 7 Sept 2026 | Antigravity ACP: architecture, installed-build fix, and recovery runbook | Antigravity, PyInstaller, disk |
+| 6 Sept 2026 | Pre-existing Windows CRLF test failures | tests (not ours, leave alone) |
+| 6 Sept 2026 | Skills feature | skills |
+| 6 Sept 2026 | Defender verdict: false positive | antivirus |
+| 6 Sept 2026 | Local version scheme | versioning |
+| 6 Sept 2026 | Other changes in local1 | misc |
+| 23 Sept 2026 | 0.1.54-local1-upstream-import | upstream merge |
+| 23 Sept 2026 | round-2 merge: staging repaired | upstream merge |
+| 23 Sept 2026 | popover hover pill: wash/marker stacking fixed | hover |
+| 23 Sept 2026 | Providers catalogs hid the newest models | providers, models |
+| 23 Sept 2026 | wire probe verdict | providers, Claude models |
+| 23 Sept 2026 | gate reverted: MINIMUM_CLAUDE_OPUS_5_5_VERSION | providers, Claude |
+| 24 Sept 2026 | 0.1.54-local2-upstream-import built | upstream merge, installer |
+| 24 Sept 2026 | KNOWN ISSUE: multiple Windows Explorer windows | Explorer, Antigravity |
+| 24 Sept 2026 | round 3 landed in tree | upstream merge, CLI notices |
+
+---
 
 ## 2 Oct 2026 21:21 IST — Windows 0.6.0 installer
 
