@@ -163,9 +163,7 @@ export function TasksView({
   const [showArchived, setShowArchived] = useState(() =>
     loadFlag(SHOW_ARCHIVED_KEY),
   );
-  const [burst, setBurst] = useState<(BurstTarget & { spread?: boolean }) | null>(
-    null,
-  );
+  const [burst, setBurst] = useState<BurstTarget | null>(null);
   const [newTaskId, setNewTaskId] = useState<string | null>(null);
   const focusButton = useRef<HTMLButtonElement>(null);
   const today = localDay();
@@ -365,12 +363,8 @@ export function TasksView({
     setFocusOn(next);
     saveFlag(FOCUS_KEY, next);
     if (next) {
-      // Celebrate along the whole toolbar, not just at the button.
-      const target = burstAt(
-        root.current?.querySelector("[data-tasks-toolbar]") ??
-          focusButton.current,
-      );
-      if (target) setBurst({ ...target, spread: true });
+      const target = burstAt(focusButton.current);
+      if (target) setBurst(target);
     }
   };
   const toggleArchived = () => {
@@ -613,37 +607,37 @@ export function TasksView({
         projects={projects}
         onChange={setFilters}
         leading={
-          <>
-            <NewTaskButton
-              creating={creating}
-              menuOpen={menu?.kind === "create"}
-              onCreate={() => void create(undefined)}
-              onChooseLocation={openMenu}
+          <NewTaskButton
+            creating={creating}
+            menuOpen={menu?.kind === "create"}
+            onCreate={() => void create(undefined)}
+            onChooseLocation={openMenu}
+          />
+        }
+        center={
+          <button
+            ref={focusButton}
+            type="button"
+            aria-pressed={focusOn}
+            aria-label={`Focus: ${focusCount} of ${activeTasks.length} tasks are in today's focus`}
+            title="Show only today's focus: tasks created today or pinned to today"
+            onClick={toggleFocus}
+            className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12px] transition-colors duration-150 ${
+              focusOn
+                ? "bg-amber-400/15 text-amber-200 hover:bg-amber-400/25"
+                : "text-content/60 hover:bg-content/10 hover:text-content"
+            }`}
+          >
+            <Target
+              aria-hidden
+              className="size-3.5"
+              strokeWidth={1.75}
             />
-            <button
-              ref={focusButton}
-              type="button"
-              aria-pressed={focusOn}
-              aria-label={`Focus: ${focusCount} of ${activeTasks.length} tasks are in today's focus`}
-              title="Show only today's focus: tasks created today or pinned to today"
-              onClick={toggleFocus}
-              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12px] transition-colors duration-150 ${
-                focusOn
-                  ? "bg-amber-400/15 text-amber-200 hover:bg-amber-400/25"
-                  : "text-content/60 hover:bg-content/10 hover:text-content"
-              }`}
-            >
-              <Target
-                aria-hidden
-                className="size-3.5"
-                strokeWidth={1.75}
-              />
-              Focus
-              <span className="tabular-nums text-[11px] opacity-70">
-                {focusCount}/{activeTasks.length}
-              </span>
-            </button>
-          </>
+            Focus
+            <span className="tabular-nums text-[11px] opacity-70">
+              {focusCount}/{activeTasks.length}
+            </span>
+          </button>
         }
         trailing={
           <>
@@ -702,7 +696,6 @@ export function TasksView({
       {burst ? (
         <CelebrationBurst
           target={burst}
-          spread={burst.spread}
           onDone={() => setBurst(null)}
         />
       ) : null}

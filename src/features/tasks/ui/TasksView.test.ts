@@ -1312,18 +1312,49 @@ describe("New task while the pane is open", () => {
 });
 
 describe("toolbar layout and focus presentation", () => {
-  it("puts Focus right after New task and drops the Columns control", async () => {
+  it("centres Focus between the filters and the view controls and drops the Columns control", async () => {
     await render();
-    const toolbar = container.querySelector("[data-tasks-toolbar]")!;
+    const toolbar = byLabel("Filter tasks").parentElement!.parentElement!;
     const order = [...toolbar.querySelectorAll("button")].map(
       (entry) => entry.getAttribute("aria-label") ?? entry.textContent,
     );
     expect(order[0]).toBe("New task");
     expect(order[1]).toBe("Choose where the task is filed");
-    expect(order[2]).toMatch(/^Focus:/);
+    const focus = order.findIndex((label) => /^Focus:/.test(label ?? ""));
+    // After the filter pills, before Archived and the view switch.
+    expect(focus).toBeGreaterThan(order.findIndex((l) => /Project/.test(l ?? "")));
+    expect(focus).toBeLessThan(order.findIndex((l) => /Archived/.test(l ?? "")));
+    const slot = toolbar.querySelector<HTMLElement>('button[aria-label^="Focus:"]')!
+      .parentElement!;
+    expect(slot.className).toContain("flex-1");
+    expect(slot.className).toContain("justify-center");
     expect(toolbar.textContent).not.toContain("Columns");
     await switchView("Board");
     expect(toolbar.textContent).not.toContain("Columns");
+  });
+
+  it("pads the toolbar like the board so New task and the view switch line up with the columns", async () => {
+    await render();
+    const toolbar = byLabel("Filter tasks").parentElement!.parentElement!;
+    expect(toolbar.className).toContain("px-3");
+    expect(toolbar.className).not.toContain("px-2");
+  });
+
+  it("bursts only at the Focus button, not across the toolbar", async () => {
+    await render();
+    const focus = container.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Focus:"]',
+    )!;
+    focus.getBoundingClientRect = () =>
+      ({ left: 120, top: 8, width: 64, height: 28 }) as DOMRect;
+    await click(focus);
+    const bursts = document.querySelectorAll<HTMLElement>(
+      "[data-celebration-burst]",
+    );
+    expect(bursts).toHaveLength(1);
+    expect(bursts[0].style.left).toBe("120px");
+    expect(bursts[0].style.width).toBe("64px");
+    expect(bursts[0].children).toHaveLength(1);
   });
 
   it("shows the focus day chip on rows and cards, but not for tasks in focus by creation", async () => {

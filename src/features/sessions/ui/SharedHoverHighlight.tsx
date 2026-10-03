@@ -92,6 +92,43 @@ export function resolveSharedHoverAction({
   return { type: "hide" };
 }
 
+export type SharedHoverReflow =
+  | { type: "reposition" }
+  | { type: "activate"; target: HTMLElement }
+  | { type: "hide"; reason: string };
+
+/**
+ * What to do when the layout changed under the highlight (not the pointer):
+ * keep the marker on its item at the item's new rect, move it to whatever now
+ * sits under a still pointer, or hide it when nothing hoverable is there.
+ */
+export function resolveSharedHoverReflow({
+  targetConnected,
+  pointerKnown,
+  pointerInsideTarget,
+  hitTarget,
+  inContinuityGap,
+}: {
+  targetConnected: boolean;
+  /** False after keyboard navigation or once the pointer left the list. */
+  pointerKnown: boolean;
+  pointerInsideTarget: boolean;
+  /** The hoverable item now under the pointer, if any. */
+  hitTarget: HTMLElement | null;
+  inContinuityGap: boolean;
+}): SharedHoverReflow {
+  const usable = hitTarget && !isTargetDisabled(hitTarget) ? hitTarget : null;
+  if (!targetConnected) {
+    return pointerKnown && usable
+      ? { type: "activate", target: usable }
+      : { type: "hide", reason: "item was removed or re-rendered" };
+  }
+  if (!pointerKnown || pointerInsideTarget) return { type: "reposition" };
+  if (usable) return { type: "activate", target: usable };
+  if (!hitTarget && inContinuityGap) return { type: "reposition" };
+  return { type: "hide", reason: "layout changed and the item left the pointer" };
+}
+
 /** The non-item element the pointer crossed, for the Performance overlay. */
 function describeGap(node: EventTarget | null): string {
   if (!(node instanceof Element)) return "an empty gap";
@@ -114,11 +151,41 @@ export function SharedHoverHighlight({
 
     let target: HTMLElement | null = null;
     let frame = 0;
+    // Last pointer position over the list, to find what sits under a still
+    // cursor after the layout changes. Cleared by keyboard use and on leave.
+    let pointer: { x: number; y: number } | null = null;
+    // Box the marker was last placed at, so a reflow that changes nothing
+    // (including the observer's first callback) never interrupts a glide.
+    let applied = { x: 0, y: 0, width: 0, height: 0 };
+    // One observer for the list and its hovered item: layout changes that
+    // fire no scroll or resize event (a side pane opening, a card re-wrapping).
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => refresh());
+    resizeObserver?.observe(root);
 
-    const position = (next: HTMLElement, report = true): void => {
+    const setTarget = (next: HTMLElement | null): void => {
+      if (target === next) return;
+      if (target) {
+        target.removeAttribute("data-shared-hover-active");
+        resizeObserver?.unobserve(target);
+      }
+      target = next;
+      if (next) {
+        next.setAttribute("data-shared-hover-active", "true");
+        resizeObserver?.observe(next);
+      }
+    };
+
+    const position = (
+      next: HTMLElement,
+      report = true,
+      animate = true,
+    ): void => {
       const rootRect = root.getBoundingClientRect();
       const rect = next.getBoundingClientRect();
-      const first = marker.dataset.visible !== "true";
+      const first = marker.dataset.visible !== "true" || !animate;
       if (report && isPerfDebugEnabled())
         reportHoverDebug({
           kind: first ? "snap" : "glide",
@@ -129,10 +196,13 @@ export function SharedHoverHighlight({
       if (first) marker.style.transition = "none";
       // Snap to whole pixels: fractional translate/width blurs the marker's
       // edges, which reads as a smaller box next to a crisp selected pill.
-      marker.style.width = `${Math.round(rect.width)}px`;
-      marker.style.height = `${Math.round(rect.height)}px`;
+      const width = Math.round(rect.width);
+      const height = Math.round(rect.height);
       const x = Math.round(rect.left - rootRect.left + root.scrollLeft);
       const y = Math.round(rect.top - rootRect.top + root.scrollTop);
+      applied = { x, y, width, height };
+      marker.style.width = `${width}px`;
+      marker.style.height = `${height}px`;
       marker.style.transform = `translate3d(${x}px, ${y}px, 0)`;
       marker.style.borderRadius = getComputedStyle(next).borderRadius;
       const danger = next.dataset.sharedHoverTone === "danger";
@@ -162,8 +232,7 @@ export function SharedHoverHighlight({
           ownFill: false,
           reason,
         });
-      target?.removeAttribute("data-shared-hover-active");
-      target = null;
+      setTarget(null);
       marker.dataset.visible = "false";
       marker.style.opacity = "0";
     };
@@ -179,24 +248,74 @@ export function SharedHoverHighlight({
 
       if (action.type === "activate") {
         if (target === action.target) return;
-        target?.removeAttribute("data-shared-hover-active");
-        target = action.target;
-        target.setAttribute("data-shared-hover-active", "true");
-        position(target);
+        setTarget(action.target);
+        position(action.target);
       } else if (action.type === "hide") {
         hide("focus moved to a disabled item");
       }
     };
 
-    const refresh = (): void => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        if (target?.isConnected) position(target, false);
-        else hide("item was removed or re-rendered");
+    // Re-measure after the layout moved or resized the hovered item, without
+    // a glide: the marker should be at the item's new box, not chase it.
+    const reflow = (): void => {
+      if (!target) return;
+      const connected = target.isConnected;
+      const point = pointer;
+      let hit: HTMLElement | null = null;
+      let inside = false;
+      if (point) {
+        if (connected) {
+          const rect = target.getBoundingClientRect();
+          inside =
+            point.x >= rect.left &&
+            point.x <= rect.right &&
+            point.y >= rect.top &&
+            point.y <= rect.bottom;
+        }
+        if (!inside) {
+          const under = document.elementFromPoint(point.x, point.y);
+          hit = findHoverTarget(under, root, selector);
+        }
+      }
+      const gap =
+        !inside &&
+        connected &&
+        isPointerInContinuityGap(
+          point ? document.elementFromPoint(point.x, point.y) : null,
+          target,
+          root,
+        );
+      const action = resolveSharedHoverReflow({
+        targetConnected: connected,
+        pointerKnown: point !== null,
+        pointerInsideTarget: inside,
+        hitTarget: hit,
+        inContinuityGap: gap,
       });
+      if (action.type === "hide") hide(action.reason);
+      else if (action.type === "activate") {
+        setTarget(action.target);
+        position(action.target, true, false);
+      } else {
+        const rootRect = root.getBoundingClientRect();
+        const rect = target.getBoundingClientRect();
+        const moved =
+          Math.round(rect.width) !== applied.width ||
+          Math.round(rect.height) !== applied.height ||
+          Math.round(rect.left - rootRect.left + root.scrollLeft) !==
+            applied.x ||
+          Math.round(rect.top - rootRect.top + root.scrollTop) !== applied.y;
+        if (moved) position(target, false, false);
+      }
     };
 
+    function refresh(): void {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(reflow);
+    }
+
     const onPointerMove = (event: PointerEvent): void => {
+      pointer = { x: event.clientX, y: event.clientY };
       const hit = findHoverTarget(event.target, root, selector);
       const inContinuity = isPointerInContinuityGap(event.target, target, root);
       const action = resolveSharedHoverAction({
@@ -209,10 +328,8 @@ export function SharedHoverHighlight({
 
       if (action.type === "activate") {
         if (target === action.target) return;
-        target?.removeAttribute("data-shared-hover-active");
-        target = action.target;
-        target.setAttribute("data-shared-hover-active", "true");
-        position(target);
+        setTarget(action.target);
+        position(action.target);
       } else if (action.type === "hide") {
         hide(
           hit
@@ -222,7 +339,13 @@ export function SharedHoverHighlight({
       }
     };
 
-    const onPointerLeave = (): void => hide("pointer left the list");
+    const onPointerLeave = (): void => {
+      pointer = null;
+      hide("pointer left the list");
+    };
+    const onKeyDown = (): void => {
+      pointer = null;
+    };
     const onFocusIn = (event: FocusEvent): void =>
       show(findHoverTarget(event.target, root, selector));
     const onFocusOut = (event: FocusEvent): void => {
@@ -232,6 +355,7 @@ export function SharedHoverHighlight({
 
     root.addEventListener("pointermove", onPointerMove);
     root.addEventListener("pointerleave", onPointerLeave);
+    root.addEventListener("keydown", onKeyDown);
     root.addEventListener("focusin", onFocusIn);
     root.addEventListener("focusout", onFocusOut);
     root.addEventListener("scroll", refresh, true);
@@ -239,9 +363,11 @@ export function SharedHoverHighlight({
 
     return () => {
       cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
       target?.removeAttribute("data-shared-hover-active");
       root.removeEventListener("pointermove", onPointerMove);
       root.removeEventListener("pointerleave", onPointerLeave);
+      root.removeEventListener("keydown", onKeyDown);
       root.removeEventListener("focusin", onFocusIn);
       root.removeEventListener("focusout", onFocusOut);
       root.removeEventListener("scroll", refresh, true);

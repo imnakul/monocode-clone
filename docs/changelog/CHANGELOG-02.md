@@ -4,11 +4,34 @@ Newest first. One short entry per change (format in `docs/WORKING-AGREEMENT.md` 
 Entries dated 2026-10-02 to 2026-10-03 were backfilled from commits made in cloud sessions
 that did not have the docs; file lists name the main files only.
 
+## 2026-10-04 — Original 0.7.0 updates combined with latest upstream intake
+- What: Included all four original-branch commits through `9effbed` after explicit user approval. Kept both conflict sides: saved-prompt/permissions imports and all changelog records. Latest now combines MCP switch polish, saved prompts, Task Focus/hover changes and the Remote Control draft with the seven upstream improvements. Session draft regression checks prompt insertion and selected permission mode together; Task/Session and existing actions remain.
+- Files: all incoming prompts/Tasks/MCP/settings/hover source and tests; QuickComposer import combination and combined regression; preserved docs plus intake spec/index and local-feature audit.
+- Verified: focused tests ✅ (107 / 7 files) full `npm run check` ✅ (5,317 web tests / 487 files, tsc, fmt/Clippy, 599 Rust passed / 2 ignored) cargo check ✅ production build ✅ diff check ✅ | manual: merged desktop checklist in intake spec.
+- Commit: uncommitted verified combined merge; commit/push next.
+
 ## 2026-10-03 — Seven upstream main commits after 0.7.0
 - What: Integrated upstream through `00d68d3` on the new dated branch from `6705686`, after user approval of all eight conflict combinations. Added title/sidebar/pane/panel animations, separate composer permissions, detailed live usage captions and PR/issue activity/overview. Preserved Task/Session and Drafts, hover, active-model metadata, pane actions, Windows support and MCP controls. Compact quota setting/default/used-left wording stays independent. Four newer commits on the original base branch are excluded pending the separate inclusion choice.
 - Files: App/Sidebar/UsageProviderChip; Inbox models/views and new overview/timeline tests; QuickComposer/model/permissions/motion; session history; PaneTree and entry tests; ParticleText/styles; preservation register, spec/index and conflict record.
 - Verified: full `npm run check` ✅ (5,286 web tests / 483 files, tsc, fmt/Clippy, 596 Rust passed / 2 ignored) production build ✅ diff check ✅ | manual: desktop checklist in `docs/specs/upstream-main-after-070-plan.md`; no installer built.
 - Commit: `1f399abecb6fc6529b0a39532ddd0322785c0c92` (source merge pushed and verified; handoff records follow).
+
+## 2026-10-03 — Focus centred in the Task Manager toolbar; glide in the ! prompt picker
+- What: The Focus button sits centred in the free space between the filters and the view controls (new `center` toolbar slot). The `!` saved-prompt picker uses the same gliding hover as menus and popovers.
+- Files: `src/features/tasks/ui/TasksToolbar.tsx` (`center` slot); `src/features/tasks/ui/TasksView.tsx` (Focus moved); `src/features/prompts/ui/SavedPromptMenu.tsx` (`SharedHoverHighlight`); tests `TasksView.test.ts`, `SavedPrompts.ui.test.ts`
+- Verified: tsc ✅ tests ✅ (5,294) | manual: Focus centred at several window widths; hover rows in the `!` picker
+- Commit: see git log for this entry
+## 2026-10-03 — Task Manager and MCP polish: button-only burst, hover reflow, toolbar alignment, MCP switches
+- What: (1) Focus bursts at the button only again. (2) The gliding hover re-measures when its item resizes or moves under a still pointer (a ResizeObserver on the list and the hovered item), moving to the item now under the pointer or hiding, instead of leaving a ghost at the old size. (3) Task toolbar uses `px-3` like the board's `p-3`, so New task and the view switch line up with the columns. (4) Settings → MCP: the flash was `refresh()` setting the page loading state, which replaced the list with "Checking servers…"; switches now flip the row in place with a per-row "Saving…", refresh quietly, revert only that row on error, say On/Off, are labelled Enable/Disable <name>, and dim disabled servers. Settings has one switch, `SettingsToggle` (shared Toggle plus the sound cue); SettingsView's local wrapper is gone.
+- Files: `src/features/tasks/ui/TasksView.tsx` (`toggleFocus`), `TasksToolbar.tsx` (`px-3`, `data-tasks-toolbar` removed); `src/shared/ui/CelebrationBurst.tsx` (`spread`/`burstFields` removed); `src/features/sessions/ui/SharedHoverHighlight.tsx` (`resolveSharedHoverReflow`, `reflow`, `setTarget`); `src/features/settings/ui/McpSettings.tsx` (`setEnabled`, `refresh(force, quiet)`, row toggles); `SettingsToggle.tsx` (new), `SettingsView.tsx`; tests `SharedHoverHighlight.reflow.test.ts` (new), `TasksView.test.ts`, `TaskTags.test.ts`, `McpSettings.test.ts`, `SettingsToggle.test.ts` (new)
+- Verified: tsc ✅ full web tests ✅ (5,294 / 483 files) build ✅ cargo fmt ✅ cargo test --lib ✅ (599 passed, 2 ignored) | manual: Focus burst at button, board hover after opening the side pane, toolbar edges on List/Table/Board, MCP switch flash/On-Off/muted rows
+- Commit: see git log for this entry
+
+## 2026-10-03 — Saved prompts (Settings → Prompts, `!` picker, Add to Prompts)
+- What: Cherry-picked `feature/saved-prompts` (6404d02) because a merge pulled six newer upstream commits with conflicts in Sidebar, UsageProviderChip, rateLimits, sessionHistory and PaneTree; merge aborted. Conflicts resolved: Add to Prompts is the 4th selection action; the floating composer shows the `!` picker only in Session mode.
+- Files: `src/features/prompts/**` (new); `src-tauri/src/prompts.rs` (new), `lib.rs`, `session_store.rs` (`saved_prompts`); `QuickComposer.tsx` (`promptMenu`, Session mode only); `Composer.tsx`, `SkillPromptField.tsx`, `TranscriptSelectionMenu.tsx`, `SettingsView.tsx`, `SettingsRail.tsx`, `settings.ts`, `App.tsx`, `icons.tsx`; `QuickComposer.modes.test.ts` (2 tests)
+- Verified: tsc ✅ targeted tests ✅ (2,064 / 194 files) cargo test prompts:: ✅ (3); full gates re-run after Part B | manual: `!` picker in each composer, Add to Prompts dialog, Settings → Prompts
+- Commit: see git log for this entry
 
 ## 2026-10-03 — MCP switches and server approval for the current chat
 - What: Settings → MCP now reuses the existing switch for configured Claude Code, Codex and OpenCode servers. Native flags preserve config, comments, credentials and CRLF; confirmed discovery controls the displayed state. A separate Allow server for session action covers verified tools from one server in a local chat, alongside existing once/tool-session/deny actions. Other chats/servers and typed forms keep their approval flow; Plan, cancellation, account/folder and native-session boundaries stay guarded. Scope/reload hints and unavailable-provider explanations are shown.

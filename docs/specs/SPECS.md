@@ -17,6 +17,7 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
+| 2026-10-03 | [Draft — Claude Remote Control for MonoCode sessions — spec](claude-remote-control-plan.md) | Phase 0 manual probe (Nakul, phone) gates Phase 1. Uses the CLI's undocumented stream-json `remote_control` request. Cloud sessions, remote hosts and Codex are follow-ups. |
 | 2026-09-27 02:47:38 | [Draft — Prepare for a break — spec](prepare-for-break.md) | Depends on Native Branch and Claude cold-resume warning. |
 | 2026-09-27 00:57:16 | [Draft — Claude cold-resume warning — spec](claude-cold-resume-warning.md) | Depends on Native Branch. |
 
@@ -24,7 +25,7 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
-| 2026-10-03 | [Review — Upstream main after 0.7.0](upstream-main-after-070-plan.md) | Seven main commits through `00d68d3` merged/pushed as `1f399ab`; 5,286 web / 596 Rust tests and build pass. Desktop checks and four-newer-local-commits choice remain. |
+| 2026-10-03 | [Review — Upstream main after 0.7.0](upstream-main-after-070-plan.md) | Original branch through `9effbed` combined with all seven main commits through `00d68d3`; 5,317 web / 599 Rust tests and build pass. Native desktop checks remain. |
 | 2026-10-03 | [Review — MCP controls and server approvals](mcp-controls-plan.md) | Implemented and full gates passed on latest 0.7.0 branch; native desktop/provider checks remain. |
 | 2026-10-03 | [Review — Task Manager focus/archive, one composer, Drafts group](task-focus-composer-plan.md) | Implemented on `nakul/windows-support-upstream-0.7.0`; manual desktop checks listed in the spec. |
 | 2026-10-02 21:06 | [Review — Windows 0.6.0 build](windows-060-build-plan.md) | Unsigned installer built and archived; exact version requested by Nakul. Three existing test failures documented; desktop verification remains. |

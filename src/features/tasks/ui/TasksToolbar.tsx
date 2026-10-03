@@ -32,14 +32,17 @@ export function TasksToolbar({
   projects,
   onChange,
   leading,
+  center,
   trailing,
 }: {
   filters: TaskFilters;
   tasks: readonly Task[];
   projects: readonly string[];
   onChange: (filters: TaskFilters) => void;
-  /** Primary actions shown before the filters (New task, Focus). */
+  /** Primary actions shown before the filters (New task). */
   leading?: ReactNode;
+  /** Shown centred in the free space between the filters and the view controls (Focus). */
+  center?: ReactNode;
   /** View controls pinned to the right end of the row. */
   trailing?: ReactNode;
 }) {
@@ -91,10 +94,8 @@ export function TasksToolbar({
     list.includes(item) ? list.filter((entry) => entry !== item) : [...list, item];
   return (
     <>
-      <div
-        data-tasks-toolbar
-        className="flex h-10 shrink-0 items-center gap-1.5 px-2"
-      >
+      {/* px-3 matches the board's p-3 so the edges line up with its columns. */}
+      <div className="flex h-10 shrink-0 items-center gap-1.5 px-3">
         {leading}
         <div className="relative flex h-7 min-w-28 max-w-64 flex-1 items-center">
           <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
@@ -177,7 +178,10 @@ export function TasksToolbar({
             Reset
           </button>
         ) : null}
-        <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
+        <div className="flex min-w-0 flex-1 justify-center px-2">
+          {center}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
           {trailing}
         </div>
       </div>

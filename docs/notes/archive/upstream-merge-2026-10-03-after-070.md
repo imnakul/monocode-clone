@@ -1,6 +1,6 @@
 # Upstream merge — 2026-10-03, seven commits after 0.7.0
 
-Status: Review; all proposed combinations approved and implemented; full gates pass.
+Status: Review; both parent lines combined and full gates pass; publication next.
 Plan: [upstream-main-after-070-plan.md](../../specs/upstream-main-after-070-plan.md).
 New branch: `nakul/windows-support-upstream-0.7.0-latest-2026-10-03`.
 Base: `670568689a027c26cefeb2cc1e4b40389339593c`.
@@ -73,7 +73,7 @@ upstream commits are absent. Final read-only upstream-main check still
 returns `00d68d3`. Documentation handoff follows the source merge without
 source changes. No manual desktop testing or installer build performed.
 
-## Concurrent local updates — decision pending
+## Concurrent local updates — approved before merge
 
 The original integration remote advanced to `9effbed3c2fc2e5945d98bb33dce0655e0bfcc3c`
 while implementation was underway:
@@ -86,6 +86,30 @@ while implementation was underway:
 Read-only incremental preview against the resolved upstream source reports
 only QuickComposer imports and top changelog entries as text conflicts.
 Recommendation: include all four, preserve both permissions/saved-prompt
-imports and keep both newest changelog records. The user has been asked;
-no new overlap is approved or resolved yet. This is separate from the eight
-original approved resolutions.
+imports and keep both newest changelog records. The user explicitly approved
+"Yes bring them, and resolve those two conflicts, we want both" before
+source changes. Fresh merge-tree from `97143c1` plus `9effbed` confirms only
+these two conflicts; there are no new product decisions.
+
+Implementation plan: merge `9effbed` with `--no-commit --no-ff`, retain both
+import sets and all changelog entries. Audit clean-merged composer tests/App
+wiring and intact upstream changes. Run focused tests/tsc, full upstream gate,
+explicit Rust `cargo check` and build; record exact combined-source results.
+Commit/push only the latest branch and verify it contains both complete parent
+lines. Original 0.7.0 branch remains the source of the four local commits.
+
+Both approved sections are now combined and staged. Saved prompts, MCP/Tasks
+polish, SettingsToggle and hover-reflow source match `9effbed`; the upstream
+features and original local pane actions remain. The composer regression
+selects permissions and inserts a saved prompt, then verifies both in the same
+draft submission; Task mode continues hiding Session controls.
+
+A greedy helper pattern initially truncated the two files and caused the
+composer tests to fail. Both complete files were restored from the saved
+merge-tree preview and combined only at the bounded conflict sections before
+any commit/push. Post-repair focused checks: 107 tests / 7 files passed;
+`cargo check --locked` passed. Full combined `npm run check` passes: 5,317
+frontend tests / 487 files, TypeScript and fmt/Clippy clean, 599 Rust passed /
+2 ignored. Production build passes (35.98s), retaining the existing warnings.
+Final original-branch head check still returns `9effbed`. Commit/publication
+and ancestor verification are next; native desktop checks remain separate.

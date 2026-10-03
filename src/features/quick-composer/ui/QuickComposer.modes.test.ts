@@ -113,15 +113,27 @@ beforeEach(async () => {
   });
   vi.mocked(invoke)
     .mockReset()
-    .mockImplementation(async (command, args) =>
-      command === "tasks_upsert"
+    .mockImplementation(async (command, args) => {
+      if (command === "prompts_list")
+        return [
+          {
+            id: "p1",
+            title: "Review",
+            body: "Review this change carefully",
+            pinned: false,
+            useCount: 0,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ];
+      return command === "tasks_upsert"
         ? {
             ...(args as { task: object }).task,
             createdAt: 1,
             updatedAt: 1,
           }
-        : undefined,
-    );
+        : undefined;
+    });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -193,7 +205,7 @@ it("switches to Task mode, remembers it, and saves a Personal task with its fiel
   expect(button("Blocked").getAttribute("aria-checked")).toBe("true");
 });
 
-it("offers permissions only for sessions and includes the choice in a draft", async () => {
+it("keeps Session-only permissions and a saved prompt together in a draft", async () => {
   await click(button("Task"));
   expect(container.querySelector('button[title="Permissions"]')).toBeNull();
   await click(button("Session"));
@@ -217,11 +229,18 @@ it("offers permissions only for sessions and includes the choice in a draft", as
     container.querySelector('[role="listbox"][aria-label="Permissions"]'),
   ).toBeNull();
 
-  input("Prepare the release notes");
+  input("Please !");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(container.querySelector("[data-saved-prompt-menu]")).not.toBeNull();
+  await key("Enter");
+  expect(prompt.value).toBe("Please Review this change carefully");
+  expect(container.querySelector("[data-saved-prompt-menu]")).toBeNull();
   await click(button("Save to Draft"));
   expect(invoke).toHaveBeenCalledWith("quick_composer_submit", {
     request: expect.objectContaining({
-      prompt: "Prepare the release notes",
+      prompt: "Please Review this change carefully",
       draft: true,
       runtimeMode: "auto-accept-edits",
     }),
@@ -263,4 +282,26 @@ it("embedded hosts with a start handler get Save to Draft and Start, Ctrl+Enter 
   expect(save).toHaveBeenCalledWith(
     expect.objectContaining({ prompt: "Again", draft: true, reveal: false }),
   );
+});
+
+it("typing ! in Session mode shows the saved prompt picker and Enter inserts it", async () => {
+  input("Please !");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(container.querySelector("[data-saved-prompt-menu]")).not.toBeNull();
+  expect(invoke).toHaveBeenCalledWith("prompts_list");
+  await key("Enter");
+  expect(prompt.value).toBe("Please Review this change carefully");
+  expect(container.querySelector("[data-saved-prompt-menu]")).toBeNull();
+});
+
+it("typing ! in Task mode does not open the saved prompt picker", async () => {
+  await click(button("Task"));
+  input("Fix !");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(container.querySelector("[data-saved-prompt-menu]")).toBeNull();
+  expect(invoke).not.toHaveBeenCalledWith("prompts_list");
 });

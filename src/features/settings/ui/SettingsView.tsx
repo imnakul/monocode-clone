@@ -49,7 +49,7 @@ import {
 import { JiraSettings } from "./JiraSettings";
 import { GradientBlurBackground } from "./GradientBlurBackground";
 import { McpSettings } from "./McpSettings";
-import { Toggle as SharedToggle } from "../../../shared/ui/Toggle";
+import { SettingsToggle as Toggle } from "./SettingsToggle";
 import { InboxProviderMark } from "../../inbox/ui/InboxProviderMark";
 import { RemoveProjectDialog } from "../../projects/ui/RemoveProjectDialog";
 import { WindowControls } from "../../../app/shell/WindowControls";
@@ -434,7 +434,7 @@ import {
   type SettingsSearchResult,
   type SettingsSectionId,
 } from "../model/settings";
-import { loadSoundsEnabled, playCue, saveSoundsEnabled } from "../model/sounds";
+import { loadSoundsEnabled, saveSoundsEnabled } from "../model/sounds";
 import {
   loadFileOpeningBehavior,
   loadSessionOpeningBehavior,
@@ -467,6 +467,7 @@ import {
 } from "../../../app/model/updater";
 
 import { SkillsPage } from "../../skills/ui/SkillsPage";
+import { PromptsPage } from "../../prompts/ui/PromptsPage";
 import { ProjectNotificationSettings } from "../../notifications/ui/ProjectNotificationSettings";
 import { WorktreesPage } from "../../source-control/ui/WorktreesPage";
 import {
@@ -640,6 +641,15 @@ export function SettingsView({
         <SkillsPage
           key={cwd}
           cwd={cwd}
+          header={
+            <PageHeader
+              title={settingsSectionLabel(section)}
+              description={settingsSectionDescription(section)}
+            />
+          }
+        />
+      ) : section === "prompts" ? (
+        <PromptsPage
           header={
             <PageHeader
               title={settingsSectionLabel(section)}
@@ -5378,28 +5388,6 @@ function NotificationsBlocked() {
         </button>
       ) : null}
     </span>
-  );
-}
-
-function Toggle({
-  label,
-  on,
-  onChange,
-  disabled = false,
-}: {
-  label: string;
-  on: boolean;
-  onChange: (on: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <SharedToggle
-      label={label}
-      on={on}
-      onChange={onChange}
-      disabled={disabled}
-      onToggle={() => playCue("switch")}
-    />
   );
 }
 

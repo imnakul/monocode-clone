@@ -8,6 +8,8 @@ Base commit: `670568689a027c26cefeb2cc1e4b40389339593c`
 Previously included upstream: `6bd432cada0f492f076cc93f7ccb3027f4ff7102`
 Incoming main: `00d68d342eff3adf23a320fa5e2be97d5e212683` (version 0.7.0)
 Source merge: `1f399abecb6fc6529b0a39532ddd0322785c0c92`
+Follow-up base: `97143c157dee74dd6d112c5c48407364a86dc705`
+Incoming local branch: `9effbed3c2fc2e5945d98bb33dce0655e0bfcc3c`
 Push target: `origin` = `https://github.com/imnakul/monocode-clone.git` only.
 
 ## Idea
@@ -96,6 +98,18 @@ they stay there untouched. The new worktree starts from the exact base.
 - [x] Records updated; source merge contains the exact tested source.
 - [x] Push the new fork branch and verify both parents are ancestors.
 - [x] Hand over the manual desktop checklist; mark Review until verified.
+- [x] User approved including all four newer original-branch commits and
+      keeping both sides of the two new conflicts before this merge.
+- [x] Merge `9effbed`, retaining saved prompts, Task/MCP polish, Focus/hover
+      and the Remote Control draft alongside the upstream improvements.
+- [x] Resolve composer imports by retaining permissions and saved prompts;
+      retain both sets of changelog records.
+- [x] Verify saved-prompt and permission controls coexist with Task/Session,
+      Draft/Start, Windows and embedded behavior.
+- [x] Run affected tests/tsc, full `npm run check`, `cargo check`, and build
+      on the combined source; record new results rather than reuse prior gates.
+- [ ] Commit/push and verify both original `9effbed` and upstream `00d68d3`
+      are ancestors; original branch has zero absent commits.
 
 ## Issues and fixes
 
@@ -105,10 +119,13 @@ Remote source merge is verified at `1f399ab`; its parents are the original
 baseline and pinned upstream main. All seven incoming commits are contained.
 Read-only preview and approved choices are recorded in
 [`upstream-merge-2026-10-03-after-070.md`](../notes/archive/upstream-merge-2026-10-03-after-070.md).
-Next action: user/manual desktop checks and the separate four-local-commit
-inclusion choice below. Source integration, root preservation review,
-automated gates and fork publication are complete. A read-only final check
-confirmed upstream main still equals the pinned `00d68d3`.
+Next action: commit/push the verified combined source and verify both parent
+lines, then hand off manual desktop checks. Both approved conflicts are
+resolved. 107 focused tests and explicit
+`cargo check --locked` pass. All newer MCP/Tasks/prompts code matches `9effbed`;
+the upstream animations, usage, timeline, metadata and pane wiring stay intact.
+The combined regression saves both a picked prompt and permission mode into
+one draft. Prior upstream results remain recorded as phase 1.
 Conflict decisions: approved before source merge on 2026-10-03.
 Validation: `npm run check` passed in this new worktree: 5,286 web tests in
 483 files, TypeScript clean, fmt/Clippy clean, 596 Rust tests passed / 2
@@ -121,13 +138,34 @@ Concurrent fork update discovered during preservation review: the original
 base remote advanced from `6705686` to
 `9effbed3c2fc2e5945d98bb33dce0655e0bfcc3c`. Four commits add saved prompts,
 Task/MCP polish, Focus/prompt-picker hover, and a Claude Remote Control draft
-spec. These commits are not yet included. An incremental read-only preview
+spec. These commits are approved for inclusion, not yet merged. A fresh
+read-only `git merge-tree` preview of `97143c1` plus `9effbed` confirms exactly
+the same two conflicts. An incremental read-only preview
 finds two new text conflicts: QuickComposer imports (saved prompts versus
 permissions imports), and newest changelog entries. App and composer tests
-weave cleanly. User has been asked whether to include all four and keep
-both sides, or finish the originally pinned baseline. Do not incorporate
-or resolve the new overlaps until that choice arrives. Original approved
-upstream merge work can continue independently.
+weave cleanly. The user approved: "Yes bring them, and resolve those two
+conflicts, we want both". Approval covers both composer import sets and
+both changelog entry sets, and includes all four original-branch commits.
+No additional conflict was found by the fresh preview. Both resolutions are
+applied, and full combined checks/build are running. The final branch
+must contain the complete original branch plus the seven main updates.
+
+Repair attributed to this merge work: the first text-combining helper used a
+greedy conflict-label pattern and truncated QuickComposer/changelog. Focused
+tests failed before commit/push. Both files were restored from the complete
+saved merge-tree preview; only the single approved section in each was then
+combined with a bounded label pattern and unchanged prefix/suffix checks.
+Complete files, clean diffs and all 107 focused tests were verified afterward.
+No pre-existing failure was changed to hide this error.
+
+Combined validation completed 2026-10-04 (IST): full `npm run check` passed
+(5,317 frontend tests / 487 files, TypeScript clean, fmt/Clippy clean,
+599 Rust passed / 2 ignored). `cargo check --locked` and production build
+(35.98s) pass. Source matches the tested staged content; diff and unresolved
+checks are clean. Existing CSS optimizer/chunk-size warnings remain. Logs:
+`/workspace/monocode-validation/upstream-after-070-local-check.log`,
+`upstream-after-070-local-build.log`, `upstream-after-070-local-targeted.log`,
+and `upstream-after-070-local-cargo-check.log` in the same validation folder.
 
 Resume by reading this spec, `git status --short --branch`, and the conflict
 decision record when present. Check the exact branch/worktree before edits
@@ -140,13 +178,17 @@ without changing the old worktree. Keep this checkpoint current.
 Upstream main remains 0.7.0, so the new branch uses a dated suffix instead
 of implying a new release. Incoming changes are frontend-only, but the
 merge still requires the complete upstream validation gate.
+Conflict-label matching must stop at a line break when the expression spans
+multiple lines. For a small import conflict, prefer an explicit patch; any
+helper must preserve the original non-conflict prefix and suffix.
 
 ## Done
 
 Source integration, automated verification and remote publication are complete
-for all seven incoming commits, merge `1f399ab`. Four newer local
-commits remain excluded pending the separate inclusion/conflict decision;
-they are preserved on the original remote branch. Native desktop verification
+for all seven upstream commits, merge `1f399ab`. The follow-up local merge is
+approved, resolved and fully validated; commit/push and remote verification
+are the remaining implementation steps.
+Native desktop verification
 is pending, so this spec is Review rather than Done.
 Manual checklist after automated gates: new permissions picker with
 Task/Session + Save to Draft/Start flows; collapsed Drafts and sidebar hover
@@ -154,3 +196,8 @@ with title/insertion animations; usage chip; split pane entry; PR/issue
 timeline and panel motion; Windows lazy terminals/Stop/Queue/Steer; MCP
 toggles and per-chat server approvals. Run manually in a separate desktop
 session or by the user, following AGENTS.md.
+Follow-up desktop checks: saved prompts through `!` plus permissions in one
+Session draft/start; Task mode does not offer either picker; centered Focus
+and button-only burst; still-pointer hover after reflow; MCP switch updates
+one row without page flash and rolls back on failure. Remote Control remains
+the imported Draft spec, not an implemented feature.
