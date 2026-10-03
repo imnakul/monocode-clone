@@ -7,6 +7,23 @@ files by keyword instead of reading them whole.
 `docs/` is tracked on the Windows branches (`nakul/windows-support*`). It is fork
 material: never include it in an upstream pull request.
 
+## Upstream-friendly by construction (most important)
+
+- Small, one-thing PRs with what/why; UI changes carry before/after screenshots. Follow
+  `.github/pull_request_template.md`.
+- No new providers (the maintainer closes them). Product-direction moves start as an
+  *issue* first.
+- Big local stacks never go up wholesale — they are rebased into small review-ready PRs
+  later. Keep every change upstream-compatible by construction (definition below).
+
+### How we describe this approach (use verbatim externally)
+
+> Upstream-compatible by construction: every change is platform-gated, regression-free on
+> all supported targets, independently testable, and documented — so any slice of the fork
+> lifts cleanly into a small, review-ready upstream PR at any time.
+
+One-line version: **merge-clean by design.**
+
 ## How much process a task needs
 
 Pick the tier first. When unsure, pick the smaller one and say so.
@@ -36,17 +53,6 @@ is added, changed or removed (it is the record of what this fork has that upstre
   (see the Windows CRLF family in `docs/WINDOWS-CHANGES.md`). Attribute every failing test
   (ours vs pre-existing vs incomplete work) before touching it. If unsure, stop and ask.
 
-### Storage exhaustion is a hard blocker
-
-Before installs, builds or large test runs on Windows, check free space on the checkout
-drive and on TEMP/TMP, package caches and the Cargo target directory (a different checkout
-drive does not avoid a full system/temp drive). On ENOSPC / disk full, or when free space
-cannot fit the operation: stop. Do not retry, relocate temp/output/caches, delete files or
-caches, or start backups/builds. Cancel only task-owned work safely and keep existing files
-and partial results. Report the drive/path, measured space or exact error, last completed
-step and remaining work; mark the spec Blocked if it can be updated safely. Resume only
-after space is restored and rechecked.
-
 ## Windows-platform rules
 
 - All Windows code behind `#[cfg(windows)]` — Unix paths and tests untouched, macOS/Linux
@@ -62,8 +68,7 @@ after space is restored and rechecked.
 
 ## Honesty habits
 
-- Evidence before claims: run it, read the wire traffic, compare against the T3 reference
-  repo (read-only — borrow ideas, never modify it).
+- Evidence before claims: run it, read the wire traffic.
 - Surface problems plainly in UI ("0 models" warnings, "Shared file" badges, honest
   resume-failure fallbacks) — never silent decay.
 - Desktop UI is checked by people: never drive the Tauri window or a browser to test UI
@@ -71,9 +76,10 @@ after space is restored and rechecked.
 
 ## Git and branches
 
-- Work on the branch you are told to use. The current integration line is
-  `nakul/windows-support-upstream-0.7.0`; `nakul/windows-support` is fast-forwarded to it
-  when Nakul says so.
+- For us, `nakul/windows-support` is the main branch: our add-on line on top of upstream
+  MonoCode. Upstream-sync branches (currently `nakul/windows-support-upstream-0.7.0`) are where
+  new upstream releases are merged and checked; they are fast-forwarded into
+  `nakul/windows-support` when Nakul says so. Work on the branch you are told to use.
 - No new worktree per feature. Create a worktree or separate branch only when asked
   (for example, parallel agents building at the same time).
 - Never touch upstream `hardbeat920/monocode` — fork (`imnakul/monocode-clone`) only, and
@@ -83,23 +89,6 @@ after space is restored and rechecked.
 - Another session's work in progress is hands-off unless told otherwise.
 - Small commits with real messages; leave the tree clean (clear CRLF phantoms with
   checkout, never commit them).
-
-## Upstream relationship
-
-- Small, one-thing PRs with what/why; UI changes carry before/after screenshots. Follow
-  `.github/pull_request_template.md`.
-- No new providers (the maintainer closes them). Product-direction moves start as an
-  *issue* first.
-- Big local stacks never go up wholesale — they are rebased into small review-ready PRs
-  later. Keep every change upstream-compatible by construction (definition below).
-
-### How we describe this approach (use verbatim externally)
-
-> Upstream-compatible by construction: every change is platform-gated, regression-free on
-> all supported targets, independently testable, and documented — so any slice of the fork
-> lifts cleanly into a small, review-ready upstream PR at any time.
-
-One-line version: **merge-clean by design.**
 
 ## Large-task lifecycle
 

@@ -6,6 +6,10 @@ read `docs/WORKING-AGREEMENT.md` (short: rules, task tiers, tests, records). The
 the docs the task needs, using the map below. Do not read whole large files; search them by
 keyword (`grep -n`) and open the matching section.
 
+Every feature or fix that exists only in this fork (not in upstream MonoCode) gets a row in
+`docs/LOCAL-FEATURES.md` in the same task, plus its one-line Index entry. Every change gets a
+short entry in the Current changelog file.
+
 ## Docs map — what to open, and when
 
 | Open this | When | Notes |

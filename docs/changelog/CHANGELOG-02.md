@@ -4,6 +4,12 @@ Newest first. One short entry per change (format in `docs/WORKING-AGREEMENT.md` 
 Entries dated 2026-10-02 to 2026-10-03 were backfilled from commits made in cloud sessions
 that did not have the docs; file lists name the main files only.
 
+## 2026-10-03 — Working agreement: upstream-friendly first, branch wording
+- What: Upstream-friendly section moved to the top; storage-blocker section and the T3 reference-repo line removed; `nakul/windows-support` described as our main add-on branch with upstream-sync branches fast-forwarded into it; AGENTS.md states the LOCAL-FEATURES and changelog rule up front.
+- Files: `docs/WORKING-AGREEMENT.md` (sections reordered and trimmed); `AGENTS.md` (lines 9-11)
+- Verified: docs only
+- Commit: see git log for this entry
+
 ## 2026-10-03 — Docs tidy: spec archive, features index, lighter repo
 - What: Done specs moved to `docs/specs/archive/` (25 files, all links updated); two stale Drafts and an unindexed Todo spec marked Done (superseded by the 0.6.0/0.7.0 merges); LOCAL-FEATURES got a one-line-per-feature Index; generated intake JSON (2.9 MB) and a 3.9 MB screenshot removed from the branch with restore notes (`docs/` 9.1 MB → 2.6 MB); PLANNED.md opens with the current state.
 - Files: `docs/specs/SPECS.md` (archive links, rows); `docs/specs/archive/*` (moved); `docs/LOCAL-FEATURES.md` (Index); `docs/notes/upstream-intake-2026-10-01/scripts/README.md` (new, restore command); `docs/notes/README.md`; `docs/PLANNED.md` (lines 6-14, old handoff moved to the end); `AGENTS.md` (docs map rows)
