@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Pin } from "../../../shared/ui/icons";
+import { SharedHoverHighlight } from "../../sessions/ui/SharedHoverHighlight";
 import { savedPromptLabel } from "../model/savedPrompts";
 import type { SavedPromptMenuState } from "./useSavedPromptMenu";
 
@@ -25,10 +26,12 @@ export function SavedPromptMenu({
       data-saved-prompt-menu
       className={
         floating
-          ? "overflow-hidden rounded-lg border border-content/10 bg-content/5 backdrop-blur-xl"
-          : "border-t border-stroke"
+          ? "relative overflow-hidden rounded-lg border border-content/10 bg-content/5 backdrop-blur-xl"
+          : "relative border-t border-stroke"
       }
     >
+      {/* The same gliding hover as menus and popovers; rows are role="option". */}
+      <SharedHoverHighlight />
       {state.matches.length === 0 ? (
         <p className="px-3 py-2.5 text-[12px] text-content/50">
           No saved prompts yet. Add them in Settings → Prompts, or select text

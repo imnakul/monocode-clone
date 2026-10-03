@@ -4,6 +4,12 @@ Newest first. One short entry per change (format in `docs/WORKING-AGREEMENT.md` 
 Entries dated 2026-10-02 to 2026-10-03 were backfilled from commits made in cloud sessions
 that did not have the docs; file lists name the main files only.
 
+
+## 2026-10-03 — Focus centred in the Task Manager toolbar; glide in the ! prompt picker
+- What: The Focus button sits centred in the free space between the filters and the view controls (new `center` toolbar slot). The `!` saved-prompt picker uses the same gliding hover as menus and popovers.
+- Files: `src/features/tasks/ui/TasksToolbar.tsx` (`center` slot); `src/features/tasks/ui/TasksView.tsx` (Focus moved); `src/features/prompts/ui/SavedPromptMenu.tsx` (`SharedHoverHighlight`); tests `TasksView.test.ts`, `SavedPrompts.ui.test.ts`
+- Verified: tsc ✅ tests ✅ (5,294) | manual: Focus centred at several window widths; hover rows in the `!` picker
+- Commit: see git log for this entry
 ## 2026-10-03 — Task Manager and MCP polish: button-only burst, hover reflow, toolbar alignment, MCP switches
 - What: (1) Focus bursts at the button only again. (2) The gliding hover re-measures when its item resizes or moves under a still pointer (a ResizeObserver on the list and the hovered item), moving to the item now under the pointer or hiding, instead of leaving a ghost at the old size. (3) Task toolbar uses `px-3` like the board's `p-3`, so New task and the view switch line up with the columns. (4) Settings → MCP: the flash was `refresh()` setting the page loading state, which replaced the list with "Checking servers…"; switches now flip the row in place with a per-row "Saving…", refresh quietly, revert only that row on error, say On/Off, are labelled Enable/Disable <name>, and dim disabled servers. Settings has one switch, `SettingsToggle` (shared Toggle plus the sound cue); SettingsView's local wrapper is gone.
 - Files: `src/features/tasks/ui/TasksView.tsx` (`toggleFocus`), `TasksToolbar.tsx` (`px-3`, `data-tasks-toolbar` removed); `src/shared/ui/CelebrationBurst.tsx` (`spread`/`burstFields` removed); `src/features/sessions/ui/SharedHoverHighlight.tsx` (`resolveSharedHoverReflow`, `reflow`, `setTarget`); `src/features/settings/ui/McpSettings.tsx` (`setEnabled`, `refresh(force, quiet)`, row toggles); `SettingsToggle.tsx` (new), `SettingsView.tsx`; tests `SharedHoverHighlight.reflow.test.ts` (new), `TasksView.test.ts`, `TaskTags.test.ts`, `McpSettings.test.ts`, `SettingsToggle.test.ts` (new)

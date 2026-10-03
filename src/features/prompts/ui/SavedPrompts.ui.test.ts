@@ -158,6 +158,10 @@ describe("the ! picker", () => {
     setValue(field, "Please !rev");
     await flush();
     const options = container.querySelectorAll('[role="option"]');
+    // Rows share the app's gliding hover marker.
+    expect(
+      container.querySelector("[data-saved-prompt-menu] [data-shared-hover-highlight]"),
+    ).not.toBeNull();
     expect([...options].map((option) => option.textContent)).toEqual([
       expect.stringContaining("Review this PR"),
     ]);

@@ -32,14 +32,17 @@ export function TasksToolbar({
   projects,
   onChange,
   leading,
+  center,
   trailing,
 }: {
   filters: TaskFilters;
   tasks: readonly Task[];
   projects: readonly string[];
   onChange: (filters: TaskFilters) => void;
-  /** Primary actions shown before the filters (New task, Focus). */
+  /** Primary actions shown before the filters (New task). */
   leading?: ReactNode;
+  /** Shown centred in the free space between the filters and the view controls (Focus). */
+  center?: ReactNode;
   /** View controls pinned to the right end of the row. */
   trailing?: ReactNode;
 }) {
@@ -175,7 +178,10 @@ export function TasksToolbar({
             Reset
           </button>
         ) : null}
-        <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
+        <div className="flex min-w-0 flex-1 justify-center px-2">
+          {center}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
           {trailing}
         </div>
       </div>

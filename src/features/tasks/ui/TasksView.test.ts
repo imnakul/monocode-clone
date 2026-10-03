@@ -1312,7 +1312,7 @@ describe("New task while the pane is open", () => {
 });
 
 describe("toolbar layout and focus presentation", () => {
-  it("puts Focus right after New task and drops the Columns control", async () => {
+  it("centres Focus between the filters and the view controls and drops the Columns control", async () => {
     await render();
     const toolbar = byLabel("Filter tasks").parentElement!.parentElement!;
     const order = [...toolbar.querySelectorAll("button")].map(
@@ -1320,7 +1320,14 @@ describe("toolbar layout and focus presentation", () => {
     );
     expect(order[0]).toBe("New task");
     expect(order[1]).toBe("Choose where the task is filed");
-    expect(order[2]).toMatch(/^Focus:/);
+    const focus = order.findIndex((label) => /^Focus:/.test(label ?? ""));
+    // After the filter pills, before Archived and the view switch.
+    expect(focus).toBeGreaterThan(order.findIndex((l) => /Project/.test(l ?? "")));
+    expect(focus).toBeLessThan(order.findIndex((l) => /Archived/.test(l ?? "")));
+    const slot = toolbar.querySelector<HTMLElement>('button[aria-label^="Focus:"]')!
+      .parentElement!;
+    expect(slot.className).toContain("flex-1");
+    expect(slot.className).toContain("justify-center");
     expect(toolbar.textContent).not.toContain("Columns");
     await switchView("Board");
     expect(toolbar.textContent).not.toContain("Columns");
