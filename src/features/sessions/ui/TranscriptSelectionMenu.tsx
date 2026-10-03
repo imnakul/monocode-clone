@@ -1,4 +1,10 @@
-import { CheckCircle, FilePlusCorner, MessageSquarePlus } from "../../../shared/ui/icons";
+import {
+  CheckCircle,
+  FilePlusCorner,
+  MessageSquarePlus,
+  Quote,
+} from "../../../shared/ui/icons";
+import { requestSavePrompt } from "../../prompts/model/savedPrompts";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Popover } from "../../../shared/ui/Popover";
 import { type TranscriptSelection } from "../model/transcriptSelection";
@@ -83,6 +89,13 @@ export function TranscriptSelectionMenu({
             />
           </SelectionAction>
         ) : null}
+        <SelectionAction
+          label="Add to Prompts"
+          onSelect={() => requestSavePrompt(selection.text)}
+          onDismiss={onDismiss}
+        >
+          <Quote aria-hidden="true" className="size-3.5" strokeWidth={1.75} />
+        </SelectionAction>
       </div>
     </Popover>
   );

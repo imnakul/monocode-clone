@@ -72,6 +72,8 @@ import { quickLaunchAttachments } from "../model/quickAttachments";
 import { useQuickAttachments } from "./useQuickAttachments";
 import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
 import { QuickModelSelector } from "./QuickModelSelector";
+import { SavedPromptMenu } from "../../prompts/ui/SavedPromptMenu";
+import { useSavedPromptMenu } from "../../prompts/ui/useSavedPromptMenu";
 import { useQuickPickerMotion } from "./useQuickPickerMotion";
 import { OPERATOR_COMMAND } from "../../sessions/model/operatorCommand";
 import { ORCHESTRATOR_COMMAND } from "../../sessions/model/orchestratorCommand";
@@ -443,7 +445,21 @@ export function QuickComposer({
     closePicker();
   };
 
+  // `!` inserts a saved prompt (Settings → Prompts) at the caret.
+  const promptMenu = useSavedPromptMenu({
+    apply: (next, cursor) => {
+      setPrompt(next);
+      requestAnimationFrame(() => {
+        const field = promptRef.current;
+        if (!field) return;
+        field.focus({ preventScroll: true });
+        field.setSelectionRange(cursor, cursor);
+      });
+    },
+  });
+
   const syncPromptCommand = (field: HTMLTextAreaElement) => {
+    if (!taskMode) promptMenu.sync(field);
     const token =
       field.selectionStart === field.selectionEnd
         ? slashTokenAt(field.value, field.selectionStart)
@@ -471,6 +487,7 @@ export function QuickComposer({
     if (busy) return;
     setKindChoice(next);
     saveQuickComposerKind(next);
+    promptMenu.close();
     setPicker(null);
     setSlash(null);
     setError(null);
@@ -560,6 +577,7 @@ export function QuickComposer({
 
   const onPromptKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
+    if (!taskMode && promptMenu.onKeyDown(event)) return;
     if (event.key === "Escape") {
       event.preventDefault();
       if (picker) closePicker();
@@ -1016,6 +1034,11 @@ export function QuickComposer({
             Take screenshot…
           </button>
         </Popover>
+      ) : null}
+      {promptMenu.open && !picker && !taskMode ? (
+        <div className="p-1.5 pt-0">
+          <SavedPromptMenu state={promptMenu} floating={false} />
+        </div>
       ) : null}
       {picker && picker !== "attachments" ? (
         <div ref={pickerRef} key={picker} className="flex min-h-0 flex-col">

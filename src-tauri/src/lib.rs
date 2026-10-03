@@ -29,6 +29,7 @@ mod notifications;
 mod pasteboard;
 mod pi_usage;
 mod project_logo;
+mod prompts;
 mod pty;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod quick_composer;
@@ -358,6 +359,10 @@ pub fn run() {
             notifications::request_notification_permission,
             notifications::show_notification,
             notifications::open_notification_settings,
+            prompts::prompts_list,
+            prompts::prompts_upsert,
+            prompts::prompts_delete,
+            prompts::prompts_mark_used,
             reminders::reminder_list,
             reminders::reminder_set,
             reminders::reminder_clear,

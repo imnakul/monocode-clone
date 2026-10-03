@@ -4,6 +4,12 @@ Newest first. One short entry per change (format in `docs/WORKING-AGREEMENT.md` 
 Entries dated 2026-10-02 to 2026-10-03 were backfilled from commits made in cloud sessions
 that did not have the docs; file lists name the main files only.
 
+## 2026-10-03 — Saved prompts (Settings → Prompts, `!` picker, Add to Prompts)
+- What: Cherry-picked `feature/saved-prompts` (6404d02) because a merge pulled six newer upstream commits with conflicts in Sidebar, UsageProviderChip, rateLimits, sessionHistory and PaneTree; merge aborted. Conflicts resolved: Add to Prompts is the 4th selection action; the floating composer shows the `!` picker only in Session mode.
+- Files: `src/features/prompts/**` (new); `src-tauri/src/prompts.rs` (new), `lib.rs`, `session_store.rs` (`saved_prompts`); `QuickComposer.tsx` (`promptMenu`, Session mode only); `Composer.tsx`, `SkillPromptField.tsx`, `TranscriptSelectionMenu.tsx`, `SettingsView.tsx`, `SettingsRail.tsx`, `settings.ts`, `App.tsx`, `icons.tsx`; `QuickComposer.modes.test.ts` (2 tests)
+- Verified: tsc ✅ targeted tests ✅ (2,064 / 194 files) cargo test prompts:: ✅ (3) | manual: `!` picker in each composer, Add to Prompts dialog, Settings → Prompts
+- Commit: see git log for this entry
+
 ## 2026-10-03 — MCP switches and server approval for the current chat
 - What: Settings → MCP now reuses the existing switch for configured Claude Code, Codex and OpenCode servers. Native flags preserve config, comments, credentials and CRLF; confirmed discovery controls the displayed state. A separate Allow server for session action covers verified tools from one server in a local chat, alongside existing once/tool-session/deny actions. Other chats/servers and typed forms keep their approval flow; Plan, cancellation, account/folder and native-session boundaries stay guarded. Scope/reload hints and unavailable-provider explanations are shown.
 - Files: `src-tauri/src/mcp/controls.rs` (`mcp_set_enabled`, safe config edits); `src-tauri/src/mcp.rs` (`discover`); `src/features/settings/ui/McpSettings.tsx` (switch, errors/cache refresh); `src/shared/ui/Toggle.tsx` (existing switch extracted); `src/integrations/harness/providers/{claude,codex,opencode}/` (verified server grants); approval types/reducer, session storage, transcript and toasts; specs index, L-20/L-59, Windows CRLF learning and behavioral tests.

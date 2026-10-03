@@ -113,15 +113,27 @@ beforeEach(async () => {
   });
   vi.mocked(invoke)
     .mockReset()
-    .mockImplementation(async (command, args) =>
-      command === "tasks_upsert"
+    .mockImplementation(async (command, args) => {
+      if (command === "prompts_list")
+        return [
+          {
+            id: "p1",
+            title: "Review",
+            body: "Review this change carefully",
+            pinned: false,
+            useCount: 0,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ];
+      return command === "tasks_upsert"
         ? {
             ...(args as { task: object }).task,
             createdAt: 1,
             updatedAt: 1,
           }
-        : undefined,
-    );
+        : undefined;
+    });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -227,4 +239,26 @@ it("embedded hosts with a start handler get Save to Draft and Start, Ctrl+Enter 
   expect(save).toHaveBeenCalledWith(
     expect.objectContaining({ prompt: "Again", draft: true, reveal: false }),
   );
+});
+
+it("typing ! in Session mode shows the saved prompt picker and Enter inserts it", async () => {
+  input("Please !");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(container.querySelector("[data-saved-prompt-menu]")).not.toBeNull();
+  expect(invoke).toHaveBeenCalledWith("prompts_list");
+  await key("Enter");
+  expect(prompt.value).toBe("Please Review this change carefully");
+  expect(container.querySelector("[data-saved-prompt-menu]")).toBeNull();
+});
+
+it("typing ! in Task mode does not open the saved prompt picker", async () => {
+  await click(button("Task"));
+  input("Fix !");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(container.querySelector("[data-saved-prompt-menu]")).toBeNull();
+  expect(invoke).not.toHaveBeenCalledWith("prompts_list");
 });

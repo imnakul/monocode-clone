@@ -952,6 +952,7 @@ describe("settings navigation", () => {
       "providers",
       "mcp",
       "skills",
+      "prompts",
       "inbox",
       "archive",
       "worktrees",
