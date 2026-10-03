@@ -242,7 +242,10 @@ export function BoardColumn({
           min={resize.min}
           max={resize.max}
           defaultValue={fillMin}
-          placement="inset-y-2 -right-2.5 rounded-full"
+          // The last column's edge sits beside the board's own edge (or a side
+          // pane's divider); every column shares one width, so the other
+          // handles cover it and a second draggable line there only confuses.
+          placement="inset-y-2 -right-2.5 rounded-full [[data-board-column]:last-child>&]:hidden"
           getStartValue={() =>
             Math.round(section.current?.getBoundingClientRect().width ?? 0) ||
             fixed ||

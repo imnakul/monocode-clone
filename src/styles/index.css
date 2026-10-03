@@ -18,6 +18,20 @@
   ) !important;
 }
 
+/* Model picker rows: the selected fill covers the whole row (name, favorite
+   and check), not just the inner option button. */
+.popover-surface [data-model-row][data-selected="true"] {
+  background: color-mix(
+    in srgb,
+    var(--color-content) var(--popover-highlight-opacity),
+    transparent
+  ) !important;
+}
+
+.popover-surface [data-model-row] [role="option"][aria-selected="true"] {
+  background: transparent !important;
+}
+
 html.popover-highlight-invert
   .popover-surface
   [data-shared-hover-active="true"]:not([data-shared-hover-tone="danger"]),

@@ -980,9 +980,7 @@ export function ModelPicker({
                 role="menuitemradio"
                 aria-checked={selected}
                 disabled={disabled}
-                title={
-                  disabled ? providerRowTitle(item.harness) : undefined
-                }
+                title={disabled ? providerRowTitle(item.harness) : undefined}
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setRecentActive(index)}
                 onClick={() => pickModel(item)}
@@ -1043,17 +1041,27 @@ export function ModelControlPills({
   const effort = pills.find(
     (setting) => setting.kind === "select" && isEffortSetting(setting),
   );
-  const groupedSettings = effort
-    ? pills.filter(
-        (setting) => setting.id === "fast" || setting.id === "serviceTier",
-      )
-    : [];
+  // Speed (Fast / service tier) gets its own pill beside the effort pill,
+  // so it is visible and one click away instead of hidden in that menu.
+  const groupedSettings: ModelSetting[] = [];
   if (pills.length === 0) return null;
   return (
     <>
       {pills.map((setting) => {
         if (groupedSettings.some((grouped) => grouped.id === setting.id)) {
           return null;
+        }
+        if (isSpeedSetting(setting)) {
+          return (
+            <SpeedPill
+              key={setting.id}
+              setting={setting}
+              values={values}
+              onSettingsChange={onSettingsChange}
+              onClose={onClose}
+              harness={harness}
+            />
+          );
         }
         return setting.kind === "toggle" ? (
           <TogglePill
@@ -1077,6 +1085,86 @@ export function ModelControlPills({
         );
       })}
     </>
+  );
+}
+
+function isSpeedSetting(setting: ModelSetting): boolean {
+  return setting.id === "fast" || setting.id === "serviceTier";
+}
+
+/** True when the chosen speed is the faster option. */
+function isFastValue(setting: ModelSetting, value: string): boolean {
+  if (setting.kind === "toggle") return value === "true";
+  const label =
+    setting.options.find((option) => option.value === value)?.label ?? value;
+  return /fast|priority|turbo/i.test(`${value} ${label}`);
+}
+
+/**
+ * Output speed beside the effort pill. A Fast toggle or a two-option service
+ * tier flips with one click; a longer tier list opens its menu.
+ */
+function SpeedPill({
+  setting,
+  values,
+  onSettingsChange,
+  onClose,
+  harness,
+}: {
+  setting: ModelSetting;
+  values: Record<string, string>;
+  onSettingsChange: (settings: Record<string, string>) => void;
+  onClose?: () => void;
+  harness: HarnessId;
+}) {
+  if (setting.kind === "select" && setting.options.length > 2)
+    return (
+      <SelectPill
+        setting={setting}
+        values={values}
+        onSettingsChange={onSettingsChange}
+        onClose={onClose}
+        harness={harness}
+      />
+    );
+  const value = settingValue(setting, values);
+  const fast = isFastValue(setting, value);
+  const next =
+    setting.kind === "toggle"
+      ? fast
+        ? "false"
+        : "true"
+      : (setting.options.find((option) => option.value !== value)?.value ??
+        value);
+  const valueLabel =
+    setting.kind === "toggle"
+      ? fast
+        ? "Fast"
+        : "Standard"
+      : settingValueLabel(setting, values);
+  return (
+    <button
+      type="button"
+      title={`Speed: ${valueLabel}. Click to switch.`}
+      aria-label={`Speed: ${valueLabel}`}
+      aria-pressed={fast}
+      data-model-control
+      data-speed-pill
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => onSettingsChange({ ...values, [setting.id]: next })}
+      className={`flex h-6.5 max-w-28 items-center gap-1 rounded-md px-1.5 transition-colors duration-100 ${
+        fast
+          ? "bg-amber-400/15 text-amber-300 hover:bg-amber-400/25"
+          : "bg-selection text-content/60 hover:bg-selection-hover hover:text-content"
+      }`}
+    >
+      <Zap
+        className="size-3.5 shrink-0"
+        strokeWidth={1.75}
+        fill={fast ? "currentColor" : "none"}
+      />
+      <span className="min-w-0 truncate text-[11px]">{valueLabel}</span>
+    </button>
   );
 }
 
@@ -1469,11 +1557,11 @@ function ModelFlyout({
                 ? "No favorite models"
                 : tab !== "favorites" && !isHarnessAvailable(tab)
                   ? (providerRowTitle(tab) ?? "No matching models")
-                : tab !== "favorites" && !source.available(tab)
-                  ? harnessUnavailableHint(tab)
-                  : tab === "codex" && !query.trim()
-                    ? "Loading Codex models…"
-                    : "No matching models"}
+                  : tab !== "favorites" && !source.available(tab)
+                    ? harnessUnavailableHint(tab)
+                    : tab === "codex" && !query.trim()
+                      ? "Loading Codex models…"
+                      : "No matching models"}
             </div>
           ) : (
             groups.map((group) => (
@@ -1503,6 +1591,9 @@ function ModelFlyout({
                       // item, so the highlight spans it with its rounding.
                       data-shared-hover-item
                       data-shared-hover-disabled={disabled ? "" : undefined}
+                      // Selected fill spans the whole row (see index.css).
+                      data-model-row
+                      data-selected={selected ? "true" : undefined}
                       className={`group flex h-8 items-center rounded-lg px-1 ${
                         disabled
                           ? "text-content/30"

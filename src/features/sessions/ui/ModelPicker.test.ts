@@ -195,6 +195,9 @@ describe("model picker", () => {
       '[role="option"][aria-selected="true"]',
     )!;
     const selectedRow = selectedOption.parentElement!;
+    // The selected fill is drawn on the whole row, not the inner button.
+    expect(selectedRow.dataset.selected).toBe("true");
+    expect(selectedRow.hasAttribute("data-model-row")).toBe(true);
     const favoriteButton = selectedRow.querySelector<HTMLButtonElement>(
       'button[aria-label="Add to favorites"]',
     )!;
@@ -519,7 +522,7 @@ describe("model picker", () => {
     ).not.toBeNull();
 
     const fastPill = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Fast: Off"]',
+      'button[aria-label="Speed: Standard"]',
     )!;
     expect(fastPill.getAttribute("aria-pressed")).toBe("false");
     act(() => fastPill.click());
@@ -649,10 +652,11 @@ describe("model picker", () => {
     );
 
     const serviceTierPill = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Service Tier: Standard"]',
+      'button[aria-label="Speed: Standard"]',
     )!;
     expect(serviceTierPill.textContent).toBe("Standard");
-    expect(serviceTierPill.querySelectorAll("svg")).toHaveLength(2);
+    expect(serviceTierPill.querySelectorAll("svg")).toHaveLength(1);
+    expect(serviceTierPill.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("shimmers only Codex max and ultra effort options", () => {
@@ -726,7 +730,7 @@ describe("model picker", () => {
     expect(high.classList.contains("codex-effort-option")).toBe(false);
   });
 
-  it("groups the service tier inside the effort popover", () => {
+  it("shows the service tier as its own one-click Speed pill beside the effort pill", () => {
     setHarnessModels("codex", [
       {
         id: "codex:gpt-5.6-sol",
@@ -770,38 +774,33 @@ describe("model picker", () => {
       ),
     );
 
-    expect(
-      container.querySelector('button[aria-label="Service Tier: Standard"]'),
-    ).toBeNull();
+    const pills = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        "button[data-model-control]",
+      ),
+    ].map((button) => button.getAttribute("aria-label"));
+    expect(pills).toEqual(["Reasoning: High", "Speed: Standard"]);
     const effortPill = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Reasoning: High"]',
     )!;
     act(() => effortPill.click());
-
-    const menu = container.querySelector<HTMLElement>(
-      '[role="menu"][aria-label="Reasoning and Service Tier"]',
-    )!;
-    expect(menu.querySelector('[role="separator"]')).not.toBeNull();
+    const menu = container.querySelector<HTMLElement>('[role="menu"]')!;
     expect(
-      menu.querySelector('[role="group"][aria-label="Reasoning"]'),
-    ).not.toBeNull();
-    const serviceTierGroup = menu.querySelector<HTMLElement>(
-      '[role="group"][aria-label="Service Tier"]',
-    )!;
-    expect(serviceTierGroup.textContent).toContain("Standard");
-    expect(serviceTierGroup.textContent).toContain("Fast");
+      menu.querySelector('[role="group"][aria-label="Service Tier"]'),
+    ).toBeNull();
+    act(() => effortPill.click());
 
-    const fast = [...serviceTierGroup.querySelectorAll("button")].find(
-      (button) => button.textContent === "Fast",
+    const speed = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Speed: Standard"]',
     )!;
-    act(() => fast.click());
+    act(() => speed.click());
     expect(onSettingsChange).toHaveBeenCalledWith({
       reasoningEffort: "high",
       serviceTier: "fast",
     });
   });
 
-  it("groups fast mode inside the effort popover", () => {
+  it("shows a Fast toggle as its own Speed pill beside the effort pill", () => {
     setHarnessModels("claude", [
       {
         id: "claude:opus-5",
@@ -845,27 +844,11 @@ describe("model picker", () => {
       ),
     );
 
-    expect(
-      container.querySelector('button[aria-label="Fast: Off"]'),
-    ).toBeNull();
-    const effortPill = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Effort: High"]',
+    const speed = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Speed: Standard"]',
     )!;
-    act(() => effortPill.click());
-
-    const menu = container.querySelector<HTMLElement>(
-      '[role="menu"][aria-label="Effort and Fast"]',
-    )!;
-    const fastGroup = menu.querySelector<HTMLElement>(
-      '[role="group"][aria-label="Fast"]',
-    )!;
-    expect(fastGroup.textContent).toContain("Off");
-    expect(fastGroup.textContent).toContain("On");
-
-    const on = [...fastGroup.querySelectorAll("button")].find(
-      (button) => button.textContent === "On",
-    )!;
-    act(() => on.click());
+    expect(speed.getAttribute("aria-pressed")).toBe("false");
+    act(() => speed.click());
     expect(onSettingsChange).toHaveBeenCalledWith({
       effort: "high",
       fast: "true",
