@@ -7,11 +7,13 @@ import {
 import { ALT, MOD, SHIFT } from "../../platform/tauri/platform";
 import { runUpdateFlow } from "../model/updater";
 import { SharedHoverHighlight } from "../../features/sessions/ui/SharedHoverHighlight";
+import { togglePerfDebug } from "../../shared/debug/perfDebug";
 import {
   keybindingPressed,
   keybindingShortcutLabel,
   loadAutosave,
   MENU_BAR_TOGGLE_COMMAND,
+  PERF_OVERLAY_COMMAND,
   loadKeybindingOverrides,
   saveAutosave,
   subscribeAutosave,
@@ -208,6 +210,9 @@ export function MenuBar({
         case "toggle_menu_bar":
           toggleVisible();
           break;
+        case "toggle_perf_overlay":
+          togglePerfDebug();
+          break;
         case "toggle_session_sidebar":
           onToggleSessionSidebar();
           break;
@@ -360,6 +365,12 @@ export function MenuBar({
             id: "toggle_menu_bar",
             label: "Hide Menu Bar",
             shortcut: shortcut(MENU_BAR_TOGGLE_COMMAND, `${ALT}O`),
+          },
+          {
+            kind: "item",
+            id: "toggle_perf_overlay",
+            label: "Performance Overlay",
+            shortcut: shortcut(PERF_OVERLAY_COMMAND, `${MOD}${ALT}${SHIFT}P`),
           },
           { kind: "item", id: "open_inbox", label: "Inbox" },
           ...(onOpenKanban ? [{ kind: "item" as const, id: "open_kanban", label: "Session Manager" }] : []),

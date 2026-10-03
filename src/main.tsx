@@ -18,6 +18,7 @@ import { homeDir } from "./platform/tauri/fs";
 import { setHomeDir } from "./shared/lib/paths";
 import { consumeInstalledUpdate } from "./app/model/updateNotice";
 import { initializeProviderBinaryPaths } from "./features/providers/model/providerBinaryPaths";
+import { PerfOverlayHost } from "./shared/debug/PerfOverlay";
 // Lets file commands reach a connected machine for `remote://` paths.
 import "./features/connections/model/remoteCommands";
 import "./styles/index.css";
@@ -111,6 +112,7 @@ void Promise.all([
             history={history}
             historyCwd={historyCwd}
           />
+          <PerfOverlayHost />
         </BootGate>
       </React.StrictMode>,
     );

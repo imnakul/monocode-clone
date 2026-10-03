@@ -1,4 +1,11 @@
 import { useEffect, useRef } from "react";
+import {
+  describeElement,
+  describeSurface,
+  isPerfDebugEnabled,
+  paintsOwnHoverFill,
+  reportHoverDebug,
+} from "../../../shared/debug/perfDebug";
 
 export const SHARED_HOVER_CONTINUITY_ATTR = "data-shared-hover-continuity";
 
@@ -85,6 +92,14 @@ export function resolveSharedHoverAction({
   return { type: "hide" };
 }
 
+/** The non-item element the pointer crossed, for the Performance overlay. */
+function describeGap(node: EventTarget | null): string {
+  if (!(node instanceof Element)) return "an empty gap";
+  const tag = node.tagName.toLowerCase();
+  const classes = [...node.classList].slice(0, 3).join(".");
+  return classes ? `<${tag}.${classes}>` : `<${tag}>`;
+}
+
 export function SharedHoverHighlight({
   selector = DEFAULT_SELECTOR,
 }: {
@@ -100,10 +115,17 @@ export function SharedHoverHighlight({
     let target: HTMLElement | null = null;
     let frame = 0;
 
-    const position = (next: HTMLElement): void => {
+    const position = (next: HTMLElement, report = true): void => {
       const rootRect = root.getBoundingClientRect();
       const rect = next.getBoundingClientRect();
       const first = marker.dataset.visible !== "true";
+      if (report && isPerfDebugEnabled())
+        reportHoverDebug({
+          kind: first ? "snap" : "glide",
+          surface: describeSurface(root),
+          item: describeElement(next),
+          ownFill: paintsOwnHoverFill(next),
+        });
       if (first) marker.style.transition = "none";
       // Snap to whole pixels: fractional translate/width blurs the marker's
       // edges, which reads as a smaller box next to a crisp selected pill.
@@ -131,7 +153,15 @@ export function SharedHoverHighlight({
       marker.style.opacity = "1";
     };
 
-    const hide = (): void => {
+    const hide = (reason: string): void => {
+      if (isPerfDebugEnabled() && marker.dataset.visible === "true")
+        reportHoverDebug({
+          kind: "hide",
+          surface: describeSurface(root),
+          item: describeElement(target),
+          ownFill: false,
+          reason,
+        });
       target?.removeAttribute("data-shared-hover-active");
       target = null;
       marker.dataset.visible = "false";
@@ -154,15 +184,15 @@ export function SharedHoverHighlight({
         target.setAttribute("data-shared-hover-active", "true");
         position(target);
       } else if (action.type === "hide") {
-        hide();
+        hide("focus moved to a disabled item");
       }
     };
 
     const refresh = (): void => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        if (target?.isConnected) position(target);
-        else hide();
+        if (target?.isConnected) position(target, false);
+        else hide("item was removed or re-rendered");
       });
     };
 
@@ -184,15 +214,20 @@ export function SharedHoverHighlight({
         target.setAttribute("data-shared-hover-active", "true");
         position(target);
       } else if (action.type === "hide") {
-        hide();
+        hide(
+          hit
+            ? "pointer is over a disabled item"
+            : `pointer crossed ${describeGap(event.target)}, outside this list's glide region`,
+        );
       }
     };
 
-    const onPointerLeave = (): void => hide();
+    const onPointerLeave = (): void => hide("pointer left the list");
     const onFocusIn = (event: FocusEvent): void =>
       show(findHoverTarget(event.target, root, selector));
     const onFocusOut = (event: FocusEvent): void => {
-      if (!root.contains(event.relatedTarget as Node | null)) hide();
+      if (!root.contains(event.relatedTarget as Node | null))
+        hide("focus left the list");
     };
 
     root.addEventListener("pointermove", onPointerMove);
