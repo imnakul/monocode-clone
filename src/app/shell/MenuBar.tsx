@@ -6,6 +6,8 @@ import {
 } from "../../features/files/ui/ExplorerMenu";
 import { ALT, MOD, SHIFT } from "../../platform/tauri/platform";
 import { runUpdateFlow } from "../model/updater";
+import { openSessionManager } from "../../features/session-board/ui/SessionManagerHost";
+
 import {
   keybindingShortcutLabel,
   loadAutosave,
@@ -140,6 +142,9 @@ export function MenuBar({
       switch (id) {
         case "new_tab":
           onNew();
+          break;
+        case "open_session_manager":
+          openSessionManager();
           break;
         case "new_terminal":
           onNewTerminal?.();
@@ -329,6 +334,7 @@ export function MenuBar({
               `${MOD}${SHIFT}B`,
             ),
           },
+          { kind: "item", id: "open_session_manager", label: "Session Manager" },
           { kind: "item", id: "open_inbox", label: "Inbox" },
           ...(onOpenNotes
             ? [{ kind: "item" as const, id: "open_notes", label: "Notes" }]

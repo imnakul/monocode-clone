@@ -36,6 +36,7 @@ mod reminders;
 mod remote;
 mod remote_ssh;
 mod search;
+mod session_board;
 mod session_store;
 mod skills;
 pub mod ssh_askpass;
@@ -458,6 +459,9 @@ pub fn run() {
             pty::pty_status,
             pty::pty_kill,
             pty::pty_kill_all,
+            session_board::session_board_list,
+            session_board::session_board_upsert,
+            session_board::session_board_hide,
             session_store::session_upsert,
             session_store::session_list_by_project,
             session_store::session_rebase_project,

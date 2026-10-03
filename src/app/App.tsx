@@ -546,6 +546,9 @@ import {
 } from "../features/sessions/model/secondOpinion";
 
 import { PaneTree } from "../features/workspace/ui/PaneTree";
+import { sessionTodoManager, editableSessionTodo, type SessionTodoHost } from "../features/session-board/sessionTodos";
+import { SessionManagerHost } from "../features/session-board/ui/SessionManagerHost";
+import { recordBoardOutcome } from "../features/session-board/sessionBoard";
 import { SessionPane } from "../features/sessions/ui/SessionPane";
 import { SessionSurface } from "../features/sessions/ui/SessionSurface";
 import { ProjectTerminalDock } from "../features/terminal/ui/ProjectTerminalDock";
@@ -1019,6 +1022,8 @@ function Workspace({
     useState<InboxSessionPortal | null>(null);
   const openingInboxSessions = useRef(new Map<string, Promise<string>>());
   const [notesViewOpen, setNotesViewOpen] = useState(false);
+  const [sessionManagerWorkspaceHost, setSessionManagerWorkspaceHost] = useState<HTMLElement | null>(null);
+  const [sessionManagerPaneVisible, setSessionManagerPaneVisible] = useState(false);
   const [automationsViewOpen, setAutomationsViewOpen] = useState(false);
   const [inspectedWorkerId, setInspectedWorkerId] = useState<string | null>(
     null,
@@ -7144,7 +7149,10 @@ function Workspace({
               (s) => s.id === sessionId,
             );
             const visible = sessionId === activeSessionIdRef.current;
-            if (finished) void announceSessionFinished(finished, visible);
+            if (finished) {
+              void announceSessionFinished(finished, visible);
+
+            }
           }, 0);
           notifyReviewChanged(sessionId);
           notifyGitChanged();
@@ -7188,6 +7196,10 @@ function Workspace({
           }
         })
         .finally(() => {
+          if (turnGen.current.get(sessionId) === gen) {
+            const completed = sessionsRef.current.find((session) => session.id === sessionId);
+            if (completed) void recordBoardOutcome(completed, controlOutcome.status === "completed" ? "done" : "blocked", controlOutcome.error).catch(console.error);
+          }
           editedResend?.reject();
           if (editedResend) editedResends.finish(sessionId);
           options?.onSettled?.(
@@ -7443,6 +7455,112 @@ function Workspace({
   saveDraftRef.current = onSaveDraft;
   const ensureOpenSessionRef = useRef(ensureOpenSession);
   ensureOpenSessionRef.current = ensureOpenSession;
+
+  const todoHostRef = useRef<SessionTodoHost>(null!);
+  todoHostRef.current = {
+    read: async (id) =>
+      sessionsRef.current.find((session) => session.id === id) ??
+      (await getSession(id)),
+    save: async (session) => {
+      const current = sessionsRef.current.find((item) => item.id === session.id);
+      if (current && !editableSessionTodo(current))
+        throw new Error("This session has already started");
+      if (removingSessionIds.current.has(session.id))
+        throw new Error("Session is being changed; try again");
+      removingSessionIds.current.add(session.id);
+      // Update an open draft immediately; unopened Todos stay off the tab strip.
+      if (current)
+        flushSync(() => {
+          const next = sessionsRef.current.map((item) =>
+            item.id === session.id ? session : item,
+          );
+          sessionsRef.current = next;
+          setSessions(next);
+        });
+      try {
+        const summary = await upsertSession(session);
+        if (!summary) throw new Error("The Todo could not be saved");
+        invalidateLoadedSession(session.id);
+        void refreshHistory(sidebarCwdRef.current);
+      } catch (error) {
+        if (
+          current &&
+          sessionsRef.current.find((item) => item.id === session.id) === session
+        ) {
+          const next = sessionsRef.current.map((item) =>
+            item.id === session.id ? current : item,
+          );
+          sessionsRef.current = next;
+          setSessions(next);
+        }
+        throw error;
+      } finally {
+        removingSessionIds.current.delete(session.id);
+      }
+    },
+    erase: async (session) => {
+      const current = sessionsRef.current.find((item) => item.id === session.id);
+      if (current && !editableSessionTodo(current))
+        throw new Error("This session has already started");
+      if (removingSessionIds.current.has(session.id))
+        throw new Error("Session is being changed; try again");
+      removingSessionIds.current.add(session.id);
+      try {
+        pendingPersist.current.delete(session.id);
+        await discardDraftSessionRecord(session.id);
+        // Retain any open pane as an empty composer; no active conversation is deleted.
+        if (current)
+          flushSync(() => {
+            const next = sessionsRef.current.map((item) =>
+              item.id === session.id
+                ? { ...item, blocks: [], title: HARNESS_LABEL[item.harness] }
+                : item,
+            );
+            sessionsRef.current = next;
+            setSessions(next);
+          });
+        lastPersisted.current.delete(session.id);
+        lastPersistedUserBlock.current.delete(session.id);
+        invalidateLoadedSession(session.id);
+        void refreshHistory(sidebarCwdRef.current);
+      } finally {
+        removingSessionIds.current.delete(session.id);
+      }
+    },
+    open: async (id) => {
+      const session = await ensureOpenSessionRef.current(id);
+      if (
+        session &&
+        !tabsRef.current.some((tab) => leafIds(tab.layout).includes(id))
+      )
+        appendTab(newTab(id), session.cwd);
+      return session;
+    },
+    submit: async (id, prompt, attachments, options) => {
+      const accepted = await submitSessionRef.current(
+        id,
+        prompt,
+        attachments,
+        options,
+      );
+      // Publish accepted draft promotion before the next queued start checks it.
+      flushSync(() => setSessions((current) => current));
+      return accepted;
+    },
+  };
+  const todoManagerRef = useRef<ReturnType<typeof sessionTodoManager> | null>(
+    null,
+  );
+  if (!todoManagerRef.current)
+    todoManagerRef.current = sessionTodoManager({
+      read: (...args) => todoHostRef.current.read(...args),
+      save: (...args) => todoHostRef.current.save(...args),
+      erase: (...args) => todoHostRef.current.erase(...args),
+      open: (...args) => todoHostRef.current.open(...args),
+      submit: (...args) => todoHostRef.current.submit(...args),
+    });
+  const todoManager = todoManagerRef.current;
+
 
   const appReceipts = useRef(
     new Map<string, { signature: string; promise: Promise<unknown> }>(),
@@ -8708,6 +8826,7 @@ function Workspace({
             ? completeHandoff(stopped, buildDeterministicHandoff(stopped))
             : stopped;
           const ready = { ...completed, worktreePreparing: undefined };
+          void recordBoardOutcome(ready, "stopped", "Stopped by you").catch(console.error);
           return ready.queuedMessages?.length
             ? { ...ready, queueStatus: "paused" }
             : ready;
@@ -8728,6 +8847,7 @@ function Workspace({
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
+      if (document.querySelector("[data-manager-overlay]")) return;
       const target = event.target instanceof Element ? event.target : null;
       const inTerminal = Boolean(target?.closest(".monocode-terminal"));
       const activeTabId = activeTabIdRef.current;
@@ -9384,6 +9504,7 @@ function Workspace({
               if (!saved) throw new Error("Session could not accept a draft");
               return { alreadySaved: false, draft: true };
             },
+            sessionManager: todoManager,
             worktrees: (cwd) => listWorktrees(cwd),
             createWorktree: (cwd, branch, base, existing) =>
               createWorktree(cwd, branch, base, existing),
@@ -10884,7 +11005,7 @@ function Workspace({
               onDismissUpdate={() => setUpdateNotice(null)}
             />
 
-            <div className="body-glass flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="body-glass relative flex min-h-0 min-w-0 flex-1 flex-col">
               <div
                 className={
                   searchViewOpen ||
@@ -10946,6 +11067,7 @@ function Workspace({
                 ) : null}
                 {compactTitleBar ? null : workspaceTitleBar}
 
+              <SessionSurface host={sessionManagerPaneVisible ? sessionManagerWorkspaceHost ?? undefined : undefined}>
                 <main className="relative flex min-h-0 min-w-0 flex-1">
                   <div
                     ref={dockGridRef}
@@ -11077,6 +11199,7 @@ function Workspace({
                     />
                   ))}
                 </main>
+              </SessionSurface>
               </div>
               {searchViewOpen ? (
                 <SearchView
@@ -11142,6 +11265,7 @@ function Workspace({
                   onOpenIntegrations={onOpenInboxIntegrations}
                 />
               ) : null}
+              <SessionManagerHost sessions={sessions} cwd={projectCwd} recents={recents} manager={todoManager} navigationKey={`${settingsOpen}:${notesViewOpen}:${inboxViewOpen}:${searchViewOpen}:${automationsViewOpen}`} onOpenSession={async (id) => { await onSelectHistorySession(id); }} onWorkspaceHost={setSessionManagerWorkspaceHost} onPaneVisible={setSessionManagerPaneVisible} />
               {notesViewOpen ? (
                 <NotesView
                   besideRail={projectRailOpen || compactProjectRail}
