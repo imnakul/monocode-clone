@@ -3436,6 +3436,18 @@ const SessionCard = memo(function SessionCard({
         data-session-card={session.id}
         data-orchestration-card={orchestration ? "true" : undefined}
         data-session-selected={isSelected ? "true" : undefined}
+        // The sidebar's gliding hover highlight. Cards with a state fill
+        // (selected, active, approval, expanded orchestration) keep it.
+        data-shared-hover-item
+        data-shared-hover-preserve={
+          dropTarget ||
+          isSelected ||
+          needsApproval ||
+          isActive ||
+          orchestrationExpanded
+            ? ""
+            : undefined
+        }
         data-tauri-drag-region="false"
         onPointerDown={onPointerDown}
         onPointerEnter={schedulePrefetch}
@@ -3461,11 +3473,9 @@ const SessionCard = memo(function SessionCard({
                 : isActive
                   ? `bg-selection text-content ${draft ? "border-content/30 border-dashed" : "border-transparent"}`
                   : draft
-                    ? "border-content/25 border-dashed text-content/80 hover:bg-content/5 hover:text-content"
+                    ? "border-content/25 border-dashed text-content/80 hover:text-content"
                     : `text-content/80 hover:text-content border-transparent ${
-                        orchestrationExpanded
-                          ? "bg-content/5 hover:bg-content/10"
-                          : "hover:bg-content/5"
+                        orchestrationExpanded ? "bg-content/5" : ""
                       }`
         }`}
       >

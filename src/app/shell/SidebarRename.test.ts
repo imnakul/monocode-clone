@@ -560,6 +560,13 @@ describe("sidebar session rename", () => {
     );
   });
 
+  it("makes project session cards part of the sidebar's gliding hover", () => {
+    act(() => render());
+    // Without this the card only had an instant hover fill and never glided.
+    expect(card().hasAttribute("data-shared-hover-item")).toBe(true);
+    expect(card().className).not.toContain("hover:bg-content/5");
+  });
+
   it("prefetches after a deliberate hover and immediately on press", () => {
     vi.useFakeTimers();
     props.onPrefetchSession = vi.fn();

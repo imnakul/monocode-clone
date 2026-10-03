@@ -168,9 +168,10 @@ function PerfOverlay(): ReactNode {
           <span>{hides} hide</span>
         </Row>
         {latestMove?.ownFill ? (
-          <p className="mt-1 rounded bg-red-500/15 px-1.5 py-1 text-red-300">
-            This item paints its own hover background, so it lights up instantly
-            while the glide is still moving.
+          <p className="mt-1 rounded bg-amber-400/12 px-1.5 py-1 text-amber-200">
+            This item has its own background under the highlight. Fine for a
+            card&apos;s resting tint; a problem only if it appears on hover
+            (the row lights up before the glide arrives).
           </p>
         ) : null}
       </div>

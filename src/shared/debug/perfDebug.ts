@@ -23,7 +23,7 @@ export type HoverDebugEvent = {
   surface: string;
   /** Short description of the item, or of the element that ended the glide. */
   item: string;
-  /** The item paints its own hover background on top of the gliding one. */
+  /** The item has its own background (resting tint or hover fill) under the glide. */
   ownFill: boolean;
   reason?: string;
   at: number;

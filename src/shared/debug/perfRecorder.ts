@@ -278,7 +278,13 @@ export function buildPerfReport(
     if (event.ownFill)
       ownFill.set(event.surface, (ownFill.get(event.surface) ?? 0) + 1);
   if (ownFill.size) {
-    lines.push("", "## Items that paint their own hover background", "");
+    lines.push(
+      "",
+      "## Items with their own background under the highlight",
+      "",
+      "Expected for cards with a resting tint; a problem only for rows that fill on hover.",
+      "",
+    );
     for (const [surface, count] of ownFill)
       lines.push(`- ${surface}: ${count} hovers`);
   }
