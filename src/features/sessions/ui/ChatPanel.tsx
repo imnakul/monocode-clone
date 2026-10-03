@@ -383,7 +383,8 @@ export function ChatPanel({
                   </li>
                 );
               }
-              if (group.kind === "reminders") {
+              // Not built here (no reminder/draft groups are passed in).
+              if (group.kind === "reminders" || group.kind === "drafts") {
                 return null;
               }
               if (group.kind === "folder") {

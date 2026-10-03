@@ -96,6 +96,7 @@ import {
   folderShellFill,
   loadPinnedSessionsCollapsed,
   loadReminderSessionsCollapsed,
+  loadDraftSessionsCollapsed,
   loadSessionFolders,
   mergeFolderSessionSummaries,
   pruneSessionFolders,
@@ -104,6 +105,7 @@ import {
   reorderSessionFolders,
   savePinnedSessionsCollapsed,
   saveReminderSessionsCollapsed,
+  saveDraftSessionsCollapsed,
   saveSessionFolders,
   sessionListNavigationIds,
   setFolderCollapsed,
@@ -620,6 +622,9 @@ function SidebarComponent({
   const [reminderSessionsCollapsed, setReminderSessionsCollapsed] = useState(
     () => loadReminderSessionsCollapsed(cwd),
   );
+  const [draftSessionsCollapsed, setDraftSessionsCollapsed] = useState(() =>
+    loadDraftSessionsCollapsed(cwd),
+  );
   const [sessionDrop, setSessionDrop] = useState<SessionListDropTarget | null>(
     null,
   );
@@ -701,10 +706,16 @@ function SidebarComponent({
       .map((reminder) => reminder.sessionId),
     collapsed: reminderSessionsCollapsed,
   };
+  // Session Manager drafts gather in their own group, like Reminders.
+  const draftGroup = { collapsed: draftSessionsCollapsed };
+  // Cards shown in a Reminders/Drafts group: not drag targets for folders.
+  const viewGroupedIds = new Set(reminderIds);
+  for (const session of visibleSessions)
+    if (session.draft) viewGroupedIds.add(session.id);
   const ungroupedVisible = ungroupedSessions(
     visibleSessions,
     sessionFolders,
-  ).filter((session) => !reminderIds.has(session.id));
+  ).filter((session) => !viewGroupedIds.has(session.id));
   const activeUngroupedIndex = ungroupedVisible.findIndex(
     (session) => session.id === activeListedSessionId,
   );
@@ -720,6 +731,7 @@ function SidebarComponent({
     ungroupedVisible,
     pinnedSessionsCollapsed,
     reminderGroup,
+    draftGroup,
   );
   const sessionListEntries = buildSessionList(
     visibleSessions,
@@ -727,6 +739,7 @@ function SidebarComponent({
     shownUngrouped,
     pinnedSessionsCollapsed,
     reminderGroup,
+    draftGroup,
   );
   const groupedSessionListEntries = useMemo(
     () => groupSessionListEntries(sessionListEntries),
@@ -938,6 +951,7 @@ function SidebarComponent({
     setSessionFolders(loadSessionFolders(cwd));
     setPinnedSessionsCollapsed(loadPinnedSessionsCollapsed(cwd));
     setReminderSessionsCollapsed(loadReminderSessionsCollapsed(cwd));
+    setDraftSessionsCollapsed(loadDraftSessionsCollapsed(cwd));
     setRenamingFolderId(null);
     setFolderMenu(null);
     setSessionDrop(null);
@@ -1538,7 +1552,7 @@ function SidebarComponent({
           onPlaceSessionOnPane ? cardActions.placeOnPane : undefined
         }
         onListDrop={
-          reminderIds.has(session.id) ? undefined : cardActions.listDrop
+          viewGroupedIds.has(session.id) ? undefined : cardActions.listDrop
         }
         onListDropTargetChange={setSessionDrop}
         onContextMenu={cardActions.contextMenu}
@@ -1868,17 +1882,25 @@ function SidebarComponent({
               ) : (
                 <ul className="flex flex-col gap-0.5 p-1.5">
                   {groupedSessionListEntries.map((group) => {
-                    if (group.kind === "pinned" || group.kind === "reminders") {
+                    if (
+                      group.kind === "pinned" ||
+                      group.kind === "reminders" ||
+                      group.kind === "drafts"
+                    ) {
                       const entry = group.entry;
                       const isReminders = entry.kind === "reminders";
+                      const isDrafts = entry.kind === "drafts";
                       const expanded = searchNarrowed || !entry.collapsed;
                       const beforeUngrouped =
                         sessionListEntries[group.index + 1]?.kind === "session";
                       return (
                         <li
                           key={`${entry.kind}-sessions`}
-                          data-pinned-sessions={isReminders ? undefined : ""}
+                          data-pinned-sessions={
+                            entry.kind === "pinned" ? "" : undefined
+                          }
                           data-reminder-sessions={isReminders ? "" : undefined}
+                          data-draft-sessions={isDrafts ? "" : undefined}
                           className={`relative ${
                             expanded || beforeUngrouped ? "mb-1.5" : ""
                           }`}
@@ -1891,7 +1913,9 @@ function SidebarComponent({
                                       name: "Reminders",
                                       customColor: REMINDERS_COLOR,
                                     }
-                                  : { name: "Pinned" }
+                                  : isDrafts
+                                    ? { name: "Drafts" }
+                                    : { name: "Pinned" }
                               }
                               sessions={entry.sessions}
                               expanded={expanded}
@@ -1911,6 +1935,11 @@ function SidebarComponent({
                                     className="size-3.5"
                                     strokeWidth={1.75}
                                   />
+                                ) : isDrafts ? (
+                                  <CircleDashed
+                                    className="size-3.5 text-content"
+                                    strokeWidth={1.75}
+                                  />
                                 ) : (
                                   <Pin
                                     className="size-3.5 text-content"
@@ -1924,6 +1953,11 @@ function SidebarComponent({
                                 if (isReminders) {
                                   setReminderSessionsCollapsed(collapsed);
                                   saveReminderSessionsCollapsed(cwd, collapsed);
+                                  return;
+                                }
+                                if (isDrafts) {
+                                  setDraftSessionsCollapsed(collapsed);
+                                  saveDraftSessionsCollapsed(cwd, collapsed);
                                   return;
                                 }
                                 setPinnedSessionsCollapsed(collapsed);
@@ -2878,7 +2912,8 @@ function sessionListDropFromPoint(
 ): SessionListDropTarget | null {
   const el = document.elementFromPoint(x, y);
   if (!el) return null;
-  if (el.closest("[data-reminder-sessions]")) return null;
+  if (el.closest("[data-reminder-sessions], [data-draft-sessions]"))
+    return null;
   const card = el.closest("[data-session-card]") as HTMLElement | null;
   const cardId = card?.dataset.sessionCard;
   if (cardId === draggedId) return null;

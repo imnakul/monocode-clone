@@ -9,6 +9,7 @@ const KEY = "monocode.sessionFolders";
 const CHANGE_EVENT = "monocode:session-folders-change";
 const PINNED_COLLAPSED_KEY = "monocode.pinnedSessionsCollapsed";
 const REMINDERS_COLLAPSED_KEY = "monocode.reminderSessionsCollapsed";
+const DRAFTS_COLLAPSED_KEY = "monocode.draftSessionsCollapsed";
 
 export type SessionFolder = {
   id: string;
@@ -43,6 +44,12 @@ export type SessionListEntry =
       collapsed: boolean;
       sessions: SessionSummary[];
     }
+  | {
+      /** Session Manager drafts of this project (draft sessions not yet started). */
+      kind: "drafts";
+      collapsed: boolean;
+      sessions: SessionSummary[];
+    }
   | { kind: "session"; session: SessionSummary }
   | { kind: "divider" };
 
@@ -60,6 +67,11 @@ export type SessionListGroup =
   | {
       kind: "reminders";
       entry: Extract<SessionListEntry, { kind: "reminders" }>;
+      index: number;
+    }
+  | {
+      kind: "drafts";
+      entry: Extract<SessionListEntry, { kind: "drafts" }>;
       index: number;
     }
   | { kind: "divider"; key: string }
@@ -100,6 +112,8 @@ export function groupSessionListEntries(
         groups.push({ kind: "pinned", entry, index });
       } else if (entry.kind === "reminders") {
         groups.push({ kind: "reminders", entry, index });
+      } else if (entry.kind === "drafts") {
+        groups.push({ kind: "drafts", entry, index });
       }
     }
   }
@@ -166,8 +180,9 @@ export function mergeFolderSessionSummaries(
 }
 
 /**
- * Reminders always lead, followed by folders, pins, and loose sessions.
- * Reminder membership only changes this view, preserving saved folders/pins.
+ * Reminders always lead, then Drafts (when `draftGroup` is given), folders,
+ * pins, and loose sessions. Reminder and draft membership only changes this
+ * view, preserving saved folders/pins: a started draft returns to its folder.
  */
 export function buildSessionList(
   visible: SessionSummary[],
@@ -175,6 +190,7 @@ export function buildSessionList(
   ungrouped: SessionSummary[],
   pinnedCollapsed = false,
   reminderGroup?: { sessionIds: readonly string[]; collapsed: boolean },
+  draftGroup?: { collapsed: boolean },
 ): SessionListEntry[] {
   const byId = new Map(visible.map((session) => [session.id, session]));
   const reminderIds = new Set(reminderGroup?.sessionIds);
@@ -190,18 +206,34 @@ export function buildSessionList(
       sessions: reminderSessions,
     });
   }
+  // A draft with a reminder stays under Reminders (shown once).
+  const draftSessions = draftGroup
+    ? visible
+        .filter((session) => session.draft && !reminderIds.has(session.id))
+        .sort(compareSessionSummaries)
+    : [];
+  const draftIds = new Set(draftSessions.map((session) => session.id));
+  if (draftSessions.length) {
+    entries.push({
+      kind: "drafts",
+      collapsed: draftGroup?.collapsed ?? false,
+      sessions: draftSessions,
+    });
+  }
+  const grouped = (id: string): boolean =>
+    reminderIds.has(id) || draftIds.has(id);
   for (const folder of folders) {
     const members: SessionSummary[] = [];
     for (const id of folder.sessionIds) {
       const session = byId.get(id);
-      if (session && !reminderIds.has(id)) members.push(session);
+      if (session && !grouped(id)) members.push(session);
     }
     if (members.length === 0) continue;
     members.sort(compareSessionSummaries);
     entries.push({ kind: "folder", folder, sessions: members });
   }
 
-  const remaining = ungrouped.filter((session) => !reminderIds.has(session.id));
+  const remaining = ungrouped.filter((session) => !grouped(session.id));
   const pinned = remaining.filter((session) => session.pinned);
   if (pinned.length > 0) {
     entries.push({
@@ -226,7 +258,11 @@ export function sessionListNavigationIds(
       ids.push(entry.session.id);
       continue;
     }
-    if (entry.kind === "pinned" || entry.kind === "reminders") {
+    if (
+      entry.kind === "pinned" ||
+      entry.kind === "reminders" ||
+      entry.kind === "drafts"
+    ) {
       if (!entry.collapsed || expandCollapsed) {
         ids.push(...entry.sessions.map((session) => session.id));
       }
@@ -561,6 +597,11 @@ export function loadReminderSessionsCollapsed(cwd: string): boolean {
   return loadGroupCollapsed(cwd, REMINDERS_COLLAPSED_KEY);
 }
 
+/** Whether this project's Drafts group is collapsed (saved per project). */
+export function loadDraftSessionsCollapsed(cwd: string): boolean {
+  return loadGroupCollapsed(cwd, DRAFTS_COLLAPSED_KEY);
+}
+
 function loadGroupCollapsed(cwd: string, storeKey: string): boolean {
   const key = storageKey(cwd);
   if (!key) return false;
@@ -591,6 +632,13 @@ export function saveReminderSessionsCollapsed(
   collapsed: boolean,
 ): void {
   saveGroupCollapsed(cwd, collapsed, REMINDERS_COLLAPSED_KEY);
+}
+
+export function saveDraftSessionsCollapsed(
+  cwd: string,
+  collapsed: boolean,
+): void {
+  saveGroupCollapsed(cwd, collapsed, DRAFTS_COLLAPSED_KEY);
 }
 
 function saveGroupCollapsed(

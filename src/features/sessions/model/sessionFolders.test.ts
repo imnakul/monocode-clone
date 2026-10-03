@@ -155,6 +155,50 @@ describe("buildSessionList", () => {
     ]);
   });
 
+  it("gathers drafts after reminders, out of folders and pins, without changing membership", () => {
+    const sessions = [
+      summary("draft-in-folder", { draft: true }),
+      summary("draft-pinned", { draft: true, pinned: true }),
+      summary("draft-reminded", { draft: true }),
+      summary("member"),
+      summary("loose"),
+    ];
+    const folders = [folder("work", ["draft-in-folder", "member"])];
+    const loose = ungroupedSessions(sessions, folders);
+    const entries = buildSessionList(
+      sessions,
+      folders,
+      loose,
+      false,
+      { sessionIds: ["draft-reminded"], collapsed: false },
+      { collapsed: true },
+    );
+    expect(entries.map((entry) => entry.kind)).toEqual([
+      "reminders",
+      "drafts",
+      "folder",
+      "session",
+    ]);
+    const drafts = entries[1];
+    expect(drafts.kind === "drafts" && drafts.sessions.map((s) => s.id)).toEqual(
+      expect.arrayContaining(["draft-in-folder", "draft-pinned"]),
+    );
+    // Collapsed drafts leave navigation unless a search expands every group.
+    expect(sessionListNavigationIds(entries, false)).toEqual([
+      "draft-reminded",
+      "member",
+      "loose",
+    ]);
+    expect(sessionListNavigationIds(entries, true)).toHaveLength(5);
+    expect(folders[0].sessionIds).toEqual(["draft-in-folder", "member"]);
+    // Without a draft group (e.g. the chat panel) drafts stay where they were.
+    expect(
+      buildSessionList(sessions, folders, loose).some(
+        (entry) => entry.kind === "drafts",
+      ),
+    ).toBe(false);
+  });
+
   it("places folders above pinned ungrouped sessions", () => {
     const sessions = [
       summary("pin", { pinned: true, updatedAt: 1 }),
