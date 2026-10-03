@@ -11,13 +11,16 @@ export function TaskRow({
   marks,
   onSelect,
   onTagClick,
+  onContextMenu,
 }: {
   task: Task;
   active: boolean;
   marks: ProjectMarks;
   onSelect: () => void;
   onTagClick: (tag: string) => void;
+  onContextMenu?: (x: number, y: number) => void;
 }) {
+  const archived = task.archivedAt !== undefined;
   const preview = notePreview(task.body, task.title);
   const time = relativeTime(task.updatedAt);
   return (
@@ -28,19 +31,32 @@ export function TaskRow({
       data-task-id={task.id}
       title={`${task.title} · ${TASK_STATUS_LABELS[task.status]}`}
       aria-current={active ? "true" : undefined}
+      data-archived={archived ? "" : undefined}
       onClick={onSelect}
+      onContextMenu={
+        onContextMenu
+          ? (event) => {
+              event.preventDefault();
+              onContextMenu(event.clientX, event.clientY);
+            }
+          : undefined
+      }
       className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left ${
         active
           ? "bg-selection text-content"
-          : "text-content/80 hover:bg-content/5 hover:text-content"
-      }`}
+          : "text-content/80 hover:text-content"
+      } ${archived ? "opacity-55" : ""}`}
     >
       <span className="flex shrink-0 items-center">
         <TaskStatusIcon status={task.status} className="size-4" />
         <span className="sr-only">{TASK_STATUS_LABELS[task.status]}</span>
       </span>
       <span className="min-w-0 flex-1">
-        <span className="line-clamp-1 block text-[13px] font-semibold text-content">
+        <span
+          className={`line-clamp-1 block text-[13px] font-semibold text-content ${
+            archived ? "line-through decoration-content/40" : ""
+          }`}
+        >
           {task.title}
         </span>
         {preview ? (

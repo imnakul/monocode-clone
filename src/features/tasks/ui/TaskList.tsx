@@ -16,6 +16,7 @@ export function TaskList({
   onSelect,
   onTagClick,
   onToggleGroup,
+  onContextMenu,
 }: {
   tasks: readonly Task[];
   groupBy: TaskGroupBy;
@@ -26,6 +27,7 @@ export function TaskList({
   onSelect: (id: string) => void;
   onTagClick: (tag: string) => void;
   onToggleGroup: (key: string) => void;
+  onContextMenu: (task: Task, x: number, y: number) => void;
 }) {
   const lock = useLockOverscroll<HTMLDivElement>();
   const groups = useMemo(() => groupTasks(tasks, groupBy), [tasks, groupBy]);
@@ -68,6 +70,7 @@ export function TaskList({
                       marks={marks}
                       onSelect={() => onSelect(task.id)}
                       onTagClick={onTagClick}
+                      onContextMenu={(x, y) => onContextMenu(task, x, y)}
                     />
                   </li>
                 ))}

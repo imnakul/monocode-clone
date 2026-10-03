@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { TasksView } from "./TasksView";
 import {
   invalidateTasks,
+  localDay,
   TASKS_CHANGED_EVENT,
   type Task,
   type TaskUpsert,
@@ -107,12 +108,14 @@ beforeEach(() => {
         return [...rows.values()].map((entry) => ({ ...entry }));
       if (command === "tasks_get") return rows.get(args?.id as string) ?? null;
       if (command === "tasks_upsert") {
-        const input = args?.task as TaskUpsert;
+        const { archived, ...input } = args?.task as TaskUpsert;
         const old = rows.get(input.id);
+        // Like the database: archiving stamps a time once, unarchiving clears it.
         const saved: Task = {
           ...input,
           createdAt: old?.createdAt ?? 20,
           updatedAt: (old?.updatedAt ?? 20) + 1,
+          archivedAt: archived ? (old?.archivedAt ?? 30) : undefined,
         };
         rows.set(input.id, saved);
         return saved;
@@ -205,7 +208,10 @@ const peek = () =>
     '[aria-label="Task panel"]:not([aria-hidden="true"])',
   );
 async function pickOption(trigger: string, option: string) {
-  await click(container.querySelector(`button[aria-label^="${trigger}:"]`));
+  const opener = container.querySelector<HTMLElement>(
+    `button[aria-label^="${trigger}:"]`,
+  );
+  if (opener?.getAttribute("aria-expanded") !== "true") await click(opener);
   const choice = [
     ...document.querySelectorAll<HTMLElement>('[role="option"]'),
   ].find(
@@ -215,6 +221,11 @@ async function pickOption(trigger: string, option: string) {
       ).textContent?.trim() === option,
   );
   await click(choice);
+  // Multi-select menus (Status, Project) stay open; close them like a user would.
+  const after = container.querySelector<HTMLElement>(
+    `button[aria-label^="${trigger}:"]`,
+  );
+  if (after?.getAttribute("aria-expanded") === "true") await click(after);
 }
 async function pickMenuItem(trigger: HTMLElement | undefined, label: string) {
   await click(trigger);
@@ -380,7 +391,10 @@ describe("filters", () => {
     await pickOption("Status", "All statuses");
     await pickOption("Project", "other");
     expect(listTitles()).toEqual(["Ship docs"]);
+    // Project is multi-select: adding Personal shows both.
     await pickOption("Project", "Personal");
+    expect(listTitles().sort()).toEqual(["Personal reminder", "Ship docs"]);
+    await pickOption("Project", "other");
     expect(listTitles()).toEqual(["Personal reminder"]);
     await pickOption("Project", "All projects");
     await pickOption("Tag", "#windows");
@@ -418,7 +432,7 @@ describe("selection and peek", () => {
     expect(input("Task title").value).toBe("Fix installer");
     await switchView("Table");
     expect(input("Task title").value).toBe("Fix installer");
-    await click(button("Delete"));
+    await click(byLabel("Delete task"));
     expect(rows.has("first")).toBe(false);
     expect(peek()).toBeNull();
   });
@@ -523,7 +537,7 @@ describe("selection and peek", () => {
     expect(rows.get("first")?.status).toBe("review");
   });
 
-  it("opens beside session from the peek header and the editor action", async () => {
+  it("opens beside session from the peek header (the editor no longer repeats it)", async () => {
     await render();
     await click(listRow("Fix installer"));
     await click(
@@ -532,8 +546,7 @@ describe("selection and peek", () => {
     expect(openBeside).toHaveBeenCalledWith(
       expect.objectContaining({ id: "first" }),
     );
-    await click(button("Open beside session"));
-    expect(openBeside).toHaveBeenCalledTimes(2);
+    expect(button("Open beside session")).toBeUndefined();
     await click(button("Open source session"));
     expect(sourceOpen).toHaveBeenCalledWith("session", "cline:42");
   });
@@ -551,7 +564,7 @@ describe("selection and peek", () => {
     expect(rows.get("first")?.body).toBe(markdown);
     await render();
     await click(listRow("Fix installer"));
-    await click(button("Delete"));
+    await click(byLabel("Delete task"));
     expect(rows.has("first")).toBe(false);
     await act(async () => root.render(null));
     expect(rows.has("first")).toBe(false);
@@ -604,25 +617,28 @@ describe("selection and peek", () => {
 });
 
 describe("creating tasks", () => {
-  it("files under the current project with +, and Personal via the chevron", async () => {
+  it("files under Personal with +, a project via the chevron, and focuses the title", async () => {
     await render();
     await click(byLabel("New task"));
-    const project = [...rows.values()].find(
-      (entry) => entry.title === "Untitled" && entry.projectCwd,
-    )!;
-    expect(project.projectCwd).toBe("/work/project");
-    expect(peek()).not.toBeNull();
-    expect(input("Task Markdown")).not.toBeNull();
-    await click(byLabel("Choose where the task is filed"));
-    expect(document.body.textContent).toContain("File task under…");
-    const personal = [
-      ...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'),
-    ].find((entry) => entry.textContent?.trim() === "Personal");
-    await click(personal);
-    const created = [...rows.values()].find(
+    const personal = [...rows.values()].find(
       (entry) => entry.title === "Untitled" && !entry.projectCwd,
     )!;
-    expect(created).toMatchObject({ status: "todo", tags: [] });
+    expect(personal).toMatchObject({ status: "todo", tags: [] });
+    expect(peek()).not.toBeNull();
+    await act(async () => {
+      await tick(20);
+    });
+    expect(document.activeElement).toBe(input("Task title"));
+    await click(byLabel("Choose where the task is filed"));
+    expect(document.body.textContent).toContain("File task under…");
+    const project = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'),
+    ].find((entry) => entry.textContent?.trim() === "project");
+    await click(project);
+    const created = [...rows.values()].find(
+      (entry) => entry.title === "Untitled" && entry.projectCwd,
+    )!;
+    expect(created.projectCwd).toBe("/work/project");
   });
 
   it("disables the create buttons while a create is pending", async () => {
@@ -823,7 +839,7 @@ describe("board view", () => {
       ),
     ].map((entry) => entry.getAttribute("aria-label"));
 
-  it("hides Draft and Deferred by default and toggles them from Columns", async () => {
+  it("shows the five statuses, follows the Status filter and toggles columns", async () => {
     await openBoard();
     expect(columnLabels()).toEqual([
       "Todo column",
@@ -832,10 +848,15 @@ describe("board view", () => {
       "Review column",
       "Completed column",
     ]);
-    await pickMenuItem(byLabel("Choose visible columns"), "Draft");
-    expect(columnLabels()[0]).toBe("Draft column");
+    // The multi-select Status filter limits the board to the chosen columns.
+    await pickOption("Status", "Todo");
+    await pickOption("Status", "Completed");
+    expect(columnLabels()).toEqual(["Todo column", "Completed column"]);
+    await pickOption("Status", "All statuses");
+    await pickMenuItem(byLabel("Choose visible columns"), "Review");
+    expect(columnLabels()).not.toContain("Review column");
     expect(JSON.parse(localStorage.getItem(BOARD_KEY)!).hidden).toEqual([
-      "deferred",
+      "review",
     ]);
   });
 
@@ -1238,6 +1259,102 @@ describe("counts", () => {
         Number(item.querySelector(".tabular-nums")?.textContent),
       ]),
     );
-    expect(counts).toMatchObject({ Draft: 0, Todo: 1, Blocked: 1 });
+    expect(counts).toMatchObject({ Todo: 1, Blocked: 1 });
+    expect(counts).not.toHaveProperty("Draft");
   });
 });
+
+describe("focus, archive and the task menu", () => {
+  const menuItem = (label: string) =>
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        '[role="menuitem"], [role="menuitemcheckbox"]',
+      ),
+    ].find(
+      (entry) =>
+        (entry.querySelector("[data-menu-label]") ?? entry).textContent?.trim() ===
+        label,
+    );
+  async function rightClick(element: HTMLElement) {
+    await act(async () => {
+      element.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 20,
+          clientY: 20,
+        }),
+      );
+    });
+  }
+
+  it("Focus shows only tasks created today or pinned to today, with a count", async () => {
+    rows.set("personal", { ...rows.get("personal")!, focusDate: localDay() });
+    await render();
+    const focus = container.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Focus:"]',
+    )!;
+    expect(focus.getAttribute("aria-label")).toBe(
+      "Focus: 1 of 3 tasks are in today's focus",
+    );
+    await click(focus);
+    expect(focus.getAttribute("aria-pressed")).toBe("true");
+    expect(listTitles()).toEqual(["Personal reminder"]);
+    expect(localStorage.getItem("monocode.tasks.focus")).toBe("true");
+    await click(focus);
+    expect(listTitles()).toHaveLength(3);
+  });
+
+  it("offers carry-over for unfinished tasks pinned on an earlier day", async () => {
+    rows.set("docs", { ...rows.get("docs")!, focusDate: "2020-01-01" });
+    await render();
+    await click(container.querySelector('button[aria-label^="Focus:"]'));
+    expect(container.textContent).toContain("1 unfinished from earlier focus");
+    await click(button("Carry over"));
+    expect(rows.get("docs")?.focusDate).toBe(localDay());
+    expect(listTitles()).toEqual(["Ship docs"]);
+  });
+
+  it("archives from the right-click menu, hides it, and shows it struck through", async () => {
+    await render();
+    await rightClick(listRow("Ship docs"));
+    expect(menuItem("Open beside session")).toBeUndefined();
+    await click(menuItem("Archive"));
+    expect(rows.get("docs")?.archivedAt).toBeDefined();
+    expect(rows.get("docs")?.status).toBe("in_progress");
+    expect(listTitles()).not.toContain("Ship docs");
+    await click(button("Archived"));
+    const archived = listRow("Ship docs");
+    expect(archived.dataset.archived).toBe("");
+    expect(archived.querySelector(".line-through")).not.toBeNull();
+    await rightClick(archived);
+    await click(menuItem("Unarchive"));
+    expect(rows.get("docs")?.archivedAt).toBeUndefined();
+  });
+
+  it("moves, focuses and works on a task from the menu", async () => {
+    const workOn = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(TasksView, {
+          cwd: "/work/project",
+          recents: [{ path: "/work/project", openedAt: 1 }],
+          onClose,
+          onOpenSource: sourceOpen,
+          onOpenBeside: openBeside,
+          onWorkOn: workOn,
+        }),
+      ),
+    );
+    await rightClick(listRow("Fix installer"));
+    await click(menuItem("Focus today"));
+    expect(rows.get("first")?.focusDate).toBe(localDay());
+    await rightClick(listRow("Fix installer"));
+    await click(menuItem("Work on…"));
+    expect(workOn).toHaveBeenCalledWith(expect.objectContaining({ id: "first" }));
+    await rightClick(listRow("Fix installer"));
+    await click(menuItem("Copy task"));
+    expect(copy).toHaveBeenCalledWith(expect.stringContaining("# Fix installer"));
+  });
+});
+

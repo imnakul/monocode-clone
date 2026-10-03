@@ -6,6 +6,7 @@ import {
   deleteTask,
   filterTasks,
   TASKS_CHANGED_EVENT,
+  parseTaskStatus,
   taskStatus,
   updateTask,
   type Task,
@@ -73,7 +74,11 @@ describe("shared Tasks filters", () => {
   it("normalizes display status aliases and rejects unknown status values", () => {
     expect(taskStatus("In Progress")).toBe("in_progress");
     expect(taskStatus("Progress")).toBe("in_progress");
-    expect(taskStatus("DEFERRED")).toBe("deferred");
+    // Retired statuses map to Todo; Deferred also archives (see parseTaskStatus).
+    expect(taskStatus("DEFERRED")).toBe("todo");
+    expect(parseTaskStatus("deferred")).toEqual({ status: "todo", archive: true });
+    expect(parseTaskStatus("draft")).toEqual({ status: "todo", archive: false });
+    expect(taskStatus("done")).toBe("completed");
     expect(() => taskStatus("cancelled")).toThrow("Invalid task status");
   });
 });

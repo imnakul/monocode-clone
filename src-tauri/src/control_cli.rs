@@ -201,14 +201,22 @@ Actions:
                   (all by default, or any), projectCwd, and query over
                   title/body/tags/project labels.
                   Filter categories combine with AND. Omit projectCwd for all
-                  projects; use null for Personal. Returns total, offset and
-                  task summaries; use tasks.read for the full Markdown body.
+                  projects; use null for Personal. Archived tasks are left out
+                  unless "archived":true (only archived) or "archived":"all".
+                  "focus":true keeps today's focus (created today or focusDate
+                  today). Returns total, offset and task summaries; use
+                  tasks.read for the full Markdown body.
   tasks.read     {"id":"..."}  Read one task, including its Markdown body.
   tasks.write    {"id":"...","title":"Plan","body":"Markdown",
                   "status":"todo","tags":["work"],"projectCwd":null,
+                  "focusDate":"2026-10-03","archived":false,
                   "sourceSessionId":"...","sourceBlockId":"..."}
-                  Create or edit a task. Status values: draft, todo,
-                  in_progress (Progress), blocked, review, completed, deferred.
+                  Create or edit a task. Status values: todo, in_progress
+                  (Progress), blocked, review, completed. Old names draft and
+                  deferred are accepted and saved as todo (deferred also
+                  archives). focusDate (YYYY-MM-DD, local day) pins a task to
+                  that day's Focus; null clears it. archived hides a task
+                  without changing its status.
                   Completing records a completion time; reopening clears it.
                   New tasks default to Todo and this
                   project when omitted; sourceSessionId defaults to this

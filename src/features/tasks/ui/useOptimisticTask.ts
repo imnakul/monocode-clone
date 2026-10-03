@@ -5,6 +5,8 @@ import { updateTask, type Task, type TaskStatus } from "../tasks";
 export type TaskMovePatch = {
   status?: TaskStatus;
   projectCwd?: string | null;
+  /** Manual position inside the target column. */
+  sortOrder?: number;
 };
 
 type Override = { patch: TaskMovePatch; token: number };
@@ -80,6 +82,7 @@ export function useOptimisticTask(onSaved?: (task: Task) => void) {
       if (patch.status) next.status = patch.status;
       if (patch.projectCwd !== undefined)
         next.projectCwd = patch.projectCwd ?? undefined;
+      if (patch.sortOrder !== undefined) next.sortOrder = patch.sortOrder;
       return next;
     },
     [overrides],

@@ -40,6 +40,7 @@ export function taskFacetCounts(
   const withoutProject = filterTasks(tasks, {
     ...filters,
     projectCwd: undefined,
+    projectCwds: undefined,
   });
   const project = new Map<string, number>();
   let personal = 0;

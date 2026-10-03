@@ -70,6 +70,8 @@ export type TaskBoardState = {
   hidden: TaskStatus[];
   /** Hidden project columns by group key. */
   hiddenProjects: string[];
+  /** Column order by group key (dragged by the column grip); unknown keys sort last. */
+  order: string[];
 };
 
 export const VIEW_KEY = "monocode.tasks.view";
@@ -97,8 +99,9 @@ export function defaultTableState(): TaskTableState {
 export function defaultBoardState(): TaskBoardState {
   return {
     width: null,
-    hidden: ["draft", "deferred"],
+    hidden: [],
     hiddenProjects: [],
+    order: [],
   };
 }
 
@@ -226,6 +229,8 @@ export function parseBoardState(value: unknown): TaskBoardState {
   if (hidden) state.hidden = hidden;
   const hiddenProjects = uniqueFiltered(value.hiddenProjects, isGroupKey);
   if (hiddenProjects) state.hiddenProjects = hiddenProjects;
+  const order = uniqueFiltered(value.order, isGroupKey);
+  if (order) state.order = order;
   return state;
 }
 export function loadBoardState(): TaskBoardState {
@@ -381,4 +386,69 @@ export function groupTasks(
       tasks: group.tasks,
     }));
   return [{ key: "all", label: "All tasks", tasks: [...tasks] }];
+}
+
+/** Board groups in the saved column order; groups not in the order keep their place after it. */
+export function orderGroups<T extends { key: string }>(
+  groups: readonly T[],
+  order: readonly string[],
+): T[] {
+  const rank = (key: string) => {
+    const index = order.indexOf(key);
+    return index === -1 ? order.length : index;
+  };
+  return groups
+    .map((group, index) => ({ group, index }))
+    .sort((a, b) => rank(a.group.key) - rank(b.group.key) || a.index - b.index)
+    .map(({ group }) => group);
+}
+
+/** Saved order after dragging `key` before `beforeKey` (null = to the end). */
+export function moveGroupKey(
+  keys: readonly string[],
+  key: string,
+  beforeKey: string | null,
+): string[] {
+  const without = keys.filter((item) => item !== key);
+  const at = beforeKey === null ? -1 : without.indexOf(beforeKey);
+  if (at === -1) return [...without, key];
+  return [...without.slice(0, at), key, ...without.slice(at)];
+}
+
+/**
+ * Board column order inside one status/project column: manual order first
+ * (lower `sortOrder`), then tasks never placed by hand, newest first.
+ */
+export function sortForBoard(tasks: readonly Task[]): Task[] {
+  return [...tasks].sort((a, b) => {
+    const left = a.sortOrder;
+    const right = b.sortOrder;
+    if (left !== undefined && right !== undefined)
+      return left - right || a.id.localeCompare(b.id);
+    if (left !== undefined) return -1;
+    if (right !== undefined) return 1;
+    return b.updatedAt - a.updatedAt || a.id.localeCompare(b.id);
+  });
+}
+
+/**
+ * New manual positions after dropping `taskId` at `index` of a column (index
+ * counted in the column without the dragged card). Every card is renumbered
+ * 0..n-1 so positions never drift; only changed cards are returned.
+ */
+export function reorderColumn(
+  column: readonly Task[],
+  taskId: string,
+  index: number,
+  moved?: Task,
+): { id: string; sortOrder: number }[] {
+  const card = moved ?? column.find((task) => task.id === taskId);
+  if (!card) return [];
+  const rest = column.filter((task) => task.id !== taskId);
+  const at = Math.max(0, Math.min(rest.length, index));
+  const next = [...rest.slice(0, at), card, ...rest.slice(at)];
+  return next
+    .map((task, position) => ({ task, position }))
+    .filter(({ task, position }) => task.sortOrder !== position)
+    .map(({ task, position }) => ({ id: task.id, sortOrder: position }));
 }

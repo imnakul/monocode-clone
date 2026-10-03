@@ -178,13 +178,19 @@ export function BoardColumn({
   fillMin,
   resize,
   actions,
+  handle,
   highlighted = false,
+  dimmed = false,
   children,
   columnProps,
 }: {
   id: string;
   label: string;
   icon?: ReactNode;
+  /** Optional drag grip shown before the icon (column reordering). */
+  handle?: ReactNode;
+  /** The column is being dragged to a new place. */
+  dimmed?: boolean;
   count: number;
   /** Minimum width while columns fill the board. */
   fillMin: number;
@@ -222,9 +228,10 @@ export function BoardColumn({
             : "shrink grow-0"
       } surface-blur ${
         highlighted ? "bg-content/5 ring-1 ring-accent/40" : "surface-tint"
-      }`}
+      } ${dimmed ? "opacity-50" : ""}`}
     >
-      <div className="flex h-9 shrink-0 items-center gap-2 px-3 text-[12px] font-medium">
+      <div className="group/column-header flex h-9 shrink-0 items-center gap-2 px-3 text-[12px] font-medium">
+        {handle}
         {icon}
         <span className="min-w-0 truncate">{label}</span>
         <span className="text-content/45 tabular-nums">{count}</span>

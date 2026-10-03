@@ -20,6 +20,17 @@ export type SearchableSelectOption = {
   count?: number;
 };
 
+/**
+ * Multi-select mode: options toggle and the menu stays open. The option whose
+ * value is "" means "all" and clears the selection (through `onChange("")`).
+ */
+export type SearchableSelectMultiple = {
+  values: readonly string[];
+  onToggle: (value: string) => void;
+  /** Trigger text when more than one value is selected, e.g. "3 statuses". */
+  summary: (count: number) => string;
+};
+
 export function SearchableSelect({
   label,
   value,
@@ -33,6 +44,7 @@ export function SearchableSelect({
   variant = "field",
   searchable = true,
   align = "start",
+  multiple,
 }: {
   label: string;
   value: string;
@@ -46,6 +58,7 @@ export function SearchableSelect({
   variant?: "field" | "transparent" | "row" | "panel" | "pill";
   searchable?: boolean;
   align?: PopoverAlign;
+  multiple?: SearchableSelectMultiple;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -57,7 +70,17 @@ export function SearchableSelect({
   const list = useRef<HTMLDivElement>(null);
   const activeOption = useRef<HTMLButtonElement>(null);
   const listId = useId();
-  const selected = options.find((option) => option.value === value);
+  const isPicked = (option: SearchableSelectOption): boolean =>
+    multiple
+      ? option.value === ""
+        ? multiple.values.length === 0
+        : multiple.values.includes(option.value)
+      : option.value === value;
+  const picked = options.filter(isPicked);
+  const selected: SearchableSelectOption | undefined =
+    multiple && picked.length > 1
+      ? { value: "", label: multiple.summary(picked.length) }
+      : picked[0];
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filtered = useMemo(
     () =>
@@ -137,6 +160,12 @@ export function SearchableSelect({
   }, [disabled]);
 
   const pick = (next: string) => {
+    if (multiple) {
+      // Keep the menu open so several values can be chosen in one visit.
+      if (next === "") onChange("");
+      else multiple.onToggle(next);
+      return;
+    }
     onChange(next);
     close(true);
   };
@@ -268,6 +297,7 @@ export function SearchableSelect({
             id={listId}
             role="listbox"
             aria-label={label}
+            aria-multiselectable={multiple ? true : undefined}
             aria-activedescendant={searchable ? undefined : activeId}
             tabIndex={searchable ? undefined : 0}
             onKeyDown={searchable ? undefined : onSearchKeyDown}
@@ -276,7 +306,7 @@ export function SearchableSelect({
             {filtered.length > 0 ? (
               filtered.map((option, index) => {
                 const highlighted = index === active;
-                const isSelected = option.value === value;
+                const isSelected = isPicked(option);
                 return (
                   <button
                     key={option.value}

@@ -1,7 +1,7 @@
 import { isBoardStatus } from "../../session-board/sessionBoard";
 import type { sessionTodoManager } from "../../session-board/sessionTodos";
 import { parseQuickAttachments } from "../../quick-composer/model/quickAttachments";
-import { filterTasks, taskStatus, type Task, type TaskUpsert, type TaskChanges, type TaskFilters } from "../../tasks";
+import { filterTasks, localDay, parseTaskStatus, taskStatus, type Task, type TaskUpsert, type TaskChanges, type TaskFilters } from "../../tasks";
 import { isHarnessAvailable } from "../../../integrations/harness/core/availability";
 import { looksLikeProject } from "../../projects/model/recents";
 import {
@@ -122,9 +122,9 @@ const FIELDS = new Map<string, readonly string[]>([
   ["worktrees.create", ["branch", "base", "existing"]],
   ["folders.list", []],
   ["folders.move", ["sessionId", "folderId", "newFolderName"]],
-  ["tasks.list", ["status", "statuses", "tags", "tagMatch", "projectCwd", "query", "limit", "offset"]],
+  ["tasks.list", ["status", "statuses", "tags", "tagMatch", "projectCwd", "query", "archived", "focus", "limit", "offset"]],
   ["tasks.read", ["id"]],
-  ["tasks.write", ["id", "title", "body", "status", "tags", "projectCwd", "sourceSessionId", "sourceBlockId"]],
+  ["tasks.write", ["id", "title", "body", "status", "tags", "projectCwd", "sourceSessionId", "sourceBlockId", "focusDate", "archived"]],
   ["tasks.delete", ["id"]],
   ["notes.list", ["limit", "offset"]],
   ["notes.read", ["id"]],
@@ -686,6 +686,15 @@ export async function handleAgentApp(
           throw new Error("query must be a string under 1000 characters");
         filters.query = input.query;
       }
+      if (input.archived !== undefined) {
+        if (input.archived !== true && input.archived !== false && input.archived !== "all")
+          throw new Error('archived must be true, false or "all"');
+        filters.archived = input.archived;
+      }
+      if (input.focus !== undefined) {
+        if (typeof input.focus !== "boolean") throw new Error("focus must be true or false");
+        if (input.focus) filters.focusDay = localDay();
+      }
       const limit = input.limit ?? 30, offset = input.offset ?? 0;
       if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 100)
         throw new Error("limit must be an integer from 1 to 100");
@@ -714,7 +723,21 @@ export async function handleAgentApp(
       const changes: TaskChanges = {};
       if (input.title !== undefined) changes.title = requiredString(input.title, "title", 200);
       if (input.body !== undefined) changes.body = noteBody(input.body);
-      if (input.status !== undefined) changes.status = taskStatus(input.status);
+      if (input.status !== undefined) {
+        // Retired names still work: draft → todo, deferred → archived todo.
+        const parsed = parseTaskStatus(input.status);
+        changes.status = parsed.status;
+        if (parsed.archive) changes.archived = true;
+      }
+      if (input.archived !== undefined) {
+        if (typeof input.archived !== "boolean") throw new Error("archived must be true or false");
+        changes.archived = input.archived;
+      }
+      if (input.focusDate !== undefined) {
+        if (input.focusDate !== null && (typeof input.focusDate !== "string" || !/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(input.focusDate)))
+          throw new Error("focusDate must be YYYY-MM-DD or null");
+        changes.focusDate = input.focusDate;
+      }
       if (input.tags !== undefined) changes.tags = noteTags(input.tags);
       if (input.projectCwd !== undefined) changes.projectCwd = taskProject(input.projectCwd);
       if (input.sourceSessionId !== undefined) changes.sourceSessionId = input.sourceSessionId === null ? null : taskId(input.sourceSessionId);
@@ -740,10 +763,16 @@ export async function handleAgentApp(
         projectCwd: changes.projectCwd === null ? undefined : changes.projectCwd ?? (looksLikeProject(source.cwd) ? source.cwd : undefined),
         sourceSessionId: changes.sourceSessionId === null ? undefined : changes.sourceSessionId ?? source.id,
         sourceBlockId: changes.sourceBlockId ?? undefined,
+        ...(changes.focusDate ? { focusDate: changes.focusDate } : {}),
+        ...(changes.archived ? { archived: true } : {}),
       };
       const existing = await host.task(created.id);
       if (existing) {
-        if (Object.entries(created).some(([key, value]) => JSON.stringify(existing[key as keyof Task]) !== JSON.stringify(value)))
+        const { archived, ...fields } = created;
+        if (
+          Object.entries(fields).some(([key, value]) => JSON.stringify(existing[key as keyof Task]) !== JSON.stringify(value)) ||
+          Boolean(archived) !== (existing.archivedAt !== undefined)
+        )
           throw new Error("Request ID was already used for another task");
         return existing;
       }

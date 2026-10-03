@@ -31,6 +31,7 @@ export function TaskTable({
   onSelect,
   onTagClick,
   onStatusChange,
+  onContextMenu,
 }: {
   tasks: readonly Task[];
   state: TaskTableState;
@@ -41,6 +42,7 @@ export function TaskTable({
   onSelect: (id: string) => void;
   onTagClick: (tag: string) => void;
   onStatusChange: (task: Task, status: TaskStatus) => void;
+  onContextMenu: (task: Task, x: number, y: number) => void;
 }) {
   const lock = useLockOverscroll<HTMLDivElement>();
   const [live, setLive] = useState<{
@@ -70,7 +72,11 @@ export function TaskTable({
           <button
             type="button"
             data-task-id={task.id}
-            className="block w-full truncate text-left text-[12px] font-medium text-content"
+            className={`block w-full truncate text-left text-[12px] font-medium text-content ${
+              task.archivedAt !== undefined
+                ? "line-through decoration-content/40"
+                : ""
+            }`}
           >
             {task.title}
           </button>
@@ -217,6 +223,13 @@ export function TaskTable({
                         key={task.id}
                         aria-selected={active}
                         data-task-row={task.id}
+                        data-archived={
+                          task.archivedAt !== undefined ? "" : undefined
+                        }
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          onContextMenu(task, event.clientX, event.clientY);
+                        }}
                         data-shared-hover-item
                         data-shared-hover-preserve={active ? "" : undefined}
                         onClick={(event: MouseEvent<HTMLTableRowElement>) => {
@@ -231,7 +244,7 @@ export function TaskTable({
                           active
                             ? "bg-selection text-content"
                             : "text-content/80 hover:bg-content/5"
-                        }`}
+                        } ${task.archivedAt !== undefined ? "opacity-55" : ""}`}
                       >
                         {columns.map((id) => (
                           <td key={id} className="min-w-0 truncate px-3">

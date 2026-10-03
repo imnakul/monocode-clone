@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle, Trash2 } from "../../../shared/ui/icons";
+import {
+  Check,
+  CheckCircle,
+  Copy,
+  Sun,
+  Trash2,
+} from "../../../shared/ui/icons";
+import { projectName } from "../../../shared/lib/paths";
+import { copyText } from "../../../platform/tauri/clipboard";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import {
   looksLikeProject,
@@ -11,7 +19,13 @@ import { NoteSource, NoteTagsEditor } from "../../notes/ui/NotesView";
 import { AgentMarkdown } from "../../sessions/ui/AgentMarkdown";
 import { MarkdownDetailTabs } from "../../sessions/ui/MarkdownDetailTabs";
 import { useMarkdownMode } from "../../sessions/ui/MarkdownModeToggle";
-import { updateTask, type Task, type TaskChanges } from "../tasks";
+import {
+  localDay,
+  taskMarkdown,
+  updateTask,
+  type Task,
+  type TaskChanges,
+} from "../tasks";
 import { TaskStatusMenu } from "./TaskStatusIcon";
 import { relativeTime, TaskProjectMark } from "./TaskTags";
 
@@ -28,6 +42,8 @@ export type TaskEditorProps = {
   onDelete: (id: string) => Promise<void>;
   onOpenSource: (sessionId: string, blockId?: string) => void | Promise<void>;
   onOpenBeside?: (task: Task) => void;
+  /** A brand-new task: put the cursor in the title, not the description. */
+  autoFocusTitle?: boolean;
 };
 
 /**
@@ -41,8 +57,10 @@ export function TaskEditor({
   cwd,
   onDelete,
   onOpenSource,
-  onOpenBeside,
+  autoFocusTitle = false,
 }: TaskEditorProps) {
+  const [copied, setCopied] = useState(false);
+  const titleRef = useRef<HTMLInputElement>(null);
   const [edits, setEdits] = useState<TaskChanges>({});
   const editsRef = useRef<TaskChanges>({});
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +77,9 @@ export function TaskEditor({
   const body = edits.body ?? task.body;
   const tags = edits.tags ?? task.tags;
   const status = edits.status ?? task.status;
+  const focusDate =
+    edits.focusDate === null ? undefined : (edits.focusDate ?? task.focusDate);
+  const today = localDay();
   const project =
     edits.projectCwd === null
       ? undefined
@@ -92,6 +113,17 @@ export function TaskEditor({
     else timer.current = setTimeout(() => void save(), 400);
   };
   useEffect(() => {
+    if (!autoFocusTitle) return;
+    const frame = requestAnimationFrame(() => {
+      const field = titleRef.current;
+      if (!field) return;
+      field.focus({ preventScroll: true });
+      // "Untitled" is a placeholder title: typing replaces it.
+      field.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [autoFocusTitle, task.id]);
+  useEffect(() => {
     alive.current = true;
     if (!task.body.trim() && task.title === "Untitled") setMode("source");
     return () => {
@@ -109,6 +141,47 @@ export function TaskEditor({
       : "flex flex-col gap-4 px-6 py-5";
   const actionClass =
     "inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/70 hover:bg-content/10 hover:text-content";
+  const iconClass =
+    "grid size-7 shrink-0 place-items-center rounded-md text-content/55 transition-colors duration-100 hover:bg-content/10 hover:text-content disabled:opacity-40";
+  const remove = async () => {
+    deletingRef.current = true;
+    setDeleting(true);
+    clearTimeout(timer.current);
+    try {
+      await onDelete(task.id);
+    } catch (error) {
+      deletingRef.current = false;
+      if (alive.current) {
+        setDeleting(false);
+        setActionError(message(error));
+      }
+    }
+  };
+  const copy = async () => {
+    setActionError(null);
+    try {
+      await copyText(
+        taskMarkdown(
+          {
+            ...task,
+            title,
+            body,
+            tags,
+            status,
+            projectCwd: project,
+            focusDate,
+          },
+          projectName,
+        ),
+      );
+      setCopied(true);
+      window.setTimeout(() => {
+        if (alive.current) setCopied(false);
+      }, 1500);
+    } catch (error) {
+      setActionError(message(error));
+    }
+  };
 
   return (
     <div
@@ -136,8 +209,62 @@ export function TaskEditor({
               status={status}
               onChange={(next) => edit({ status: next }, true)}
             />
+            <span className="ml-auto flex items-center gap-0.5">
+              <button
+                type="button"
+                aria-pressed={focusDate === today}
+                aria-label={
+                  focusDate === today
+                    ? "Remove from today's focus"
+                    : "Focus today"
+                }
+                title={
+                  focusDate === today
+                    ? "Remove from today's focus"
+                    : "Focus today"
+                }
+                onClick={() =>
+                  edit({ focusDate: focusDate === today ? null : today }, true)
+                }
+                className={`${iconClass} ${focusDate === today ? "text-amber-300" : ""}`}
+              >
+                <Sun aria-hidden className="size-3.5" strokeWidth={1.75} />
+              </button>
+              <button
+                type="button"
+                aria-label={copied ? "Task copied" : "Copy task as Markdown"}
+                title={
+                  copied
+                    ? "Copied"
+                    : "Copy task (title, status, tags, date, description)"
+                }
+                onClick={() => void copy()}
+                className={iconClass}
+              >
+                {copied ? (
+                  <Check
+                    aria-hidden
+                    className="size-3.5 text-emerald-400"
+                    strokeWidth={2}
+                  />
+                ) : (
+                  <Copy aria-hidden className="size-3.5" strokeWidth={1.75} />
+                )}
+              </button>
+              <button
+                type="button"
+                aria-label="Delete task"
+                title="Delete task"
+                disabled={deleting}
+                onClick={() => void remove()}
+                className={`${iconClass} hover:text-red-400`}
+              >
+                <Trash2 aria-hidden className="size-3.5" strokeWidth={1.75} />
+              </button>
+            </span>
           </div>
           <input
+            ref={titleRef}
             value={title}
             onChange={(event) => edit({ title: event.target.value })}
             onBlur={() => void save()}
@@ -162,58 +289,29 @@ export function TaskEditor({
             tags={tags}
             onChange={(next) => edit({ tags: next })}
           />
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            {task.sourceSessionId ? (
-              <button
-                type="button"
-                className={actionClass}
-                onClick={async () => {
-                  setActionError(null);
-                  try {
-                    await onOpenSource(
-                      task.sourceSessionId!,
-                      task.sourceBlockId,
-                    );
-                  } catch (error) {
-                    if (alive.current) setActionError(message(error));
-                  }
-                }}
-              >
-                Open source session
-              </button>
-            ) : null}
-            {onOpenBeside ? (
-              <button
-                type="button"
-                className={actionClass}
-                onClick={() => onOpenBeside(task)}
-              >
-                Open beside session
-              </button>
-            ) : null}
-            <button
-              type="button"
-              disabled={deleting}
-              className="inline-flex items-center gap-1.5 rounded-md px-3 h-7 text-[12px] text-content/70 hover:bg-content/10 hover:text-red-400 disabled:opacity-40"
-              onClick={async () => {
-                deletingRef.current = true;
-                setDeleting(true);
-                clearTimeout(timer.current);
-                try {
-                  await onDelete(task.id);
-                } catch (error) {
-                  deletingRef.current = false;
-                  if (alive.current) {
-                    setDeleting(false);
-                    setActionError(message(error));
-                  }
-                }
-              }}
-            >
-              <Trash2 className="size-3.5" strokeWidth={1.75} />
-              Delete
-            </button>
-          </div>
+          {task.sourceSessionId ? (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {task.sourceSessionId ? (
+                <button
+                  type="button"
+                  className={actionClass}
+                  onClick={async () => {
+                    setActionError(null);
+                    try {
+                      await onOpenSource(
+                        task.sourceSessionId!,
+                        task.sourceBlockId,
+                      );
+                    } catch (error) {
+                      if (alive.current) setActionError(message(error));
+                    }
+                  }}
+                >
+                  Open source session
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {error ? (
             <div
               role="alert"
@@ -245,7 +343,7 @@ export function TaskEditor({
           <NoteSource
             value={body}
             textareaRef={source}
-            autoFocus={!body.trim()}
+            autoFocus={!autoFocusTitle && !body.trim()}
             label="Task Markdown"
             onChange={(next) => edit({ body: next })}
           />

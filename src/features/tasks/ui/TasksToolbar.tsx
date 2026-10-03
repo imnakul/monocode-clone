@@ -21,6 +21,7 @@ export function hasActiveFilters(filters: TaskFilters): boolean {
     filters.query?.trim() ||
     filters.statuses?.length ||
     filters.projectCwd !== undefined ||
+    filters.projectCwds?.length ||
     filters.tags?.length,
   );
 }
@@ -88,8 +89,12 @@ export function TasksToolbar({
     [tasks, facets],
   );
   const tags = filters.tags ?? [];
-  const projectValue =
-    filters.projectCwd === null ? PERSONAL : (filters.projectCwd ?? "");
+  const statuses = filters.statuses ?? [];
+  const projectValues = (filters.projectCwds ?? []).map((cwd) =>
+    cwd === null ? PERSONAL : cwd,
+  );
+  const toggle = <T,>(list: readonly T[], item: T): T[] =>
+    list.includes(item) ? list.filter((entry) => entry !== item) : [...list, item];
   return (
     <>
       <div className="flex h-10 shrink-0 items-center gap-1.5 px-2">
@@ -111,27 +116,47 @@ export function TasksToolbar({
         <SearchableSelect
           variant="pill"
           label="Status"
-          value={filters.statuses?.[0] ?? ""}
+          value=""
           options={statusOptions}
           searchable={false}
-          onChange={(value) =>
-            onChange({
-              ...filters,
-              statuses: TASK_STATUSES.filter((status) => status === value),
-            })
-          }
+          multiple={{
+            values: statuses,
+            summary: (count) => `${count} statuses`,
+            onToggle: (value) => {
+              const status = TASK_STATUSES.find((entry) => entry === value);
+              if (!status) return;
+              const next = toggle(statuses, status);
+              // Keep the board's column order stable: statuses in default order.
+              onChange({
+                ...filters,
+                statuses: TASK_STATUSES.filter((entry) => next.includes(entry)),
+              });
+            },
+          }}
+          onChange={() => onChange({ ...filters, statuses: [] })}
         />
         <SearchableSelect
           variant="pill"
           label="Project"
-          value={projectValue}
+          value=""
           options={projectOptions}
           searchPlaceholder="Search projects…"
-          onChange={(value) =>
-            onChange({
-              ...filters,
-              projectCwd: value === PERSONAL ? null : value || undefined,
-            })
+          multiple={{
+            values: projectValues,
+            summary: (count) => `${count} projects`,
+            onToggle: (value) => {
+              const next = toggle(projectValues, value);
+              onChange({
+                ...filters,
+                projectCwd: undefined,
+                projectCwds: next.length
+                  ? next.map((entry) => (entry === PERSONAL ? null : entry))
+                  : undefined,
+              });
+            },
+          }}
+          onChange={() =>
+            onChange({ ...filters, projectCwd: undefined, projectCwds: undefined })
           }
         />
         <SearchableSelect

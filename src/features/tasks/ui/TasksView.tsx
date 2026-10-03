@@ -7,11 +7,21 @@ import {
   type ReactNode,
 } from "react";
 import {
+  Archive,
   CheckCircle,
   ChevronDown,
   LoaderCircle,
   Plus,
+  Sun,
 } from "../../../shared/ui/icons";
+import { listen } from "@tauri-apps/api/event";
+import { copyText } from "../../../platform/tauri/clipboard";
+import {
+  CelebrationBurst,
+  burstAt,
+  type BurstTarget,
+} from "../../../shared/ui/CelebrationBurst";
+import { taskMenuAction, taskMenuItems } from "./taskContextMenu";
 import { OverlayNav } from "../../../app/shell/TitleBar";
 import { WindowControls } from "../../../app/shell/WindowControls";
 import { IS_MAC } from "../../../platform/tauri/platform";
@@ -51,9 +61,13 @@ import {
   createTask,
   deleteTask,
   filterTasks,
+  isInFocus,
   loadTasks,
+  localDay,
   peekTasks,
+  taskMarkdown,
   TASKS_CHANGED_EVENT,
+  TASKS_CHANGED_TAURI_EVENT,
   TASK_STATUSES,
   TASK_STATUS_LABELS,
   updateTask,
@@ -94,6 +108,24 @@ function message(error: unknown): string {
 }
 
 type Menu = { kind: "create" | "columns"; x: number; y: number };
+type TaskMenu = { task: Task; x: number; y: number };
+
+const FOCUS_KEY = "monocode.tasks.focus";
+const SHOW_ARCHIVED_KEY = "monocode.tasks.showArchived";
+function loadFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "true";
+  } catch {
+    return false;
+  }
+}
+function saveFlag(key: string, value: boolean): void {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    /* storage unavailable: the choice just won't persist */
+  }
+}
 
 export function TasksView({
   besideRail = false,
@@ -104,6 +136,7 @@ export function TasksView({
   onToggleSidebar,
   onOpenSource,
   onOpenBeside,
+  onWorkOn,
 }: {
   besideRail?: boolean;
   compactRail?: boolean;
@@ -113,6 +146,8 @@ export function TasksView({
   onToggleSidebar?: () => void;
   onOpenSource: (sessionId: string, blockId?: string) => void | Promise<void>;
   onOpenBeside: (task: Task) => void;
+  /** Open the session composer prefilled from a task ("Work on…"). */
+  onWorkOn?: (task: Task) => void;
 }) {
   const [tasks, setTasks] = useState<Task[]>(() => peekTasks() ?? []);
   const [loading, setLoading] = useState(() => peekTasks() == null);
@@ -128,14 +163,23 @@ export function TasksView({
   // List group collapsing is a per-visit convenience; it is not persisted.
   const [listCollapsed, setListCollapsed] = useState<string[]>([]);
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [taskMenu, setTaskMenu] = useState<TaskMenu | null>(null);
+  const [focusOn, setFocusOn] = useState(() => loadFlag(FOCUS_KEY));
+  const [showArchived, setShowArchived] = useState(() =>
+    loadFlag(SHOW_ARCHIVED_KEY),
+  );
+  const [burst, setBurst] = useState<BurstTarget | null>(null);
+  const [newTaskId, setNewTaskId] = useState<string | null>(null);
+  const focusButton = useRef<HTMLButtonElement>(null);
+  const today = localDay();
   const marks = useProjectMarks();
   const root = useRef<HTMLDivElement>(null);
   const alive = useRef(true);
   const refreshId = useRef(0);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const menuRef = useRef(menu);
-  menuRef.current = menu;
+  const menuRef = useRef<Menu | TaskMenu | null>(menu ?? taskMenu);
+  menuRef.current = menu ?? taskMenu;
 
   const refresh = useCallback(async () => {
     const id = ++refreshId.current;
@@ -155,13 +199,57 @@ export function TasksView({
     alive.current = true;
     void refresh();
     window.addEventListener(TASKS_CHANGED_EVENT, refresh);
+    // Tasks saved from the floating composer arrive from another window.
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    void listen(TASKS_CHANGED_TAURI_EVENT, () => void refresh())
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {});
     return () => {
       alive.current = false;
+      disposed = true;
+      unlisten?.();
       window.removeEventListener(TASKS_CHANGED_EVENT, refresh);
     };
   }, [refresh]);
 
-  const visible = useMemo(() => filterTasks(tasks, filters), [tasks, filters]);
+  /** User filters plus Focus and Show archived. */
+  const effectiveFilters = useMemo<TaskFilters>(
+    () => ({
+      ...filters,
+      archived: showArchived ? "all" : false,
+      focusDay: focusOn ? today : undefined,
+    }),
+    [filters, showArchived, focusOn, today],
+  );
+  const visible = useMemo(
+    () => filterTasks(tasks, effectiveFilters),
+    [tasks, effectiveFilters],
+  );
+  const activeTasks = useMemo(
+    () => tasks.filter((task) => showArchived || task.archivedAt === undefined),
+    [tasks, showArchived],
+  );
+  const focusCount = useMemo(
+    () => activeTasks.filter((task) => isInFocus(task, today)).length,
+    [activeTasks, today],
+  );
+  /** Pinned on an earlier day, unfinished, and not in today's focus. */
+  const carryOver = useMemo(
+    () =>
+      tasks.filter(
+        (task) =>
+          task.focusDate !== undefined &&
+          task.focusDate < today &&
+          task.status !== "completed" &&
+          task.archivedAt === undefined &&
+          !isInFocus(task, today),
+      ),
+    [tasks, today],
+  );
   // The selection survives filters and view switches; only deletion clears it.
   const selected = useMemo(
     () => tasks.find((task) => task.id === selectedId) ?? null,
@@ -221,7 +309,10 @@ export function TasksView({
       if (!alive.current) return;
       setFilters({});
       await refresh();
-      if (alive.current) setSelectedId(task.id);
+      if (alive.current) {
+        setNewTaskId(task.id);
+        setSelectedId(task.id);
+      }
     } catch (error) {
       if (alive.current) setActionError(message(error));
     } finally {
@@ -234,12 +325,90 @@ export function TasksView({
       setSelectedId((current) => (current === id ? null : current));
     await refresh();
   };
+  /** Sparkles over a task that just became Completed. */
+  const celebrateTask = (id: string) =>
+    requestAnimationFrame(() => {
+      const element = root.current?.querySelector(
+        `[data-task-card="${CSS.escape(id)}"], [data-task-row="${CSS.escape(id)}"], button[data-task-id="${CSS.escape(id)}"]`,
+      );
+      const target = burstAt(element);
+      if (target) setBurst(target);
+    });
   const changeStatus = (task: Task, status: TaskStatus) => {
     setActionError(null);
+    if (status === "completed" && task.status !== "completed")
+      celebrateTask(task.id);
     updateTask(task.id, { status }).catch((reason: unknown) => {
       if (alive.current)
         setActionError(`Could not move "${task.title}": ${message(reason)}`);
     });
+  };
+  const changeTask = (
+    task: Task,
+    changes: Parameters<typeof updateTask>[1],
+    verb: string,
+  ) => {
+    setActionError(null);
+    updateTask(task.id, changes).catch((reason: unknown) => {
+      if (alive.current)
+        setActionError(`Could not ${verb} "${task.title}": ${message(reason)}`);
+    });
+  };
+  const toggleFocus = () => {
+    const next = !focusOn;
+    setFocusOn(next);
+    saveFlag(FOCUS_KEY, next);
+    if (next) {
+      const target = burstAt(focusButton.current);
+      if (target) setBurst(target);
+    }
+  };
+  const toggleArchived = () => {
+    const next = !showArchived;
+    setShowArchived(next);
+    saveFlag(SHOW_ARCHIVED_KEY, next);
+  };
+  const openTaskMenu = (task: Task, x: number, y: number) => {
+    setMenu(null);
+    setTaskMenu({ task, x, y });
+  };
+  const onPickTaskMenu = (id: string) => {
+    const current = taskMenu;
+    setTaskMenu(null);
+    if (!current) return;
+    const { task } = current;
+    const action = taskMenuAction(id);
+    if (!action) return;
+    switch (action.kind) {
+      case "work":
+        onWorkOn?.(task);
+        return;
+      case "focus":
+        changeTask(
+          task,
+          { focusDate: action.on ? today : null },
+          action.on ? "focus" : "unfocus",
+        );
+        return;
+      case "move":
+        if (action.status !== task.status) changeStatus(task, action.status);
+        return;
+      case "copy":
+        void copyText(taskMarkdown(task, projectName))
+          .catch((reason: unknown) => setActionError(message(reason)));
+        return;
+      case "archive":
+        changeTask(
+          task,
+          { archived: action.on },
+          action.on ? "archive" : "unarchive",
+        );
+        return;
+      case "delete":
+        void remove(task.id).catch((reason: unknown) =>
+          setActionError(`Could not delete "${task.title}": ${message(reason)}`),
+        );
+    }
   };
   const saveView = (next: TaskViewId) => {
     setView(next);
@@ -378,6 +547,10 @@ export function TasksView({
   };
 
   const filteredEmpty = tasks.length > 0 && visible.length === 0;
+  const resetFilters = () => {
+    setFilters({});
+    if (focusOn) toggleFocus();
+  };
   const body =
     loading && tasks.length === 0 ? (
       <div className="flex justify-center py-10 text-content/40">
@@ -404,10 +577,12 @@ export function TasksView({
       </EmptyState>
     ) : filteredEmpty ? (
       <EmptyState>
-        No tasks match these filters
+        {focusOn && !hasActiveFilters(filters)
+          ? "Nothing in focus today. Pin a task with Focus today, or create one."
+          : "No tasks match these filters"}
         <button
           type="button"
-          onClick={() => setFilters({})}
+          onClick={resetFilters}
           className="mt-2 h-7 rounded-md px-3 text-[12px] text-content/70 hover:bg-content/10 hover:text-content"
         >
           Reset filters
@@ -423,6 +598,7 @@ export function TasksView({
         onSelect={setSelectedId}
         onTagClick={addTagFilter}
         onToggleGroup={toggleListGroup}
+        onContextMenu={openTaskMenu}
       />
     ) : view === "table" ? (
       <TaskTable
@@ -435,10 +611,12 @@ export function TasksView({
         onSelect={setSelectedId}
         onTagClick={addTagFilter}
         onStatusChange={changeStatus}
+        onContextMenu={openTaskMenu}
       />
     ) : (
       <TaskBoard
         tasks={visible}
+        statuses={filters.statuses?.length ? filters.statuses : TASK_STATUSES}
         state={board}
         groupBy={grouping.board}
         selectedId={selected?.id ?? null}
@@ -447,6 +625,8 @@ export function TasksView({
         onSelect={setSelectedId}
         onTagClick={addTagFilter}
         onSaved={patchTask}
+        onContextMenu={openTaskMenu}
+        onCompleted={(task) => celebrateTask(task.id)}
       />
     );
 
@@ -476,8 +656,8 @@ export function TasksView({
           {loading && tasks.length === 0 ? null : (
             <ResultCount
               shown={visible.length}
-              total={tasks.length}
-              filtered={hasActiveFilters(filters)}
+              total={activeTasks.length}
+              filtered={hasActiveFilters(filters) || focusOn}
               noun="tasks"
             />
           )}
@@ -496,14 +676,50 @@ export function TasksView({
           <NewTaskButton
             creating={creating}
             menuOpen={menu?.kind === "create"}
-            onCreate={() =>
-              void create(cwd && looksLikeProject(cwd) ? cwd : undefined)
-            }
+            onCreate={() => void create(undefined)}
             onChooseLocation={(anchor) => openMenu("create", anchor)}
           />
         }
         trailing={
           <>
+            <button
+              ref={focusButton}
+              type="button"
+              aria-pressed={focusOn}
+              aria-label={`Focus: ${focusCount} of ${activeTasks.length} tasks are in today's focus`}
+              title="Show only today's focus: tasks created today or pinned to today"
+              onClick={toggleFocus}
+              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12px] transition-colors duration-150 ${
+                focusOn
+                  ? "bg-amber-400/15 text-amber-200 hover:bg-amber-400/25"
+                  : "text-content/60 hover:bg-content/10 hover:text-content"
+              }`}
+            >
+              <Sun
+                aria-hidden
+                className="size-3.5"
+                strokeWidth={1.75}
+                fill={focusOn ? "currentColor" : "none"}
+              />
+              Focus
+              <span className="tabular-nums text-[11px] opacity-70">
+                {focusCount}/{activeTasks.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={showArchived}
+              title={showArchived ? "Hide archived tasks" : "Show archived tasks"}
+              onClick={toggleArchived}
+              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12px] transition-colors duration-150 ${
+                showArchived
+                  ? "bg-selection text-content"
+                  : "text-content/60 hover:bg-content/10 hover:text-content"
+              }`}
+            >
+              <Archive aria-hidden className="size-3.5" strokeWidth={1.75} />
+              Archived
+            </button>
             <SearchableSelect
               variant="pill"
               label="Group tasks"
@@ -537,6 +753,37 @@ export function TasksView({
           onPick={onPickMenu}
           onClose={() => setMenu(null)}
         />
+      ) : null}
+      {taskMenu ? (
+        <ExplorerMenu
+          x={taskMenu.x}
+          y={taskMenu.y}
+          ariaLabel={`Actions for ${taskMenu.task.title}`}
+          items={taskMenuItems(taskMenu.task, today, Boolean(onWorkOn))}
+          onPick={onPickTaskMenu}
+          onClose={() => setTaskMenu(null)}
+        />
+      ) : null}
+      {burst ? (
+        <CelebrationBurst target={burst} onDone={() => setBurst(null)} />
+      ) : null}
+      {focusOn && carryOver.length ? (
+        <div className="flex shrink-0 items-center gap-2 px-3 pb-1 text-[12px] text-content/60">
+          <Sun aria-hidden className="size-3.5 text-amber-300" strokeWidth={1.75} />
+          <span>
+            {carryOver.length} unfinished from earlier focus
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              for (const task of carryOver)
+                changeTask(task, { focusDate: today }, "carry over");
+            }}
+            className="h-6 rounded-md px-2 text-[12px] text-content/75 hover:bg-content/10 hover:text-content"
+          >
+            Carry over
+          </button>
+        </div>
       ) : null}
       {error && tasks.length > 0 ? (
         <p
@@ -574,6 +821,7 @@ export function TasksView({
             onDelete={remove}
             onOpenSource={onOpenSource}
             onOpenBeside={onOpenBeside}
+            autoFocusTitle={peekTask.id === newTaskId}
           />
         ) : null}
       </div>

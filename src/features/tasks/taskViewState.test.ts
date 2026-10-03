@@ -114,12 +114,14 @@ describe("task view persistence", () => {
       width: 220,
       hidden: ["review"],
       hiddenProjects: ["project:/work/app"],
+      order: [],
     });
-    saveBoardState({ width: 300, hidden: [], hiddenProjects: [] });
+    saveBoardState({ width: 300, hidden: [], hiddenProjects: [], order: [] });
     expect(loadBoardState()).toEqual({
       width: 300,
       hidden: [],
       hiddenProjects: [],
+      order: [],
     });
   });
 
@@ -186,10 +188,10 @@ describe("sorting and grouping", () => {
   it("groups in status order and hides empty groups", () => {
     const groups = groupTasksByStatus([
       task({ id: "a", status: "review" }),
-      task({ id: "b", status: "draft" }),
+      task({ id: "b", status: "todo" }),
       task({ id: "c", status: "review" }),
     ]);
-    expect(groups.map((group) => group.status)).toEqual(["draft", "review"]);
+    expect(groups.map((group) => group.status)).toEqual(["todo", "review"]);
     expect(groups[1].tasks.map((t) => t.id)).toEqual(["a", "c"]);
   });
 });

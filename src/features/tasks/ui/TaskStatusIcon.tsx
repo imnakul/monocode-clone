@@ -2,9 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import {
   CheckCircle,
   CircleAlert,
-  CircleDashed,
   CircleDot,
-  Clock,
   Eye,
   Loader,
   type IconComponent,
@@ -19,13 +17,11 @@ const STATUS_ICONS: Record<
   TaskStatus,
   { icon: IconComponent; className: string }
 > = {
-  draft: { icon: CircleDashed, className: "text-content/40" },
   todo: { icon: CircleDot, className: "text-content/60" },
   in_progress: { icon: Loader, className: "text-sky-400" },
   blocked: { icon: CircleAlert, className: "text-red-400" },
   review: { icon: Eye, className: "text-amber-400" },
   completed: { icon: CheckCircle, className: "text-emerald-400" },
-  deferred: { icon: Clock, className: "text-content/40" },
 };
 
 export function TaskStatusIcon({
@@ -45,7 +41,7 @@ export function TaskStatusIcon({
   );
 }
 
-/** Ghost trigger that opens the seven statuses; picking applies immediately. */
+/** Ghost trigger that opens the five statuses; picking applies immediately. */
 export function TaskStatusMenu({
   status,
   onChange,

@@ -50,7 +50,8 @@ impl TaskStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+// No `Eq`: `sort_order` is a float.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
     pub id: String,
@@ -68,6 +69,15 @@ pub struct Task {
     pub updated_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<i64>,
+    /// Local calendar day (`YYYY-MM-DD`) the task is pinned to Focus.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub focus_date: Option<String>,
+    /// When the task was archived; archived tasks stay in their status.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<i64>,
+    /// Manual position inside a board column (lower first).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_order: Option<f64>,
 }
 
 /// A full task replacement. Callers merge partial edits before invoking this.
@@ -86,6 +96,12 @@ pub struct TaskUpsert {
     pub source_session_id: Option<String>,
     #[serde(default)]
     pub source_block_id: Option<String>,
+    #[serde(default)]
+    pub focus_date: Option<String>,
+    #[serde(default)]
+    pub archived: bool,
+    #[serde(default)]
+    pub sort_order: Option<f64>,
 }
 
 /// Initialize or upgrade the independent task table before creating its indexes.
@@ -107,7 +123,10 @@ pub fn ensure_tasks_table(conn: &Connection) -> rusqlite::Result<()> {
            source_block_id TEXT,
            created_at INTEGER NOT NULL,
            updated_at INTEGER NOT NULL,
-           completed_at INTEGER
+           completed_at INTEGER,
+           focus_date TEXT,
+           archived_at INTEGER,
+           sort_order REAL
          );",
     )?;
     let columns = {
@@ -140,6 +159,9 @@ pub fn ensure_tasks_table(conn: &Connection) -> rusqlite::Result<()> {
         ("created_at", "INTEGER NOT NULL DEFAULT 0"),
         ("updated_at", "INTEGER NOT NULL DEFAULT 0"),
         ("completed_at", "INTEGER"),
+        ("focus_date", "TEXT"),
+        ("archived_at", "INTEGER"),
+        ("sort_order", "REAL"),
     ] {
         if !columns.iter().any(|column| column.eq_ignore_ascii_case(name)) {
             tx.execute_batch(&format!("ALTER TABLE tasks ADD COLUMN {name} {declaration};"))?;
@@ -187,6 +209,14 @@ fn validate_task_upsert(task: &TaskUpsert) -> Result<(), String> {
         return Err("Task is too large".into());
     }
     validate_optional_id(task.source_session_id.as_deref(), "session")?;
+    if let Some(day) = task.focus_date.as_deref().map(str::trim).filter(|day| !day.is_empty()) {
+        if !is_calendar_day(day) {
+            return Err("Invalid task focus date".into());
+        }
+    }
+    if task.sort_order.is_some_and(|order| !order.is_finite()) {
+        return Err("Invalid task order".into());
+    }
     validate_optional_block_id(task.source_block_id.as_deref())?;
     if let Some(project_cwd) = task.project_cwd.as_deref() {
         let project_cwd = project_cwd.trim();
@@ -198,6 +228,23 @@ fn validate_task_upsert(task: &TaskUpsert) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// `YYYY-MM-DD` with a plausible month and day. The calendar day is local to
+/// the user, so it is stored as text rather than a timestamp.
+fn is_calendar_day(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    let digits = |range: std::ops::Range<usize>| -> Option<u32> {
+        let part = &value[range];
+        part.bytes().all(|b| b.is_ascii_digit()).then(|| part.parse().ok())?
+    };
+    matches!(
+        (digits(0..4), digits(5..7), digits(8..10)),
+        (Some(_), Some(1..=12), Some(1..=31))
+    )
 }
 
 fn validate_optional_id(value: Option<&str>, label: &str) -> Result<(), String> {
@@ -222,7 +269,8 @@ fn validate_optional_block_id(value: Option<&str>) -> Result<(), String> {
 fn list_tasks(conn: &Connection) -> rusqlite::Result<Vec<Task>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, body, status, tags_json, project_cwd,
-                source_session_id, source_block_id, created_at, updated_at, completed_at
+                source_session_id, source_block_id, created_at, updated_at, completed_at,
+                focus_date, archived_at, sort_order
          FROM tasks
          ORDER BY updated_at DESC, id ASC",
     )?;
@@ -233,7 +281,8 @@ fn list_tasks(conn: &Connection) -> rusqlite::Result<Vec<Task>> {
 fn get_task(conn: &Connection, id: &str) -> rusqlite::Result<Option<Task>> {
     conn.query_row(
         "SELECT id, title, body, status, tags_json, project_cwd,
-                source_session_id, source_block_id, created_at, updated_at, completed_at
+                source_session_id, source_block_id, created_at, updated_at, completed_at,
+                focus_date, archived_at, sort_order
          FROM tasks
          WHERE id = ?1",
         params![id],
@@ -252,6 +301,8 @@ fn upsert_task(conn: &Connection, input: &TaskUpsert) -> rusqlite::Result<Task> 
     let project_cwd = clean_optional(input.project_cwd.as_deref());
     let source_session_id = clean_optional(input.source_session_id.as_deref());
     let source_block_id = clean_optional(input.source_block_id.as_deref());
+    let focus_date = clean_optional(input.focus_date.as_deref());
+    let sort_order = input.sort_order.filter(|order| order.is_finite());
     let now = now_millis();
 
     // Completion time and created time transitions are evaluated by one
@@ -259,9 +310,11 @@ fn upsert_task(conn: &Connection, input: &TaskUpsert) -> rusqlite::Result<Task> 
     conn.execute(
         "INSERT INTO tasks (
            id, title, body, status, tags_json, project_cwd,
-           source_session_id, source_block_id, created_at, updated_at, completed_at
+           source_session_id, source_block_id, created_at, updated_at, completed_at,
+           focus_date, archived_at, sort_order
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9,
-                   CASE WHEN ?4 = 'completed' THEN ?9 ELSE NULL END)
+                   CASE WHEN ?4 = 'completed' THEN ?9 ELSE NULL END,
+                   ?10, CASE WHEN ?11 THEN ?9 ELSE NULL END, ?12)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            body = excluded.body,
@@ -270,6 +323,12 @@ fn upsert_task(conn: &Connection, input: &TaskUpsert) -> rusqlite::Result<Task> 
            project_cwd = excluded.project_cwd,
            source_session_id = excluded.source_session_id,
            source_block_id = excluded.source_block_id,
+           focus_date = excluded.focus_date,
+           sort_order = excluded.sort_order,
+           archived_at = CASE
+             WHEN ?11 AND tasks.archived_at IS NULL THEN excluded.updated_at
+             WHEN ?11 THEN tasks.archived_at
+             ELSE NULL END,
            updated_at = CASE
              WHEN tasks.title IS NOT excluded.title
                OR tasks.body IS NOT excluded.body
@@ -278,6 +337,8 @@ fn upsert_task(conn: &Connection, input: &TaskUpsert) -> rusqlite::Result<Task> 
                OR tasks.project_cwd IS NOT excluded.project_cwd
                OR tasks.source_session_id IS NOT excluded.source_session_id
                OR tasks.source_block_id IS NOT excluded.source_block_id
+               OR tasks.focus_date IS NOT excluded.focus_date
+               OR (tasks.archived_at IS NULL) = ?11
              THEN excluded.updated_at ELSE tasks.updated_at END,
            completed_at = CASE
              WHEN excluded.status = 'completed' AND tasks.status <> 'completed'
@@ -294,6 +355,9 @@ fn upsert_task(conn: &Connection, input: &TaskUpsert) -> rusqlite::Result<Task> 
             source_session_id,
             source_block_id,
             now,
+            focus_date,
+            input.archived,
+            sort_order,
         ],
     )?;
     get_task(conn, &input.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
@@ -327,6 +391,9 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         created_at: row.get(8)?,
         updated_at: row.get(9)?,
         completed_at: row.get(10)?,
+        focus_date: row.get(11)?,
+        archived_at: row.get(12)?,
+        sort_order: row.get(13)?,
     })
 }
 
@@ -386,6 +453,9 @@ mod tests {
             project_cwd: None,
             source_session_id: None,
             source_block_id: None,
+            focus_date: None,
+            archived: false,
+            sort_order: None,
         }
     }
 
@@ -744,5 +814,69 @@ mod tests {
         assert!(serde_json::from_str::<TaskStatus>("\"todo\"").is_ok());
         assert!(serde_json::from_str::<TaskStatus>("\"in_progress\"").is_ok());
         assert!(serde_json::from_str::<TaskStatus>("\"unknown\"").is_err());
+    }
+
+    #[test]
+    fn focus_date_archive_and_order_round_trip_without_touching_other_fields() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let mut task = input("focus-task", TaskStatus::Todo);
+        let created = upsert_task(&conn, &task).unwrap();
+        assert_eq!(created.focus_date, None);
+        assert_eq!(created.archived_at, None);
+
+        task.focus_date = Some("2026-10-03".into());
+        task.archived = true;
+        task.sort_order = Some(1.5);
+        let archived = upsert_task(&conn, &task).unwrap();
+        assert_eq!(archived.focus_date.as_deref(), Some("2026-10-03"));
+        assert!(archived.archived_at.is_some());
+        assert_eq!(archived.sort_order, Some(1.5));
+        assert_eq!(archived.status, TaskStatus::Todo, "archive keeps the status");
+
+        // Saving again while archived keeps the original archive time.
+        let again = upsert_task(&conn, &task).unwrap();
+        assert_eq!(again.archived_at, archived.archived_at);
+
+        task.archived = false;
+        task.focus_date = None;
+        let restored = upsert_task(&conn, &task).unwrap();
+        assert_eq!(restored.archived_at, None);
+        assert_eq!(restored.focus_date, None);
+    }
+
+    #[test]
+    fn rejects_malformed_focus_dates_and_orders() {
+        let mut task = input("bad-focus", TaskStatus::Todo);
+        task.focus_date = Some("03/10/2026".into());
+        assert!(validate_task_upsert(&task).is_err());
+        task.focus_date = Some("2026-13-01".into());
+        assert!(validate_task_upsert(&task).is_err());
+        task.focus_date = Some("2026-10-03".into());
+        assert!(validate_task_upsert(&task).is_ok());
+        task.sort_order = Some(f64::NAN);
+        assert!(validate_task_upsert(&task).is_err());
+    }
+
+    #[test]
+    fn upgrades_a_tasks_table_without_focus_archive_or_order_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE tasks (
+               id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '',
+               status TEXT NOT NULL DEFAULT 'todo', tags_json TEXT NOT NULL DEFAULT '[]',
+               project_cwd TEXT, source_session_id TEXT, source_block_id TEXT,
+               created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, completed_at INTEGER);
+             INSERT INTO tasks (id, title, status, created_at, updated_at)
+               VALUES ('old', 'Old task', 'completed', 1, 1);",
+        )
+        .unwrap();
+        ensure_tasks_table(&conn).unwrap();
+        let old = get_task(&conn, "old").unwrap().unwrap();
+        assert_eq!(old.title, "Old task");
+        assert_eq!(old.status, TaskStatus::Completed);
+        assert_eq!(old.focus_date, None);
+        assert_eq!(old.archived_at, None);
+        assert_eq!(old.sort_order, None);
     }
 }

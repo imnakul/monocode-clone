@@ -238,4 +238,44 @@ describe("Operator Tasks", () => {
       fixture().run(action as string, input as Record<string, unknown>),
     ).rejects.toThrow();
   });
+  it("filters by focus and archive, and accepts focusDate, archived and retired status names", async () => {
+    const { run, rows, host } = fixture();
+    const today = new Date();
+    const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    rows.set("a", { ...rows.get("a")!, focusDate: day });
+    rows.set("c", { ...rows.get("c")!, archivedAt: 9 });
+    expect(await run("tasks.list", { focus: true })).toMatchObject({
+      total: 1,
+      tasks: [{ id: "a" }],
+    });
+    // Archived tasks are hidden unless asked for.
+    expect(await run("tasks.list", {})).toMatchObject({ total: 2 });
+    expect(await run("tasks.list", { archived: true })).toMatchObject({
+      total: 1,
+      tasks: [{ id: "c" }],
+    });
+    expect(await run("tasks.list", { archived: "all" })).toMatchObject({
+      total: 3,
+    });
+    await run("tasks.write", { id: "b", focusDate: day, archived: true });
+    expect(host.updateTask).toHaveBeenLastCalledWith("b", {
+      focusDate: day,
+      archived: true,
+    });
+    await run("tasks.write", { id: "b", status: "deferred" });
+    expect(host.updateTask).toHaveBeenLastCalledWith("b", {
+      status: "todo",
+      archived: true,
+    });
+    await run("tasks.write", { id: "b", status: "done" });
+    expect(host.updateTask).toHaveBeenLastCalledWith("b", {
+      status: "completed",
+    });
+    await expect(
+      run("tasks.write", { id: "b", focusDate: "03/10/2026" }),
+    ).rejects.toThrow("focusDate must be YYYY-MM-DD or null");
+    await expect(run("tasks.list", { archived: "yes" })).rejects.toThrow(
+      'archived must be true, false or "all"',
+    );
+  });
 });

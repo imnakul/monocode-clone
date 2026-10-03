@@ -42,9 +42,19 @@ export function MonocodeSparkles({
   startedAt?: number;
 }) {
   const active = useTurnCelebration(blockId, startedAt, CELEBRATE_MS);
-  const [sparkles] = useState(makeSparkles);
-
   if (!active) return null;
+  return <SparkleField />;
+}
+
+/** How long a SparkleField takes to finish. */
+export const SPARKLE_FIELD_MS = CELEBRATE_MS;
+
+/**
+ * The sheen, halo and rising sparkles, filling their positioned parent. Shared
+ * by the /operator bubble and small celebrations elsewhere (Task Manager).
+ */
+export function SparkleField() {
+  const [sparkles] = useState(makeSparkles);
   return (
     <span aria-hidden className="monocode-sparkles">
       {sparkles.map((sparkle, index) => (
