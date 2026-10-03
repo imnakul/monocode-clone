@@ -8,7 +8,7 @@ that did not have the docs; file lists name the main files only.
 - What: Included all four original-branch commits through `9effbed` after explicit user approval. Kept both conflict sides: saved-prompt/permissions imports and all changelog records. Latest now combines MCP switch polish, saved prompts, Task Focus/hover changes and the Remote Control draft with the seven upstream improvements. Session draft regression checks prompt insertion and selected permission mode together; Task/Session and existing actions remain.
 - Files: all incoming prompts/Tasks/MCP/settings/hover source and tests; QuickComposer import combination and combined regression; preserved docs plus intake spec/index and local-feature audit.
 - Verified: focused tests ✅ (107 / 7 files) full `npm run check` ✅ (5,317 web tests / 487 files, tsc, fmt/Clippy, 599 Rust passed / 2 ignored) cargo check ✅ production build ✅ diff check ✅ | manual: merged desktop checklist in intake spec.
-- Commit: uncommitted verified combined merge; commit/push next.
+- Commit: `68c1edb8b657c9d8a1194b82c90dc8bdeaf048a8` (combined source merge; both complete parent lines verified).
 
 ## 2026-10-03 — Seven upstream main commits after 0.7.0
 - What: Integrated upstream through `00d68d3` on the new dated branch from `6705686`, after user approval of all eight conflict combinations. Added title/sidebar/pane/panel animations, separate composer permissions, detailed live usage captions and PR/issue activity/overview. Preserved Task/Session and Drafts, hover, active-model metadata, pane actions, Windows support and MCP controls. Compact quota setting/default/used-left wording stays independent. Four newer commits on the original base branch are excluded pending the separate inclusion choice.

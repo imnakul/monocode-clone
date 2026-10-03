@@ -10,6 +10,7 @@ Incoming main: `00d68d342eff3adf23a320fa5e2be97d5e212683` (version 0.7.0)
 Source merge: `1f399abecb6fc6529b0a39532ddd0322785c0c92`
 Follow-up base: `97143c157dee74dd6d112c5c48407364a86dc705`
 Incoming local branch: `9effbed3c2fc2e5945d98bb33dce0655e0bfcc3c`
+Combined source merge: `68c1edb8b657c9d8a1194b82c90dc8bdeaf048a8`
 Push target: `origin` = `https://github.com/imnakul/monocode-clone.git` only.
 
 ## Idea
@@ -108,8 +109,9 @@ they stay there untouched. The new worktree starts from the exact base.
       Draft/Start, Windows and embedded behavior.
 - [x] Run affected tests/tsc, full `npm run check`, `cargo check`, and build
       on the combined source; record new results rather than reuse prior gates.
-- [ ] Commit/push and verify both original `9effbed` and upstream `00d68d3`
+- [x] Commit and verify both original `9effbed` and upstream `00d68d3`
       are ancestors; original branch has zero absent commits.
+- [x] Verify combined source publication on the fork; record final handoff.
 
 ## Issues and fixes
 
@@ -119,8 +121,11 @@ Remote source merge is verified at `1f399ab`; its parents are the original
 baseline and pinned upstream main. All seven incoming commits are contained.
 Read-only preview and approved choices are recorded in
 [`upstream-merge-2026-10-03-after-070.md`](../notes/archive/upstream-merge-2026-10-03-after-070.md).
-Next action: commit/push the verified combined source and verify both parent
-lines, then hand off manual desktop checks. Both approved conflicts are
+Next action: manual desktop checks from the checklist below. The fork remote
+was verified at combined source merge `68c1edb`; the original branch remains
+at `9effbed`. The final handoff changes documentation only.
+Combined merge `68c1edb` contains both complete original/upstream histories;
+zero commits from either pinned parent line are absent. Both approved conflicts are
 resolved. 107 focused tests and explicit
 `cargo check --locked` pass. All newer MCP/Tasks/prompts code matches `9effbed`;
 the upstream animations, usage, timeline, metadata and pane wiring stay intact.
@@ -138,7 +143,7 @@ Concurrent fork update discovered during preservation review: the original
 base remote advanced from `6705686` to
 `9effbed3c2fc2e5945d98bb33dce0655e0bfcc3c`. Four commits add saved prompts,
 Task/MCP polish, Focus/prompt-picker hover, and a Claude Remote Control draft
-spec. These commits are approved for inclusion, not yet merged. A fresh
+spec. These commits are included in merge `68c1edb`. A fresh
 read-only `git merge-tree` preview of `97143c1` plus `9effbed` confirms exactly
 the same two conflicts. An incremental read-only preview
 finds two new text conflicts: QuickComposer imports (saved prompts versus
@@ -147,8 +152,8 @@ weave cleanly. The user approved: "Yes bring them, and resolve those two
 conflicts, we want both". Approval covers both composer import sets and
 both changelog entry sets, and includes all four original-branch commits.
 No additional conflict was found by the fresh preview. Both resolutions are
-applied, and full combined checks/build are running. The final branch
-must contain the complete original branch plus the seven main updates.
+applied, and full combined checks/build passed. The final branch contains
+the complete original branch plus the seven main updates.
 
 Repair attributed to this merge work: the first text-combining helper used a
 greedy conflict-label pattern and truncated QuickComposer/changelog. Focused
@@ -186,8 +191,9 @@ helper must preserve the original non-conflict prefix and suffix.
 
 Source integration, automated verification and remote publication are complete
 for all seven upstream commits, merge `1f399ab`. The follow-up local merge is
-approved, resolved and fully validated; commit/push and remote verification
-are the remaining implementation steps.
+approved, resolved, fully validated, committed and published as `68c1edb`.
+The fork remote was checked against the complete source commit; both original
+and upstream lines are ancestors, with zero absent commits from either.
 Native desktop verification
 is pending, so this spec is Review rather than Done.
 Manual checklist after automated gates: new permissions picker with

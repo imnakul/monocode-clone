@@ -1,6 +1,6 @@
 # Upstream merge — 2026-10-03, seven commits after 0.7.0
 
-Status: Review; both parent lines combined and full gates pass; publication next.
+Status: Review; both parent lines combined and published as `68c1edb`; full gates pass.
 Plan: [upstream-main-after-070-plan.md](../../specs/upstream-main-after-070-plan.md).
 New branch: `nakul/windows-support-upstream-0.7.0-latest-2026-10-03`.
 Base: `670568689a027c26cefeb2cc1e4b40389339593c`.
@@ -98,7 +98,7 @@ explicit Rust `cargo check` and build; record exact combined-source results.
 Commit/push only the latest branch and verify it contains both complete parent
 lines. Original 0.7.0 branch remains the source of the four local commits.
 
-Both approved sections are now combined and staged. Saved prompts, MCP/Tasks
+Both approved sections are now combined and committed. Saved prompts, MCP/Tasks
 polish, SettingsToggle and hover-reflow source match `9effbed`; the upstream
 features and original local pane actions remain. The composer regression
 selects permissions and inserts a saved prompt, then verifies both in the same
@@ -111,5 +111,9 @@ any commit/push. Post-repair focused checks: 107 tests / 7 files passed;
 `cargo check --locked` passed. Full combined `npm run check` passes: 5,317
 frontend tests / 487 files, TypeScript and fmt/Clippy clean, 599 Rust passed /
 2 ignored. Production build passes (35.98s), retaining the existing warnings.
-Final original-branch head check still returns `9effbed`. Commit/publication
-and ancestor verification are next; native desktop checks remain separate.
+Final original-branch head check still returns `9effbed`. Combined merge
+`68c1edb8b657c9d8a1194b82c90dc8bdeaf048a8` has parents `97143c1` and `9effbed`.
+Ancestor checks pass for both `9effbed` and `00d68d3`; zero commits from either
+line are absent. Fork publication was verified by `git ls-remote` at the exact
+combined source commit; the original branch remains at `9effbed`. Final
+handoff edits are documentation only; native desktop checks remain separate.
