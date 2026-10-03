@@ -5,6 +5,7 @@ import {
   newFileTab,
   newReleaseNotesWorkspaceTab,
   newSessionChangesTab,
+  newTaskTab,
   newTerminalFile,
 } from "../model/layout";
 import { releaseNotesTitle } from "../../../app/model/releaseNotes";
@@ -25,6 +26,17 @@ describe("surfaceTabPresentation", () => {
       label: releaseNotesTitle("0.1.23"),
       iconName: "CHANGELOG.md",
       tooltip: releaseNotesTitle("0.1.23"),
+    });
+  });
+
+  it("labels a task tab with its title and a task.md icon", () => {
+    expect(
+      surfaceTabPresentation(newTaskTab({ id: "t-1", title: "Fix installer" })),
+    ).toEqual({
+      name: "Fix installer",
+      label: "Fix installer",
+      iconName: "task.md",
+      tooltip: "Task: Fix installer",
     });
   });
 

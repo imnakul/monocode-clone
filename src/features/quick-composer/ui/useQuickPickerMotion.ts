@@ -10,6 +10,7 @@ export function useQuickPickerMotion(
   pickerRef: RefObject<HTMLDivElement | null>,
   picker:
     "project" | "model" | "permissions" | "attachments" | "commands" | null,
+  native = true,
 ) {
   const lastHeight = useRef<number | null>(null);
   const previousPicker = useRef(picker);
@@ -24,9 +25,10 @@ export function useQuickPickerMotion(
       const rounded = Math.ceil(height);
       if (rounded === sentHeight) return;
       sentHeight = rounded;
-      void invoke("quick_composer_fit", { height: rounded }).catch(
-        () => undefined,
-      );
+      if (native)
+        void invoke("quick_composer_fit", { height: rounded }).catch(
+          () => undefined,
+        );
     };
     fit();
     // ResizeObserver also runs on each animation frame, keeping the native
@@ -34,7 +36,7 @@ export function useQuickPickerMotion(
     const observer = new ResizeObserver(fit);
     observer.observe(frame);
     return () => observer.disconnect();
-  }, [frameRef]);
+  }, [frameRef, native]);
 
   useLayoutEffect(() => {
     if (previousPicker.current === picker) return;

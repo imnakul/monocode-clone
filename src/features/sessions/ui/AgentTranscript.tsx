@@ -176,6 +176,7 @@ type Props = {
   onSaveNote?: (text: string) => void | Promise<void>;
   onSendDraft?: (block: Block) => boolean | void;
   onRemoveDraft?: (block: Block) => boolean | void;
+  onSaveSelectionTask?: (text: string, blockId?: string) => void | Promise<void>;
   onSaveSelectionNote?: (text: string) => void | Promise<void>;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
@@ -219,6 +220,7 @@ function AgentTranscriptComponent({
   onSaveNote,
   onSendDraft,
   onRemoveDraft,
+  onSaveSelectionTask,
   onSaveSelectionNote,
   onOpenFile,
   onOpenDiff,
@@ -294,7 +296,7 @@ function AgentTranscriptComponent({
   }
   const { selection, dismissSelection } = useTranscriptSelection(
     scrollerEl,
-    onAddToChat !== undefined || onSaveSelectionNote !== undefined,
+    onAddToChat !== undefined || onSaveSelectionNote !== undefined || onSaveSelectionTask !== undefined,
   );
   const transcriptLayout = useTranscriptLayout();
   const promptAnchor = useTranscriptAnchor();
@@ -975,10 +977,11 @@ function AgentTranscriptComponent({
           );
         })}
       </div>
-      {onAddToChat || onSaveSelectionNote ? (
+      {onAddToChat || onSaveSelectionNote || onSaveSelectionTask ? (
         <TranscriptSelectionMenu
           selection={selection}
           onAddToChat={onAddToChat}
+          onAddToTask={onSaveSelectionTask}
           onAddToNotes={onSaveSelectionNote}
           onDismiss={dismissSelection}
         />

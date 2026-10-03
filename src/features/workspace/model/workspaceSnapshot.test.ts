@@ -14,6 +14,7 @@ import {
   newFileTab,
   newEditorWorkspaceTab,
   newReleaseNotesWorkspaceTab,
+  newTaskTab,
   newSessionChangesTab,
   newTab,
   newTerminalFile,
@@ -743,5 +744,91 @@ describe("worktree tab cleanup", () => {
     );
     expect(snapshot.tabs.map((tab) => tab.id)).toEqual(["tab-main"]);
     expect(snapshot.sessions.map((stub) => stub.id)).toEqual(["main"]);
+  });
+});
+
+describe("task tabs in snapshots", () => {
+  function parseWith(descriptor: Record<string, unknown>) {
+    const valid = { ...newTab("session-a"), id: "valid-tab" };
+    const paneId = "task-pane";
+    const invalid = {
+      kind: "session",
+      id: "task-tab",
+      layout: leaf(paneId),
+      focusedId: paneId,
+      editorPanes: [
+        {
+          id: paneId,
+          activeFileId: "task-file",
+          files: [
+            { id: "task-file", path: "task:t-1", cwd: "~", ...descriptor },
+          ],
+        },
+      ],
+      terminalPanes: [],
+    };
+    return parseWorkspaceSnapshot({
+      tabs: [valid, invalid],
+      sessions: [],
+      activeTabId: "task-tab",
+      projectCwd: "~",
+    });
+  }
+
+  it("round-trips a task tab", () => {
+    const tab = newEditorWorkspaceTab(
+      newTaskTab({ id: "t-1", title: "Fix installer", projectCwd: "/work/app" }),
+    );
+    const snapshot = collectWorkspaceSnapshot([tab], [], tab.id, "~", new Map());
+    const restored = hydrateWorkspaceSnapshot(
+      JSON.parse(JSON.stringify(snapshot)),
+      new Map(),
+    )?.tabs[0]?.editorPanes[0]?.files[0];
+    expect(restored?.task).toEqual({ taskId: "t-1", title: "Fix installer" });
+    expect(restored?.projectCwd).toBe("/work/app");
+  });
+
+  it("trims the title, falls back to Task and keeps valid tabs", () => {
+    const trimmed = parseWith({ task: { taskId: "t-1", title: "  Hello  " } });
+    expect(trimmed?.tabs[1]?.editorPanes[0]?.files[0]?.task).toEqual({
+      taskId: "t-1",
+      title: "Hello",
+    });
+    const fallback = parseWith({ task: { taskId: "t-1", title: "   " } });
+    expect(fallback?.tabs[1]?.editorPanes[0]?.files[0]?.task?.title).toBe(
+      "Task",
+    );
+  });
+
+  it.each([
+    { task: { taskId: "", title: "x" } },
+    { task: { taskId: 5, title: "x" } },
+    { task: { taskId: "a".repeat(201), title: "x" } },
+    { task: { taskId: "t-1", title: 5 } },
+    { task: "nope" },
+    { task: null },
+    {
+      task: { taskId: "t-1", title: "x" },
+      plan: { sessionId: "s", blockId: "b", title: "Plan" },
+    },
+    { task: { taskId: "t-1", title: "x" }, releaseNotes: { version: "1" } },
+    {
+      task: { taskId: "t-1", title: "x" },
+      commit: { sha: "abc", shortSha: "abc", subject: "x" },
+    },
+    { task: { taskId: "t-1", title: "x" }, review: true },
+    { task: { taskId: "t-1", title: "x" }, changes: true },
+    { task: { taskId: "t-1", title: "x" }, terminal: true },
+    {
+      task: { taskId: "t-1", title: "x" },
+      diff: { path: "a.ts", kind: "staged" },
+    },
+    {
+      task: { taskId: "t-1", title: "x" },
+      sessionChanges: { sessionId: "s" },
+    },
+  ])("drops a file with an invalid or conflicting task: %j", (descriptor) => {
+    const parsed = parseWith(descriptor);
+    expect(parsed?.tabs.map((tab) => tab.id)).toEqual(["valid-tab"]);
   });
 });

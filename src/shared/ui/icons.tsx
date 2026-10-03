@@ -1,3 +1,4 @@
+import TargetIcon from "@hugeicons/core-free-icons/Target01Icon";
 /** Hugeicons chrome set. Glyphs are deep-imported so the 5MB catalog is not bundled. */
 import {
   HugeiconsIcon,
@@ -275,3 +276,5 @@ export const WholeWord = wrap(WholeWordIcon, "WholeWord");
 export const Wrench = wrap(Wrench01Icon, "Wrench");
 export const X = wrap(Cancel01Icon, "X");
 export const Zap = wrap(FlashIcon, "Zap");
+
+export const Target = wrap(TargetIcon, "Target");

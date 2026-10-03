@@ -1,0 +1,1377 @@
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
+import { TasksView } from "./TasksView";
+import {
+  invalidateTasks,
+  localDay,
+  TASKS_CHANGED_EVENT,
+  type Task,
+  type TaskUpsert,
+} from "../tasks";
+import {
+  BOARD_KEY,
+  GROUPING_KEY,
+  PEEK_WIDTH_KEY,
+  TABLE_KEY,
+  VIEW_KEY,
+} from "../taskViewState";
+
+const copy = vi.hoisted(() => vi.fn(async (_text: string) => {}));
+vi.mock("../../../platform/tauri/clipboard", async (original) => ({
+  ...(await original<typeof import("../../../platform/tauri/clipboard")>()),
+  copyText: copy,
+}));
+vi.mock("@tauri-apps/api/core", async (original) => ({
+  ...(await original<typeof import("@tauri-apps/api/core")>()),
+  invoke: vi.fn(),
+}));
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    isMaximized: async () => false,
+    onResized: async () => () => {},
+  }),
+}));
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }),
+}));
+
+let root: Root, container: HTMLDivElement, rows: Map<string, Task>;
+const sourceOpen = vi.fn();
+const openBeside = vi.fn();
+const onClose = vi.fn();
+
+function row(partial: Partial<Task> & { id: string }): Task {
+  return {
+    title: partial.id,
+    body: "",
+    status: "todo",
+    tags: [],
+    createdAt: 1,
+    updatedAt: 1,
+    ...partial,
+  };
+}
+
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  localStorage.clear();
+  invalidateTasks();
+  sourceOpen.mockReset();
+  openBeside.mockReset();
+  onClose.mockReset();
+  copy.mockReset().mockResolvedValue();
+  rows = new Map([
+    [
+      "first",
+      row({
+        id: "first",
+        title: "Fix installer",
+        body: "# Installer\n\n| OS | State |\n| --- | --- |\n| Windows | Bug |",
+        status: "blocked",
+        tags: ["windows", "bug"],
+        projectCwd: "/work/project",
+        sourceSessionId: "session",
+        sourceBlockId: "cline:42",
+        updatedAt: 10,
+      }),
+    ],
+    [
+      "personal",
+      row({
+        id: "personal",
+        title: "Personal reminder",
+        body: "Remember this",
+        tags: ["home"],
+        updatedAt: 2,
+      }),
+    ],
+    [
+      "docs",
+      row({
+        id: "docs",
+        title: "Ship docs",
+        body: "Write the docs",
+        status: "in_progress",
+        tags: ["docs", "bug"],
+        projectCwd: "/work/other",
+        updatedAt: 5,
+      }),
+    ],
+  ]);
+  vi.mocked(invoke)
+    .mockReset()
+    .mockImplementation(async (command, args) => {
+      if (command === "tasks_list")
+        return [...rows.values()].map((entry) => ({ ...entry }));
+      if (command === "tasks_get") return rows.get(args?.id as string) ?? null;
+      if (command === "tasks_upsert") {
+        const { archived, ...input } = args?.task as TaskUpsert;
+        const old = rows.get(input.id);
+        // Like the database: archiving stamps a time once, unarchiving clears it.
+        const saved: Task = {
+          ...input,
+          createdAt: old?.createdAt ?? 20,
+          updatedAt: (old?.updatedAt ?? 20) + 1,
+          archivedAt: archived ? (old?.archivedAt ?? 30) : undefined,
+        };
+        rows.set(input.id, saved);
+        return saved;
+      }
+      if (command === "tasks_delete") {
+        rows.delete(args?.id as string);
+        return;
+      }
+      throw new Error(`Unexpected command ${command}`);
+    });
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+});
+afterEach(async () => {
+  await act(async () => root.unmount());
+  container.remove();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
+async function render() {
+  await act(async () =>
+    root.render(
+      createElement(TasksView, {
+        cwd: "/work/project",
+        recents: [
+          { path: "/work/project", openedAt: 1 },
+          { path: "/work/other", openedAt: 2 },
+        ],
+        onClose,
+        onOpenSource: sourceOpen,
+        onOpenBeside: openBeside,
+      }),
+    ),
+  );
+}
+const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
+function input(label: string) {
+  return container.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+    `[aria-label="${label}"]`,
+  )!;
+}
+function button(text: string) {
+  return [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+    (entry) => entry.textContent?.trim() === text,
+  )!;
+}
+function byLabel<T extends HTMLElement = HTMLElement>(label: string) {
+  return container.querySelector<T>(`[aria-label="${label}"]`)!;
+}
+async function click(element: Element | null | undefined) {
+  await act(async () => (element as HTMLElement).click());
+}
+async function change(label: string, value: string) {
+  const element = input(label);
+  const prototype =
+    element instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(
+      element,
+      value,
+    );
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+function listRow(title: string) {
+  return [
+    ...container.querySelectorAll<HTMLElement>(
+      '[aria-label="Tasks"][role="list"] button',
+    ),
+  ].find((entry) => entry.textContent?.includes(title))!;
+}
+function tableRow(title: string) {
+  return [...container.querySelectorAll<HTMLElement>("tr[data-task-row]")].find(
+    (entry) => entry.textContent?.includes(title),
+  )!;
+}
+function card(title: string) {
+  return [...container.querySelectorAll<HTMLElement>("[data-task-card]")].find(
+    (entry) => entry.textContent?.includes(title),
+  )!;
+}
+// The open pane; a pane sliding out after close is aria-hidden and inert.
+const peek = () =>
+  container.querySelector<HTMLElement>(
+    '[aria-label="Task panel"]:not([aria-hidden="true"])',
+  );
+async function pickOption(trigger: string, option: string) {
+  const opener = container.querySelector<HTMLElement>(
+    `button[aria-label^="${trigger}:"]`,
+  );
+  if (opener?.getAttribute("aria-expanded") !== "true") await click(opener);
+  const choice = [
+    ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+  ].find(
+    (entry) =>
+      (
+        entry.querySelector("[data-option-label]") ?? entry
+      ).textContent?.trim() === option,
+  );
+  await click(choice);
+  // Multi-select menus (Status, Project) stay open; close them like a user would.
+  const after = container.querySelector<HTMLElement>(
+    `button[aria-label^="${trigger}:"]`,
+  );
+  if (after?.getAttribute("aria-expanded") === "true") await click(after);
+}
+async function pickMenuItem(trigger: HTMLElement | undefined, label: string) {
+  await click(trigger);
+  const item = [
+    ...document.querySelectorAll<HTMLElement>(
+      '[role="menuitem"], [role="menuitemcheckbox"]',
+    ),
+  ].find(
+    (entry) =>
+      (
+        entry.querySelector("[data-menu-label]") ?? entry
+      ).textContent?.trim() === label,
+  );
+  await click(item);
+}
+async function escape(target: Element = document.body) {
+  await act(async () => {
+    target.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+}
+async function switchView(label: "List" | "Table" | "Board") {
+  await click(
+    [
+      ...container.querySelectorAll<HTMLElement>(
+        '[aria-label="Tasks view"] [role="tab"]',
+      ),
+    ].find((entry) => entry.textContent?.trim() === label),
+  );
+}
+function listTitles() {
+  return [
+    ...container.querySelectorAll<HTMLElement>(
+      '[aria-label="Tasks"][role="list"] li button .font-semibold',
+    ),
+  ].map((entry) => entry.textContent);
+}
+function upserts() {
+  return vi
+    .mocked(invoke)
+    .mock.calls.filter(([command]) => command === "tasks_upsert")
+    .map(([, args]) => (args as { task: TaskUpsert }).task);
+}
+
+describe("Tasks list view", () => {
+  it("defaults to a full-width List with no sidebar, newest first", async () => {
+    await render();
+    expect(container.querySelector("aside")).toBeNull();
+    expect(
+      byLabel("Tasks view").querySelector('[aria-selected="true"]')
+        ?.textContent,
+    ).toContain("List");
+    expect(listTitles()).toEqual([
+      "Fix installer",
+      "Ship docs",
+      "Personal reminder",
+    ]);
+    const first = listRow("Fix installer");
+    expect(first.textContent).toContain("Blocked");
+    expect(listRow("Personal reminder").textContent).toContain("Remember this");
+    expect(first.textContent).toContain("#windows");
+    expect(first.textContent).toContain("project");
+    expect(listRow("Personal reminder").textContent).toContain("Personal");
+    expect(peek()).toBeNull();
+  });
+
+  it("opens the peek pane when a row is clicked", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    expect(peek()).not.toBeNull();
+    expect(input("Task title").value).toBe("Fix installer");
+    expect(listRow("Fix installer").getAttribute("aria-current")).toBe("true");
+  });
+
+  it("shows a spinner on first mount and cached rows on later mounts", async () => {
+    let release: (value: Task[]) => void = () => {};
+    const original = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "tasks_list")
+        return new Promise<Task[]>((resolve) => {
+          release = resolve;
+        });
+      return original(command, args);
+    });
+    await render();
+    expect(byLabel("Loading tasks")).not.toBeNull();
+    await act(async () => release([...rows.values()]));
+    expect(listTitles()).toHaveLength(3);
+    await act(async () => root.render(null));
+    await render();
+    // tasks_list is still pending, yet the cached rows are already on screen.
+    expect(listTitles()).toHaveLength(3);
+    expect(container.querySelector('[aria-label="Loading tasks"]')).toBeNull();
+    await act(async () => release([...rows.values()]));
+  });
+
+  it("shows empty, filtered-empty and load-error states", async () => {
+    rows.clear();
+    await render();
+    expect(container.textContent).toContain(
+      "No tasks yet. Capture a selection from a transcript, or create one here.",
+    );
+    await act(async () => root.render(null));
+    invalidateTasks();
+    vi.mocked(invoke).mockImplementation(async () => {
+      throw new Error("db locked");
+    });
+    await render();
+    expect(container.textContent).toContain("Could not load tasks: db locked");
+    expect(button("Retry")).toBeDefined();
+  });
+
+  it("keeps rows and shows a banner when a refresh fails", async () => {
+    await render();
+    const original = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "tasks_list") throw new Error("offline");
+      return original(command, args);
+    });
+    await act(async () => window.dispatchEvent(new Event(TASKS_CHANGED_EVENT)));
+    expect(container.textContent).toContain("Could not refresh tasks: offline");
+    expect(listTitles()).toHaveLength(3);
+  });
+});
+
+describe("toolbar layout", () => {
+  it("puts New task first, filters next and the view switch last in one row", async () => {
+    await render();
+    const newTask = container.querySelector('[aria-label="New task"]')!;
+    const search = container.querySelector('[aria-label="Filter tasks"]')!;
+    const views = container.querySelector('[aria-label="Tasks view"]')!;
+    const row = newTask.closest("div.h-10")!;
+    expect(row.contains(search)).toBe(true);
+    expect(row.contains(views)).toBe(true);
+    expect(
+      newTask.compareDocumentPosition(search) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      search.compareDocumentPosition(views) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const header = container.querySelector("[data-tauri-drag-region]")!;
+    expect(header.contains(newTask)).toBe(false);
+    expect(header.contains(views)).toBe(false);
+  });
+});
+
+describe("filters", () => {
+  it("combines search, status, project and tags with all/any and resets", async () => {
+    await render();
+    expect(container.querySelector("select")).toBeNull();
+    expect(container.textContent).not.toContain("Reset filters");
+    await change("Filter tasks", "installer");
+    expect(listTitles()).toEqual(["Fix installer"]);
+    await change("Filter tasks", "");
+    await pickOption("Status", "Blocked");
+    expect(listTitles()).toEqual(["Fix installer"]);
+    await pickOption("Status", "All statuses");
+    await pickOption("Project", "other");
+    expect(listTitles()).toEqual(["Ship docs"]);
+    // Project is multi-select: adding Personal shows both.
+    await pickOption("Project", "Personal");
+    expect(listTitles().sort()).toEqual(["Personal reminder", "Ship docs"]);
+    await pickOption("Project", "other");
+    expect(listTitles()).toEqual(["Personal reminder"]);
+    await pickOption("Project", "All projects");
+    await pickOption("Tag", "#windows");
+    await pickOption("Tag", "#docs");
+    // both tags must match by default
+    expect(container.textContent).toContain("No tasks match these filters");
+    await click(button("Match any"));
+    expect(listTitles().sort()).toEqual(["Fix installer", "Ship docs"]);
+    await click(byLabel("Remove tag filter #docs"));
+    expect(listTitles()).toEqual(["Fix installer"]);
+    expect(container.querySelector('[aria-label="Tag matching"]')).toBeNull();
+    await click(button("Reset"));
+    expect(listTitles()).toHaveLength(3);
+    expect(container.textContent).not.toContain("Reset filters");
+  });
+
+  it("adds a tag filter from a chip without selecting the task", async () => {
+    await render();
+    await click(byLabel("Filter by tag #home"));
+    expect(listTitles()).toEqual(["Personal reminder"]);
+    expect(byLabel("Remove tag filter #home")).not.toBeNull();
+    expect(peek()).toBeNull();
+  });
+});
+
+describe("selection and peek", () => {
+  it("keeps a filtered-out selection, keeps it across views, and closes on delete", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    await pickOption("Status", "Todo");
+    expect(listTitles()).toEqual(["Personal reminder"]);
+    expect(input("Task title").value).toBe("Fix installer");
+    await pickOption("Status", "All statuses");
+    await switchView("Board");
+    expect(input("Task title").value).toBe("Fix installer");
+    await switchView("Table");
+    expect(input("Task title").value).toBe("Fix installer");
+    await click(byLabel("Delete task"));
+    expect(rows.has("first")).toBe(false);
+    expect(peek()).toBeNull();
+  });
+
+  it("closes the peek when the Operator deletes the task, in every view", async () => {
+    await render();
+    const targets = [
+      ["List", "first"],
+      ["Table", "docs"],
+      ["Board", "personal"],
+    ] as const;
+    for (const [view, id] of targets) {
+      await switchView(view);
+      const title = rows.get(id)!.title;
+      await click(
+        view === "List"
+          ? listRow(title)
+          : view === "Table"
+            ? tableRow(title)
+            : card(title).querySelector("button[data-task-id]"),
+      );
+      expect(peek()).not.toBeNull();
+      rows.delete(id);
+      await act(async () =>
+        window.dispatchEvent(new Event(TASKS_CHANGED_EVENT)),
+      );
+      expect(peek()).toBeNull();
+    }
+  });
+
+  it("shows Operator edits in every view and in the open peek", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    rows.set("first", {
+      ...rows.get("first")!,
+      title: "Operator updated",
+      status: "completed",
+      body: "Operator body",
+      updatedAt: 99,
+    });
+    await act(async () => window.dispatchEvent(new Event(TASKS_CHANGED_EVENT)));
+    expect(input("Task title").value).toBe("Operator updated");
+    expect(peek()!.textContent).toContain("Operator body");
+    expect(listRow("Operator updated").textContent).toContain("Completed");
+    await switchView("Table");
+    expect(tableRow("Operator updated")).toBeDefined();
+    await switchView("Board");
+    expect(
+      card("Operator updated").closest('[aria-label="Completed column"]'),
+    ).not.toBeNull();
+  });
+
+  it("closes the peek with Escape, then the view, and ignores menu Escapes", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    // A status SearchableSelect handles its own Escape.
+    await click(container.querySelector('button[aria-label^="Status:"]'));
+    await escape(container.querySelector('button[aria-label^="Status:"]')!);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(peek()).not.toBeNull();
+    // So does the project picker.
+    await click(
+      container.querySelector('[aria-label^="Move task to project"]'),
+    );
+    expect(
+      document.querySelector('[aria-label="Project picker"]'),
+    ).not.toBeNull();
+    await escape(
+      container.querySelector('[aria-label^="Move task to project"]')!,
+    );
+    expect(document.querySelector('[aria-label="Project picker"]')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(peek()).not.toBeNull();
+    await escape();
+    expect(peek()).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    await escape();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("flushes unsaved edits when the selection changes before the debounce", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    await change("Task title", "Renamed installer");
+    await click(listRow("Personal reminder"));
+    await act(async () => {
+      await tick();
+    });
+    expect(upserts().some((task) => task.title === "Renamed installer")).toBe(
+      true,
+    );
+    expect(rows.get("first")?.title).toBe("Renamed installer");
+  });
+
+  it("changes status from the status menu immediately", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    await pickMenuItem(
+      peek()!.querySelector<HTMLElement>('button[aria-label^="Task status"]')!,
+      "Review",
+    );
+    expect(rows.get("first")?.status).toBe("review");
+  });
+
+  it("opens beside session from the peek header (the editor no longer repeats it)", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    await click(
+      peek()!.querySelector('button[aria-label="Open beside session"]'),
+    );
+    expect(openBeside).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "first" }),
+    );
+    expect(button("Open beside session")).toBeUndefined();
+    await click(button("Open source session"));
+    expect(sourceOpen).toHaveBeenCalledWith("session", "cline:42");
+  });
+
+  it("copies unsaved Markdown, flushes on unmount and deletes without resurrection", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    await click(button("Source"));
+    const markdown =
+      "---\ntitle: Draft\n---\n# Unsaved\n\n| A |\n| --- |\n| row |";
+    await change("Task Markdown", markdown);
+    await click(byLabel("Copy Markdown"));
+    expect(copy).toHaveBeenCalledWith(markdown);
+    await act(async () => root.render(null));
+    expect(rows.get("first")?.body).toBe(markdown);
+    await render();
+    await click(listRow("Fix installer"));
+    await click(byLabel("Delete task"));
+    expect(rows.has("first")).toBe(false);
+    await act(async () => root.render(null));
+    expect(rows.has("first")).toBe(false);
+  });
+
+  it("retains failed edits for retry and reports source failures", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    await click(button("Source"));
+    const original = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "tasks_upsert") throw new Error("Disk full");
+      return original(command, args);
+    });
+    await change("Task Markdown", "Keep failed draft");
+    await act(async () => {
+      await tick(450);
+    });
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Could not save task: Disk full",
+    );
+    expect(input("Task Markdown").value).toBe("Keep failed draft");
+    vi.mocked(invoke).mockImplementation(original);
+    await click(button("Retry"));
+    expect(rows.get("first")?.body).toBe("Keep failed draft");
+    sourceOpen.mockRejectedValueOnce(new Error("Source removed"));
+    await click(button("Open source session"));
+    expect(container.textContent).toContain("Source removed");
+  });
+
+  it("edits tags and moves the task between projects", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    await change("Add task tag", "Release,");
+    await act(async () => {
+      await tick(450);
+    });
+    expect(rows.get("first")?.tags).toContain("release");
+    await click(
+      container.querySelector('[aria-label^="Move task to project"]'),
+    );
+    await click(
+      document.querySelector(
+        '[aria-label="Project picker"] button[title="/work/other"]',
+      ),
+    );
+    expect(rows.get("first")?.projectCwd).toBe("/work/other");
+    expect(container.textContent).not.toContain("Move to Personal");
+  });
+});
+
+describe("creating tasks", () => {
+  it("files under Personal with +, a project via the chevron, and focuses the title", async () => {
+    await render();
+    await click(byLabel("New task"));
+    const personal = [...rows.values()].find(
+      (entry) => entry.title === "Untitled" && !entry.projectCwd,
+    )!;
+    expect(personal).toMatchObject({ status: "todo", tags: [] });
+    expect(peek()).not.toBeNull();
+    await act(async () => {
+      await tick(20);
+    });
+    expect(document.activeElement).toBe(input("Task title"));
+    await click(byLabel("Choose where the task is filed"));
+    expect(document.body.textContent).toContain("File task under…");
+    const project = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'),
+    ].find((entry) => entry.textContent?.trim() === "project");
+    await click(project);
+    const created = [...rows.values()].find(
+      (entry) => entry.title === "Untitled" && entry.projectCwd,
+    )!;
+    expect(created.projectCwd).toBe("/work/project");
+  });
+
+  it("disables the create buttons while a create is pending", async () => {
+    let release: () => void = () => {};
+    const original = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "tasks_upsert") {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      return original(command, args);
+    });
+    await render();
+    await click(byLabel("New task"));
+    expect(byLabel<HTMLButtonElement>("New task").disabled).toBe(true);
+    expect(
+      byLabel<HTMLButtonElement>("Choose where the task is filed").disabled,
+    ).toBe(true);
+    await act(async () => release());
+    expect(byLabel<HTMLButtonElement>("New task").disabled).toBe(false);
+  });
+});
+
+describe("view switching and persistence", () => {
+  it("persists the chosen view, restores it, and supports arrow keys", async () => {
+    await render();
+    await switchView("Board");
+    expect(localStorage.getItem(VIEW_KEY)).toBe("board");
+    await act(async () => root.render(null));
+    await render();
+    expect(
+      container.querySelector('[aria-label="Todo column"]'),
+    ).not.toBeNull();
+    const tab = container.querySelector<HTMLElement>(
+      '[aria-label="Tasks view"] [aria-selected="true"]',
+    )!;
+    await act(async () => {
+      tab.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+      );
+    });
+    expect(localStorage.getItem(VIEW_KEY)).toBe("table");
+    expect(container.querySelector("table")).not.toBeNull();
+  });
+});
+
+describe("table view", () => {
+  async function openTable() {
+    await render();
+    await switchView("Table");
+  }
+  const headerLabels = () =>
+    [...container.querySelectorAll("thead th")].map((entry) =>
+      entry.textContent?.trim(),
+    );
+
+  it("groups by status, hides empty groups, collapses and persists", async () => {
+    await openTable();
+    const groups = [...container.querySelectorAll<HTMLElement>("tbody")].map(
+      (entry) =>
+        [...(entry.querySelector("button")?.querySelectorAll("span") ?? [])]
+          .map((span) => span.textContent?.trim())
+          .join(" "),
+    );
+    expect(groups).toEqual(["Todo 1", "Progress 1", "Blocked 1"]);
+    expect(headerLabels()).toEqual([
+      "Title",
+      "Status",
+      "Project",
+      "Tags",
+      "Updated",
+    ]);
+    const todo = [
+      ...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+    ].find((entry) => entry.textContent?.includes("Todo"))!;
+    await click(todo);
+    expect(todo.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain("Personal reminder");
+    expect(JSON.parse(localStorage.getItem(TABLE_KEY)!).collapsed).toEqual([
+      "status:todo",
+    ]);
+    await act(async () => root.render(null));
+    await render();
+    expect(container.textContent).not.toContain("Personal reminder");
+  });
+
+  it("sorts by header with aria-sort and an id tie-breaker", async () => {
+    rows.set("a", row({ id: "a", title: "Same", updatedAt: 3 }));
+    rows.set("b", row({ id: "b", title: "Same", updatedAt: 4 }));
+    await openTable();
+    const th = (label: string) =>
+      [...container.querySelectorAll("thead th")].find((entry) =>
+        entry.textContent?.includes(label),
+      )!;
+    expect(th("Updated").getAttribute("aria-sort")).toBe("descending");
+    await click(th("Title").querySelector("button"));
+    expect(th("Title").getAttribute("aria-sort")).toBe("ascending");
+    expect(th("Updated").getAttribute("aria-sort")).toBeNull();
+    const todoIds = [
+      ...container.querySelectorAll<HTMLElement>("tr[data-task-row]"),
+    ]
+      .map((entry) => entry.dataset.taskRow)
+      .filter((id) => id === "a" || id === "b" || id === "personal");
+    expect(todoIds).toEqual(["personal", "a", "b"]);
+    await click(th("Title").querySelector("button"));
+    expect(th("Title").getAttribute("aria-sort")).toBe("descending");
+  });
+
+  it("resizes columns by keyboard within limits, resets on double click and persists", async () => {
+    await openTable();
+    const handle = byLabel("Resize Status column");
+    const key = (name: string, type: "keydown" | "keyup") =>
+      act(async () => {
+        handle.dispatchEvent(
+          new KeyboardEvent(type, {
+            key: name,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+    await key("ArrowRight", "keydown");
+    await key("ArrowRight", "keyup");
+    expect(JSON.parse(localStorage.getItem(TABLE_KEY)!).widths.status).toBe(
+      156,
+    );
+    for (let i = 0; i < 6; i += 1) {
+      await key("ArrowLeft", "keydown");
+      await key("ArrowLeft", "keyup");
+    }
+    expect(JSON.parse(localStorage.getItem(TABLE_KEY)!).widths.status).toBe(
+      110,
+    );
+    await act(async () => {
+      handle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    expect(JSON.parse(localStorage.getItem(TABLE_KEY)!).widths.status).toBe(
+      140,
+    );
+    expect(container.querySelector("col")).not.toBeNull();
+  });
+
+  it("has no Columns control; saved hidden columns still apply", async () => {
+    await openTable();
+    expect(container.querySelector('[aria-label="Choose visible columns"]')).toBeNull();
+    expect(container.textContent).not.toContain("Columns");
+    expect(headerLabels()).not.toContain("Completed");
+  });
+
+  it("selects on row click but not on status-menu or tag clicks", async () => {
+    await openTable();
+    await click(
+      container.querySelector(
+        'tr[data-task-row="first"] button[aria-label^="Task status"]',
+      ),
+    );
+    expect(peek()).toBeNull();
+    await escape(document.querySelector('[role="menu"]')!);
+    await click(
+      container.querySelector(
+        'tr[data-task-row="first"] [aria-label="Filter by tag #bug"]',
+      ),
+    );
+    expect(peek()).toBeNull();
+    await click(tableRow("Ship docs").querySelector("td:nth-child(3)"));
+    expect(peek()).not.toBeNull();
+    expect(tableRow("Ship docs").getAttribute("aria-selected")).toBe("true");
+  });
+});
+
+describe("board view", () => {
+  async function openBoard() {
+    await render();
+    await switchView("Board");
+  }
+  const columnLabels = () =>
+    [
+      ...container.querySelectorAll<HTMLElement>(
+        "section[aria-label$=' column']",
+      ),
+    ].map((entry) => entry.getAttribute("aria-label"));
+
+  it("shows the five statuses and follows the Status filter", async () => {
+    await openBoard();
+    expect(columnLabels()).toEqual([
+      "Todo column",
+      "Progress column",
+      "Blocked column",
+      "Review column",
+      "Completed column",
+    ]);
+    // The multi-select Status filter limits the board to the chosen columns.
+    await pickOption("Status", "Todo");
+    await pickOption("Status", "Completed");
+    expect(columnLabels()).toEqual(["Todo column", "Completed column"]);
+    await pickOption("Status", "All statuses");
+    expect(columnLabels()).toContain("Review column");
+    expect(container.querySelector('[aria-label="Choose visible columns"]')).toBeNull();
+  });
+
+  it("fills the board without sideways scroll and has no column resize handles", async () => {
+    await openBoard();
+    const column = byLabel("Todo column");
+    expect(column.className).toContain("flex-1");
+    // Columns shrink to fit instead of holding a minimum that would scroll.
+    expect(column.style.minWidth).toBe("0");
+    expect(container.querySelector("[data-board-column]")!.parentElement!.className).toContain(
+      "overflow-x-hidden",
+    );
+    expect(container.querySelector('[aria-label^="Resize "][aria-label$=" column"]')).toBeNull();
+  });
+
+  describe("drag and optimistic moves", () => {
+    let over: Element | null = null;
+    beforeEach(() => {
+      over = null;
+      document.elementFromPoint = () => over;
+    });
+    const pointer = (type: string, target: EventTarget, x: number, y: number) =>
+      act(async () => {
+        target.dispatchEvent(
+          new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+            button: 0,
+          }),
+        );
+      });
+    async function drag(title: string, to: string, release = true) {
+      const source = card(title);
+      await pointer("pointerdown", source, 10, 10);
+      await pointer("pointermove", window, 30, 30);
+      over = byLabel(`${to} column`);
+      await pointer("pointermove", window, 40, 40);
+      if (release) await pointer("pointerup", window, 40, 40);
+    }
+
+    it("treats a move under 4px as a click and opens the peek", async () => {
+      await openBoard();
+      const source = card("Fix installer");
+      await pointer("pointerdown", source, 10, 10);
+      await pointer("pointermove", window, 12, 12);
+      await pointer("pointerup", window, 12, 12);
+      await click(source.querySelector("button[data-task-id]"));
+      expect(peek()).not.toBeNull();
+      expect(rows.get("first")?.status).toBe("blocked");
+    });
+
+    it("moves a card optimistically and persists the status", async () => {
+      await openBoard();
+      await drag("Fix installer", "Review");
+      expect(
+        card("Fix installer").closest('[aria-label="Review column"]'),
+      ).not.toBeNull();
+      await act(async () => {
+        await tick();
+      });
+      expect(rows.get("first")?.status).toBe("review");
+      expect(peek()).toBeNull();
+      expect(document.body.style.cursor).toBe("");
+    });
+
+    it("cancels with Escape and does nothing when dropped on the same column", async () => {
+      await openBoard();
+      await drag("Fix installer", "Review", false);
+      expect(byLabel("Review column").className).toContain("ring-accent");
+      await escape();
+      expect(byLabel("Review column").className).not.toContain("ring-accent");
+      expect(onClose).not.toHaveBeenCalled();
+      await drag("Fix installer", "Blocked");
+      expect(upserts()).toHaveLength(0);
+      expect(
+        card("Fix installer").closest('[aria-label="Blocked column"]'),
+      ).not.toBeNull();
+    });
+
+    // Writes are serialized per task in a module-level queue, so every test
+    // must settle the writes it deferred before the next one starts.
+    const openGates: { resolve: () => void }[] = [];
+    afterEach(async () => {
+      for (const gate of openGates.splice(0)) gate.resolve();
+      await act(async () => {
+        await tick(5);
+      });
+    });
+    function deferUpserts() {
+      const original = vi.mocked(invoke).getMockImplementation()!;
+      const gates: { resolve: () => void; reject: (error: Error) => void }[] =
+        [];
+      vi.mocked(invoke).mockImplementation(async (command, args) => {
+        if (command === "tasks_upsert") {
+          await new Promise<void>((resolve, reject) => {
+            const gate = { resolve, reject };
+            gates.push(gate);
+            openGates.push(gate);
+          });
+        }
+        return original(command, args);
+      });
+      return gates;
+    }
+    const inColumn = (title: string, column: string) =>
+      card(title).closest(`[aria-label="${column} column"]`) !== null;
+
+    it("keeps the latest move when an earlier write finishes first (A)", async () => {
+      await openBoard();
+      const gates = deferUpserts();
+      await drag("Fix installer", "Review");
+      await drag("Fix installer", "Todo");
+      expect(inColumn("Fix installer", "Todo")).toBe(true);
+      await act(async () => {
+        await tick();
+      });
+      await act(async () => gates[0].resolve());
+      await act(async () => tick());
+      expect(inColumn("Fix installer", "Todo")).toBe(true);
+      await act(async () => gates[1]?.resolve());
+      await act(async () => tick(5));
+      expect(inColumn("Fix installer", "Todo")).toBe(true);
+    });
+
+    it("ignores an earlier failure while a later move is pending (B)", async () => {
+      await openBoard();
+      const gates = deferUpserts();
+      await drag("Fix installer", "Review");
+      await drag("Fix installer", "Todo");
+      await act(async () => tick());
+      await act(async () => gates[0].reject(new Error("first failed")));
+      await act(async () => tick());
+      expect(inColumn("Fix installer", "Todo")).toBe(true);
+      expect(container.textContent).not.toContain("first failed");
+    });
+
+    it("reverts and names the task when the latest move fails (C)", async () => {
+      await openBoard();
+      const gates = deferUpserts();
+      await drag("Fix installer", "Review");
+      await act(async () => tick());
+      rows.delete("first");
+      await act(async () => gates[0].reject(new Error("Task was not found")));
+      await act(async () => tick());
+      expect(container.textContent).toContain(
+        'Could not move "Fix installer": Task was not found',
+      );
+      await click(byLabel("Dismiss"));
+      expect(container.textContent).not.toContain("Could not move");
+    });
+
+    it("moves through the card status menu for keyboard users", async () => {
+      await openBoard();
+      await pickMenuItem(
+        card("Fix installer").querySelector<HTMLElement>(
+          'button[aria-label^="Task status"]',
+        )!,
+        "Completed",
+      );
+      expect(inColumn("Fix installer", "Completed")).toBe(true);
+      await act(async () => tick());
+      expect(rows.get("first")?.status).toBe("completed");
+    });
+  });
+});
+
+describe("persisted peek width", () => {
+  it("restores a stored peek width, clamped", async () => {
+    localStorage.setItem(PEEK_WIDTH_KEY, "5000");
+    await render();
+    await click(listRow("Fix installer"));
+    expect(peek()!.style.width).toBe(
+      `${Math.min(720, Math.round(window.innerWidth * 0.6))}px`,
+    );
+  });
+});
+
+describe("grouping", () => {
+  const groupHeaders = () =>
+    [...container.querySelectorAll<HTMLButtonElement>("[data-task-group]")].map(
+      (entry) =>
+        [...entry.querySelectorAll("span")]
+          .map((span) => span.textContent?.trim())
+          .filter(Boolean)
+          .join(" "),
+    );
+
+  it("groups the List by project with Personal last, collapses a group and persists the choice", async () => {
+    await render();
+    expect(groupHeaders()).toEqual([]);
+    await pickOption("Group tasks", "Group by project");
+    expect(groupHeaders()).toEqual(["other 1", "project 1", "Personal 1"]);
+    const personal = container.querySelector<HTMLButtonElement>(
+      '[data-task-group="project:personal"]',
+    )!;
+    await click(personal);
+    expect(personal.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain("Personal reminder");
+    expect(JSON.parse(localStorage.getItem(GROUPING_KEY)!).list).toBe(
+      "project",
+    );
+    await act(async () => root.render(null));
+    await render();
+    expect(groupHeaders()).toEqual(["other 1", "project 1", "Personal 1"]);
+  });
+
+  it("groups the List by status in workflow order", async () => {
+    await render();
+    await pickOption("Group tasks", "Group by status");
+    expect(groupHeaders()).toEqual(["Todo 1", "Progress 1", "Blocked 1"]);
+  });
+
+  it("lets the Table group by project or not at all, independently of the List", async () => {
+    await render();
+    await switchView("Table");
+    await pickOption("Group tasks", "Group by project");
+    expect(groupHeaders()).toEqual(["other 1", "project 1", "Personal 1"]);
+    await pickOption("Group tasks", "No grouping");
+    expect(groupHeaders()).toEqual([]);
+    expect(container.querySelectorAll("tr[data-task-row]")).toHaveLength(3);
+    await switchView("List");
+    expect(groupHeaders()).toEqual([]);
+    expect(JSON.parse(localStorage.getItem(GROUPING_KEY)!)).toEqual({
+      list: "none",
+      table: "none",
+      board: "status",
+    });
+  });
+
+  describe("board by project", () => {
+    let over: Element | null = null;
+    beforeEach(() => {
+      over = null;
+      document.elementFromPoint = () => over;
+    });
+    const pointer = (type: string, target: EventTarget, x: number, y: number) =>
+      act(async () => {
+        target.dispatchEvent(
+          new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+            button: 0,
+          }),
+        );
+      });
+    async function drag(title: string, to: string) {
+      await pointer("pointerdown", card(title), 10, 10);
+      await pointer("pointermove", window, 30, 30);
+      over = byLabel(`${to} column`);
+      await pointer("pointermove", window, 40, 40);
+      await pointer("pointerup", window, 40, 40);
+      await act(async () => {
+        await tick();
+      });
+    }
+    async function openProjectBoard() {
+      await render();
+      await switchView("Board");
+      await pickOption("Group tasks", "Group by project");
+    }
+    const columnLabels = () =>
+      [
+        ...container.querySelectorAll<HTMLElement>(
+          "section[aria-label$=' column']",
+        ),
+      ].map((entry) => entry.getAttribute("aria-label"));
+
+    it("shows one column per project with Personal last", async () => {
+      await openProjectBoard();
+      expect(columnLabels()).toEqual([
+        "other column",
+        "project column",
+        "Personal column",
+      ]);
+    });
+
+    it("moves a card to another project by dragging and keeps its status", async () => {
+      await openProjectBoard();
+      await drag("Fix installer", "other");
+      expect(
+        card("Fix installer").closest('[aria-label="other column"]'),
+      ).not.toBeNull();
+      expect(rows.get("first")?.projectCwd).toBe("/work/other");
+      expect(rows.get("first")?.status).toBe("blocked");
+    });
+
+    it("moves a card to Personal by dropping it on the Personal column", async () => {
+      await openProjectBoard();
+      await drag("Ship docs", "Personal");
+      expect(rows.get("docs")?.projectCwd).toBeUndefined();
+      expect(
+        card("Ship docs").closest('[aria-label="Personal column"]'),
+      ).not.toBeNull();
+    });
+  });
+});
+
+describe("counts", () => {
+  const headerCount = () =>
+    container.querySelector<HTMLElement>(
+      '[data-tauri-drag-region] [role="status"]',
+    );
+  const optionCounts = async (trigger: string) => {
+    await click(container.querySelector(`button[aria-label^="${trigger}:"]`));
+    const counts = Object.fromEntries(
+      [...document.querySelectorAll<HTMLElement>('[role="option"]')].map(
+        (option) => {
+          return [
+            option.querySelector("[data-option-label]")?.textContent?.trim(),
+            Number(option.querySelector(".tabular-nums")?.textContent),
+          ];
+        },
+      ),
+    );
+    await click(container.querySelector(`button[aria-label^="${trigger}:"]`));
+    return counts;
+  };
+
+  it("shows the total in the header, then shown-of-total while filtered", async () => {
+    await render();
+    expect(headerCount()?.textContent).toBe("3");
+    expect(headerCount()?.getAttribute("aria-label")).toBe("3 tasks");
+    await pickOption("Status", "Todo");
+    expect(headerCount()?.textContent).toBe("1 of 3");
+    expect(headerCount()?.getAttribute("aria-label")).toBe(
+      "1 of 3 tasks shown",
+    );
+  });
+
+  it("shows faceted counts beside every filter option", async () => {
+    await render();
+    expect(await optionCounts("Status")).toMatchObject({
+      "All statuses": 3,
+      Todo: 1,
+      Progress: 1,
+      Blocked: 1,
+      Review: 0,
+    });
+    await pickOption("Project", "Personal");
+    // The status facet now counts Personal tasks only.
+    expect(await optionCounts("Status")).toMatchObject({
+      "All statuses": 1,
+      Todo: 1,
+      Blocked: 0,
+    });
+    // The project facet ignores its own filter.
+    expect(await optionCounts("Project")).toMatchObject({
+      "All projects": 3,
+      Personal: 1,
+    });
+    expect(await optionCounts("Tag")).toMatchObject({ "#home": 1, "#bug": 0 });
+  });
+});
+
+describe("focus, archive and the task menu", () => {
+  const menuItem = (label: string) =>
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        '[role="menuitem"], [role="menuitemcheckbox"]',
+      ),
+    ].find(
+      (entry) =>
+        (entry.querySelector("[data-menu-label]") ?? entry).textContent?.trim() ===
+        label,
+    );
+  async function rightClick(element: HTMLElement) {
+    await act(async () => {
+      element.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 20,
+          clientY: 20,
+        }),
+      );
+    });
+  }
+
+  it("Focus shows only tasks created today or pinned to today, with a count", async () => {
+    rows.set("personal", { ...rows.get("personal")!, focusDate: localDay() });
+    await render();
+    const focus = container.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Focus:"]',
+    )!;
+    expect(focus.getAttribute("aria-label")).toBe(
+      "Focus: 1 of 3 tasks are in today's focus",
+    );
+    await click(focus);
+    expect(focus.getAttribute("aria-pressed")).toBe("true");
+    expect(listTitles()).toEqual(["Personal reminder"]);
+    expect(localStorage.getItem("monocode.tasks.focus")).toBe("true");
+    await click(focus);
+    expect(listTitles()).toHaveLength(3);
+  });
+
+  it("offers carry-over for unfinished tasks pinned on an earlier day", async () => {
+    rows.set("docs", { ...rows.get("docs")!, focusDate: "2020-01-01" });
+    await render();
+    await click(container.querySelector('button[aria-label^="Focus:"]'));
+    expect(container.textContent).toContain("1 unfinished from earlier focus");
+    await click(button("Carry over"));
+    expect(rows.get("docs")?.focusDate).toBe(localDay());
+    expect(listTitles()).toEqual(["Ship docs"]);
+  });
+
+  it("archives from the right-click menu, hides it, and shows it struck through", async () => {
+    await render();
+    await rightClick(listRow("Ship docs"));
+    expect(menuItem("Open beside session")).toBeUndefined();
+    await click(menuItem("Archive"));
+    expect(rows.get("docs")?.archivedAt).toBeDefined();
+    expect(rows.get("docs")?.status).toBe("in_progress");
+    expect(listTitles()).not.toContain("Ship docs");
+    await click(button("Archived"));
+    const archived = listRow("Ship docs");
+    expect(archived.dataset.archived).toBe("");
+    expect(archived.querySelector(".line-through")).not.toBeNull();
+    await rightClick(archived);
+    await click(menuItem("Unarchive"));
+    expect(rows.get("docs")?.archivedAt).toBeUndefined();
+  });
+
+  it("moves, focuses and works on a task from the menu", async () => {
+    const workOn = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(TasksView, {
+          cwd: "/work/project",
+          recents: [{ path: "/work/project", openedAt: 1 }],
+          onClose,
+          onOpenSource: sourceOpen,
+          onOpenBeside: openBeside,
+          onWorkOn: workOn,
+        }),
+      ),
+    );
+    await rightClick(listRow("Fix installer"));
+    await click(menuItem("Focus today"));
+    expect(rows.get("first")?.focusDate).toBe(localDay());
+    await rightClick(listRow("Fix installer"));
+    await click(menuItem("Start Work"));
+    expect(workOn).toHaveBeenCalledWith(expect.objectContaining({ id: "first" }));
+    await rightClick(listRow("Fix installer"));
+    await click(menuItem("Copy"));
+    expect(copy).toHaveBeenCalledWith(expect.stringContaining("# Fix installer"));
+  });
+});
+
+
+describe("New task while the pane is open", () => {
+  it("keeps the pane open on the new task, even with filters and Focus on", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    expect(peek()).not.toBeNull();
+    await pickOption("Status", "Review");
+    await click(container.querySelector('button[aria-label^="Focus:"]'));
+    await click(byLabel("New task"));
+    await act(async () => {
+      await tick(20);
+    });
+    expect(peek()).not.toBeNull();
+    const created = [...rows.values()].find((entry) => entry.title === "Untitled")!;
+    expect(created).toBeDefined();
+    expect(input("Task title").value).toBe("Untitled");
+    expect(document.activeElement).toBe(input("Task title"));
+    // Filters that would hide the new task were cleared.
+    expect(listTitles()).toContain("Untitled");
+  });
+});
+
+describe("toolbar layout and focus presentation", () => {
+  it("puts Focus right after New task and drops the Columns control", async () => {
+    await render();
+    const toolbar = container.querySelector("[data-tasks-toolbar]")!;
+    const order = [...toolbar.querySelectorAll("button")].map(
+      (entry) => entry.getAttribute("aria-label") ?? entry.textContent,
+    );
+    expect(order[0]).toBe("New task");
+    expect(order[1]).toBe("Choose where the task is filed");
+    expect(order[2]).toMatch(/^Focus:/);
+    expect(toolbar.textContent).not.toContain("Columns");
+    await switchView("Board");
+    expect(toolbar.textContent).not.toContain("Columns");
+  });
+
+  it("shows the focus day chip on rows and cards, but not for tasks in focus by creation", async () => {
+    rows.set("docs", { ...rows.get("docs")!, focusDate: localDay() });
+    rows.set("first", { ...rows.get("first")!, focusDate: "2020-01-02" });
+    await render();
+    expect(listRow("Ship docs").querySelector("[data-focus-chip]")?.textContent).toBe(
+      "Today",
+    );
+    expect(listRow("Fix installer").querySelector("[data-focus-chip]")?.textContent).toBe(
+      "From Jan 2",
+    );
+    expect(listRow("Personal reminder").querySelector("[data-focus-chip]")).toBeNull();
+    await switchView("Board");
+    expect(card("Ship docs").querySelector("[data-focus-chip]")?.textContent).toBe("Today");
+  });
+
+  it("shows the status instead of the project when grouped by project", async () => {
+    await render();
+    expect(listRow("Fix installer").textContent).toContain("project");
+    await pickOption("Group tasks", "Group by project");
+    const row = container.querySelector<HTMLElement>(
+      'button[data-task-id="first"]',
+    )!;
+    expect(row.textContent).toContain("Blocked");
+    expect(row.textContent).not.toContain("/work/project");
+    await switchView("Board");
+    await pickOption("Group tasks", "Group by project");
+    expect(card("Fix installer").textContent).toContain("Blocked");
+    expect(card("Ship docs").textContent).toContain("Progress");
+    await pickOption("Group tasks", "Group by status");
+    expect(card("Fix installer").textContent).toContain("project");
+  });
+});
+
+describe("task title autosave", () => {
+  it("keeps a trailing space while typing and trims it on blur", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    const title = input("Task title");
+    act(() => title.focus());
+    await change("Task title", "Fix the ");
+    await act(async () => {
+      await tick(450);
+    });
+    expect(rows.get("first")?.title).toBe("Fix the");
+    expect(input("Task title").value).toBe("Fix the ");
+    await act(async () => input("Task title").blur());
+    expect(input("Task title").value).toBe("Fix the");
+  });
+});

@@ -165,6 +165,7 @@ import {
   neighborLeafId,
   newEditorWorkspaceTab,
   newFileTab,
+  newTaskTab,
   newPlanTab,
   newTab,
   newTerminalFile,
@@ -545,6 +546,9 @@ import {
   turnUserRequest,
 } from "../features/sessions/model/secondOpinion";
 
+import { loadTasks, getTask, upsertTask, updateTask, deleteTask, type Task } from "../features/tasks";
+import { TaskManagerHost } from "../features/tasks/ui/TaskManagerHost";
+import { TaskTabActionsContext } from "../features/tasks/ui/TaskTabActionsContext";
 import { PaneTree } from "../features/workspace/ui/PaneTree";
 import { SessionPane } from "../features/sessions/ui/SessionPane";
 import { SessionSurface } from "../features/sessions/ui/SessionSurface";
@@ -8728,6 +8732,7 @@ function Workspace({
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
+      if (document.querySelector("[data-manager-overlay]")) return;
       const target = event.target instanceof Element ? event.target : null;
       const inTerminal = Boolean(target?.closest(".monocode-terminal"));
       const activeTabId = activeTabIdRef.current;
@@ -9387,6 +9392,11 @@ function Workspace({
             worktrees: (cwd) => listWorktrees(cwd),
             createWorktree: (cwd, branch, base, existing) =>
               createWorktree(cwd, branch, base, existing),
+            tasks: loadTasks,
+            task: getTask,
+            saveTask: upsertTask,
+            updateTask,
+            deleteTask,
             notes: () => invoke("notes_list"),
             note: (id) => invoke("notes_get", { id }),
             saveNote: async (note) => {
@@ -9921,6 +9931,26 @@ function Workspace({
       sessionDefaults?.runtimeMode,
     ],
   );
+
+  const onOpenTaskSource = useCallback(async (sessionId: string, blockId?: string) => {
+    if (!(await ensureOpenSession(sessionId))) throw new Error("The source session is no longer available");
+    if (blockId) requestTranscriptJump(sessionId, blockId);
+    await onSelectHistorySession(sessionId);
+  }, [ensureOpenSession, onSelectHistorySession]);
+  const onOpenTaskBeside = useCallback((task: Task) => {
+    const file = newTaskTab(task);
+    const active = tabsRef.current.find((tab) => tab.id === activeTabIdRef.current);
+    if (!active) {
+      const created = newEditorWorkspaceTab(file);
+      setTabs((previous) => insertBesideActive(previous, created, file.projectCwd));
+      setActiveTabId(created.id);
+    } else {
+      setTabs((previous) => previous.map((tab) => tab.id === active.id ? openEditorTab(tab, file, { split: "right", pin: true }) : tab));
+    }
+    setProjectTerminalFocused(false);
+    setComposerFocused(false);
+  }, [insertBesideActive]);
+  const taskTabActions = useMemo(() => ({ onOpenSource: onOpenTaskSource }), [onOpenTaskSource]);
 
   const onOpenNotes = useCallback(() => {
     workspaceNavigation.cancel();
@@ -10884,7 +10914,7 @@ function Workspace({
               onDismissUpdate={() => setUpdateNotice(null)}
             />
 
-            <div className="body-glass flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="body-glass relative flex min-h-0 min-w-0 flex-1 flex-col">
               <div
                 className={
                   searchViewOpen ||
@@ -11000,6 +11030,7 @@ function Workspace({
                             }
                           >
                             <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+                              <TaskTabActionsContext.Provider value={taskTabActions}>
                               <PaneTree
                                 {...sessionPaneProps}
                                 visible={
@@ -11047,6 +11078,7 @@ function Workspace({
                                 onDetachPane={onDetachPane}
                                 onTerminalMetaChange={onTerminalMetaChange}
                               />
+                              </TaskTabActionsContext.Provider>
                             </div>
                           </div>
                         ))}
@@ -11152,6 +11184,7 @@ function Workspace({
                   onToggleSidebar={onToggleSidebar}
                 />
               ) : null}
+              <TaskManagerHost cwd={projectCwd} recents={recents} navigationKey={`${settingsOpen}:${notesViewOpen}:${inboxViewOpen}:${searchViewOpen}:${automationsViewOpen}`} onOpenSource={onOpenTaskSource} onOpenBeside={onOpenTaskBeside} onLaunchTask={async (launch, task, deliveryId) => { await launchQuickSession({ ...launch, draft: false, reveal: true }, deliveryId); await updateTask(task.id, { status: "in_progress" }); }} />
               {automationsViewOpen ? (
                 <AutomationsView
                   besideRail={projectRailOpen || compactProjectRail}
@@ -11416,7 +11449,9 @@ function toTitleTab(
   const files: string[] = [];
   const seenKeys = new Set<string>();
   const pushFile = (file: FilePaneTab) => {
-    const key = file.terminal
+    const key = file.task
+      ? `task:${file.task.taskId}`
+      : file.terminal
       ? `terminal:${file.id}`
       : file.plan
         ? `plan:${file.plan.blockId}`
@@ -11426,7 +11461,7 @@ function toTitleTab(
     if (seenKeys.has(key)) return;
     seenKeys.add(key);
     files.push(
-      file.plan?.title?.trim() ||
+      file.task?.title?.trim() || file.plan?.title?.trim() ||
         (file.releaseNotes
           ? releaseNotesTitle(file.releaseNotes.version)
           : file.terminal

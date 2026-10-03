@@ -63,6 +63,7 @@ import {
   type AddToChatRequest,
   type QuoteRequest,
 } from "../model/quoteDraft";
+import { createTask } from "../../tasks";
 import { createNote, noteTitle } from "../../notes";
 import {
   loadNotesEnabled,
@@ -528,6 +529,16 @@ const LocalSessionPane = memo(function LocalSessionPane({
     [session.cwd, session.id],
   );
 
+  const saveSelectionTask = useCallback(async (text: string, blockId?: string) => {
+    await createTask({
+      body: text,
+      status: "todo",
+      projectCwd: looksLikeProject(session.cwd) ? session.cwd : undefined,
+      sourceSessionId: session.id,
+      sourceBlockId: blockId,
+    });
+  }, [session.cwd, session.id]);
+
   useEffect(() => {
     if (!addToChatTarget) return;
     const onAdd = (event: Event) => {
@@ -853,6 +864,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
                       ? (block) => onRemoveDraft(session.id, block.id)
                       : undefined
                   }
+                  onSaveSelectionTask={saveSelectionTask}
                   onSaveSelectionNote={
                     notesEnabled ? saveSelectionNote : undefined
                   }

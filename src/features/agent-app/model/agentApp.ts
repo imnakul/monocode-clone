@@ -1,3 +1,4 @@
+import { filterTasks, localDay, parseTaskStatus, taskStatus, type Task, type TaskUpsert, type TaskChanges, type TaskFilters } from "../../tasks";
 import { isHarnessAvailable } from "../../../integrations/harness/core/availability";
 import { looksLikeProject } from "../../projects/model/recents";
 import {
@@ -72,6 +73,11 @@ export type AgentAppHost = {
     base: string,
     existing: boolean,
   ): Promise<Worktree>;
+  tasks?(): Promise<Task[]>;
+  task?(id: string): Promise<Task | null>;
+  saveTask?(task: TaskUpsert): Promise<Task>;
+  updateTask?(id: string, changes: TaskChanges): Promise<Task>;
+  deleteTask?(id: string): Promise<void>;
   notes(): Promise<Note[]>;
   note(id: string): Promise<Note | null>;
   saveNote(note: NoteUpsert): Promise<Note>;
@@ -105,6 +111,10 @@ const FIELDS = new Map<string, readonly string[]>([
   ["worktrees.create", ["branch", "base", "existing"]],
   ["folders.list", []],
   ["folders.move", ["sessionId", "folderId", "newFolderName"]],
+  ["tasks.list", ["status", "statuses", "tags", "tagMatch", "projectCwd", "query", "archived", "focus", "limit", "offset"]],
+  ["tasks.read", ["id"]],
+  ["tasks.write", ["id", "title", "body", "status", "tags", "projectCwd", "sourceSessionId", "sourceBlockId", "focusDate", "archived"]],
+  ["tasks.delete", ["id"]],
   ["notes.list", ["limit", "offset"]],
   ["notes.read", ["id"]],
   ["notes.write", ["id", "title", "body", "tags"]],
@@ -281,6 +291,19 @@ function startLaunch(
   };
 }
 
+function taskId(value: unknown): string {
+  const id = requiredString(value, "id", 256);
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error("Invalid task/session ID");
+  return id;
+}
+function taskProject(value: unknown): string | null {
+  if (value === null) return null;
+  const path = requiredString(value, "projectCwd", 4096);
+  if (new TextEncoder().encode(path).length > 4096 || /[\u0000-\u001f\u007f]/.test(path) || !looksLikeProject(path))
+    throw new Error("projectCwd must be a project path, or null for Personal");
+  return path;
+}
+
 export async function handleAgentApp(
   source: Session,
   requestId: string,
@@ -452,6 +475,121 @@ export async function handleAgentApp(
       saveSessionFolders(cwd, next);
       const folder = next.find((entry) => entry.sessionIds.includes(sessionId));
       return { sessionId, folderId: folder?.id, folderName: folder?.name };
+    }
+    case "tasks.list": {
+      if (!host.tasks) throw new Error("Tasks are unavailable in this app");
+      if (input.status !== undefined && input.statuses !== undefined)
+        throw new Error("Use status or statuses, not both");
+      const filters: TaskFilters = {};
+      if (input.status !== undefined) filters.statuses = [taskStatus(input.status)];
+      if (input.statuses !== undefined) {
+        if (!Array.isArray(input.statuses) || input.statuses.length > 7)
+          throw new Error("statuses must be an array of up to seven task statuses");
+        filters.statuses = input.statuses.map(taskStatus);
+      }
+      if (input.tags !== undefined) filters.tags = noteTags(input.tags);
+      if (input.tagMatch !== undefined) {
+        if (input.tagMatch !== "all" && input.tagMatch !== "any")
+          throw new Error("tagMatch must be all or any");
+        filters.tagMatch = input.tagMatch;
+      }
+      if (input.projectCwd !== undefined) filters.projectCwd = taskProject(input.projectCwd);
+      if (input.query !== undefined) {
+        if (typeof input.query !== "string" || input.query.length > 1000)
+          throw new Error("query must be a string under 1000 characters");
+        filters.query = input.query;
+      }
+      if (input.archived !== undefined) {
+        if (input.archived !== true && input.archived !== false && input.archived !== "all")
+          throw new Error('archived must be true, false or "all"');
+        filters.archived = input.archived;
+      }
+      if (input.focus !== undefined) {
+        if (typeof input.focus !== "boolean") throw new Error("focus must be true or false");
+        if (input.focus) filters.focusDay = localDay();
+      }
+      const limit = input.limit ?? 30, offset = input.offset ?? 0;
+      if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 100)
+        throw new Error("limit must be an integer from 1 to 100");
+      if (!Number.isInteger(offset) || (offset as number) < 0)
+        throw new Error("offset must be a non-negative integer");
+      const rows = filterTasks(await host.tasks(), filters);
+      return { total: rows.length, offset, tasks: rows.slice(offset as number, (offset as number) + (limit as number))
+        .map(({ body, ...task }) => ({ ...task, preview: notePreview(body) })) };
+    }
+    case "tasks.read": {
+      if (!host.task) throw new Error("Tasks are unavailable in this app");
+      const task = await host.task(taskId(input.id));
+      if (!task) throw new Error("Task was not found");
+      return task;
+    }
+    case "tasks.delete": {
+      if (!host.deleteTask) throw new Error("Tasks are unavailable in this app");
+      const id = taskId(input.id);
+      await host.deleteTask(id);
+      return { id, deleted: true };
+    }
+    case "tasks.write": {
+      if (!host.task || !host.saveTask || !host.updateTask)
+        throw new Error("Tasks are unavailable in this app");
+      const id = input.id === undefined ? undefined : taskId(input.id);
+      const changes: TaskChanges = {};
+      if (input.title !== undefined) changes.title = requiredString(input.title, "title", 200);
+      if (input.body !== undefined) changes.body = noteBody(input.body);
+      if (input.status !== undefined) {
+        // Retired names still work: draft → todo, deferred → archived todo.
+        const parsed = parseTaskStatus(input.status);
+        changes.status = parsed.status;
+        if (parsed.archive) changes.archived = true;
+      }
+      if (input.archived !== undefined) {
+        if (typeof input.archived !== "boolean") throw new Error("archived must be true or false");
+        changes.archived = input.archived;
+      }
+      if (input.focusDate !== undefined) {
+        if (input.focusDate !== null && (typeof input.focusDate !== "string" || !/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(input.focusDate)))
+          throw new Error("focusDate must be YYYY-MM-DD or null");
+        changes.focusDate = input.focusDate;
+      }
+      if (input.tags !== undefined) changes.tags = noteTags(input.tags);
+      if (input.projectCwd !== undefined) changes.projectCwd = taskProject(input.projectCwd);
+      if (input.sourceSessionId !== undefined) changes.sourceSessionId = input.sourceSessionId === null ? null : taskId(input.sourceSessionId);
+      if (input.sourceBlockId === null) changes.sourceBlockId = null;
+      else if (input.sourceBlockId !== undefined) {
+        const block = requiredString(input.sourceBlockId, "sourceBlockId", 512);
+        if (new TextEncoder().encode(block).length > 512 || /[\u0000-\u001f\u007f]/.test(block)) throw new Error("Invalid sourceBlockId");
+        changes.sourceBlockId = block;
+      }
+      if (id) {
+        if (!Object.keys(changes).length) throw new Error("Supply fields to update a task");
+        return host.updateTask(id, changes);
+      }
+      if (changes.title === undefined && changes.body === undefined)
+        throw new Error("Supply title or body to create a task");
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(requestId)) throw new Error("Invalid request ID");
+      const created: TaskUpsert = {
+        id: `app-${source.id}-${requestId}`,
+        title: changes.title ?? noteTitle(changes.body ?? ""),
+        body: changes.body ?? "",
+        status: changes.status ?? "todo",
+        tags: changes.tags ?? [],
+        projectCwd: changes.projectCwd === null ? undefined : changes.projectCwd ?? (looksLikeProject(source.cwd) ? source.cwd : undefined),
+        sourceSessionId: changes.sourceSessionId === null ? undefined : changes.sourceSessionId ?? source.id,
+        sourceBlockId: changes.sourceBlockId ?? undefined,
+        ...(changes.focusDate ? { focusDate: changes.focusDate } : {}),
+        ...(changes.archived ? { archived: true } : {}),
+      };
+      const existing = await host.task(created.id);
+      if (existing) {
+        const { archived, ...fields } = created;
+        if (
+          Object.entries(fields).some(([key, value]) => JSON.stringify(existing[key as keyof Task]) !== JSON.stringify(value)) ||
+          Boolean(archived) !== (existing.archivedAt !== undefined)
+        )
+          throw new Error("Request ID was already used for another task");
+        return existing;
+      }
+      return host.saveTask(created);
     }
     case "notes.list": {
       const limit = input.limit ?? 30;

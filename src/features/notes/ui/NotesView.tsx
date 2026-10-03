@@ -961,7 +961,8 @@ function NoteEditor({
   );
 }
 
-function NoteSource({
+export function NoteSource({
+  label = "Note Markdown",
   value,
   onChange,
   textareaRef,
@@ -970,6 +971,7 @@ function NoteSource({
   value: string;
   onChange: (value: string) => void;
   textareaRef: { current: HTMLTextAreaElement | null };
+  label?: string;
   autoFocus?: boolean;
 }) {
   const lines = value.split("\n");
@@ -1002,6 +1004,7 @@ function NoteSource({
         style={{ left: gutterWidth }}
       />
       <textarea
+        aria-label={label}
         ref={textareaRef}
         value={value}
         autoFocus={autoFocus}
@@ -1015,11 +1018,13 @@ function NoteSource({
   );
 }
 
-function NoteTagsEditor({
+export function NoteTagsEditor({
+  label = "Add note tag",
   tags,
   onChange,
 }: {
   tags: string[];
+  label?: string;
   onChange: (tags: string[]) => void;
 }) {
   const [value, setValue] = useState("");
@@ -1074,7 +1079,7 @@ function NoteTagsEditor({
               onChange(tags.slice(0, -1));
             }
           }}
-          aria-label="Add note tag"
+          aria-label={label}
           placeholder="Add tag…"
           spellCheck={false}
           autoComplete="off"

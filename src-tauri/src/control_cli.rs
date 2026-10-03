@@ -82,7 +82,7 @@ const ACTIONS: [&str; 12] = [
     "list", "delegate", "get", "steer", "message", "retry", "cancel", "wait", "review", "finish",
     "respond", "answer",
 ];
-const APP_ACTIONS: [&str; 13] = [
+const APP_ACTIONS: &[&str] = &[
     "models.list",
     "sessions.list",
     "sessions.read",
@@ -93,6 +93,10 @@ const APP_ACTIONS: [&str; 13] = [
     "worktrees.create",
     "folders.list",
     "folders.move",
+    "tasks.list",
+    "tasks.read",
+    "tasks.write",
+    "tasks.delete",
     "notes.list",
     "notes.read",
     "notes.write",
@@ -153,6 +157,36 @@ Actions:
                   to derive it from the body. Use {"id":"...","body":"..."}
                   to edit an existing note; title and tags are also optional.
                   Omitted fields stay unchanged. Reuse --request-id on retries.
+  tasks.list     {"statuses":["todo","in_progress"],
+                  "tags":["work"],"tagMatch":"all","projectCwd":null,
+                  "query":"release","limit":30,"offset":0}
+                  Filter by either status or statuses (statuses is OR), tags
+                  (all by default, or any), projectCwd, and query over
+                  title/body/tags/project labels.
+                  Filter categories combine with AND. Omit projectCwd for all
+                  projects; use null for Personal. Archived tasks are left out
+                  unless "archived":true (only archived) or "archived":"all".
+                  "focus":true keeps today's focus (created today or focusDate
+                  today). Returns total, offset and task summaries; use
+                  tasks.read for the full Markdown body.
+  tasks.read     {"id":"..."}  Read one task, including its Markdown body.
+  tasks.write    {"id":"...","title":"Plan","body":"Markdown",
+                  "status":"todo","tags":["work"],"projectCwd":null,
+                  "focusDate":"2026-10-03","archived":false,
+                  "sourceSessionId":"...","sourceBlockId":"..."}
+                  Create or edit a task. Status values: todo, in_progress
+                  (Progress), blocked, review, completed. Old names draft and
+                  deferred are accepted and saved as todo (deferred also
+                  archives). focusDate (YYYY-MM-DD, local day) pins a task to
+                  that day's Focus; null clears it. archived hides a task
+                  without changing its status.
+                  Completing records a completion time; reopening clears it.
+                  New tasks default to Todo and this
+                  project when omitted; sourceSessionId defaults to this
+                  session. Existing tasks accept partial fields;
+                  omitted fields stay unchanged. Use null for Personal or to
+                  clear source links. Reuse --request-id on retries.
+  tasks.delete   {"id":"..."}  Delete one task.
 
 The output is one JSON line: {"ok":true,"result":...} or {"ok":false,"error":"..."}.
 Use --input - to pass JSON on stdin. Never print MonoCode credentials.

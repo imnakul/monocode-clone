@@ -1,3 +1,4 @@
+import { openTaskManager } from "../../features/tasks/ui/TaskManagerHost";
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -155,6 +156,9 @@ export function MenuBar({
           break;
         case "open_search":
           onSearch?.();
+          break;
+        case "open_tasks":
+          openTaskManager();
           break;
         case "open_inbox":
           onOpenInbox?.();
@@ -330,6 +334,7 @@ export function MenuBar({
             ),
           },
           { kind: "item", id: "open_inbox", label: "Inbox" },
+          { kind: "item", id: "open_tasks", label: "Task Manager" },
           ...(onOpenNotes
             ? [{ kind: "item" as const, id: "open_notes", label: "Notes" }]
             : []),

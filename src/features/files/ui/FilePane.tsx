@@ -14,6 +14,7 @@ import {
   isReleaseNotesTab,
   isReviewTab,
   isSessionChangesTab,
+  isTaskTab,
   isTerminalTab,
   type EditorPane,
   type FilePaneTab,
@@ -46,6 +47,10 @@ const FileEditor = lazySurface(async () => {
 const SessionChangesDiff = lazySurface(async () => {
   const module = await import("../../source-control/ui/SessionChangesDiff");
   return { default: module.SessionChangesDiff };
+});
+const TaskTabSurface = lazySurface(async () => {
+  const module = await import("../../tasks/ui/TaskTabSurface");
+  return { default: module.TaskTabSurface };
 });
 const TerminalView = lazySurface(async () => {
   const module = await import("../../terminal/ui/TerminalView");
@@ -200,6 +205,11 @@ function FilePaneComponent({
                 />
               ) : isReleaseNotesTab(file) ? (
                 <ReleaseNotesSurface source={file.releaseNotes} />
+              ) : isTaskTab(file) ? (
+                <TaskTabSurface
+                  source={file.task}
+                  projectCwd={file.projectCwd}
+                />
               ) : isTerminalTab(file) ? (
                 <TerminalView
                   id={file.id}

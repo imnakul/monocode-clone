@@ -17,9 +17,13 @@ type MenuAction = {
   label: string;
   description?: string;
   shortcut?: string;
+  /** Optional item count shown right-aligned and muted. */
+  count?: number;
   disabled?: boolean;
   danger?: boolean;
   checked?: boolean;
+  /** Optional leading icon. */
+  icon?: ReactNode;
 };
 
 export type ExplorerMenuItem =
@@ -195,6 +199,9 @@ export function ExplorerMenu({
         data-menu-index={index}
         type="button"
         role={item.checked == null ? "menuitem" : "menuitemcheckbox"}
+        aria-label={
+          item.count !== undefined ? `${item.label}, ${item.count}` : undefined
+        }
         aria-checked={item.checked}
         aria-haspopup={hasSubmenu ? "menu" : undefined}
         aria-expanded={hasSubmenu ? submenu?.index === index : undefined}
@@ -243,14 +250,29 @@ export function ExplorerMenu({
                 : "text-content hover:bg-content/5"
         }`}
       >
+        {item.icon ? (
+          <span
+            aria-hidden
+            className="-mr-1 grid size-4 shrink-0 place-items-center text-content/60"
+          >
+            {item.icon}
+          </span>
+        ) : null}
         <span className="min-w-0 flex-1">
-          <span className="block truncate">{item.label}</span>
+          <span data-menu-label className="block truncate">
+            {item.label}
+          </span>
           {item.description ? (
             <span className="mt-1 block text-[11px] leading-snug text-content/50">
               {item.description}
             </span>
           ) : null}
         </span>
+        {item.count !== undefined ? (
+          <span className="shrink-0 text-[11px] tabular-nums text-content/40">
+            {item.count}
+          </span>
+        ) : null}
         {hasSubmenu ? (
           <ChevronRight
             className="size-3.5 shrink-0 text-content/50"

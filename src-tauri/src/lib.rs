@@ -39,6 +39,7 @@ mod search;
 mod session_store;
 mod skills;
 pub mod ssh_askpass;
+mod tasks;
 #[cfg(target_os = "windows")]
 mod tray;
 mod window;
@@ -474,6 +475,10 @@ pub fn run() {
             session_store::session_take_in_flight,
             session_store::workspace_set_snapshot,
             session_store::workspace_get_snapshot,
+            tasks::tasks_list,
+            tasks::tasks_get,
+            tasks::tasks_upsert,
+            tasks::tasks_delete,
             notes::notes_list,
             notes::notes_get,
             notes::notes_upsert,
