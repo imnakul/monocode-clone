@@ -115,27 +115,29 @@ it("toggles configured duplicate server rows by their full identity", async () =
     enabled: false,
   };
   let configured = [userServer, projectServer];
-  invoke.mockImplementation(async (command: string, args: Record<string, string>) => {
-    if (command === "mcp_discover") return configured;
-    if (command === "claude_mcp_list") return "";
-    if (command === "mcp_set_enabled") {
-      configured = configured.map((server) =>
-        server.scope === args.scope && server.configPath === args.configPath
-          ? { ...server, enabled: args.enabled as unknown as boolean }
-          : server,
-      );
+  invoke.mockImplementation(
+    async (command: string, args: Record<string, string>) => {
+      if (command === "mcp_discover") return configured;
+      if (command === "claude_mcp_list") return "";
+      if (command === "mcp_set_enabled") {
+        configured = configured.map((server) =>
+          server.scope === args.scope && server.configPath === args.configPath
+            ? { ...server, enabled: args.enabled as unknown as boolean }
+            : server,
+        );
+        return undefined;
+      }
       return undefined;
-    }
-    return undefined;
-  });
+    },
+  );
   await act(async () =>
     root.render(createElement(McpSettings, { cwd: "/repo" })),
   );
   const userToggle = container.querySelector<HTMLButtonElement>(
-    '[aria-label="Enable docs (Claude Code, user, /home/.claude.json)"]',
+    '[aria-label$="docs (Claude Code, user, /home/.claude.json)"]',
   )!;
   const projectToggle = container.querySelector<HTMLButtonElement>(
-    '[aria-label="Enable docs (Claude Code, project, /repo/.mcp.json)"]',
+    '[aria-label$="docs (Claude Code, project, /repo/.mcp.json)"]',
   )!;
   expect(userToggle.getAttribute("aria-checked")).toBe("true");
   expect(projectToggle.getAttribute("aria-checked")).toBe("false");
@@ -151,14 +153,14 @@ it("toggles configured duplicate server rows by their full identity", async () =
   expect(
     container
       .querySelector<HTMLButtonElement>(
-        '[aria-label="Enable docs (Claude Code, user, /home/.claude.json)"]',
+        '[aria-label$="docs (Claude Code, user, /home/.claude.json)"]',
       )
       ?.getAttribute("aria-checked"),
   ).toBe("false");
   expect(
     container
       .querySelector<HTMLButtonElement>(
-        '[aria-label="Enable docs (Claude Code, project, /repo/.mcp.json)"]',
+        '[aria-label$="docs (Claude Code, project, /repo/.mcp.json)"]',
       )
       ?.getAttribute("aria-checked"),
   ).toBe("false");
@@ -194,25 +196,159 @@ it("keeps a failed server toggle local to the matching duplicate row", async () 
     root.render(createElement(McpSettings, { cwd: "/repo" })),
   );
   const projectToggle = container.querySelector<HTMLButtonElement>(
-    '[aria-label="Enable docs (Codex, project, /repo/.codex/config.toml)"]',
+    '[aria-label$="docs (Codex, project, /repo/.codex/config.toml)"]',
   )!;
   const userToggle = container.querySelector<HTMLButtonElement>(
-    '[aria-label="Enable docs (Codex, user, /home/.codex/config.toml)"]',
+    '[aria-label$="docs (Codex, user, /home/.codex/config.toml)"]',
   )!;
   await act(async () => projectToggle.click());
   expect(discover).toHaveBeenCalledTimes(1);
   const alerts = [...container.querySelectorAll<HTMLElement>('[role="alert"]')];
   expect(alerts).toHaveLength(1);
   expect(alerts[0].textContent).toContain("Config is read-only");
-  const projectRow = [...container.querySelectorAll(".overflow-hidden > div")].find(
-    (row) => row.textContent?.includes("/repo/.codex/config.toml"),
-  );
-  const userRow = [...container.querySelectorAll(".overflow-hidden > div")].find(
-    (row) => row.textContent?.includes("/home/.codex/config.toml"),
-  );
+  const projectRow = [
+    ...container.querySelectorAll(".overflow-hidden > div"),
+  ].find((row) => row.textContent?.includes("/repo/.codex/config.toml"));
+  const userRow = [
+    ...container.querySelectorAll(".overflow-hidden > div"),
+  ].find((row) => row.textContent?.includes("/home/.codex/config.toml"));
   expect(projectRow?.querySelector('[role="alert"]')).not.toBeNull();
   expect(userRow?.querySelector('[role="alert"]')).toBeNull();
   expect(projectToggle.getAttribute("aria-checked")).toBe("true");
+});
+
+function deferred<T = void>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
+const playwright = {
+  provider: "claude",
+  name: "playwright",
+  scope: "user",
+  configPath: "/home/.claude.json",
+  transport: "stdio",
+  enabled: true,
+};
+
+function playwrightRow(): HTMLElement {
+  return container.querySelector<HTMLElement>("[data-mcp-enabled]")!;
+}
+
+function playwrightSwitch(): HTMLButtonElement {
+  return playwrightRow().querySelector<HTMLButtonElement>('[role="switch"]')!;
+}
+
+it("labels each switch by its state and mutes disabled servers", async () => {
+  invoke.mockImplementation(async (command: string) =>
+    command === "mcp_discover"
+      ? [playwright, { ...playwright, name: "docs", enabled: false }]
+      : command === "claude_mcp_list"
+        ? ""
+        : undefined,
+  );
+  await act(async () =>
+    root.render(createElement(McpSettings, { cwd: "/repo" })),
+  );
+  const rows = [
+    ...container.querySelectorAll<HTMLElement>("[data-mcp-enabled]"),
+  ];
+  const on = rows.find((row) => row.dataset.mcpEnabled === "true")!;
+  const off = rows.find((row) => row.dataset.mcpEnabled === "false")!;
+  expect(on.textContent).toContain("playwright");
+  expect(on.textContent).toContain("On");
+  expect(on.textContent).not.toContain("Off");
+  expect(
+    on.querySelector('[role="switch"]')!.getAttribute("aria-label"),
+  ).toMatch(/^Disable playwright /);
+  expect(
+    on.querySelector('[role="switch"]')!.getAttribute("aria-checked"),
+  ).toBe("true");
+  expect(off.textContent).toContain("Off");
+  expect(
+    off.querySelector('[role="switch"]')!.getAttribute("aria-label"),
+  ).toMatch(/^Enable docs /);
+  expect(off.querySelector(".text-content\\/45")?.textContent).toBe("docs");
+  expect(on.querySelector(".text-content\\/45")?.textContent).not.toBe(
+    "playwright",
+  );
+  expect(off.textContent).toContain("Disabled");
+});
+
+it("flips a switch in place without replacing the list or showing the loading state", async () => {
+  let enabled = true;
+  const write = deferred();
+  const rediscover = deferred();
+  let discoveries = 0;
+  invoke.mockImplementation(async (command: string) => {
+    if (command === "mcp_discover") {
+      discoveries += 1;
+      if (discoveries > 1) await rediscover.promise;
+      return [{ ...playwright, enabled }];
+    }
+    if (command === "mcp_set_enabled") {
+      await write.promise;
+      enabled = false;
+      return undefined;
+    }
+    return command === "claude_mcp_list" ? "" : undefined;
+  });
+  await act(async () =>
+    root.render(createElement(McpSettings, { cwd: "/repo" })),
+  );
+  const row = playwrightRow();
+  await act(async () => playwrightSwitch().click());
+  // Requested state and a per-row pending marker, never the page loading state.
+  expect(container.textContent).not.toContain("Checking servers");
+  expect(playwrightRow()).toBe(row);
+  expect(row.dataset.mcpEnabled).toBe("false");
+  expect(row.textContent).toContain("Saving…");
+  expect(playwrightSwitch().disabled).toBe(true);
+  await act(async () => write.resolve());
+  // The background refresh is still running: the row keeps the new state.
+  expect(container.textContent).not.toContain("Checking servers");
+  expect(playwrightRow()).toBe(row);
+  expect(row.dataset.mcpEnabled).toBe("false");
+  expect(row.textContent).toContain("Off");
+  await act(async () => rediscover.resolve());
+  expect(container.textContent).not.toContain("Checking servers");
+  expect(playwrightRow()).toBe(row);
+  expect(row.dataset.mcpEnabled).toBe("false");
+  expect(row.textContent).toContain("Disabled");
+  expect(playwrightSwitch().getAttribute("aria-label")).toMatch(
+    /^Enable playwright /,
+  );
+  expect(playwrightSwitch().disabled).toBe(false);
+});
+
+it("reverts only that row and shows its error when the change fails", async () => {
+  const write = deferred();
+  invoke.mockImplementation(async (command: string) => {
+    if (command === "mcp_discover") return [playwright];
+    if (command === "mcp_set_enabled") return write.promise;
+    return command === "claude_mcp_list" ? "" : undefined;
+  });
+  await act(async () =>
+    root.render(createElement(McpSettings, { cwd: "/repo" })),
+  );
+  const row = playwrightRow();
+  await act(async () => playwrightSwitch().click());
+  expect(row.dataset.mcpEnabled).toBe("false");
+  await act(async () => write.reject(new Error("Config is read-only")));
+  expect(container.textContent).not.toContain("Checking servers");
+  expect(playwrightRow()).toBe(row);
+  expect(row.dataset.mcpEnabled).toBe("true");
+  expect(row.textContent).toContain("On");
+  expect(row.querySelector('[role="alert"]')?.textContent).toContain(
+    "Config is read-only",
+  );
+  expect(playwrightSwitch().getAttribute("aria-checked")).toBe("true");
+  expect(playwrightSwitch().disabled).toBe(false);
 });
 
 it("refreshes user-scope enablement when switching to another project", async () => {
@@ -245,20 +381,20 @@ it("refreshes user-scope enablement when switching to another project", async ()
     ),
   );
   const repoToggle = container.querySelector<HTMLButtonElement>(
-    '[aria-label="Enable docs (Codex, user, /home/.codex/config.toml)"]',
+    '[aria-label$="docs (Codex, user, /home/.codex/config.toml)"]',
   )!;
   expect(repoToggle.getAttribute("aria-checked")).toBe("true");
   await act(async () => repoToggle.click());
   expect(
     container
       .querySelector<HTMLButtonElement>(
-        '[aria-label="Enable docs (Codex, user, /home/.codex/config.toml)"]',
+        '[aria-label$="docs (Codex, user, /home/.codex/config.toml)"]',
       )
       ?.getAttribute("aria-checked"),
   ).toBe("false");
   await selectProject("/other");
   const otherToggle = container.querySelector<HTMLButtonElement>(
-    '[aria-label="Enable docs (Codex, user, /home/.codex/config.toml)"]',
+    '[aria-label$="docs (Codex, user, /home/.codex/config.toml)"]',
   )!;
   expect(otherToggle.getAttribute("aria-checked")).toBe("false");
   expect(invoke).toHaveBeenCalledWith("mcp_discover", { cwd: "/other" });

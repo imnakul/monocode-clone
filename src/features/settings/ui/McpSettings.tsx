@@ -15,7 +15,7 @@ import { SearchableProjectPicker } from "../../projects/ui/SearchableProjectPick
 import type { RecentProject } from "../../projects/model/recents";
 import { Modal } from "../../../shared/ui/Modal";
 import { Popover } from "../../../shared/ui/Popover";
-import { Toggle } from "../../../shared/ui/Toggle";
+import { SettingsToggle as Toggle } from "./SettingsToggle";
 import { LAYER } from "../../../shared/lib/layers";
 import {
   Globe,
@@ -62,6 +62,9 @@ function serverRowIdentity(server: ServerRow): string {
     server.name,
   ]);
 }
+
+/** A switch the user flipped: the requested state, until the refresh lands. */
+type RowToggle = { enabled: boolean; pending: boolean };
 
 function serverCanBeToggled(server: ServerRow): boolean {
   return (
@@ -356,6 +359,9 @@ function McpConnections({
   const [showAllProviders, setShowAllProviders] = useState(false);
   const [loading, setLoading] = useState(!cached);
   const [busy, setBusy] = useState<string | null>(null);
+  // Switches update in place: the row shows the requested state at once, with
+  // a small pending marker, while the list refreshes quietly in the background.
+  const [toggles, setToggles] = useState<Record<string, RowToggle>>({});
   const [toggleErrors, setToggleErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState(cached?.error ?? "");
   const [claudeError, setClaudeError] = useState(cached?.claudeError ?? "");
@@ -376,7 +382,7 @@ function McpConnections({
   );
 
   const refresh = useCallback(
-    async (force = true) => {
+    async (force = true, quiet = false) => {
       const generation = ++refreshGeneration.current;
       const previous = getCachedMcpSettings(cwd);
       if (!force) {
@@ -384,7 +390,8 @@ function McpConnections({
         setError(previous?.error ?? "");
         setClaudeError(previous?.claudeError ?? "");
       }
-      setLoading(force || !previous);
+      // A quiet refresh never swaps the list for the loading message.
+      if (!quiet) setLoading(force || !previous);
       const snapshot = await loadMcpSettings(cwd, force);
       if (generation === refreshGeneration.current) {
         applySnapshot(getCachedMcpSettings(cwd) ?? snapshot);
@@ -464,11 +471,16 @@ function McpConnections({
     server: ServerRow,
     enabled: boolean,
   ): Promise<void> {
-    if (!serverCanBeToggled(server) || busy !== null) return;
+    if (!serverCanBeToggled(server)) return;
     const identity = serverRowIdentity(server);
-    setBusy(identity);
-    setError("");
+    if (toggles[identity]?.pending) return;
+    setToggles((current) => ({
+      ...current,
+      [identity]: { enabled, pending: true },
+    }));
     setToggleErrors((current) => ({ ...current, [identity]: "" }));
+    const settle = (): void =>
+      setToggles(({ [identity]: _settled, ...rest }) => rest);
     try {
       await invoke("mcp_set_enabled", {
         cwd,
@@ -478,16 +490,22 @@ function McpConnections({
         name: server.name,
         enabled,
       });
-      clearMcpSettingsCache();
-      await refresh();
     } catch (cause) {
+      // Revert just this row and show its error.
+      settle();
       setToggleErrors((current) => ({
         ...current,
         [identity]: String(cause),
       }));
-    } finally {
-      setBusy(null);
+      return;
     }
+    setToggles((current) => ({
+      ...current,
+      [identity]: { enabled, pending: false },
+    }));
+    clearMcpSettingsCache();
+    // Keep showing the requested state until the discovered one arrives.
+    await refresh(true, true).finally(settle);
   }
 
   return (
@@ -594,111 +612,129 @@ function McpConnections({
         </p>
       ) : (
         <div className="overflow-hidden rounded-xl border border-content/10 bg-content/3">
-          {visible.map((server) => (
-            <div
-              key={serverRowIdentity(server)}
-              className="flex flex-wrap items-center gap-3 border-b border-content/5 px-4 py-3.5 last:border-b-0"
-            >
-              <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-content/[0.05] ring-1 ring-inset ring-content/[0.06]">
-                <ProviderIcon provider={server.provider} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium text-content">
-                  {server.name}
-                </div>
-                <div className="mt-1 text-[12px] leading-relaxed text-content/45">
-                  {MCP_PROVIDER_LABELS[server.provider]} · {server.scope} ·{" "}
-                  {server.transport || "MCP"} · {server.status}
-                </div>
-                {server.configPath ? (
-                  <div
-                    className="truncate text-[11px] text-content/35"
-                    title={server.configPath}
-                  >
-                    {server.configPath}
-                  </div>
-                ) : null}
-                {toggleErrors[serverRowIdentity(server)] ? (
-                  <div role="alert" className="mt-1 text-[11px] text-red-400">
-                    {toggleErrors[serverRowIdentity(server)]}
-                  </div>
-                ) : null}
-              </div>
-              {serverCanBeToggled(server) ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-content/55">Enabled</span>
-                  <Toggle
-                    label={`Enable ${server.name} (${MCP_PROVIDER_LABELS[server.provider]}, ${server.scope}${server.configPath ? `, ${server.configPath}` : ""})`}
-                    on={server.enabled !== false}
-                    onChange={(enabled) => void setEnabled(server, enabled)}
-                    disabled={busy !== null || loading}
-                  />
-                </div>
-              ) : (
-                <span className="max-w-44 text-[11px] text-content/45">
-                  {server.configPath
-                    ? `Enable control unavailable for ${MCP_PROVIDER_LABELS[server.provider]}.`
-                    : "Enable control unavailable because no local config path was found."}
+          {visible.map((server) => {
+            const identity = serverRowIdentity(server);
+            const toggle = toggles[identity];
+            const on = toggle ? toggle.enabled : server.enabled !== false;
+            const toggleable = serverCanBeToggled(server);
+            return (
+              <div
+                key={identity}
+                data-mcp-enabled={toggleable ? String(on) : undefined}
+                className="flex flex-wrap items-center gap-3 border-b border-content/5 px-4 py-3.5 last:border-b-0"
+              >
+                <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-content/[0.05] ring-1 ring-inset ring-content/[0.06]">
+                  <ProviderIcon provider={server.provider} />
                 </span>
-              )}
-              {server.provider !== "claude_desktop" &&
-              server.transport &&
-              !["stdio", "local", "ws"].includes(server.transport) ? (
-                <button
-                  type="button"
-                  disabled={busy !== null}
-                  onClick={() => void login(server)}
-                  className="rounded-md border border-stroke px-2 py-1 text-xs hover:bg-content/5 disabled:opacity-50"
-                >
-                  Sign in
-                </button>
-              ) : null}
-              {server.provider === "claude" ? (
-                <>
-                  {!server.configPath ? (
-                    <label className="text-xs text-content/55">
-                      Scope{" "}
-                      <select
-                        aria-label={`Scope to remove ${server.name} from`}
-                        value={removeScopes[server.name] ?? "local"}
-                        onChange={(event) =>
-                          setRemoveScopes((current) => ({
-                            ...current,
-                            [server.name]: event.target.value as Scope,
-                          }))
-                        }
-                        className="rounded border border-stroke bg-background-base px-1 py-1 text-content"
-                      >
-                        <option value="local">Local</option>
-                        <option value="project">Project</option>
-                        <option value="user">User</option>
-                      </select>
-                    </label>
+                <div className="min-w-0 flex-1">
+                  <div
+                    className={`text-[13px] font-medium ${
+                      toggleable && !on ? "text-content/45" : "text-content"
+                    }`}
+                  >
+                    {server.name}
+                  </div>
+                  <div className="mt-1 text-[12px] leading-relaxed text-content/45">
+                    {MCP_PROVIDER_LABELS[server.provider]} · {server.scope} ·{" "}
+                    {server.transport || "MCP"} · {server.status}
+                  </div>
+                  {server.configPath ? (
+                    <div
+                      className="truncate text-[11px] text-content/35"
+                      title={server.configPath}
+                    >
+                      {server.configPath}
+                    </div>
                   ) : null}
+                  {toggleErrors[identity] ? (
+                    <div role="alert" className="mt-1 text-[11px] text-red-400">
+                      {toggleErrors[identity]}
+                    </div>
+                  ) : null}
+                </div>
+                {toggleable ? (
+                  <div className="flex items-center gap-2">
+                    <span
+                      aria-live="polite"
+                      className={`w-12 text-right text-[11px] ${
+                        on ? "text-content/70" : "text-content/45"
+                      }`}
+                    >
+                      {toggle?.pending ? "Saving…" : on ? "On" : "Off"}
+                    </span>
+                    <Toggle
+                      label={`${on ? "Disable" : "Enable"} ${server.name} (${MCP_PROVIDER_LABELS[server.provider]}, ${server.scope}${server.configPath ? `, ${server.configPath}` : ""})`}
+                      on={on}
+                      onChange={(enabled) => void setEnabled(server, enabled)}
+                      disabled={Boolean(toggle?.pending) || busy === identity}
+                    />
+                  </div>
+                ) : (
+                  <span className="max-w-44 text-[11px] text-content/45">
+                    {server.configPath
+                      ? `Enable control unavailable for ${MCP_PROVIDER_LABELS[server.provider]}.`
+                      : "Enable control unavailable because no local config path was found."}
+                  </span>
+                )}
+                {server.provider !== "claude_desktop" &&
+                server.transport &&
+                !["stdio", "local", "ws"].includes(server.transport) ? (
                   <button
                     type="button"
                     disabled={busy !== null}
-                    onClick={() => void remove(server)}
+                    onClick={() => void login(server)}
                     className="rounded-md border border-stroke px-2 py-1 text-xs hover:bg-content/5 disabled:opacity-50"
                   >
-                    Remove
+                    Sign in
                   </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() =>
-                    void revealPath(server.configPath).catch((cause) =>
-                      setError(String(cause)),
-                    )
-                  }
-                  className="rounded-md border border-stroke px-2 py-1 text-xs hover:bg-content/5"
-                >
-                  Show config
-                </button>
-              )}
-            </div>
-          ))}
+                ) : null}
+                {server.provider === "claude" ? (
+                  <>
+                    {!server.configPath ? (
+                      <label className="text-xs text-content/55">
+                        Scope{" "}
+                        <select
+                          aria-label={`Scope to remove ${server.name} from`}
+                          value={removeScopes[server.name] ?? "local"}
+                          onChange={(event) =>
+                            setRemoveScopes((current) => ({
+                              ...current,
+                              [server.name]: event.target.value as Scope,
+                            }))
+                          }
+                          className="rounded border border-stroke bg-background-base px-1 py-1 text-content"
+                        >
+                          <option value="local">Local</option>
+                          <option value="project">Project</option>
+                          <option value="user">User</option>
+                        </select>
+                      </label>
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={busy !== null}
+                      onClick={() => void remove(server)}
+                      className="rounded-md border border-stroke px-2 py-1 text-xs hover:bg-content/5 disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void revealPath(server.configPath).catch((cause) =>
+                        setError(String(cause)),
+                      )
+                    }
+                    className="rounded-md border border-stroke px-2 py-1 text-xs hover:bg-content/5"
+                  >
+                    Show config
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
       <p className="text-xs text-content/45">

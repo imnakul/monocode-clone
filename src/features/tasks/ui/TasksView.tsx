@@ -163,9 +163,7 @@ export function TasksView({
   const [showArchived, setShowArchived] = useState(() =>
     loadFlag(SHOW_ARCHIVED_KEY),
   );
-  const [burst, setBurst] = useState<(BurstTarget & { spread?: boolean }) | null>(
-    null,
-  );
+  const [burst, setBurst] = useState<BurstTarget | null>(null);
   const [newTaskId, setNewTaskId] = useState<string | null>(null);
   const focusButton = useRef<HTMLButtonElement>(null);
   const today = localDay();
@@ -365,12 +363,8 @@ export function TasksView({
     setFocusOn(next);
     saveFlag(FOCUS_KEY, next);
     if (next) {
-      // Celebrate along the whole toolbar, not just at the button.
-      const target = burstAt(
-        root.current?.querySelector("[data-tasks-toolbar]") ??
-          focusButton.current,
-      );
-      if (target) setBurst({ ...target, spread: true });
+      const target = burstAt(focusButton.current);
+      if (target) setBurst(target);
     }
   };
   const toggleArchived = () => {
@@ -702,7 +696,6 @@ export function TasksView({
       {burst ? (
         <CelebrationBurst
           target={burst}
-          spread={burst.spread}
           onDone={() => setBurst(null)}
         />
       ) : null}

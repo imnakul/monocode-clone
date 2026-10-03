@@ -1314,7 +1314,7 @@ describe("New task while the pane is open", () => {
 describe("toolbar layout and focus presentation", () => {
   it("puts Focus right after New task and drops the Columns control", async () => {
     await render();
-    const toolbar = container.querySelector("[data-tasks-toolbar]")!;
+    const toolbar = byLabel("Filter tasks").parentElement!.parentElement!;
     const order = [...toolbar.querySelectorAll("button")].map(
       (entry) => entry.getAttribute("aria-label") ?? entry.textContent,
     );
@@ -1324,6 +1324,30 @@ describe("toolbar layout and focus presentation", () => {
     expect(toolbar.textContent).not.toContain("Columns");
     await switchView("Board");
     expect(toolbar.textContent).not.toContain("Columns");
+  });
+
+  it("pads the toolbar like the board so New task and the view switch line up with the columns", async () => {
+    await render();
+    const toolbar = byLabel("Filter tasks").parentElement!.parentElement!;
+    expect(toolbar.className).toContain("px-3");
+    expect(toolbar.className).not.toContain("px-2");
+  });
+
+  it("bursts only at the Focus button, not across the toolbar", async () => {
+    await render();
+    const focus = container.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Focus:"]',
+    )!;
+    focus.getBoundingClientRect = () =>
+      ({ left: 120, top: 8, width: 64, height: 28 }) as DOMRect;
+    await click(focus);
+    const bursts = document.querySelectorAll<HTMLElement>(
+      "[data-celebration-burst]",
+    );
+    expect(bursts).toHaveLength(1);
+    expect(bursts[0].style.left).toBe("120px");
+    expect(bursts[0].style.width).toBe("64px");
+    expect(bursts[0].children).toHaveLength(1);
   });
 
   it("shows the focus day chip on rows and cards, but not for tasks in focus by creation", async () => {

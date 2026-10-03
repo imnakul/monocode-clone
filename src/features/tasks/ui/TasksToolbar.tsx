@@ -91,10 +91,8 @@ export function TasksToolbar({
     list.includes(item) ? list.filter((entry) => entry !== item) : [...list, item];
   return (
     <>
-      <div
-        data-tasks-toolbar
-        className="flex h-10 shrink-0 items-center gap-1.5 px-2"
-      >
+      {/* px-3 matches the board's p-3 so the edges line up with its columns. */}
+      <div className="flex h-10 shrink-0 items-center gap-1.5 px-3">
         {leading}
         <div className="relative flex h-7 min-w-28 max-w-64 flex-1 items-center">
           <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
