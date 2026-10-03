@@ -1,14 +1,22 @@
 import type { ProjectMarks } from "../../projects/ui/ProjectMark";
 import { notePreview } from "../../notes/notes";
-import { TASK_STATUS_LABELS, type Task } from "../tasks";
+import { localDay, TASK_STATUS_LABELS, type Task } from "../tasks";
+import type { TaskGroupBy } from "../taskViewState";
 import { TaskStatusIcon } from "./TaskStatusIcon";
-import { relativeTime, TaskProjectMark, TaskTagChips } from "./TaskTags";
+import {
+  relativeTime,
+  TaskFocusChip,
+  TaskProjectMark,
+  TaskStatusLabel,
+  TaskTagChips,
+} from "./TaskTags";
 
 /** One full-width List row. */
 export function TaskRow({
   task,
   active,
   marks,
+  groupBy = "none",
   onSelect,
   onTagClick,
   onContextMenu,
@@ -16,6 +24,8 @@ export function TaskRow({
   task: Task;
   active: boolean;
   marks: ProjectMarks;
+  /** Grouped by Project: show the status where the project would be. */
+  groupBy?: TaskGroupBy;
   onSelect: () => void;
   onTagClick: (tag: string) => void;
   onContextMenu?: (x: number, y: number) => void;
@@ -71,8 +81,13 @@ export function TaskRow({
         onTagClick={onTagClick}
         className="hidden shrink-0 md:flex"
       />
+      <TaskFocusChip focusDate={task.focusDate} today={localDay()} />
       <span className="max-w-40 min-w-0 shrink-0 text-[11px] text-content/50">
-        <TaskProjectMark task={task} marks={marks} />
+        {groupBy === "project" ? (
+          <TaskStatusLabel status={task.status} />
+        ) : (
+          <TaskProjectMark task={task} marks={marks} />
+        )}
       </span>
       {time ? (
         <span className="shrink-0 text-[11px] tabular-nums text-content/45">

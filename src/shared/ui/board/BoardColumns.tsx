@@ -16,6 +16,8 @@ const REFLOW_MS = 260;
 
 /** Columns per row while a wrapping board is narrower than one row. */
 const WrapContext = createContext(false);
+/** The board never scrolls sideways: columns shrink instead. */
+const FitContext = createContext(false);
 
 /**
  * Columns per row for `count` columns in `width`: the whole row when it fits,
@@ -56,8 +58,14 @@ function prefersReducedMotion(): boolean {
 export function BoardColumns({
   children,
   wrapBelow,
+  fit = false,
 }: {
   children: ReactNode;
+  /**
+   * Never scroll horizontally: columns shrink to fit the board (wrapping
+   * still applies first when `wrapBelow` is set).
+   */
+  fit?: boolean;
   /** Minimum column width that triggers wrapping; omit to always scroll. */
   wrapBelow?: number;
 }) {
@@ -120,6 +128,7 @@ export function BoardColumns({
   const wrapped = wrapBelow !== undefined && perRow < count;
   return (
     <WrapContext.Provider value={wrapped}>
+      <FitContext.Provider value={fit}>
       <div
         ref={board}
         data-board-wrapped={wrapped ? perRow : undefined}
@@ -134,11 +143,12 @@ export function BoardColumns({
         className={
           wrapped
             ? "grid h-full min-h-0 min-w-0 gap-3 overflow-hidden p-3"
-            : "flex h-full min-h-0 min-w-0 gap-3 overflow-x-auto p-3"
+            : `flex h-full min-h-0 min-w-0 gap-3 p-3 ${fit ? "overflow-x-hidden" : "overflow-x-auto"}`
         }
       >
         {children}
       </div>
+      </FitContext.Provider>
     </WrapContext.Provider>
   );
 }
@@ -202,6 +212,7 @@ export function BoardColumn({
 }) {
   const section = useRef<HTMLElement>(null);
   const wrapped = useContext(WrapContext);
+  const fit = useContext(FitContext);
   // In a wrapped grid the grid sizes columns; widths and resizing pause.
   const fixed = resize && !wrapped ? (resize.liveWidth ?? resize.width) : null;
   return (
@@ -217,7 +228,7 @@ export function BoardColumn({
         wrapped
           ? undefined
           : fixed === null
-            ? { minWidth: fillMin }
+            ? { minWidth: fit ? 0 : fillMin }
             : { flexBasis: fixed, minWidth: resize?.min ?? fillMin }
       }
       className={`relative flex min-h-0 flex-col rounded-lg transition-colors duration-100 ${

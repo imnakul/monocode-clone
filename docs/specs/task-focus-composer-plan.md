@@ -42,6 +42,10 @@ Branch: `nakul/windows-support-upstream-0.7.0` · Base commit: `51690f7` · Crea
 - [x] Session Manager Add Draft and Task Manager Work on… use the same composer without
       the switch; Work on moves a Todo/Blocked task to Progress when it starts
 - [x] Drafts group in the project Sessions list (view only; folders and pins kept)
+- [x] Polish: New task keeps the pane open; Columns control removed; Focus next to New task
+      with Target icon and toolbar-wide celebration; focus-day chip; status on cards when
+      grouped by Project; no board sideways scroll or column handles; icons in task menu
+      (Start Work, Status, Copy); Drafts group collapsed by default
 - [ ] Manual desktop checks (below) — Nakul
 
 ## Manual checks (desktop, `npm run tauri dev`)
@@ -51,7 +55,16 @@ Branch: `nakul/windows-support-upstream-0.7.0` · Base commit: `51690f7` · Crea
   list → Drafts; Start runs it; Ctrl+Enter starts and opens it.
 - Task Manager → right-click → Work on…: prefilled prompt; Start moves the task to Progress.
 - Focus and Completed celebrations; board column and card drag; Show archived.
-- Drafts group collapse is remembered per project; starting a draft moves it out.
+- Drafts group collapse is remembered per project; starting a draft moves it out; a fresh
+  project shows Drafts collapsed.
+- With a task open in the pane, New task opens the new task in the pane with the title selected
+  (also with Focus on or filters set).
+- Focus sits right after New task; turning it on sparkles across the whole toolbar; no
+  Columns button; the board never scrolls sideways when the window or pane narrows.
+- Focus-day chip on cards/rows (Today / Oct 5 / muted From Oct 2); Group by Project shows status
+  on cards; Group by Status shows the project.
+- Board has no column resize handles or dark strips; only the divider by the open pane resizes.
+- Task right-click menu: icons on every item, Start Work, Status submenu with status icons.
 
 ## Issues and fixes
 - `Task` lost `Eq` because of the float `sort_order`.

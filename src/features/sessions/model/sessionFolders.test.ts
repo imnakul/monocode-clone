@@ -9,6 +9,7 @@ import {
   folderAccent,
   folderContaining,
   folderShellFill,
+  loadDraftSessionsCollapsed,
   loadPinnedSessionsCollapsed,
   loadSessionFolders,
   mergeFolderSessionSummaries,
@@ -16,6 +17,7 @@ import {
   pruneSessionFolders,
   removeSessionFromFolder,
   renameFolder,
+  saveDraftSessionsCollapsed,
   savePinnedSessionsCollapsed,
   saveSessionFolders,
   sessionListNavigationIds,
@@ -560,6 +562,17 @@ describe("session folder persistence", () => {
     savePinnedSessionsCollapsed("/tmp/project", false);
     expect(loadPinnedSessionsCollapsed("/tmp/project")).toBe(false);
     expect(localStorage.getItem("monocode.pinnedSessionsCollapsed")).toBe("{}");
+  });
+});
+
+describe("draft group collapsed state", () => {
+  it("is collapsed until the user chooses, and a saved choice wins", () => {
+    expect(loadDraftSessionsCollapsed("/tmp/project")).toBe(true);
+    saveDraftSessionsCollapsed("/tmp/project", false);
+    expect(loadDraftSessionsCollapsed("/tmp/project")).toBe(false);
+    expect(loadDraftSessionsCollapsed("/tmp/other")).toBe(true);
+    saveDraftSessionsCollapsed("/tmp/project", true);
+    expect(loadDraftSessionsCollapsed("/tmp/project")).toBe(true);
   });
 });
 

@@ -22,6 +22,8 @@ type MenuAction = {
   disabled?: boolean;
   danger?: boolean;
   checked?: boolean;
+  /** Optional leading icon. */
+  icon?: ReactNode;
 };
 
 export type ExplorerMenuItem =
@@ -248,6 +250,14 @@ export function ExplorerMenu({
                 : "text-content hover:bg-content/5"
         }`}
       >
+        {item.icon ? (
+          <span
+            aria-hidden
+            className="-mr-1 grid size-4 shrink-0 place-items-center text-content/60"
+          >
+            {item.icon}
+          </span>
+        ) : null}
         <span className="min-w-0 flex-1">
           <span data-menu-label className="block truncate">
             {item.label}

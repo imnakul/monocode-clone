@@ -3,7 +3,7 @@ import {
   Check,
   CheckCircle,
   Copy,
-  Sun,
+  Target,
   Trash2,
 } from "../../../shared/ui/icons";
 import { projectName } from "../../../shared/lib/paths";
@@ -27,7 +27,7 @@ import {
   type TaskChanges,
 } from "../tasks";
 import { TaskStatusMenu } from "./TaskStatusIcon";
-import { relativeTime, TaskProjectMark } from "./TaskTags";
+import { relativeTime, TaskFocusChip, TaskProjectMark } from "./TaskTags";
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -61,6 +61,7 @@ export function TaskEditor({
 }: TaskEditorProps) {
   const [copied, setCopied] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
+  const titleFocused = useRef(false);
   const [edits, setEdits] = useState<TaskChanges>({});
   const editsRef = useRef<TaskChanges>({});
   const [error, setError] = useState<string | null>(null);
@@ -91,9 +92,17 @@ export function TaskEditor({
     const snapshot = editsRef.current;
     if (!Object.keys(snapshot).length || deletingRef.current) return;
     try {
-      await updateTask(task.id, snapshot);
+      const saved = await updateTask(task.id, snapshot);
       const remaining = { ...editsRef.current };
       for (const key of Object.keys(snapshot) as (keyof TaskChanges)[]) {
+        // Keep the typed title while the field has focus if saving trimmed it
+        // ("Fix the " -> "Fix the"); blur normalises it.
+        if (
+          key === "title" &&
+          titleFocused.current &&
+          saved.title !== snapshot.title
+        )
+          continue;
         if (remaining[key] === snapshot[key]) delete remaining[key];
       }
       editsRef.current = remaining;
@@ -210,6 +219,11 @@ export function TaskEditor({
               onChange={(next) => edit({ status: next }, true)}
             />
             <span className="ml-auto flex items-center gap-0.5">
+              <TaskFocusChip
+                focusDate={focusDate}
+                today={today}
+                className="mr-1"
+              />
               <button
                 type="button"
                 aria-pressed={focusDate === today}
@@ -228,7 +242,7 @@ export function TaskEditor({
                 }
                 className={`${iconClass} ${focusDate === today ? "text-amber-300" : ""}`}
               >
-                <Sun aria-hidden className="size-3.5" strokeWidth={1.75} />
+                <Target aria-hidden className="size-3.5" strokeWidth={1.75} />
               </button>
               <button
                 type="button"
@@ -267,7 +281,16 @@ export function TaskEditor({
             ref={titleRef}
             value={title}
             onChange={(event) => edit({ title: event.target.value })}
-            onBlur={() => void save()}
+            onFocus={() => {
+              titleFocused.current = true;
+            }}
+            onBlur={() => {
+              titleFocused.current = false;
+              const typed = editsRef.current.title;
+              if (typed !== undefined && typed.trim() !== typed)
+                edit({ title: typed.trim() }, true);
+              else void save();
+            }}
             onKeyDown={(event) => {
               if (event.key !== "Enter") return;
               event.preventDefault();

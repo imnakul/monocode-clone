@@ -782,28 +782,11 @@ describe("table view", () => {
     expect(container.querySelector("col")).not.toBeNull();
   });
 
-  it("hides a column from the Columns menu and keeps it hidden after remount", async () => {
+  it("has no Columns control; saved hidden columns still apply", async () => {
     await openTable();
-    await click(byLabel("Choose visible columns"));
-    const labels = [
-      ...document.querySelectorAll('[role="menuitemcheckbox"]'),
-    ].map((entry) => entry.textContent?.trim());
-    expect(labels).toEqual([
-      "Status",
-      "Project",
-      "Tags",
-      "Updated",
-      "Completed",
-    ]);
-    await click(
-      [...document.querySelectorAll('[role="menuitemcheckbox"]')].find(
-        (entry) => entry.textContent?.trim() === "Tags",
-      ),
-    );
-    expect(headerLabels()).not.toContain("Tags");
-    await act(async () => root.render(null));
-    await render();
-    expect(headerLabels()).not.toContain("Tags");
+    expect(container.querySelector('[aria-label="Choose visible columns"]')).toBeNull();
+    expect(container.textContent).not.toContain("Columns");
+    expect(headerLabels()).not.toContain("Completed");
   });
 
   it("selects on row click but not on status-menu or tag clicks", async () => {
@@ -839,7 +822,7 @@ describe("board view", () => {
       ),
     ].map((entry) => entry.getAttribute("aria-label"));
 
-  it("shows the five statuses, follows the Status filter and toggles columns", async () => {
+  it("shows the five statuses and follows the Status filter", async () => {
     await openBoard();
     expect(columnLabels()).toEqual([
       "Todo column",
@@ -853,47 +836,20 @@ describe("board view", () => {
     await pickOption("Status", "Completed");
     expect(columnLabels()).toEqual(["Todo column", "Completed column"]);
     await pickOption("Status", "All statuses");
-    await pickMenuItem(byLabel("Choose visible columns"), "Review");
-    expect(columnLabels()).not.toContain("Review column");
-    expect(JSON.parse(localStorage.getItem(BOARD_KEY)!).hidden).toEqual([
-      "review",
-    ]);
+    expect(columnLabels()).toContain("Review column");
+    expect(container.querySelector('[aria-label="Choose visible columns"]')).toBeNull();
   });
 
-  it("fills the board by default, resizes to a fixed width, persists it and resets on double click", async () => {
+  it("fills the board without sideways scroll and has no column resize handles", async () => {
     await openBoard();
     const column = byLabel("Todo column");
     expect(column.className).toContain("flex-1");
-    expect(column.style.minWidth).toBe("260px");
-    const handle = byLabel("Resize Todo column");
-    // happy-dom has no layout, so the drag starts from the fill minimum.
-    await act(async () => {
-      handle.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "ArrowRight",
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    });
-    await act(async () => {
-      handle.dispatchEvent(
-        new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true }),
-      );
-    });
-    expect(JSON.parse(localStorage.getItem(BOARD_KEY)!).width).toBe(276);
-    // Every column shares the fixed width and stops stretching.
-    for (const label of ["Todo column", "Review column"]) {
-      expect(byLabel(label).style.flexBasis).toBe("276px");
-      expect(byLabel(label).className).toContain("shrink");
-    }
-    await act(async () => {
-      byLabel("Resize Todo column").dispatchEvent(
-        new MouseEvent("dblclick", { bubbles: true }),
-      );
-    });
-    expect(JSON.parse(localStorage.getItem(BOARD_KEY)!).width).toBeNull();
-    expect(byLabel("Todo column").className).toContain("flex-1");
+    // Columns shrink to fit instead of holding a minimum that would scroll.
+    expect(column.style.minWidth).toBe("0");
+    expect(container.querySelector("[data-board-column]")!.parentElement!.className).toContain(
+      "overflow-x-hidden",
+    );
+    expect(container.querySelector('[aria-label^="Resize "][aria-label$=" column"]')).toBeNull();
   });
 
   describe("drag and optimistic moves", () => {
@@ -1179,15 +1135,6 @@ describe("grouping", () => {
         card("Ship docs").closest('[aria-label="Personal column"]'),
       ).not.toBeNull();
     });
-
-    it("hides a project column from Columns and persists it", async () => {
-      await openProjectBoard();
-      await pickMenuItem(byLabel("Choose visible columns"), "other");
-      expect(columnLabels()).toEqual(["project column", "Personal column"]);
-      expect(
-        JSON.parse(localStorage.getItem(BOARD_KEY)!).hiddenProjects,
-      ).toEqual(["project:/work/other"]);
-    });
   });
 });
 
@@ -1245,22 +1192,6 @@ describe("counts", () => {
       Personal: 1,
     });
     expect(await optionCounts("Tag")).toMatchObject({ "#home": 1, "#bug": 0 });
-  });
-
-  it("shows how many tasks each board column holds in the Columns menu", async () => {
-    await render();
-    await switchView("Board");
-    await click(byLabel("Choose visible columns"));
-    const counts = Object.fromEntries(
-      [
-        ...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'),
-      ].map((item) => [
-        item.querySelector("[data-menu-label]")?.textContent?.trim(),
-        Number(item.querySelector(".tabular-nums")?.textContent),
-      ]),
-    );
-    expect(counts).toMatchObject({ Todo: 1, Blocked: 1 });
-    expect(counts).not.toHaveProperty("Draft");
   });
 });
 
@@ -1350,11 +1281,97 @@ describe("focus, archive and the task menu", () => {
     await click(menuItem("Focus today"));
     expect(rows.get("first")?.focusDate).toBe(localDay());
     await rightClick(listRow("Fix installer"));
-    await click(menuItem("Work on…"));
+    await click(menuItem("Start Work"));
     expect(workOn).toHaveBeenCalledWith(expect.objectContaining({ id: "first" }));
     await rightClick(listRow("Fix installer"));
-    await click(menuItem("Copy task"));
+    await click(menuItem("Copy"));
     expect(copy).toHaveBeenCalledWith(expect.stringContaining("# Fix installer"));
   });
 });
 
+
+describe("New task while the pane is open", () => {
+  it("keeps the pane open on the new task, even with filters and Focus on", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    expect(peek()).not.toBeNull();
+    await pickOption("Status", "Review");
+    await click(container.querySelector('button[aria-label^="Focus:"]'));
+    await click(byLabel("New task"));
+    await act(async () => {
+      await tick(20);
+    });
+    expect(peek()).not.toBeNull();
+    const created = [...rows.values()].find((entry) => entry.title === "Untitled")!;
+    expect(created).toBeDefined();
+    expect(input("Task title").value).toBe("Untitled");
+    expect(document.activeElement).toBe(input("Task title"));
+    // Filters that would hide the new task were cleared.
+    expect(listTitles()).toContain("Untitled");
+  });
+});
+
+describe("toolbar layout and focus presentation", () => {
+  it("puts Focus right after New task and drops the Columns control", async () => {
+    await render();
+    const toolbar = container.querySelector("[data-tasks-toolbar]")!;
+    const order = [...toolbar.querySelectorAll("button")].map(
+      (entry) => entry.getAttribute("aria-label") ?? entry.textContent,
+    );
+    expect(order[0]).toBe("New task");
+    expect(order[1]).toBe("Choose where the task is filed");
+    expect(order[2]).toMatch(/^Focus:/);
+    expect(toolbar.textContent).not.toContain("Columns");
+    await switchView("Board");
+    expect(toolbar.textContent).not.toContain("Columns");
+  });
+
+  it("shows the focus day chip on rows and cards, but not for tasks in focus by creation", async () => {
+    rows.set("docs", { ...rows.get("docs")!, focusDate: localDay() });
+    rows.set("first", { ...rows.get("first")!, focusDate: "2020-01-02" });
+    await render();
+    expect(listRow("Ship docs").querySelector("[data-focus-chip]")?.textContent).toBe(
+      "Today",
+    );
+    expect(listRow("Fix installer").querySelector("[data-focus-chip]")?.textContent).toBe(
+      "From Jan 2",
+    );
+    expect(listRow("Personal reminder").querySelector("[data-focus-chip]")).toBeNull();
+    await switchView("Board");
+    expect(card("Ship docs").querySelector("[data-focus-chip]")?.textContent).toBe("Today");
+  });
+
+  it("shows the status instead of the project when grouped by project", async () => {
+    await render();
+    expect(listRow("Fix installer").textContent).toContain("project");
+    await pickOption("Group tasks", "Group by project");
+    const row = container.querySelector<HTMLElement>(
+      'button[data-task-id="first"]',
+    )!;
+    expect(row.textContent).toContain("Blocked");
+    expect(row.textContent).not.toContain("/work/project");
+    await switchView("Board");
+    await pickOption("Group tasks", "Group by project");
+    expect(card("Fix installer").textContent).toContain("Blocked");
+    expect(card("Ship docs").textContent).toContain("Progress");
+    await pickOption("Group tasks", "Group by status");
+    expect(card("Fix installer").textContent).toContain("project");
+  });
+});
+
+describe("task title autosave", () => {
+  it("keeps a trailing space while typing and trims it on blur", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    const title = input("Task title");
+    act(() => title.focus());
+    await change("Task title", "Fix the ");
+    await act(async () => {
+      await tick(450);
+    });
+    expect(rows.get("first")?.title).toBe("Fix the");
+    expect(input("Task title").value).toBe("Fix the ");
+    await act(async () => input("Task title").blur());
+    expect(input("Task title").value).toBe("Fix the");
+  });
+});

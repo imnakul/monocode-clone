@@ -597,26 +597,32 @@ export function loadReminderSessionsCollapsed(cwd: string): boolean {
   return loadGroupCollapsed(cwd, REMINDERS_COLLAPSED_KEY);
 }
 
-/** Whether this project's Drafts group is collapsed (saved per project). */
+/**
+ * Whether this project's Drafts group is collapsed (saved per project).
+ * Collapsed until the user chooses otherwise: an explicit `false` (expanded)
+ * is stored, so only a project with nothing saved defaults to collapsed.
+ */
 export function loadDraftSessionsCollapsed(cwd: string): boolean {
-  return loadGroupCollapsed(cwd, DRAFTS_COLLAPSED_KEY);
+  return loadGroupCollapsed(cwd, DRAFTS_COLLAPSED_KEY, true);
 }
 
-function loadGroupCollapsed(cwd: string, storeKey: string): boolean {
+function loadGroupCollapsed(
+  cwd: string,
+  storeKey: string,
+  defaultValue = false,
+): boolean {
   const key = storageKey(cwd);
-  if (!key) return false;
+  if (!key) return defaultValue;
   try {
     const raw = localStorage.getItem(storeKey);
-    if (!raw) return false;
+    if (!raw) return defaultValue;
     const parsed: unknown = JSON.parse(raw);
-    return Boolean(
-      parsed &&
-      typeof parsed === "object" &&
-      !Array.isArray(parsed) &&
-      (parsed as Record<string, unknown>)[key] === true,
-    );
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return defaultValue;
+    const saved = (parsed as Record<string, unknown>)[key];
+    return typeof saved === "boolean" ? saved : defaultValue;
   } catch {
-    return false;
+    return defaultValue;
   }
 }
 
@@ -638,13 +644,14 @@ export function saveDraftSessionsCollapsed(
   cwd: string,
   collapsed: boolean,
 ): void {
-  saveGroupCollapsed(cwd, collapsed, DRAFTS_COLLAPSED_KEY);
+  saveGroupCollapsed(cwd, collapsed, DRAFTS_COLLAPSED_KEY, true);
 }
 
 function saveGroupCollapsed(
   cwd: string,
   collapsed: boolean,
   storeKey: string,
+  keepExpanded = false,
 ): void {
   const key = storageKey(cwd);
   if (!key) return;
@@ -655,7 +662,7 @@ function saveGroupCollapsed(
       parsed && typeof parsed === "object" && !Array.isArray(parsed)
         ? { ...(parsed as Record<string, unknown>) }
         : {};
-    if (collapsed) store[key] = true;
+    if (collapsed || keepExpanded) store[key] = collapsed;
     else delete store[key];
     localStorage.setItem(storeKey, JSON.stringify(store));
   } catch {

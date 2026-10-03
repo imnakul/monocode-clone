@@ -620,6 +620,7 @@ function NoteEditor({
     setEdits(next);
   }, []);
 
+  const titleFocused = useRef(false);
   const persist = useCallback(async (latest?: Note) => {
     if (skipSave.current) return;
     const current = latest ?? noteRef.current;
@@ -633,7 +634,11 @@ function NoteEditor({
       noteRef.current = saved;
       // A completed save only clears the edits included in that request.
       const remaining = { ...editsRef.current };
-      if (remaining.title === changes.title) delete remaining.title;
+      // While the title field has focus, keep what the user typed when the
+      // saved title differs only by trimming ("Fix the " saves as "Fix the"),
+      // or the input would eat trailing spaces mid-typing. Blur normalises it.
+      const typing = titleFocused.current && saved.title !== changes.title;
+      if (remaining.title === changes.title && !typing) delete remaining.title;
       if (remaining.body === changes.body) delete remaining.body;
       if (remaining.tags === changes.tags) delete remaining.tags;
       editsRef.current = remaining;
@@ -851,7 +856,11 @@ function NoteEditor({
               editNote({ title: event.target.value });
               scheduleSave();
             }}
+            onFocus={() => {
+              titleFocused.current = true;
+            }}
             onBlur={() => {
+              titleFocused.current = false;
               const next = title.trim() || noteTitle(body);
               if (next !== title) editNote({ title: next });
               void saveNow();

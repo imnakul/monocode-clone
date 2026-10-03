@@ -68,6 +68,7 @@ export function TaskList({
                       task={task}
                       active={selectedId === task.id}
                       marks={marks}
+                      groupBy={groupBy}
                       onSelect={() => onSelect(task.id)}
                       onTagClick={onTagClick}
                       onContextMenu={(x, y) => onContextMenu(task, x, y)}

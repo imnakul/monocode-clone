@@ -18,8 +18,6 @@ import {
 import type { ProjectMarks } from "../../projects/ui/ProjectMark";
 import {
   BOARD_COLUMN_FILL_MIN,
-  BOARD_COLUMN_MAX,
-  BOARD_COLUMN_MIN,
   groupTasksByProject,
   moveGroupKey,
   orderGroups,
@@ -29,10 +27,21 @@ import {
   type BoardGroupBy,
   type TaskBoardState,
 } from "../taskViewState";
-import { TASK_STATUS_LABELS, type Task, type TaskStatus } from "../tasks";
+import {
+  localDay,
+  TASK_STATUS_LABELS,
+  type Task,
+  type TaskStatus,
+} from "../tasks";
 import { TaskGroupIcon } from "./TaskGroupHeader";
 import { TaskStatusIcon, TaskStatusMenu } from "./TaskStatusIcon";
-import { relativeTime, TaskProjectMark, TaskTagChips } from "./TaskTags";
+import {
+  relativeTime,
+  TaskFocusChip,
+  TaskProjectMark,
+  TaskStatusLabel,
+  TaskTagChips,
+} from "./TaskTags";
 import { useOptimisticTask, type TaskMovePatch } from "./useOptimisticTask";
 
 const DRAG_THRESHOLD = 4;
@@ -116,7 +125,6 @@ export function TaskBoard({
   const { view, move, error, dismissError } = useOptimisticTask(onSaved);
   const [drag, setDrag] = useState<DragView | null>(null);
   const [columnDrag, setColumnDrag] = useState<ColumnDrag | null>(null);
-  const [liveWidth, setLiveWidth] = useState<number | null>(null);
   const suppressClick = useRef(false);
   const abortDrag = useRef<(() => void) | null>(null);
   const shown = useMemo(() => tasks.map(view), [tasks, view]);
@@ -124,7 +132,6 @@ export function TaskBoard({
     const groups: ColumnDef[] =
       groupBy === "project"
         ? groupTasksByProject(shown)
-            .filter((group) => !state.hiddenProjects.includes(group.key))
             .map((group) => ({
               key: group.key,
               label: group.label,
@@ -133,7 +140,6 @@ export function TaskBoard({
               tasks: sortForBoard(group.tasks),
             }))
         : statuses
-            .filter((status) => !state.hidden.includes(status))
             .map((status) => ({
               key: status,
               label: TASK_STATUS_LABELS[status],
@@ -142,7 +148,7 @@ export function TaskBoard({
               tasks: sortForBoard(shown.filter((task) => task.status === status)),
             }));
     return orderGroups(groups, state.order);
-  }, [groupBy, shown, statuses, state.hidden, state.hiddenProjects, state.order, marks]);
+  }, [groupBy, shown, statuses, state.order, marks]);
   /** Column key a task currently belongs to, with pending moves applied. */
   const keyOf = (task: Task) =>
     groupBy === "project" ? projectGroupKey(task.projectCwd) : task.status;
@@ -384,7 +390,7 @@ export function TaskBoard({
         </div>
       ) : null}
       <div className="min-h-0 flex-1">
-        <BoardColumns wrapBelow={BOARD_COLUMN_FILL_MIN}>
+        <BoardColumns wrapBelow={BOARD_COLUMN_FILL_MIN} fit>
           {columns.map((column) => {
             const rest = drag
               ? column.tasks.filter((task) => task.id !== drag.task.id)
@@ -419,15 +425,6 @@ export function TaskBoard({
                 }
                 dimmed={columnDrag?.key === column.key}
                 columnProps={{ "data-task-column": column.key }}
-                resize={{
-                  width: state.width,
-                  liveWidth,
-                  min: BOARD_COLUMN_MIN,
-                  max: BOARD_COLUMN_MAX,
-                  onLive: setLiveWidth,
-                  onCommit: (width) => onStateChange({ ...state, width }),
-                  onReset: () => onStateChange({ ...state, width: null }),
-                }}
               >
                 {column.tasks.length === 0 && indicatorAt === null ? (
                   <p className="px-2 py-3 text-center text-[12px] text-content/35">
@@ -454,6 +451,7 @@ export function TaskBoard({
                               active={selectedId === task.id}
                               dragging={drag?.task.id === task.id}
                               marks={marks}
+                              groupBy={groupBy}
                               onPointerDown={(event) => beginDrag(event, task)}
                               onContextMenu={(event) => openMenu(event, task)}
                               onSelect={() => {
@@ -484,8 +482,8 @@ export function TaskBoard({
           {columns.length === 0 ? (
             <p className="m-auto text-[12px] text-content/45">
               {groupBy === "project"
-                ? "No project columns shown. Use Columns to choose projects."
-                : "No columns shown. Choose statuses in the Status filter or Columns."}
+                ? "No project columns to show."
+                : "No columns shown. Choose statuses in the Status filter."}
             </p>
           ) : null}
         </BoardColumns>
@@ -505,6 +503,7 @@ export function TaskBoard({
             active={false}
             dragging={false}
             marks={marks}
+            groupBy={groupBy}
             ghost
           />
         </div>
@@ -530,6 +529,7 @@ function TaskCard({
   active,
   dragging,
   marks,
+  groupBy,
   ghost = false,
   onPointerDown,
   onContextMenu,
@@ -542,6 +542,7 @@ function TaskCard({
   active: boolean;
   dragging: boolean;
   marks: ProjectMarks;
+  groupBy: BoardGroupBy;
   ghost?: boolean;
   onPointerDown?: (event: ReactPointerEvent<HTMLElement>) => void;
   onContextMenu?: (event: ReactMouseEvent<HTMLElement>) => void;
@@ -581,8 +582,13 @@ function TaskCard({
         </span>
         <span className="mt-1.5 flex min-w-0 items-center gap-2 text-[11px] text-content/50">
           <span className="min-w-0 max-w-28 shrink">
-            <TaskProjectMark task={task} marks={marks} />
+            {groupBy === "project" ? (
+              <TaskStatusLabel status={status} />
+            ) : (
+              <TaskProjectMark task={task} marks={marks} />
+            )}
           </span>
+          <TaskFocusChip focusDate={task.focusDate} today={localDay()} />
           <TaskTagChips
             tags={task.tags}
             max={2}

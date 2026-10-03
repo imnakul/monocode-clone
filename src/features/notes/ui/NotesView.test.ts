@@ -552,3 +552,26 @@ it("copies the full current unsaved Markdown beside Preview and Source", async (
   expect(copy).toHaveBeenCalledWith(text);
   expect(container.querySelector('[role="tablist"] [aria-label="Copy Markdown"]')).toBeNull();
 });
+
+it("keeps a trailing space while typing a title and trims it on blur", async () => {
+  await render();
+  const title = container.querySelector<HTMLInputElement>(
+    '[aria-label="Note title"]',
+  )!;
+  act(() => title.focus());
+  act(() => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(title, "Fix the ");
+    title.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  // The autosave (400ms) resolves while the field is still focused.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 450));
+  });
+  expect(stored.title).toBe("Fix the");
+  expect(title.value).toBe("Fix the ");
+  await act(async () => title.blur());
+  expect(title.value).toBe("Fix the");
+});

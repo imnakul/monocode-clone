@@ -158,15 +158,24 @@ describe("task right-click menu", () => {
     const items = taskMenuItems(task("a"), TODAY, true);
     const labels = items.map((item) => (item.kind === "item" ? item.label : "—"));
     expect(labels).toEqual([
-      "Work on…",
+      "Start Work",
       "Focus today",
-      "Move to",
-      "Copy task",
+      "Status",
+      "Copy",
       "—",
       "Archive",
       "Delete task",
     ]);
     expect(labels).not.toContain("Open beside session");
+    // Every actionable item, and every status in the submenu, has an icon.
+    for (const item of items) {
+      if (item.kind !== "item") continue;
+      expect(item.icon, item.label).toBeTruthy();
+      for (const sub of item.submenu ?? [])
+        expect(sub.icon, sub.label).toBeTruthy();
+    }
+    const status = items.find((item) => item.kind === "item" && item.id === "move");
+    expect(status?.kind === "item" ? status.submenu : []).toHaveLength(5);
     const archived = taskMenuItems(
       task("b", { archivedAt: 1, focusDate: TODAY }),
       TODAY,
@@ -174,7 +183,7 @@ describe("task right-click menu", () => {
     ).map((item) => (item.kind === "item" ? item.label : "—"));
     expect(archived).toContain("Unarchive");
     expect(archived).toContain("Remove from today's focus");
-    expect(archived).not.toContain("Work on…");
+    expect(archived).not.toContain("Start Work");
     expect(taskMenuAction("move:review")).toEqual({
       kind: "move",
       status: "review",

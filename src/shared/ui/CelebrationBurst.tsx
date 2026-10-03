@@ -19,6 +19,18 @@ function prefersReducedMotion(): boolean {
   }
 }
 
+const SPREAD_FIELD_WIDTH = 320;
+const SPREAD_MAX_FIELDS = 6;
+
+/** How many sparkle fields cover a burst `width` px wide. */
+export function burstFields(width: number, spread: boolean): number {
+  if (!spread) return 1;
+  return Math.min(
+    SPREAD_MAX_FIELDS,
+    Math.max(1, Math.ceil(width / SPREAD_FIELD_WIDTH)),
+  );
+}
+
 /** Where to celebrate: the element's box on screen. */
 export function burstAt(element: Element | null | undefined): BurstTarget | null {
   if (!element) return null;
@@ -33,9 +45,12 @@ export function burstAt(element: Element | null | undefined): BurstTarget | null
 export function CelebrationBurst({
   target,
   onDone,
+  spread = false,
 }: {
   target: BurstTarget;
   onDone: () => void;
+  /** Wide targets (a toolbar): one sparkle field per ~320px so it fills the width. */
+  spread?: boolean;
 }): ReactNode {
   const reduced = prefersReducedMotion();
   useEffect(() => {
@@ -55,7 +70,9 @@ export function CelebrationBurst({
         height: target.rect.height,
       }}
     >
-      <SparkleField key={target.key} />
+      {Array.from({ length: burstFields(target.rect.width, spread) }, (_, i) => (
+        <SparkleField key={`${target.key}:${i}`} />
+      ))}
     </span>,
     document.body,
   );

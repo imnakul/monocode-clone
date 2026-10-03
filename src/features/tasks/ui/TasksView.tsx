@@ -12,7 +12,7 @@ import {
   ChevronDown,
   LoaderCircle,
   Plus,
-  Sun,
+  Target,
 } from "../../../shared/ui/icons";
 import { listen } from "@tauri-apps/api/event";
 import { copyText } from "../../../platform/tauri/clipboard";
@@ -38,12 +38,8 @@ import {
 } from "../../projects/model/recents";
 import { useProjectMarks } from "../../projects/ui/ProjectMark";
 import {
-  TASK_COLUMNS,
-  TASK_COLUMN_IDS,
-  isTaskColumnId,
   TASK_GROUP_BYS,
   TASK_GROUP_LABELS,
-  groupTasksByProject,
   loadBoardState,
   loadGrouping,
   saveGrouping,
@@ -69,7 +65,6 @@ import {
   TASKS_CHANGED_EVENT,
   TASKS_CHANGED_TAURI_EVENT,
   TASK_STATUSES,
-  TASK_STATUS_LABELS,
   updateTask,
   type Task,
   type TaskFilters,
@@ -107,7 +102,7 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-type Menu = { kind: "create" | "columns"; x: number; y: number };
+type Menu = { kind: "create"; x: number; y: number };
 type TaskMenu = { task: Task; x: number; y: number };
 
 const FOCUS_KEY = "monocode.tasks.focus";
@@ -168,7 +163,9 @@ export function TasksView({
   const [showArchived, setShowArchived] = useState(() =>
     loadFlag(SHOW_ARCHIVED_KEY),
   );
-  const [burst, setBurst] = useState<BurstTarget | null>(null);
+  const [burst, setBurst] = useState<(BurstTarget & { spread?: boolean }) | null>(
+    null,
+  );
   const [newTaskId, setNewTaskId] = useState<string | null>(null);
   const focusButton = useRef<HTMLButtonElement>(null);
   const today = localDay();
@@ -307,12 +304,21 @@ export function TasksView({
     try {
       const task = await createTask({ projectCwd, status: "todo" });
       if (!alive.current) return;
+      if (!alive.current) return;
+      // Always show the new task: clear every filter that could hide it (Focus
+      // keeps it, as a task created today is in today's focus), and put it in
+      // the list ourselves. `refresh()` can be superseded by the change-event
+      // refresh and return before the row is loaded; the selection effect
+      // would then see an unknown id and close the open pane.
       setFilters({});
+      if (focusOn && !isInFocus(task, today)) setFocusOn(false);
+      setTasks((current) => [
+        task,
+        ...current.filter((item) => item.id !== task.id),
+      ]);
+      setNewTaskId(task.id);
+      setSelectedId(task.id);
       await refresh();
-      if (alive.current) {
-        setNewTaskId(task.id);
-        setSelectedId(task.id);
-      }
     } catch (error) {
       if (alive.current) setActionError(message(error));
     } finally {
@@ -359,8 +365,12 @@ export function TasksView({
     setFocusOn(next);
     saveFlag(FOCUS_KEY, next);
     if (next) {
-      const target = burstAt(focusButton.current);
-      if (target) setBurst(target);
+      // Celebrate along the whole toolbar, not just at the button.
+      const target = burstAt(
+        root.current?.querySelector("[data-tasks-toolbar]") ??
+          focusButton.current,
+      );
+      if (target) setBurst({ ...target, spread: true });
     }
   };
   const toggleArchived = () => {
@@ -454,96 +464,29 @@ export function TasksView({
     [cwd, menu?.kind],
   );
   const menuItems = useMemo<ExplorerMenuItem[]>(() => {
-    if (menu?.kind === "create") {
-      const items: ExplorerMenuItem[] = [];
-      for (const choice of createChoices) {
-        if (choice.kind === "personal") items.push({ kind: "sep" });
-        items.push({
-          kind: "item",
-          id: choice.id,
-          label:
-            choice.kind === "personal" ? "Personal" : projectName(choice.path),
-          checked: choice.current,
-        });
-      }
-      return items;
+    if (menu?.kind !== "create") return [];
+    const items: ExplorerMenuItem[] = [];
+    for (const choice of createChoices) {
+      if (choice.kind === "personal") items.push({ kind: "sep" });
+      items.push({
+        kind: "item",
+        id: choice.id,
+        label:
+          choice.kind === "personal" ? "Personal" : projectName(choice.path),
+        checked: choice.current,
+      });
     }
-    if (menu?.kind === "columns" && view === "table")
-      return TASK_COLUMN_IDS.filter((id) => TASK_COLUMNS[id].hideable).map(
-        (id): ExplorerMenuItem => ({
-          kind: "item",
-          id,
-          label: TASK_COLUMNS[id].header,
-          checked: !table.hidden.includes(id),
-        }),
-      );
-    if (menu?.kind === "columns" && grouping.board === "project")
-      return groupTasksByProject(visible).map((group): ExplorerMenuItem => ({
-        kind: "item",
-        id: group.key,
-        label: group.label,
-        count: group.tasks.length,
-        checked: !board.hiddenProjects.includes(group.key),
-      }));
-    if (menu?.kind === "columns")
-      return TASK_STATUSES.map((status): ExplorerMenuItem => ({
-        kind: "item",
-        id: status,
-        label: TASK_STATUS_LABELS[status],
-        count: visible.filter((task) => task.status === status).length,
-        checked: !board.hidden.includes(status),
-      }));
-    return [];
-  }, [
-    menu?.kind,
-    createChoices,
-    view,
-    table.hidden,
-    board.hidden,
-    board.hiddenProjects,
-    grouping.board,
-    visible,
-  ]);
+    return items;
+  }, [menu?.kind, createChoices]);
 
   const onPickMenu = (id: string) => {
-    const kind = menu?.kind;
     setMenu(null);
-    if (kind === "create") {
-      const choice = createChoices.find((item) => item.id === id);
-      if (choice)
-        void create(choice.kind === "project" ? choice.path : undefined);
-      return;
-    }
-    if (view === "table" && isTaskColumnId(id)) {
-      updateTable({
-        ...table,
-        hidden: table.hidden.includes(id)
-          ? table.hidden.filter((item) => item !== id)
-          : [...table.hidden, id],
-      });
-      return;
-    }
-    if (grouping.board === "project") {
-      updateBoard({
-        ...board,
-        hiddenProjects: board.hiddenProjects.includes(id)
-          ? board.hiddenProjects.filter((item) => item !== id)
-          : [...board.hiddenProjects, id],
-      });
-      return;
-    }
-    const status = TASK_STATUSES.find((item) => item === id);
-    if (status)
-      updateBoard({
-        ...board,
-        hidden: board.hidden.includes(status)
-          ? board.hidden.filter((item) => item !== status)
-          : [...board.hidden, status],
-      });
+    const choice = createChoices.find((item) => item.id === id);
+    if (choice) void create(choice.kind === "project" ? choice.path : undefined);
   };
-  const openMenu = (kind: Menu["kind"], anchor: HTMLElement) => {
+  const openMenu = (anchor: HTMLElement) => {
     const rect = anchor.getBoundingClientRect();
-    setMenu({ kind, x: rect.left, y: rect.bottom + 4 });
+    setMenu({ kind: "create", x: rect.left, y: rect.bottom + 4 });
   };
 
   const filteredEmpty = tasks.length > 0 && visible.length === 0;
@@ -668,20 +611,15 @@ export function TasksView({
         filters={filters}
         tasks={tasks}
         projects={projects}
-        showColumns={view !== "list"}
-        columnsOpen={menu?.kind === "columns"}
         onChange={setFilters}
-        onOpenColumns={(anchor) => openMenu("columns", anchor)}
         leading={
-          <NewTaskButton
-            creating={creating}
-            menuOpen={menu?.kind === "create"}
-            onCreate={() => void create(undefined)}
-            onChooseLocation={(anchor) => openMenu("create", anchor)}
-          />
-        }
-        trailing={
           <>
+            <NewTaskButton
+              creating={creating}
+              menuOpen={menu?.kind === "create"}
+              onCreate={() => void create(undefined)}
+              onChooseLocation={openMenu}
+            />
             <button
               ref={focusButton}
               type="button"
@@ -695,17 +633,20 @@ export function TasksView({
                   : "text-content/60 hover:bg-content/10 hover:text-content"
               }`}
             >
-              <Sun
+              <Target
                 aria-hidden
                 className="size-3.5"
                 strokeWidth={1.75}
-                fill={focusOn ? "currentColor" : "none"}
               />
               Focus
               <span className="tabular-nums text-[11px] opacity-70">
                 {focusCount}/{activeTasks.length}
               </span>
             </button>
+          </>
+        }
+        trailing={
+          <>
             <button
               type="button"
               aria-pressed={showArchived}
@@ -737,17 +678,11 @@ export function TasksView({
         <ExplorerMenu
           x={menu.x}
           y={menu.y}
-          ariaLabel={
-            menu.kind === "create"
-              ? "Choose where the task is filed"
-              : "Choose visible columns"
-          }
+          ariaLabel="Choose where the task is filed"
           header={
-            menu.kind === "create" ? (
-              <p className="px-2 py-1 text-[11px] text-content/50">
-                File task under…
-              </p>
-            ) : undefined
+            <p className="px-2 py-1 text-[11px] text-content/50">
+              File task under…
+            </p>
           }
           items={menuItems}
           onPick={onPickMenu}
@@ -765,11 +700,19 @@ export function TasksView({
         />
       ) : null}
       {burst ? (
-        <CelebrationBurst target={burst} onDone={() => setBurst(null)} />
+        <CelebrationBurst
+          target={burst}
+          spread={burst.spread}
+          onDone={() => setBurst(null)}
+        />
       ) : null}
       {focusOn && carryOver.length ? (
         <div className="flex shrink-0 items-center gap-2 px-3 pb-1 text-[12px] text-content/60">
-          <Sun aria-hidden className="size-3.5 text-amber-300" strokeWidth={1.75} />
+          <Target
+            aria-hidden
+            className="size-3.5 text-amber-300"
+            strokeWidth={1.75}
+          />
           <span>
             {carryOver.length} unfinished from earlier focus
           </span>
