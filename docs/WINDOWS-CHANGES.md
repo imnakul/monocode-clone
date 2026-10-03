@@ -12,6 +12,7 @@ the top of the table. Do not rewrite older sections.
 
 | Date | Section heading (search this) | Area |
 |---|---|---|
+| 3 Oct 2026 | MCP config toggles preserve Windows line endings | MCP, config, CRLF |
 | 2 Oct 2026 | Windows 0.6.0 installer | installer, versioning, known test failures |
 | 1 Oct 2026 | 0.1.55-local5-provider-fixes | providers |
 | 28 Sept 2026 | Lead checkout chooser removed | orchestration |
@@ -47,6 +48,16 @@ the top of the table. Do not rewrite older sections.
 | 24 Sept 2026 | round 3 landed in tree | upstream merge, CLI notices |
 
 ---
+
+## 3 Oct 2026 — MCP config toggles preserve Windows line endings
+
+`toml_edit` normalizes CRLF to LF when serializing a document, even when only
+one boolean changes. MCP switches therefore replace an existing Codex flag by
+its parsed source span; adding a missing flag restores the original CRLF file
+style. OpenCode/Claude JSONC changes use byte spans and keep surrounding bytes,
+including comments, URLs, escaped strings and CRLF. Regression tests cover
+existing and missing TOML flags and exact JSONC preservation on Linux; live
+Windows/provider checks remain in `docs/specs/mcp-controls-plan.md`.
 
 ## 2 Oct 2026 21:21 IST — Windows 0.6.0 installer
 

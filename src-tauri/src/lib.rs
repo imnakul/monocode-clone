@@ -504,6 +504,7 @@ pub fn run() {
             harness::harness_resolve_claude,
             harness::claude_mcp_list,
             mcp::mcp_discover,
+            mcp::controls::mcp_set_enabled,
             mcp::mcp_add,
             harness::claude_mcp_add,
             harness::claude_mcp_remove,

@@ -200,6 +200,34 @@ describe("approval lifetime", () => {
     });
   });
 
+  it("carries a verified server scope and resolved scope onto the approval block", () => {
+    const serverScope = {
+      serverName: "docs",
+      hint: "Allow tools from docs for this chat.",
+    };
+    const requested = applyHarnessEvent(
+      appendUser(newSession("codex", "/tmp"), "check it"),
+      {
+        type: "approval.requested",
+        requestId: 9,
+        title: "Search docs",
+        serverScope,
+      },
+    );
+    const resolved = applyHarnessEvent(requested, {
+      type: "approval.resolved",
+      requestId: 9,
+      decision: "allow",
+      scope: "server",
+    });
+    expect(resolved.blocks.at(-1)?.approval).toEqual({
+      requestId: 9,
+      serverScope,
+      decided: "allow",
+      scope: "server",
+    });
+  });
+
   it("cancels a stale request before a later turn is appended", () => {
     const stale = { ...waitingForApproval(), busy: false };
     const session = appendUser(stale, "continue");

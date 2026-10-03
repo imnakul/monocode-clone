@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { parseClaudeContextUsage } from "./claudeProtocol";
 import type { NativeContextBreakdown } from "../../../../features/sessions/model/contextBreakdown";
 import { nativeModelId } from "../../../../features/sessions/model/models";
@@ -40,6 +41,7 @@ import {
   buildSetPermissionModeRequest,
   claudeLiveKey,
   claudeSessionRules,
+  claudeMcpServerGrant,
   claudeSettingsKey,
   extractAskUserQuestionTitle,
   extractExitPlanModePlan,
@@ -117,7 +119,14 @@ type PendingApproval = {
   requestId: string;
   input: Record<string, unknown>;
   grant?: ClaudeSessionGrant;
+  serverGrant?: ClaudeSessionGrant;
   resolve: (decision: ApprovalOutcome) => void;
+};
+
+type ClaudeMcpDiscoveryRow = {
+  provider?: unknown;
+  name?: unknown;
+  enabled?: unknown;
 };
 
 type PendingControl = {
@@ -277,12 +286,42 @@ let nextClaudeControlId = 0;
 
 let resolveClaudeBinaryImpl: () => Promise<{ path: string }> =
   resolveClaudeBinary;
+async function discoverClaudeMcpServers(
+  cwd: string,
+): Promise<{ configured: string[]; enabled: string[] }> {
+  const rows = await invoke<ClaudeMcpDiscoveryRow[]>("mcp_discover", { cwd });
+  if (!Array.isArray(rows)) return { configured: [], enabled: [] };
+  const enabled = new Map<string, boolean>();
+  for (const row of rows) {
+    if (row.provider !== "claude" || typeof row.name !== "string") continue;
+    enabled.set(
+      row.name,
+      (enabled.get(row.name) ?? true) && row.enabled !== false,
+    );
+  }
+  return {
+    configured: [...enabled.keys()],
+    enabled: [...enabled]
+      .filter(([, isEnabled]) => isEnabled)
+      .map(([name]) => name),
+  };
+}
+let resolveClaudeMcpServersImpl = discoverClaudeMcpServers;
 
 /** Test seam. */
 export function setClaudeBinaryResolver(
   fn: () => Promise<{ path: string }>,
 ): void {
   resolveClaudeBinaryImpl = fn;
+}
+
+/** Test seam for the native MCP configuration discovery used to qualify grants. */
+export function setClaudeMcpServerResolver(
+  fn: (
+    cwd: string,
+  ) => Promise<{ configured: string[]; enabled: string[] }>,
+): void {
+  resolveClaudeMcpServersImpl = fn;
 }
 
 export async function sendClaudeTurn(input: SendTurnInput): Promise<void> {
@@ -375,7 +414,19 @@ export function respondClaudeApproval(
   const live = liveByThread.get(sessionId);
   const pending = live?.approvals.get(requestId);
   if (!pending) return;
-  pending.resolve({ decision, scope });
+  const safeScope =
+    decision === "allow" &&
+    !live?.planning &&
+    scope === "session" &&
+    pending.grant
+      ? scope
+      : decision === "allow" &&
+          !live?.planning &&
+          scope === "server" &&
+          pending.serverGrant
+        ? scope
+        : undefined;
+  pending.resolve({ decision, scope: safeScope });
 }
 
 export function respondClaudeQuestion(
@@ -467,9 +518,11 @@ export function bindClaudeSession(
   const sessionId = providerSessionId.trim();
   if (!threadId || !sessionId || !cwd.trim()) return;
   const grant = sessionGrantsByThread.get(threadId);
+  const existingResume = resumeByThread.get(threadId);
   if (
     grant &&
-    (grant.cwd !== cwd ||
+    (existingResume?.sessionId !== sessionId ||
+      grant.cwd !== cwd ||
       !sameProviderAccountId(grant.providerAccountId, providerAccountId))
   ) {
     sessionGrantsByThread.delete(threadId);
@@ -1378,6 +1431,37 @@ async function handleControlRequest(
     return;
   }
 
+  let qualifiedServer:
+    | { serverName: string; grant: ClaudeSessionGrant }
+    | null = null;
+  if (toolName.startsWith("mcp__")) {
+    try {
+      const servers = await resolveClaudeMcpServersImpl(live.cwd);
+      qualifiedServer = claudeMcpServerGrant(
+        toolName,
+        servers.configured,
+        servers.enabled,
+      );
+    } catch {
+      // A discovery failure removes the server-wide option; the exact
+      // provider permission request remains available to the user.
+    }
+    if (
+      live.cancelled ||
+      live.muteUpdates ||
+      liveByThread.get(sessionId) !== live
+    ) {
+      await writeJson(
+        sessionId,
+        buildControlResponse(
+          control.requestId,
+          toClaudePermissionResult("deny", input),
+        ),
+      ).catch(() => undefined);
+      return;
+    }
+  }
+
   const uiId = live.nextApprovalUiId++;
   const grant = claudeSessionRules(toolName, control.permissionSuggestions);
   const pending = waitApproval(
@@ -1386,6 +1470,7 @@ async function handleControlRequest(
     control.requestId,
     input,
     grant ?? undefined,
+    qualifiedServer?.grant,
   );
   live.onEvent({
     type: "approval.requested",
@@ -1397,10 +1482,26 @@ async function handleControlRequest(
     ...(grant
       ? { sessionScope: { hint: "Stop asking for this in this chat." } }
       : {}),
+    ...(qualifiedServer
+      ? {
+          serverScope: {
+            serverName: qualifiedServer.serverName,
+            hint: `Allow all tools from ${qualifiedServer.serverName} for this chat.`,
+          },
+        }
+      : {}),
   });
   const outcome = await pending;
   const decision = outcome === "cancelled" ? "cancelled" : outcome.decision;
-  const scope = outcome === "cancelled" ? undefined : outcome.scope;
+  const requestedScope = outcome === "cancelled" ? undefined : outcome.scope;
+  const scope =
+    decision === "allow" && requestedScope === "session" && grant
+      ? "session"
+      : decision === "allow" &&
+          requestedScope === "server" &&
+          qualifiedServer
+        ? "server"
+        : undefined;
   live.onEvent({
     type: "approval.resolved",
     requestId: uiId,
@@ -1418,12 +1519,20 @@ async function handleControlRequest(
         input,
         approvalDecision === "allow" && scope === "session"
           ? grant?.updates
-          : undefined,
+          : approvalDecision === "allow" && scope === "server"
+            ? qualifiedServer?.grant.updates
+            : undefined,
       ),
     ),
   );
   if (approvalDecision === "allow" && scope === "session" && grant) {
     addClaudeSessionRules(sessionId, live, grant.rules);
+  } else if (
+    approvalDecision === "allow" &&
+    scope === "server" &&
+    qualifiedServer
+  ) {
+    addClaudeSessionRules(sessionId, live, qualifiedServer.grant.rules);
   }
 }
 
@@ -1455,9 +1564,16 @@ function waitApproval(
   requestId: string,
   input: Record<string, unknown>,
   grant?: ClaudeSessionGrant,
+  serverGrant?: ClaudeSessionGrant,
 ): Promise<ApprovalOutcome> {
   return new Promise<ApprovalOutcome>((resolve) => {
-    live.approvals.set(uiId, { requestId, input, grant, resolve });
+    live.approvals.set(uiId, {
+      requestId,
+      input,
+      grant,
+      serverGrant,
+      resolve,
+    });
   }).finally(() => {
     live.approvals.delete(uiId);
   });
@@ -2289,6 +2405,7 @@ function launchOptions(
 }
 
 function claudeAllowedTools(input: HarnessSessionInput): string[] | undefined {
+  if (input.intent === "plan") return undefined;
   const grant = sessionGrantsByThread.get(input.sessionId);
   if (
     !grant ||
@@ -2309,7 +2426,8 @@ function addClaudeSessionRules(
   live: Live,
   rules: ClaudeSessionRule[],
 ): void {
-  if (liveByThread.get(sessionId) !== live || live.cancelled) return;
+  if (liveByThread.get(sessionId) !== live || live.cancelled || live.planning)
+    return;
   const entry = sessionGrantsByThread.get(sessionId) ?? {
     cwd: live.cwd,
     providerAccountId: live.providerAccountId,
@@ -2334,6 +2452,7 @@ export function __claudeTestReset(): void {
   liveByThread.clear();
   resumeByThread.clear();
   sessionGrantsByThread.clear();
+  resolveClaudeMcpServersImpl = discoverClaudeMcpServers;
   tasksByThread.clear();
   cancelledThreads.clear();
   nextClaudeGeneration = 0;

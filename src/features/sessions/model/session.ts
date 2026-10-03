@@ -347,7 +347,8 @@ export type Block = {
     requestId: number;
     decided?: "allow" | "deny" | "cancelled";
     sessionScopeHint?: string;
-    scope?: "once" | "session";
+    serverScope?: { serverName: string; hint: string };
+    scope?: "once" | "session" | "server";
   };
   /** Inner activity of a delegated run. Present on Agent/Task tool blocks. */
   agentRun?: AgentRunMeta;

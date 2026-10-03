@@ -144,6 +144,19 @@ function ApprovalToastCard({
               Allow for session
             </button>
           ) : null}
+          {notice.serverScope ? (
+            <button
+              type="button"
+              title={notice.serverScope.hint}
+              aria-description={notice.serverScope.hint}
+              className="min-w-36 flex-1 rounded-md bg-content/10 px-2.5 py-1 text-[11px] font-medium text-content/85 hover:bg-content/20 max-[319px]:basis-[calc(50%_-_0.25rem)]"
+              onClick={() =>
+                onApproval(session.id, requestId, "allow", "server")
+              }
+            >
+              Allow server for session
+            </button>
+          ) : null}
           <button
             type="button"
             className="min-w-16 flex-1 rounded-md bg-content/10 px-2.5 py-1 text-[11px] font-medium text-content/70 hover:bg-content/20 max-[319px]:basis-[calc(50%_-_0.25rem)]"

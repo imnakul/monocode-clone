@@ -44,6 +44,11 @@ export class OpenCodeClient {
     return this.request<OpenCodeSession>("GET", `/session/${enc(sessionID)}`);
   }
 
+  /** Keep this untrusted until the approval identity validator checks it. */
+  async getMcpStatus(): Promise<unknown> {
+    return this.request<unknown>("GET", "/mcp", { timeoutMs: 5000 });
+  }
+
   async getMessages(sessionID: string): Promise<OpenCodeMessage[]> {
     return this.request<OpenCodeMessage[]>(
       "GET",

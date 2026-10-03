@@ -728,7 +728,22 @@ function sanitizeBlock(
       ...(typeof block.approval.sessionScopeHint === "string"
         ? { sessionScopeHint: block.approval.sessionScopeHint.slice(0, 200) }
         : {}),
-      ...(block.approval.scope === "once" || block.approval.scope === "session"
+      ...(block.approval.serverScope &&
+      typeof block.approval.serverScope.serverName === "string" &&
+      block.approval.serverScope.serverName.trim()
+        ? {
+            serverScope: {
+              serverName: block.approval.serverScope.serverName.slice(0, 120),
+              hint:
+                typeof block.approval.serverScope.hint === "string"
+                  ? block.approval.serverScope.hint.slice(0, 200)
+                  : "",
+            },
+          }
+        : {}),
+      ...(block.approval.scope === "once" ||
+      block.approval.scope === "session" ||
+      block.approval.scope === "server"
         ? { scope: block.approval.scope }
         : {}),
     };

@@ -97,6 +97,208 @@ it("lists servers and routes sign in through Claude MCP", async () => {
   });
 });
 
+it("toggles configured duplicate server rows by their full identity", async () => {
+  const userServer = {
+    provider: "claude",
+    name: "docs",
+    scope: "user",
+    configPath: "/home/.claude.json",
+    transport: "stdio",
+    enabled: true,
+  };
+  const projectServer = {
+    provider: "claude",
+    name: "docs",
+    scope: "project",
+    configPath: "/repo/.mcp.json",
+    transport: "stdio",
+    enabled: false,
+  };
+  let configured = [userServer, projectServer];
+  invoke.mockImplementation(async (command: string, args: Record<string, string>) => {
+    if (command === "mcp_discover") return configured;
+    if (command === "claude_mcp_list") return "";
+    if (command === "mcp_set_enabled") {
+      configured = configured.map((server) =>
+        server.scope === args.scope && server.configPath === args.configPath
+          ? { ...server, enabled: args.enabled as unknown as boolean }
+          : server,
+      );
+      return undefined;
+    }
+    return undefined;
+  });
+  await act(async () =>
+    root.render(createElement(McpSettings, { cwd: "/repo" })),
+  );
+  const userToggle = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Enable docs (Claude Code, user, /home/.claude.json)"]',
+  )!;
+  const projectToggle = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Enable docs (Claude Code, project, /repo/.mcp.json)"]',
+  )!;
+  expect(userToggle.getAttribute("aria-checked")).toBe("true");
+  expect(projectToggle.getAttribute("aria-checked")).toBe("false");
+  await act(async () => userToggle.click());
+  expect(invoke).toHaveBeenCalledWith("mcp_set_enabled", {
+    cwd: "/repo",
+    provider: "claude",
+    scope: "user",
+    configPath: "/home/.claude.json",
+    name: "docs",
+    enabled: false,
+  });
+  expect(
+    container
+      .querySelector<HTMLButtonElement>(
+        '[aria-label="Enable docs (Claude Code, user, /home/.claude.json)"]',
+      )
+      ?.getAttribute("aria-checked"),
+  ).toBe("false");
+  expect(
+    container
+      .querySelector<HTMLButtonElement>(
+        '[aria-label="Enable docs (Claude Code, project, /repo/.mcp.json)"]',
+      )
+      ?.getAttribute("aria-checked"),
+  ).toBe("false");
+});
+
+it("keeps a failed server toggle local to the matching duplicate row", async () => {
+  const rows = [
+    {
+      provider: "codex",
+      name: "docs",
+      scope: "user",
+      configPath: "/home/.codex/config.toml",
+      transport: "stdio",
+      enabled: true,
+    },
+    {
+      provider: "codex",
+      name: "docs",
+      scope: "project",
+      configPath: "/repo/.codex/config.toml",
+      transport: "stdio",
+      enabled: true,
+    },
+  ];
+  const discover = vi.fn(async () => rows);
+  invoke.mockImplementation(async (command: string) => {
+    if (command === "mcp_discover") return discover();
+    if (command === "mcp_set_enabled") throw new Error("Config is read-only");
+    if (command === "claude_mcp_list") return "";
+    return undefined;
+  });
+  await act(async () =>
+    root.render(createElement(McpSettings, { cwd: "/repo" })),
+  );
+  const projectToggle = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Enable docs (Codex, project, /repo/.codex/config.toml)"]',
+  )!;
+  const userToggle = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Enable docs (Codex, user, /home/.codex/config.toml)"]',
+  )!;
+  await act(async () => projectToggle.click());
+  expect(discover).toHaveBeenCalledTimes(1);
+  const alerts = [...container.querySelectorAll<HTMLElement>('[role="alert"]')];
+  expect(alerts).toHaveLength(1);
+  expect(alerts[0].textContent).toContain("Config is read-only");
+  const projectRow = [...container.querySelectorAll(".overflow-hidden > div")].find(
+    (row) => row.textContent?.includes("/repo/.codex/config.toml"),
+  );
+  const userRow = [...container.querySelectorAll(".overflow-hidden > div")].find(
+    (row) => row.textContent?.includes("/home/.codex/config.toml"),
+  );
+  expect(projectRow?.querySelector('[role="alert"]')).not.toBeNull();
+  expect(userRow?.querySelector('[role="alert"]')).toBeNull();
+  expect(projectToggle.getAttribute("aria-checked")).toBe("true");
+});
+
+it("refreshes user-scope enablement when switching to another project", async () => {
+  let enabled = true;
+  invoke.mockImplementation(async (command: string) => {
+    if (command === "mcp_discover")
+      return [
+        {
+          provider: "codex",
+          name: "docs",
+          scope: "user",
+          configPath: "/home/.codex/config.toml",
+          transport: "stdio",
+          enabled,
+        },
+      ];
+    if (command === "mcp_set_enabled") {
+      enabled = false;
+      return undefined;
+    }
+    if (command === "claude_mcp_list") return "";
+    return undefined;
+  });
+  await act(async () =>
+    root.render(
+      createElement(McpSettings, {
+        cwd: "/repo",
+        recents: [{ path: "/other", openedAt: 1 }],
+      }),
+    ),
+  );
+  const repoToggle = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Enable docs (Codex, user, /home/.codex/config.toml)"]',
+  )!;
+  expect(repoToggle.getAttribute("aria-checked")).toBe("true");
+  await act(async () => repoToggle.click());
+  expect(
+    container
+      .querySelector<HTMLButtonElement>(
+        '[aria-label="Enable docs (Codex, user, /home/.codex/config.toml)"]',
+      )
+      ?.getAttribute("aria-checked"),
+  ).toBe("false");
+  await selectProject("/other");
+  const otherToggle = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Enable docs (Codex, user, /home/.codex/config.toml)"]',
+  )!;
+  expect(otherToggle.getAttribute("aria-checked")).toBe("false");
+  expect(invoke).toHaveBeenCalledWith("mcp_discover", { cwd: "/other" });
+});
+
+it("shows unavailable controls without implying support for Claude Desktop or Cursor", async () => {
+  invoke.mockImplementation(async (command: string) =>
+    command === "mcp_discover"
+      ? [
+          {
+            provider: "claude_desktop",
+            name: "desktop-docs",
+            scope: "user",
+            configPath: "/home/Claude/claude_desktop_config.json",
+            transport: "stdio",
+            enabled: true,
+          },
+          {
+            provider: "cursor",
+            name: "cursor-docs",
+            scope: "project",
+            configPath: "/repo/.cursor/mcp.json",
+            transport: "stdio",
+            enabled: true,
+          },
+        ]
+      : "",
+  );
+  await act(async () =>
+    root.render(createElement(McpSettings, { cwd: "/repo" })),
+  );
+  expect(container.querySelectorAll('[role="switch"]')).toHaveLength(0);
+  expect(container.textContent).toContain(
+    "Enable control unavailable for Claude Desktop",
+  );
+  expect(container.textContent).toContain(
+    "Enable control unavailable for Cursor",
+  );
+});
+
 it("filters connections by provider", async () => {
   await act(async () =>
     root.render(createElement(McpSettings, { cwd: "/repo" })),

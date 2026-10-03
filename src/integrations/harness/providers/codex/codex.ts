@@ -83,6 +83,7 @@ type PendingApproval = {
   threadId: string;
   kind: CodexApprovalKind;
   grantKey?: string;
+  serverName?: string;
   resolve: (decision: ApprovalOutcome) => void;
 };
 
@@ -174,6 +175,7 @@ type Resume = {
 const liveByThread = new Map<string, Live>();
 const resumeByThread = new Map<string, Resume>();
 const mcpGrantsByThread = new Map<string, Set<string>>();
+const mcpServerGrantsByThread = new Map<string, Set<string>>();
 const cancelledThreads = new Set<string>();
 
 let resolveCodexBinaryImpl: () => Promise<{ path: string }> =
@@ -332,7 +334,16 @@ export function respondCodexApproval(
   const live = liveByThread.get(sessionId);
   const pending = live?.approvals.get(requestId);
   if (!pending) return;
-  pending.resolve({ decision, scope });
+  const safeScope =
+    decision === "allow" && scope === "session"
+      ? scope
+      : decision === "allow" &&
+          !live?.planning &&
+          scope === "server" &&
+          pending.serverName
+        ? scope
+        : undefined;
+  pending.resolve({ decision, scope: safeScope });
 }
 
 export function respondCodexQuestion(
@@ -460,6 +471,7 @@ export async function stopCodexSession(sessionId: string): Promise<void> {
 export async function forgetCodexSession(sessionId: string): Promise<void> {
   resumeByThread.delete(sessionId);
   mcpGrantsByThread.delete(sessionId);
+  mcpServerGrantsByThread.delete(sessionId);
   await stopCodexSession(sessionId);
 }
 
@@ -472,17 +484,20 @@ export function bindCodexSession(
   const providerThreadId = providerSessionId.trim();
   if (!threadId || !providerThreadId || !cwd.trim()) return;
   const grants = mcpGrantsByThread.get(threadId);
+  const serverGrants = mcpServerGrantsByThread.get(threadId);
   const existingResume = resumeByThread.get(threadId);
   if (
-    grants &&
+    (grants || serverGrants) &&
     existingResume &&
-    (existingResume.cwd !== cwd ||
+    (existingResume.threadId !== providerThreadId ||
+      existingResume.cwd !== cwd ||
       !sameProviderAccountId(
         existingResume.providerAccountId,
         providerAccountId,
       ))
   ) {
     mcpGrantsByThread.delete(threadId);
+    mcpServerGrantsByThread.delete(threadId);
   }
   resumeByThread.set(threadId, {
     threadId: providerThreadId,
@@ -519,6 +534,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     ) {
       resumeByThread.delete(input.sessionId);
       mcpGrantsByThread.delete(input.sessionId);
+      mcpServerGrantsByThread.delete(input.sessionId);
     }
     await stopCodexSession(input.sessionId);
   }
@@ -535,6 +551,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   ) {
     resumeByThread.delete(input.sessionId);
     mcpGrantsByThread.delete(input.sessionId);
+    mcpServerGrantsByThread.delete(input.sessionId);
   }
 
   const { path } = await resolveCodexBinaryImpl();
@@ -1410,10 +1427,23 @@ async function handleServerRequest(
         return;
       }
       const grantKey = confirmation.mcpToolGrant?.key;
+      const serverName = confirmation.mcpToolGrant?.serverName;
       if (
         !live.planning &&
         grantKey &&
         mcpGrantsByThread.get(live.sessionId)?.has(grantKey)
+      ) {
+        await live.rpc.respond(id, {
+          action: "accept",
+          content: confirmation.content,
+          _meta: { persist: "session" },
+        });
+        return;
+      }
+      if (
+        !live.planning &&
+        serverName &&
+        mcpServerGrantsByThread.get(live.sessionId)?.has(serverName)
       ) {
         await live.rpc.respond(id, {
           action: "accept",
@@ -1430,6 +1460,7 @@ async function handleServerRequest(
         "permissions",
         threadId,
         grantKey,
+        serverName,
       );
       // Other MCP consent must carry the user's decision, including in Full Access.
       live.onEvent({
@@ -1441,6 +1472,14 @@ async function handleServerRequest(
           ? {
               sessionScope: {
                 hint: "Stop asking for this tool until the chat closes.",
+              },
+            }
+          : {}),
+        ...(!live.planning && confirmation.mcpToolGrant
+          ? {
+              serverScope: {
+                serverName: confirmation.mcpToolGrant.serverName,
+                hint: `Allow all tools from ${confirmation.mcpToolGrant.serverName} until the chat closes.`,
               },
             }
           : {}),
@@ -1457,10 +1496,15 @@ async function handleServerRequest(
       if (outcome === "cancelled") return;
       const sessionGrant =
         decision === "allow" && scope === "session" && grantKey !== undefined;
+      const serverGrant =
+        decision === "allow" &&
+        scope === "server" &&
+        !live.planning &&
+        serverName !== undefined;
       await live.rpc.respond(id, {
         action: decision === "allow" ? "accept" : "decline",
         content: decision === "allow" ? confirmation.content : null,
-        _meta: sessionGrant ? { persist: "session" } : null,
+        _meta: sessionGrant || serverGrant ? { persist: "session" } : null,
       });
       if (
         sessionGrant &&
@@ -1471,6 +1515,17 @@ async function handleServerRequest(
           mcpGrantsByThread.get(live.sessionId) ?? new Set<string>();
         grants.add(grantKey);
         mcpGrantsByThread.set(live.sessionId, grants);
+      }
+      if (
+        serverGrant &&
+        liveByThread.get(live.sessionId) === live &&
+        !live.cancelled &&
+        !live.planning
+      ) {
+        const grants =
+          mcpServerGrantsByThread.get(live.sessionId) ?? new Set<string>();
+        grants.add(serverName);
+        mcpServerGrantsByThread.set(live.sessionId, grants);
       }
       return;
     }
@@ -1657,9 +1712,17 @@ function waitApproval(
   kind: CodexApprovalKind,
   threadId: string,
   grantKey?: string,
+  serverName?: string,
 ): Promise<ApprovalOutcome> {
   return new Promise<ApprovalOutcome>((resolve) => {
-    live.approvals.set(uiId, { rpcId, threadId, kind, grantKey, resolve });
+    live.approvals.set(uiId, {
+      rpcId,
+      threadId,
+      kind,
+      grantKey,
+      serverName,
+      resolve,
+    });
   }).finally(() => {
     live.approvals.delete(uiId);
   });
@@ -1810,6 +1873,7 @@ export function __codexTestReset(): void {
   liveByThread.clear();
   resumeByThread.clear();
   mcpGrantsByThread.clear();
+  mcpServerGrantsByThread.clear();
   cancelledThreads.clear();
 }
 

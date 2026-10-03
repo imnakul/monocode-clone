@@ -17,6 +17,7 @@ import {
   isOpenCodeDefaultTitle,
   isOpenCodeNotFound,
   mergeOpenCodeAssistantText,
+  openCodeMcpServerForTool,
   openCodeVariantLabel,
   parseOpenCodeModelSlug,
   parseOpenCodeVersion,
@@ -25,6 +26,59 @@ import {
   toOpenCodePermissionReply,
   toolKindFromName,
 } from "./opencodeProtocol";
+
+describe("OpenCode MCP approval identity", () => {
+  it("uses native server names and exact linked tool permission", () => {
+    expect(
+      openCodeMcpServerForTool("socraticode_search", "socraticode_search", {
+        socraticode: { status: "connected" },
+        other: { status: "disabled" },
+      }),
+    ).toBe("socraticode");
+    expect(
+      openCodeMcpServerForTool("docs-tools_read", "docs-tools_read", {
+        "docs-tools": { status: "connected" },
+      }),
+    ).toBe("docs-tools");
+    expect(
+      openCodeMcpServerForTool("docs_tools_read", "docs_tools_read", {
+        "docs.tools": { status: "connected" },
+      }),
+    ).toBe("docs.tools");
+  });
+
+  it.each([
+    ["docs_read", undefined, { docs: { status: "connected" } }],
+    ["bash", "docs_read", { docs: { status: "connected" } }],
+    ["docs_*", "docs_*", { docs: { status: "connected" } }],
+    ["docs_", "docs_", { docs: { status: "connected" } }],
+    ["docs_read", "docs_read", { docs: { status: "disabled" } }],
+    ["docs_read", "docs_read", { docs: { status: "connected" }, unknown: {} }],
+    ["docs_read", "docs_read", {}],
+    ["docs_read", "docs_read", null],
+    ["docs_read", "docs_read", []],
+    [
+      "docs_tools_read",
+      "docs_tools_read",
+      { docs: { status: "connected" }, docs_tools: { status: "disabled" } },
+    ],
+    [
+      "docs_tools_read",
+      "docs_tools_read",
+      {
+        "docs.tools": { status: "connected" },
+        "docs tools": { status: "failed" },
+      },
+    ],
+  ])(
+    "rejects ambiguous or unverified identity: %s",
+    (permission, tool, statuses) => {
+      expect(
+        openCodeMcpServerForTool(permission, tool, statuses),
+      ).toBeUndefined();
+    },
+  );
+});
 
 describe("eventSessionId", () => {
   it.each([

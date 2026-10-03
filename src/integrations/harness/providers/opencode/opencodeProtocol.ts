@@ -159,6 +159,39 @@ export function toOpenCodePermissionReply(
   return decision === "allow" ? "once" : "reject";
 }
 
+/** Attribute a native MCP tool ID only when the full registered-server map
+ * gives one possible source. Overlapping prefixes and sanitized-name
+ * collisions deliberately retain the ordinary permission prompt. */
+export function openCodeMcpServerForTool(
+  permission: string,
+  tool: string | undefined,
+  statuses: unknown,
+): string | undefined {
+  if (!tool || permission !== tool || !/^[a-zA-Z0-9_-]+$/.test(tool))
+    return undefined;
+  const servers = asRecord(statuses);
+  if (!servers) return undefined;
+  const names = Object.keys(servers);
+  if (
+    names.some(
+      (name) =>
+        !name.trim() ||
+        /[\u0000-\u001f]/.test(name) ||
+        !stringField(asRecord(servers[name]), "status"),
+    )
+  )
+    return undefined;
+  const candidates = names.filter((name) => {
+    const prefix = `${name.replace(/[^a-zA-Z0-9_-]/g, "_")}_`;
+    return tool.startsWith(prefix) && tool.length > prefix.length;
+  });
+  if (candidates.length !== 1) return undefined;
+  const serverName = candidates[0];
+  return asRecord(servers[serverName])?.status === "connected"
+    ? serverName
+    : undefined;
+}
+
 export function toFileUrl(path: string): string {
   const normalized = path.replace(/\\/g, "/");
   const abs = normalized.startsWith("/") ? normalized : `/${normalized}`;

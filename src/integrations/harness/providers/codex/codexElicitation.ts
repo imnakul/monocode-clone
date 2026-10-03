@@ -22,7 +22,11 @@ export function codexMcpApprovalKindKeys(): readonly string[] {
   return approvalKindKeysOverride ?? CODEX_MCP_APPROVAL_KIND_KEYS;
 }
 
-export type CodexMcpToolGrant = { key: string };
+export type CodexMcpToolGrant = {
+  key: string;
+  serverName: string;
+  toolName: string;
+};
 export type CodexInProgressMcpTool = { server: string; tool: string };
 
 export type McpFormUnsupportedReason =
@@ -649,7 +653,7 @@ function codexMcpToolGrant(
     toolName = matchingTool;
   }
 
-  return { key: `${serverName}\u0000${toolName}` };
+  return { key: `${serverName}\u0000${toolName}`, serverName, toolName };
 }
 
 function asPlainObject(value: unknown): Record<string, unknown> | null {

@@ -931,6 +931,7 @@ function attachApproval(
         ...(event.sessionScope
           ? { sessionScopeHint: event.sessionScope.hint }
           : {}),
+        ...(event.serverScope ? { serverScope: event.serverScope } : {}),
       },
     };
     return { ...session, blocks };
@@ -954,6 +955,7 @@ function attachApproval(
       ...(event.sessionScope
         ? { sessionScopeHint: event.sessionScope.hint }
         : {}),
+      ...(event.serverScope ? { serverScope: event.serverScope } : {}),
     },
   });
 }

@@ -7,6 +7,8 @@ use tauri::State;
 use crate::dirs_home;
 use crate::fs::expand_home;
 
+pub(crate) mod controls;
+
 fn claude_desktop_config(home: &Path) -> PathBuf {
     #[cfg(target_os = "macos")]
     {
@@ -475,7 +477,7 @@ fn discover(
             &claude,
             config
                 .get("projects")
-                .and_then(|projects| projects.get(project.to_string_lossy().as_ref()))
+                .and_then(|projects| projects.get(controls::claude_project_key(&config, project)))
                 .and_then(|entry| entry.get("mcpServers")),
         );
     }
@@ -564,6 +566,25 @@ fn discover(
             &b.config_path,
         ))
     });
+    if let Some(config) = read_json(&claude) {
+        let key = controls::claude_project_key(&config, project);
+        if let Some(disabled) = config
+            .get("projects")
+            .and_then(|projects| projects.get(&key))
+            .and_then(|entry| entry.get("disabledMcpServers"))
+            .and_then(Value::as_array)
+        {
+            for connection in &mut connections {
+                if connection.provider == "claude" {
+                    // Claude's native disable choice applies to a server name in
+                    // the selected project, independently of its config scope.
+                    connection.enabled = !disabled
+                        .iter()
+                        .any(|name| name.as_str() == Some(&connection.name));
+                }
+            }
+        }
+    }
     connections
 }
 
@@ -614,8 +635,9 @@ fn add_json_servers(
             scope: scope.into(),
             config_path: path.to_string_lossy().into_owned(),
             transport: transport(config).into(),
-            enabled: config.get("enabled").and_then(Value::as_bool) != Some(false)
-                && config.get("disabled").and_then(Value::as_bool) != Some(true),
+            enabled: provider == "claude"
+                || (config.get("enabled").and_then(Value::as_bool) != Some(false)
+                    && config.get("disabled").and_then(Value::as_bool) != Some(true)),
         });
     }
 }

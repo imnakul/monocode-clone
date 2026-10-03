@@ -24,6 +24,7 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
+| 2026-10-03 | [Review — MCP controls and server approvals](mcp-controls-plan.md) | Implemented and full gates passed on latest 0.7.0 branch; native desktop/provider checks remain. |
 | 2026-10-03 | [Review — Task Manager focus/archive, one composer, Drafts group](task-focus-composer-plan.md) | Implemented on `nakul/windows-support-upstream-0.7.0`; manual desktop checks listed in the spec. |
 | 2026-10-02 21:06 | [Review — Windows 0.6.0 build](windows-060-build-plan.md) | Unsigned installer built and archived; exact version requested by Nakul. Three existing test failures documented; desktop verification remains. |
 | 2026-09-30 07:30:13 | [Blocked — Orchestration desktop computer-use test — spec](orchestration-desktop-computer-use-test.md) | Four-feature source is archived on `park-other-orchestration-mode-changes-30sept`; T1 remains inconclusive and the desktop cases are untested. |

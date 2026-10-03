@@ -83,7 +83,11 @@ describe("Codex MCP confirmations", () => {
   it("recognizes the verified Codex MCP approval shape", () => {
     expect(codexMcpConfirmation(sessionConfirmation)).toMatchObject({
       content: {},
-      mcpToolGrant: { key: "socraticode\u0000codebase_search" },
+      mcpToolGrant: {
+        key: "socraticode\u0000codebase_search",
+        serverName: "socraticode",
+        toolName: "codebase_search",
+      },
     });
   });
 
@@ -105,6 +109,8 @@ describe("Codex MCP confirmations", () => {
 
     expect(confirmation?.mcpToolGrant).toEqual({
       key: "socraticode\u0000codebase_status",
+      serverName: "socraticode",
+      toolName: "codebase_status",
     });
   });
 
@@ -162,7 +168,11 @@ describe("Codex MCP confirmations", () => {
     const candidates = [{ server: "socraticode", tool: "codebase_status" }];
     expect(
       codexMcpConfirmation(sessionConfirmation, candidates)?.mcpToolGrant,
-    ).toEqual({ key: "socraticode\u0000codebase_search" });
+    ).toEqual({
+      key: "socraticode\u0000codebase_search",
+      serverName: "socraticode",
+      toolName: "codebase_search",
+    });
 
     for (const toolName of ["", "x".repeat(201), null]) {
       expect(

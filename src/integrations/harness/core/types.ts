@@ -104,6 +104,8 @@ export type HarnessEvent =
       callId?: string;
       preview?: ToolPreview;
       sessionScope?: { hint: string };
+      /** Present only when this provider identified the MCP server safely. */
+      serverScope?: { serverName: string; hint: string };
     }
   | {
       type: "approval.resolved";
@@ -176,7 +178,7 @@ export type HarnessEvent =
   | ({ type: "turn.metrics" } & TurnMetrics);
 
 export type ApprovalDecision = "allow" | "deny";
-export type ApprovalScope = "once" | "session";
+export type ApprovalScope = "once" | "session" | "server";
 
 export type HarnessSessionInput = {
   fork?: NativeForkRequest;

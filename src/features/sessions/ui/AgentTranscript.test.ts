@@ -258,6 +258,54 @@ describe("AgentTranscript collapsed work", () => {
     expect(onApproval).toHaveBeenCalledWith(7, "allow", "session");
   });
 
+  it("shows the verified server approval option and forwards its scope", () => {
+    const onApproval = vi.fn();
+    const container = document.createElement("div");
+    document.body.append(container);
+    mountedContainer = container;
+    mountedRoot = createRoot(container);
+    act(() =>
+      mountedRoot?.render(
+        createElement(AgentTranscript, {
+          blocks: [
+            tool("server", {
+              requestId: 8,
+              serverScope: {
+                serverName: "docs",
+                hint: "Allow tools from docs for this chat.",
+              },
+            }),
+          ],
+          onApproval,
+        }),
+      ),
+    );
+    const serverButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Allow server for session",
+    );
+    expect(serverButton?.getAttribute("title")).toBe(
+      "Allow tools from docs for this chat.",
+    );
+    act(() => serverButton?.click());
+    expect(onApproval).toHaveBeenCalledWith(8, "allow", "server");
+  });
+
+  it("persists the Allowed for server transcript label", () => {
+    expect(
+      render([
+        tool("granted", {
+          requestId: 9,
+          decided: "allow",
+          scope: "server",
+          serverScope: {
+            serverName: "docs",
+            hint: "Allow tools from docs for this chat.",
+          },
+        }),
+      ]),
+    ).toContain("Allowed for server in this chat");
+  });
+
   it("persists the Allowed for session transcript label", () => {
     expect(
       render([

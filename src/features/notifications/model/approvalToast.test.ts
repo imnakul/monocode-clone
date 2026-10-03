@@ -50,6 +50,23 @@ describe("pendingApprovalForSession", () => {
     expect(pending?.kind).toBe("approval");
   });
 
+  it("preserves verified server scope on the pending notice", () => {
+    const session = newSession();
+    session.blocks = [
+      block("tool", {
+        requestId: 3,
+        serverScope: {
+          serverName: "docs",
+          hint: "Allow tools from docs for this chat.",
+        },
+      }),
+    ];
+    expect(pendingApprovalForSession(session)?.serverScope).toEqual({
+      serverName: "docs",
+      hint: "Allow tools from docs for this chat.",
+    });
+  });
+
   it("prefers a parked clarifying question over a tool approval", () => {
     const session = newSession();
     session.blocks = [block("tool", { requestId: 2 })];

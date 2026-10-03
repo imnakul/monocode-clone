@@ -33,6 +33,7 @@ import {
   eventSessionId,
   isOpenCodeNotFound,
   openCodeChildSessionId,
+  openCodeMcpServerForTool,
   mergeOpenCodeAssistantText,
   MINIMUM_OPENCODE_VERSION,
   KNOWN_HIDDEN_AGENTS,
@@ -58,6 +59,7 @@ import { streamTextDelta } from "../../core/streamText";
 import { NativeForkError, type NativeForkRequest } from "../../core/types";
 import type {
   ApprovalDecision,
+  ApprovalScope,
   CompactContextInput,
   HarnessEvent,
   HarnessSessionInput,
@@ -76,7 +78,11 @@ import {
 
 type PendingApproval = {
   id: string;
-  resolve: (decision: ApprovalDecision) => void;
+  serverName?: string;
+  resolve: (outcome: {
+    decision: ApprovalDecision;
+    scope?: ApprovalScope;
+  }) => void;
 };
 
 type PendingQuestion = {
@@ -86,6 +92,8 @@ type PendingQuestion = {
 };
 
 type Live = {
+  sessionId: string;
+  providerAccountId?: string;
   turnUserMessageId?: string;
   client: OpenCodeClient;
   openCodeSessionId: string;
@@ -94,6 +102,7 @@ type Live = {
   planning: boolean;
   onEvent: (event: HarnessEvent) => void;
   approvals: Map<number, PendingApproval>;
+  routingPermissions: Set<string>;
   questions: Map<number, PendingQuestion>;
   visibleQuestionId: number | null;
   nextApprovalUiId: number;
@@ -124,6 +133,14 @@ type Resume = {
 const SERVER_TIMEOUT_MS = 30_000;
 const liveByThread = new Map<string, Live>();
 const resumeByThread = new Map<string, Resume>();
+const mcpGrantsByThread = new Map<
+  string,
+  {
+    cwd: string;
+    providerAccountId?: string;
+    servers: Set<string>;
+  }
+>();
 const cancelledThreads = new Set<string>();
 
 let resolveOpenCodeBinaryImpl: () => Promise<{ path: string }> =
@@ -282,11 +299,23 @@ export function respondOpenCodeApproval(
   sessionId: string,
   requestId: number,
   decision: ApprovalDecision,
+  scope?: ApprovalScope,
 ): void {
   const live = liveByThread.get(sessionId);
   const pending = live?.approvals.get(requestId);
   if (!pending) return;
-  pending.resolve(decision);
+  pending.resolve({
+    decision,
+    ...(decision === "allow" &&
+    scope === "server" &&
+    pending.serverName &&
+    live &&
+    !live.planning &&
+    !live.cancelled &&
+    !live.muteUpdates
+      ? { scope: "server" }
+      : {}),
+  });
 }
 
 export function respondOpenCodeQuestion(
@@ -308,7 +337,8 @@ export async function cancelOpenCodeTurn(sessionId: string): Promise<void> {
   }
   live.cancelled = true;
   live.muteUpdates = true;
-  for (const [, pending] of live.approvals) pending.resolve("deny");
+  for (const [, pending] of live.approvals)
+    pending.resolve({ decision: "deny" });
   live.approvals.clear();
   for (const [, pending] of live.questions)
     pending.resolve({ kind: "skipped" });
@@ -326,7 +356,8 @@ export async function stopOpenCodeSession(sessionId: string): Promise<void> {
   liveByThread.delete(sessionId);
   if (live) {
     live.muteUpdates = true;
-    for (const [, pending] of live.approvals) pending.resolve("deny");
+    for (const [, pending] of live.approvals)
+      pending.resolve({ decision: "deny" });
     live.approvals.clear();
     for (const [, pending] of live.questions)
       pending.resolve({ kind: "skipped" });
@@ -347,6 +378,7 @@ export async function stopOpenCodeSession(sessionId: string): Promise<void> {
 }
 
 export async function forgetOpenCodeSession(sessionId: string): Promise<void> {
+  mcpGrantsByThread.delete(sessionId);
   resumeByThread.delete(sessionId);
   await stopOpenCodeSession(sessionId);
 }
@@ -358,12 +390,28 @@ export function bindOpenCodeSession(
 ): void {
   const sessionId = providerSessionId.trim();
   if (!threadId || !sessionId || !cwd.trim()) return;
+  const previous = resumeByThread.get(threadId);
+  if (previous && (previous.sessionId !== sessionId || previous.cwd !== cwd)) {
+    mcpGrantsByThread.delete(threadId);
+  }
   resumeByThread.set(threadId, { sessionId, cwd });
 }
 
 async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+  const grants = mcpGrantsByThread.get(input.sessionId);
+  if (
+    grants &&
+    (grants.cwd !== input.cwd ||
+      grants.providerAccountId !== input.providerAccountId)
+  ) {
+    mcpGrantsByThread.delete(input.sessionId);
+  }
   const existing = liveByThread.get(input.sessionId);
-  if (existing && existing.cwd === input.cwd) {
+  if (
+    existing &&
+    existing.cwd === input.cwd &&
+    existing.providerAccountId === input.providerAccountId
+  ) {
     existing.onEvent = input.onEvent;
     if (existing.runtimeMode !== input.runtimeMode) {
       await existing.client.updateSession(existing.openCodeSessionId, {
@@ -448,6 +496,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     }
 
     const live: Live = {
+      sessionId: input.sessionId,
+      providerAccountId: input.providerAccountId,
       client,
       openCodeSessionId: openCodeSession.id,
       cwd: input.cwd,
@@ -455,6 +505,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       planning: input.intent === "plan",
       onEvent: input.onEvent,
       approvals: new Map(),
+      routingPermissions: new Set(),
       questions: new Map(),
       visibleQuestionId: null,
       nextApprovalUiId: 1,
@@ -509,7 +560,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
         live.turnDone = null;
         live.turnFailed = null;
         live.muteUpdates = true;
-        for (const pending of live.approvals.values()) pending.resolve("deny");
+        for (const pending of live.approvals.values())
+          pending.resolve({ decision: "deny" });
         live.approvals.clear();
         for (const pending of live.questions.values())
           pending.resolve({ kind: "skipped" });
@@ -762,85 +814,134 @@ async function handleEvent(
       if (!id) break;
       if ([...live.approvals.values()].some((pending) => pending.id === id))
         break;
-      const permission = stringField(properties, "permission") ?? "tool";
-      const patterns = Array.isArray(properties.patterns)
-        ? properties.patterns.filter(
-            (item): item is string => typeof item === "string",
-          )
-        : [];
-      const metadata = asRecord(properties.metadata) ?? {};
-      const callId =
-        stringField(asRecord(properties.tool), "callID") ??
-        stringField(properties, "callID") ??
-        stringField(properties, "toolCallId") ??
-        stringField(metadata, "callID") ??
-        stringField(metadata, "toolCallId");
-      const kind = toolKindFromName(permission);
-      const preview =
-        previewFromToolPart({
-          id,
-          type: "tool",
-          tool: permission,
-          state: {
-            ...metadata,
-            input:
-              metadata.input ??
-              (patterns[0] ? { path: patterns[0] } : undefined),
-          },
-        }) ??
-        (patterns[0]
-          ? previewFromToolPart({
-              id,
-              type: "tool",
-              tool: permission,
-              state: { input: { path: patterns[0], pattern: patterns[0] } },
-            })
-          : undefined);
-      const title =
-        composeToolTitle({
-          kind,
-          title: permissionTitle(permission, patterns),
-          command:
-            extractShellCommand(metadata.input) ??
-            (permission === "bash" ? patterns[0] : undefined),
-          skill: extractSkillName(metadata.input),
-          path: preview?.path,
-          query: preview?.query,
-          previewKind: preview?.kind,
-        }) || permissionTitle(permission, patterns);
-      if (live.planning) {
-        const decision =
-          kind === "read" || kind === "search" ? "allow" : "deny";
-        await live.client.replyPermission(
-          id,
-          toOpenCodePermissionReply(decision),
-        );
-        break;
-      }
-      if (live.runtimeMode === "full-access") {
-        await live.client.replyPermission(id, "once");
-        break;
-      }
-      const uiId = live.nextApprovalUiId++;
-      const pending = waitApproval(live, uiId, id);
-      if (callId) {
+      if (live.routingPermissions.has(id)) break;
+      live.routingPermissions.add(id);
+      try {
+        const permission = stringField(properties, "permission") ?? "tool";
+        const patterns = Array.isArray(properties.patterns)
+          ? properties.patterns.filter(
+              (item): item is string => typeof item === "string",
+            )
+          : [];
+        const metadata = asRecord(properties.metadata) ?? {};
+        const callId =
+          stringField(asRecord(properties.tool), "callID") ??
+          stringField(properties, "callID") ??
+          stringField(properties, "toolCallId") ??
+          stringField(metadata, "callID") ??
+          stringField(metadata, "toolCallId");
+        const kind = toolKindFromName(permission);
+        const preview =
+          previewFromToolPart({
+            id,
+            type: "tool",
+            tool: permission,
+            state: {
+              ...metadata,
+              input:
+                metadata.input ??
+                (patterns[0] ? { path: patterns[0] } : undefined),
+            },
+          }) ??
+          (patterns[0]
+            ? previewFromToolPart({
+                id,
+                type: "tool",
+                tool: permission,
+                state: { input: { path: patterns[0], pattern: patterns[0] } },
+              })
+            : undefined);
+        const title =
+          composeToolTitle({
+            kind,
+            title: permissionTitle(permission, patterns),
+            command:
+              extractShellCommand(metadata.input) ??
+              (permission === "bash" ? patterns[0] : undefined),
+            skill: extractSkillName(metadata.input),
+            path: preview?.path,
+            query: preview?.query,
+            previewKind: preview?.kind,
+          }) || permissionTitle(permission, patterns);
+        if (live.planning) {
+          const decision =
+            kind === "read" || kind === "search" ? "allow" : "deny";
+          await live.client.replyPermission(
+            id,
+            toOpenCodePermissionReply(decision),
+          );
+          break;
+        }
+        if (live.runtimeMode === "full-access") {
+          await live.client.replyPermission(id, "once");
+          break;
+        }
+        const turn = live.turnDone;
+        // Match both native call and message identities, never just a permission
+        // prefix. The /mcp lookup is fresh for every request, including replays.
+        const messageId = stringField(asRecord(properties.tool), "messageID");
+        const toolParts =
+          callId && messageId
+            ? [...live.partById.values()].filter(
+                (part) =>
+                  part.type === "tool" &&
+                  part.callID === callId &&
+                  part.messageID === messageId &&
+                  (part.state?.status === "pending" ||
+                    part.state?.status === "running"),
+              )
+            : [];
+        const tool = toolParts.length === 1 ? toolParts[0].tool : undefined;
+        const statuses =
+          tool && permission === tool
+            ? await live.client.getMcpStatus().catch(() => undefined)
+            : undefined;
+        if (
+          live.cancelled ||
+          live.muteUpdates ||
+          live.turnDone !== turn ||
+          liveByThread.get(live.sessionId) !== live
+        )
+          break;
+        const serverName = openCodeMcpServerForTool(permission, tool, statuses);
+        if (
+          serverName &&
+          mcpGrantsByThread.get(live.sessionId)?.servers.has(serverName)
+        ) {
+          await live.client.replyPermission(id, "once");
+          break;
+        }
+        const uiId = live.nextApprovalUiId++;
+        const pending = waitApproval(live, uiId, id, serverName);
+        if (callId) {
+          live.onEvent({
+            type: "tool.updated",
+            callId,
+            title,
+            kind,
+            preview,
+          });
+        }
         live.onEvent({
-          type: "tool.updated",
-          callId,
+          type: "approval.requested",
+          requestId: uiId,
           title,
           kind,
+          callId,
           preview,
+          ...(serverName
+            ? {
+                serverScope: {
+                  serverName,
+                  hint: `Allow all tools from ${serverName} in this chat. Other chats still ask.`,
+                },
+              }
+            : {}),
         });
+        await pending;
+      } finally {
+        live.routingPermissions.delete(id);
       }
-      live.onEvent({
-        type: "approval.requested",
-        requestId: uiId,
-        title,
-        kind,
-        callId,
-        preview,
-      });
-      await pending;
       break;
     }
     case "question.asked": {
@@ -1235,13 +1336,39 @@ async function waitApproval(
   live: Live,
   uiId: number,
   id: string,
+  serverName?: string,
 ): Promise<void> {
-  const decision = await new Promise<ApprovalDecision>((resolve) => {
-    live.approvals.set(uiId, { id, resolve });
+  const { decision, scope } = await new Promise<{
+    decision: ApprovalDecision;
+    scope?: ApprovalScope;
+  }>((resolve) => {
+    live.approvals.set(uiId, { id, serverName, resolve });
   });
   live.approvals.delete(uiId);
-  live.onEvent({ type: "approval.resolved", requestId: uiId, decision });
+  live.onEvent({
+    type: "approval.resolved",
+    requestId: uiId,
+    decision,
+    ...(scope ? { scope } : {}),
+  });
   await live.client.replyPermission(id, toOpenCodePermissionReply(decision));
+  if (
+    decision === "allow" &&
+    scope === "server" &&
+    serverName &&
+    !live.planning &&
+    !live.cancelled &&
+    !live.muteUpdates &&
+    liveByThread.get(live.sessionId) === live
+  ) {
+    const grants = mcpGrantsByThread.get(live.sessionId) ?? {
+      cwd: live.cwd,
+      providerAccountId: live.providerAccountId,
+      servers: new Set<string>(),
+    };
+    grants.servers.add(serverName);
+    mcpGrantsByThread.set(live.sessionId, grants);
+  }
 }
 
 async function waitQuestion(
@@ -1465,6 +1592,7 @@ function waitForServerUrl(
 
 /** Exported for tests. */
 export function __openCodeTestReset(): void {
+  mcpGrantsByThread.clear();
   liveByThread.clear();
   resumeByThread.clear();
   cancelledThreads.clear();

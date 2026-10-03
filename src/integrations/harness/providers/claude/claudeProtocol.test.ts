@@ -15,6 +15,7 @@ import {
   buildClaudeUserMessage,
   claudeLiveKey,
   claudeSessionRules,
+  claudeMcpServerGrant,
   contextFromResult,
   contextUsedFromAssistant,
   extractExitPlanModePlan,
@@ -514,6 +515,43 @@ describe("claudeSessionRules", () => {
       ],
       rules: [],
     });
+  });
+});
+
+describe("claudeMcpServerGrant", () => {
+  it("qualifies a server wildcard using the configured server list", () => {
+    expect(
+      claudeMcpServerGrant("mcp__docs__search", ["docs", "calendar"]),
+    ).toEqual({
+      serverName: "docs",
+      grant: {
+        updates: [
+          {
+            type: "addRules",
+            rules: [{ toolName: "mcp__docs__*" }],
+            behavior: "allow",
+            destination: "session",
+          },
+        ],
+        rules: [{ toolName: "mcp__docs__*" }],
+      },
+    });
+  });
+
+  it.each([
+    ["mcp__docs__search", ["docs", "docs__search"]],
+    ["mcp__docs__search", ["docs__search"]],
+    ["mcp__docs__", ["docs"]],
+    ["mcp__docs__search*", ["docs"]],
+    ["mcp__docs__search", ["docs", "bad name"]],
+  ])("fails closed for an unqualified or ambiguous server identity", (toolName, names) => {
+    expect(claudeMcpServerGrant(toolName as string, names as string[])).toBeNull();
+  });
+
+  it("keeps disabled server names in wildcard ambiguity checks", () => {
+    expect(
+      claudeMcpServerGrant("mcp__docs__search", ["docs", "docs__search"], ["docs"]),
+    ).toBeNull();
   });
 });
 

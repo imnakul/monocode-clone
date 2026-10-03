@@ -106,6 +106,35 @@ it("shows and forwards Allow for session only when the notice has a hint", async
   expect(onApproval).toHaveBeenCalledWith("work", 1, "allow", "session");
 });
 
+it("shows and forwards server scope only when the provider verified a server", async () => {
+  const capable = notice("work");
+  capable.session.blocks = [
+    {
+      id: "approval-block",
+      role: "tool",
+      text: "Search docs",
+      approval: {
+        requestId: 1,
+        serverScope: {
+          serverName: "docs",
+          hint: "Allow tools from docs for this chat.",
+        },
+      },
+    },
+  ];
+  const pending = pendingApprovalForSession(capable.session);
+  expect(pending?.serverScope?.serverName).toBe("docs");
+  await act(async () => render([{ ...pending!, session: capable.session }]));
+  const serverButton = [...document.querySelectorAll("button")].find(
+    (button) => button.textContent === "Allow server for session",
+  );
+  expect(serverButton?.getAttribute("title")).toBe(
+    "Allow tools from docs for this chat.",
+  );
+  act(() => serverButton?.click());
+  expect(onApproval).toHaveBeenCalledWith("work", 1, "allow", "server");
+});
+
 it("keeps one-time approvals to Allow and Deny", async () => {
   await act(async () => render([notice("work")]));
   const approvalButtons = [...document.querySelectorAll(".approval-toast > div button")]

@@ -41,8 +41,10 @@ const {
   inspectClaudeContext,
   respondClaudeApproval,
   respondClaudeQuestion,
+  setClaudeMcpServerResolver,
   restoreClaudeTaskLists,
   sendClaudeTurn,
+  forgetClaudeSession,
   stopClaudeSession,
   __claudeTestReset,
 } = await import("./claude");
@@ -1465,6 +1467,369 @@ describe("claude model switching", () => {
 });
 
 describe("Claude session approvals", () => {
+  it("grants and replays only the verified Claude MCP server wildcard", async () => {
+    setClaudeMcpServerResolver(async () => ({
+      configured: ["docs", "calendar"],
+      enabled: ["docs", "calendar"],
+    }));
+    const { events, turn } = await startTurn("s1", {
+      providerAccountId: "account-work",
+    });
+    const toolName = "mcp__docs__search";
+    emit({
+      type: "control_request",
+      request_id: "mcp_server_permission",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: toolName,
+        input: { query: "release notes" },
+        permission_suggestions: [],
+      },
+    });
+    await waitFor(
+      () => events.some((event) => event.type === "approval.requested"),
+      "verified MCP server approval",
+    );
+    const approval = events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+    expect(approval.serverScope).toEqual({
+      serverName: "docs",
+      hint: "Allow all tools from docs for this chat.",
+    });
+    respondClaudeApproval("s1", approval.requestId, "allow", "server");
+    await waitFor(
+      () =>
+        parse().some(
+          (message) =>
+            (message.response as Record<string, unknown>)?.request_id ===
+            "mcp_server_permission",
+        ),
+      "Claude MCP server response",
+    );
+    const serverResponse = parse().find(
+      (message) =>
+        (message.response as Record<string, unknown>)?.request_id ===
+        "mcp_server_permission",
+    )?.response as Record<string, unknown>;
+    expect(serverResponse.response).toEqual({
+      behavior: "allow",
+      updatedInput: { query: "release notes" },
+      updatedPermissions: [
+        {
+          type: "addRules",
+          rules: [{ toolName: "mcp__docs__*" }],
+          behavior: "allow",
+          destination: "session",
+        },
+      ],
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+
+    sent.length = 0;
+    await stopClaudeSession("s1");
+    const resumed = await startTurn("s1", {
+      providerAccountId: "account-work",
+    });
+    expect(spawned[1]).toEqual(
+      expect.arrayContaining(["--allowedTools", "mcp__docs__*"]),
+    );
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await resumed.turn;
+
+    const otherChat = await startTurn("s2", {
+      providerAccountId: "account-work",
+    });
+    expect(spawned[2]).not.toContain("--allowedTools");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await otherChat.turn;
+  });
+
+  it("hides Claude's server option when configured names make the wildcard ambiguous", async () => {
+    setClaudeMcpServerResolver(async () => ({
+      configured: ["docs", "docs__search"],
+      enabled: ["docs", "docs__search"],
+    }));
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "control_request",
+      request_id: "ambiguous_mcp_permission",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "mcp__docs__search",
+        input: { query: "release notes" },
+        permission_suggestions: [],
+      },
+    });
+    await waitFor(
+      () => events.some((event) => event.type === "approval.requested"),
+      "ambiguous MCP approval",
+    );
+    const approval = events.find(
+      (event) => event.type === "approval.requested",
+    );
+    expect(approval?.type).toBe("approval.requested");
+    if (approval?.type === "approval.requested") {
+      expect(approval.sessionScope).toBeDefined();
+      expect(approval.serverScope).toBeUndefined();
+      respondClaudeApproval("s1", approval.requestId, "allow");
+    }
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+
+  it.each(["account", "cwd", "forget", "provider-session"] as const)(
+    "does not replay a server grant after %s changes",
+    async (change) => {
+      setClaudeMcpServerResolver(async () => ({
+        configured: ["docs"],
+        enabled: ["docs"],
+      }));
+      const { events, turn } = await startTurn("s1", {
+        providerAccountId: "account-work",
+      });
+      emit({
+        type: "control_request",
+        request_id: `mcp_${change}_permission`,
+        request: {
+          subtype: "can_use_tool",
+          tool_name: "mcp__docs__search",
+          input: { query: "release notes" },
+          permission_suggestions: [],
+        },
+      });
+      await waitFor(
+        () => events.some((event) => event.type === "approval.requested"),
+        "MCP server approval",
+      );
+      const approval = events.find(
+        (event) => event.type === "approval.requested",
+      );
+      if (approval?.type !== "approval.requested")
+        throw new Error("missing MCP approval");
+      respondClaudeApproval("s1", approval.requestId, "allow", "server");
+      await waitFor(
+        () =>
+          parse().some(
+            (message) =>
+              (message.response as Record<string, unknown>)?.request_id ===
+              `mcp_${change}_permission`,
+          ),
+        "MCP server response",
+      );
+      emit({ type: "result", subtype: "success", session_id: "sess_1" });
+      await turn;
+      await stopClaudeSession("s1");
+
+      if (change === "forget") await forgetClaudeSession("s1");
+      if (change === "provider-session")
+        bindClaudeSession("s1", "replacement-session", "/repo", "account-work");
+      const resumed = await startTurn("s1", {
+        providerAccountId:
+          change === "account" ? "account-other" : "account-work",
+        cwd: change === "cwd" ? "/different-repo" : "/repo",
+      });
+      expect(spawned[1]).not.toContain("--allowedTools");
+      emit({ type: "result", subtype: "success", session_id: "sess_1" });
+      await resumed.turn;
+    },
+  );
+
+  it("does not replay or expand an existing Claude server grant during Plan", async () => {
+    const discovery = vi.fn(async () => ({
+      configured: ["docs"],
+      enabled: ["docs"],
+    }));
+    setClaudeMcpServerResolver(discovery);
+    const first = await startTurn("s1", { providerAccountId: "account-work" });
+    emit({
+      type: "control_request",
+      request_id: "mcp_plan_seed_permission",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "mcp__docs__search",
+        input: { query: "release notes" },
+        permission_suggestions: [],
+      },
+    });
+    await waitFor(
+      () => first.events.some((event) => event.type === "approval.requested"),
+      "initial server approval",
+    );
+    const approval = first.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing server approval");
+    respondClaudeApproval("s1", approval.requestId, "allow", "server");
+    await waitFor(
+      () =>
+        parse().some(
+          (message) =>
+            (message.response as Record<string, unknown>)?.request_id ===
+            "mcp_plan_seed_permission",
+        ),
+      "initial server grant response",
+    );
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await first.turn;
+    await stopClaudeSession("s1");
+
+    const plan = await startTurn("s1", {
+      intent: "plan",
+      providerAccountId: "account-work",
+    });
+    expect(spawned[1]).not.toContain("--allowedTools");
+    emit({
+      type: "control_request",
+      request_id: "mcp_plan_permission",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "mcp__docs__search",
+        input: { query: "release notes" },
+        permission_suggestions: [],
+      },
+    });
+    await waitFor(
+      () =>
+        parse().some(
+          (message) =>
+            (message.response as Record<string, unknown>)?.request_id ===
+            "mcp_plan_permission",
+        ),
+      "Plan MCP decision",
+    );
+    const planResponse = parse().find(
+      (message) =>
+        (message.response as Record<string, unknown>)?.request_id ===
+        "mcp_plan_permission",
+    )?.response as Record<string, unknown>;
+    expect(planResponse.response).not.toHaveProperty("updatedPermissions");
+    expect(plan.events.some((event) => event.type === "approval.requested")).toBe(
+      false,
+    );
+    expect(discovery).toHaveBeenCalledTimes(1);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await plan.turn;
+
+    await stopClaudeSession("s1");
+    const supervised = await startTurn("s1", {
+      providerAccountId: "account-work",
+    });
+    expect(spawned[2]).toEqual(
+      expect.arrayContaining(["--allowedTools", "mcp__docs__*"]),
+    );
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await supervised.turn;
+  });
+
+  it("does not save a Claude server grant when its response write fails", async () => {
+    setClaudeMcpServerResolver(async () => ({
+      configured: ["docs"],
+      enabled: ["docs"],
+    }));
+    const first = await startTurn("s1", {
+      providerAccountId: "account-work",
+    });
+    emit({
+      type: "control_request",
+      request_id: "failed_mcp_server_permission",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "mcp__docs__search",
+        input: { query: "release notes" },
+        permission_suggestions: [],
+      },
+    });
+    await waitFor(
+      () => first.events.some((event) => event.type === "approval.requested"),
+      "MCP server approval",
+    );
+    const approval = first.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+    writeChild.mockImplementationOnce(async () => {
+      throw new Error("simulated write failure");
+    });
+    respondClaudeApproval("s1", approval.requestId, "allow", "server");
+    await expect(first.turn).rejects.toThrow("simulated write failure");
+    await stopClaudeSession("s1");
+
+    const resumed = await startTurn("s1", {
+      providerAccountId: "account-work",
+    });
+    expect(spawned[1]).not.toContain("--allowedTools");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await resumed.turn;
+  });
+
+  it("does not save a Claude server grant when the chat closes during its write", async () => {
+    setClaudeMcpServerResolver(async () => ({
+      configured: ["docs"],
+      enabled: ["docs"],
+    }));
+    const first = await startTurn("s1", {
+      providerAccountId: "account-work",
+    });
+    emit({
+      type: "control_request",
+      request_id: "closing_mcp_server_permission",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "mcp__docs__search",
+        input: { query: "release notes" },
+        permission_suggestions: [],
+      },
+    });
+    await waitFor(
+      () => first.events.some((event) => event.type === "approval.requested"),
+      "MCP server approval",
+    );
+    const approval = first.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+
+    let releaseWrite: (() => void) | undefined;
+    const responseWrite = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    writeChild.mockImplementationOnce(async (_id, line) => {
+      await responseWrite;
+      sent.push(line);
+    });
+    respondClaudeApproval("s1", approval.requestId, "allow", "server");
+    await waitFor(
+      () =>
+        writeChild.mock.calls.some((call) => {
+          const message = JSON.parse(call[1]) as Record<string, unknown>;
+          const response = message.response as
+            | Record<string, unknown>
+            | undefined;
+          return response?.request_id === "closing_mcp_server_permission";
+        }),
+      "pending Claude server approval write",
+    );
+
+    await stopClaudeSession("s1");
+    releaseWrite?.();
+    await first.turn;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const resumed = await startTurn("s1", {
+      providerAccountId: "account-work",
+    });
+    expect(spawned[1]).not.toContain("--allowedTools");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await resumed.turn;
+  });
+
   it("does not save a Claude session rule when the session stops during the response write", async () => {
     const first = await startTurn("s1", {
       providerAccountId: "account-work",

@@ -10,6 +10,7 @@ let onChildExit: ((code: number | null) => void) | undefined;
 let onSseEvent: ((event: Record<string, unknown>) => void) | undefined;
 let onSseEnd: ((error?: string) => void) | undefined;
 let sessionMessages: unknown[] = [];
+let mcpStatuses: unknown = {};
 const spawnChild = vi.fn(async () => {
   onStdout?.("opencode server listening on http://127.0.0.1:4096");
 });
@@ -22,6 +23,9 @@ const harnessHttp = vi.fn(
     body?: string;
   }): Promise<{ status: number; body: string }> => {
     const url = new URL(input.url);
+    if (input.method === "GET" && url.pathname === "/mcp") {
+      return { status: 200, body: JSON.stringify(mcpStatuses) };
+    }
     if (input.method === "POST" && url.pathname === "/session") {
       return { status: 200, body: JSON.stringify({ id: "session_1" }) };
     }
@@ -82,6 +86,7 @@ const {
   __openCodeTestReset,
   bindOpenCodeSession,
   cancelOpenCodeTurn,
+  forgetOpenCodeSession,
   respondOpenCodeApproval,
   respondOpenCodeQuestion,
   rewindOpenCodeLastTurn,
@@ -105,12 +110,18 @@ function turn(
     runtimeMode?: RuntimeMode;
     onAccepted?: () => void;
     fork?: NativeForkRequest;
+    intent?: "plan";
+    sessionId?: string;
+    cwd?: string;
+    providerAccountId?: string;
   } = {},
 ) {
   return sendOpenCodeTurn({
-    sessionId: "opencode-live",
+    sessionId: options.sessionId ?? "opencode-live",
     fork: options.fork,
-    cwd: "/repo",
+    cwd: options.cwd ?? "/repo",
+    providerAccountId: options.providerAccountId,
+    intent: options.intent,
     model: "opencode:openrouter/anthropic/claude-sonnet-4.6",
     runtimeMode: options.runtimeMode ?? "supervised",
     text: "delegate the investigation",
@@ -166,6 +177,7 @@ beforeEach(() => {
   onSseEvent = undefined;
   onSseEnd = undefined;
   sessionMessages = [];
+  mcpStatuses = {};
   spawnChild.mockClear();
   killChild.mockClear();
   closeHarnessSse.mockClear();
@@ -176,6 +188,442 @@ beforeEach(() => {
 afterEach(async () => {
   await stopOpenCodeSession("opencode-live");
   __openCodeTestReset();
+});
+
+function askMcp(tool: string, id: string, permission = tool): void {
+  const messageID = `message_${id}`;
+  const callID = `call_${id}`;
+  onSseEvent?.({
+    type: "message.part.updated",
+    properties: {
+      sessionID: "session_1",
+      part: {
+        id: `part_${id}`,
+        type: "tool",
+        messageID,
+        callID,
+        tool,
+        state: { status: "running", input: {} },
+      },
+    },
+  });
+  onSseEvent?.({
+    type: "permission.asked",
+    properties: {
+      id,
+      sessionID: "session_1",
+      permission,
+      patterns: ["*"],
+      tool: { messageID, callID },
+    },
+  });
+}
+
+function approvals(
+  events: HarnessEvent[],
+): Extract<HarnessEvent, { type: "approval.requested" }>[] {
+  return events.filter((event) => event.type === "approval.requested");
+}
+
+async function waitReply(id: string): Promise<void> {
+  await waitFor(
+    () =>
+      harnessHttp.mock.calls.some(
+        ([input]) => new URL(input.url).pathname === `/permission/${id}/reply`,
+      ),
+    "permission reply",
+  );
+}
+
+async function beginNext(
+  events: HarnessEvent[],
+  options: Parameters<typeof turn>[1] = {},
+): Promise<{ done: Promise<void> }> {
+  const before = harnessHttp.mock.calls.filter(([input]) =>
+    input.url.includes("/prompt_async"),
+  ).length;
+  const done = turn(events, options);
+  await waitFor(
+    () =>
+      harnessHttp.mock.calls.filter(([input]) =>
+        input.url.includes("/prompt_async"),
+      ).length > before,
+    "next prompt",
+  );
+  return { done };
+}
+
+async function grantMcp(events: HarnessEvent[], id = "first"): Promise<void> {
+  askMcp("socraticode_status", id);
+  await waitFor(
+    () =>
+      approvals(events).some(
+        (event) => event.serverScope?.serverName === "socraticode",
+      ),
+    "server action",
+  );
+  const approval = approvals(events).at(-1)!;
+  respondOpenCodeApproval(
+    "opencode-live",
+    approval.requestId,
+    "allow",
+    "server",
+  );
+  await waitReply(id);
+}
+
+describe("OpenCode MCP server session approvals", () => {
+  beforeEach(() => {
+    mcpStatuses = {
+      socraticode: { status: "connected" },
+      other: { status: "connected" },
+    };
+  });
+
+  it("deduplicates requests while native server discovery is pending", async () => {
+    const events: HarnessEvent[] = [];
+    const { done } = await startTurn(events);
+    let release:
+      ((response: { status: number; body: string }) => void) | undefined;
+    harnessHttp.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    askMcp("socraticode_search", "duplicate");
+    askMcp("socraticode_search", "duplicate");
+    await waitFor(() => release !== undefined, "native discovery");
+    release?.({ status: 200, body: JSON.stringify(mcpStatuses) });
+    await waitFor(() => approvals(events).length === 1, "single prompt");
+    expect(
+      harnessHttp.mock.calls.filter(
+        ([input]) => new URL(input.url).pathname === "/mcp",
+      ),
+    ).toHaveLength(1);
+    respondOpenCodeApproval(
+      "opencode-live",
+      approvals(events)[0].requestId,
+      "allow",
+    );
+    await waitReply("duplicate");
+    idle();
+    await done;
+  });
+
+  it("cannot approve or display a request cancelled during native discovery", async () => {
+    const events: HarnessEvent[] = [];
+    const { done } = await startTurn(events);
+    let release:
+      ((response: { status: number; body: string }) => void) | undefined;
+    harnessHttp.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    askMcp("socraticode_search", "cancelled-lookup");
+    await waitFor(() => release !== undefined, "native discovery");
+    await cancelOpenCodeTurn("opencode-live");
+    release?.({ status: 200, body: JSON.stringify(mcpStatuses) });
+    await done;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(approvals(events)).toHaveLength(0);
+    expect(
+      harnessHttp.mock.calls.some(
+        ([input]) =>
+          new URL(input.url).pathname === "/permission/cancelled-lookup/reply",
+      ),
+    ).toBe(false);
+  });
+
+  it("retains Allow once when the native server lookup is unavailable", async () => {
+    const events: HarnessEvent[] = [];
+    const { done } = await startTurn(events);
+    harnessHttp.mockResolvedValueOnce({ status: 404, body: "not available" });
+    askMcp("socraticode_search", "unavailable-lookup");
+    await waitFor(() => approvals(events).length === 1, "ordinary fallback");
+    expect(approvals(events)[0].serverScope).toBeUndefined();
+    respondOpenCodeApproval(
+      "opencode-live",
+      approvals(events)[0].requestId,
+      "allow",
+      "server",
+    );
+    await waitReply("unavailable-lookup");
+    expect(events.some((event) => event.type === "session.error")).toBe(false);
+    expect(
+      events.filter((event) => event.type === "approval.resolved").at(-1)
+        ?.scope,
+    ).toBeUndefined();
+    idle();
+    await done;
+  });
+
+  it("allows other tools from the same server, preserves restart, and isolates other servers and chats", async () => {
+    const events: HarnessEvent[] = [];
+    const first = await startTurn(events);
+    await grantMcp(events);
+    askMcp("socraticode_search", "search");
+    await waitReply("search");
+    expect(approvals(events)).toHaveLength(1);
+    askMcp("other_read", "other");
+    await waitFor(
+      () => approvals(events).length === 2,
+      "other server approval",
+    );
+    expect(approvals(events)[1].serverScope?.serverName).toBe("other");
+    respondOpenCodeApproval(
+      "opencode-live",
+      approvals(events)[1].requestId,
+      "deny",
+    );
+    await waitReply("other");
+    idle();
+    await first.done;
+    await stopOpenCodeSession("opencode-live");
+    const resumed = await beginNext(events);
+    askMcp("socraticode_summary", "resumed");
+    await waitReply("resumed");
+    expect(approvals(events)).toHaveLength(2);
+    idle();
+    await resumed.done;
+    await stopOpenCodeSession("opencode-live");
+    const fresh = await beginNext(events, { sessionId: "new-chat" });
+    askMcp("socraticode_search", "new-chat");
+    await waitFor(() => approvals(events).length === 3, "new chat approval");
+    respondOpenCodeApproval("new-chat", approvals(events)[2].requestId, "deny");
+    await waitReply("new-chat");
+    idle();
+    await fresh.done;
+    await stopOpenCodeSession("new-chat");
+  });
+
+  it("keeps Allow once and Deny scoped to the current request", async () => {
+    const events: HarnessEvent[] = [];
+    const { done } = await startTurn(events);
+    for (const [index, decision, scope] of [
+      [0, "allow", undefined],
+      [1, "deny", "server"],
+      [2, "deny", undefined],
+    ] as const) {
+      askMcp("socraticode_search", `once-${index}`);
+      await waitFor(
+        () => approvals(events).length > index,
+        "ordinary approval",
+      );
+      respondOpenCodeApproval(
+        "opencode-live",
+        approvals(events)[index].requestId,
+        decision,
+        scope,
+      );
+      await waitReply(`once-${index}`);
+    }
+    expect(
+      events
+        .filter((event) => event.type === "approval.resolved")
+        .every((event) => event.scope === undefined),
+    ).toBe(true);
+    idle();
+    await done;
+  });
+
+  it("revalidates registered server names before replaying and rejects ambiguous prefixes", async () => {
+    const events: HarnessEvent[] = [];
+    const { done } = await startTurn(events);
+    await grantMcp(events);
+    mcpStatuses = {
+      socraticode: { status: "connected" },
+      socraticode_tools: { status: "connected" },
+    };
+    askMcp("socraticode_tools_search", "ambiguous");
+    await waitFor(() => approvals(events).length === 2, "ambiguous approval");
+    expect(approvals(events)[1].serverScope).toBeUndefined();
+    respondOpenCodeApproval(
+      "opencode-live",
+      approvals(events)[1].requestId,
+      "allow",
+      "server",
+    );
+    await waitReply("ambiguous");
+    expect(
+      events.filter((event) => event.type === "approval.resolved").at(-1)
+        ?.scope,
+    ).toBeUndefined();
+    idle();
+    await done;
+  });
+
+  it("does not offer server grants without a matching native tool call", async () => {
+    const events: HarnessEvent[] = [];
+    const { done } = await startTurn(events);
+    askMcp("socraticode_search", "unrelated", "external_directory");
+    await waitFor(() => approvals(events).length === 1, "unrelated permission");
+    expect(approvals(events)[0].serverScope).toBeUndefined();
+    respondOpenCodeApproval(
+      "opencode-live",
+      approvals(events)[0].requestId,
+      "deny",
+      "server",
+    );
+    await waitReply("unrelated");
+    onSseEvent?.({
+      type: "permission.asked",
+      properties: {
+        id: "no-tool",
+        sessionID: "session_1",
+        permission: "socraticode_search",
+        patterns: ["*"],
+      },
+    });
+    await waitFor(() => approvals(events).length === 2, "missing tool prompt");
+    expect(approvals(events)[1].serverScope).toBeUndefined();
+    respondOpenCodeApproval(
+      "opencode-live",
+      approvals(events)[1].requestId,
+      "deny",
+    );
+    await waitReply("no-tool");
+    idle();
+    await done;
+  });
+
+  it("keeps Plan restrictions even when a server was allowed", async () => {
+    const events: HarnessEvent[] = [];
+    const first = await startTurn(events);
+    await grantMcp(events);
+    idle();
+    await first.done;
+    const planned = await beginNext(events, { intent: "plan" });
+    askMcp("socraticode_mutate", "plan");
+    await waitReply("plan");
+    expect(
+      harnessHttp.mock.calls.find(
+        ([input]) => new URL(input.url).pathname === "/permission/plan/reply",
+      )?.[0].body,
+    ).toBe(JSON.stringify({ reply: "reject" }));
+    expect(approvals(events)).toHaveLength(1);
+    idle();
+    await planned.done;
+  });
+
+  it.each([{ cwd: "/different" }, { providerAccountId: "different-account" }])(
+    "clears grants when folder/account changes: %j",
+    async (options) => {
+      const events: HarnessEvent[] = [];
+      const first = await startTurn(events);
+      await grantMcp(events);
+      idle();
+      await first.done;
+      const second = await beginNext(events, options);
+      askMcp("socraticode_search", "changed");
+      await waitFor(
+        () => approvals(events).length === 2,
+        "changed identity approval",
+      );
+      respondOpenCodeApproval(
+        "opencode-live",
+        approvals(events)[1].requestId,
+        "deny",
+      );
+      await waitReply("changed");
+      idle();
+      await second.done;
+    },
+  );
+
+  it("clears server grants when the chat is forgotten", async () => {
+    const events: HarnessEvent[] = [];
+    const first = await startTurn(events);
+    await grantMcp(events);
+    idle();
+    await first.done;
+    await forgetOpenCodeSession("opencode-live");
+    const second = await beginNext(events);
+    askMcp("socraticode_search", "forgotten");
+    await waitFor(
+      () => approvals(events).length === 2,
+      "forgotten grant prompt",
+    );
+    respondOpenCodeApproval(
+      "opencode-live",
+      approvals(events)[1].requestId,
+      "deny",
+    );
+    await waitReply("forgotten");
+    idle();
+    await second.done;
+  });
+
+  it("does not store a server grant after a failed approval reply", async () => {
+    const events: HarnessEvent[] = [];
+    const first = await startTurn(events);
+    askMcp("socraticode_status", "failed");
+    await waitFor(() => approvals(events).length === 1, "server action");
+    harnessHttp.mockResolvedValueOnce({ status: 500, body: "reply failed" });
+    respondOpenCodeApproval(
+      "opencode-live",
+      approvals(events)[0].requestId,
+      "allow",
+      "server",
+    );
+    await waitFor(
+      () => events.some((event) => event.type === "session.error"),
+      "reply failure",
+    );
+    await first.done;
+    const second = await beginNext(events);
+    askMcp("socraticode_search", "retry");
+    await waitFor(() => approvals(events).length === 2, "grant not stored");
+    respondOpenCodeApproval(
+      "opencode-live",
+      approvals(events)[1].requestId,
+      "deny",
+    );
+    await waitReply("retry");
+    idle();
+    await second.done;
+  });
+
+  it("does not store a grant when stopped during the approval write", async () => {
+    const events: HarnessEvent[] = [];
+    const first = await startTurn(events);
+    askMcp("socraticode_status", "stopped");
+    await waitFor(() => approvals(events).length === 1, "server action");
+    let release:
+      ((reply: { status: number; body: string }) => void) | undefined;
+    harnessHttp.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    respondOpenCodeApproval(
+      "opencode-live",
+      approvals(events)[0].requestId,
+      "allow",
+      "server",
+    );
+    await waitFor(() => release !== undefined, "response write");
+    await stopOpenCodeSession("opencode-live");
+    release?.({ status: 204, body: "" });
+    await first.done;
+    const second = await beginNext(events);
+    askMcp("socraticode_search", "after-stop");
+    await waitFor(
+      () => approvals(events).length === 2,
+      "no stale server grant",
+    );
+    respondOpenCodeApproval(
+      "opencode-live",
+      approvals(events)[1].requestId,
+      "deny",
+    );
+    await waitReply("after-stop");
+    idle();
+    await second.done;
+  });
 });
 
 describe("OpenCode native fork", () => {

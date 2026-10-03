@@ -109,6 +109,59 @@ export type ClaudeSessionGrant = {
   rules: ClaudeSessionRule[];
 };
 
+/**
+ * Build Claude's server wildcard only when the configured names identify one
+ * server unambiguously. Claude encodes MCP tool names as
+ * `mcp__<server>__<tool>`; a wildcard for a shorter overlapping server would
+ * also cover the longer server.
+ */
+export function claudeMcpServerGrant(
+  toolName: string,
+  configuredServerNames: string[],
+  enabledServerNames: string[] = configuredServerNames,
+): { serverName: string; grant: ClaudeSessionGrant } | null {
+  if (!toolName.startsWith("mcp__") || /[*?\[\]{}]/.test(toolName)) return null;
+  if (
+    configuredServerNames.some((name) => !/^[A-Za-z0-9_-]+$/.test(name))
+  ) {
+    return null;
+  }
+  const names = [...new Set(configuredServerNames)];
+  const candidates = names.filter(
+    (name) =>
+      toolName.startsWith(`mcp__${name}__`) &&
+      toolName.length > `mcp__${name}__`.length,
+  );
+  if (candidates.length !== 1) return null;
+  const serverName = candidates[0];
+  if (!enabledServerNames.includes(serverName)) return null;
+  if (
+    names.some(
+      (name) =>
+        name !== serverName &&
+        (name.startsWith(`${serverName}__`) ||
+          serverName.startsWith(`${name}__`)),
+    )
+  ) {
+    return null;
+  }
+  const rule = { toolName: `mcp__${serverName}__*` };
+  return {
+    serverName,
+    grant: {
+      updates: [
+        {
+          type: "addRules",
+          rules: [rule],
+          behavior: "allow",
+          destination: "session",
+        },
+      ],
+      rules: [rule],
+    },
+  };
+}
+
 export type ClaudeMappedLine = {
   events: HarnessEvent[];
   sessionId?: string;

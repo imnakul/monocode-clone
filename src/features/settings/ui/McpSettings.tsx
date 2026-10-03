@@ -15,6 +15,7 @@ import { SearchableProjectPicker } from "../../projects/ui/SearchableProjectPick
 import type { RecentProject } from "../../projects/model/recents";
 import { Modal } from "../../../shared/ui/Modal";
 import { Popover } from "../../../shared/ui/Popover";
+import { Toggle } from "../../../shared/ui/Toggle";
 import { LAYER } from "../../../shared/lib/layers";
 import {
   Globe,
@@ -26,6 +27,7 @@ import {
 } from "../../../shared/ui/icons";
 import { MCP_PROVIDER_LABELS, type McpConnection } from "../model/mcp";
 import {
+  clearMcpSettingsCache,
   getCachedMcpSettings,
   loadMcpSettings,
   subscribeMcpSettings,
@@ -51,6 +53,24 @@ const SCOPES: Record<Provider, Scope[]> = {
   cursor: ["project", "user"],
   opencode: ["project", "user"],
 };
+
+function serverRowIdentity(server: ServerRow): string {
+  return JSON.stringify([
+    server.provider,
+    server.scope,
+    server.configPath,
+    server.name,
+  ]);
+}
+
+function serverCanBeToggled(server: ServerRow): boolean {
+  return (
+    server.configPath.length > 0 &&
+    (server.provider === "claude" ||
+      server.provider === "codex" ||
+      server.provider === "opencode")
+  );
+}
 
 function ProviderIcon({ provider }: { provider: Provider }) {
   return (
@@ -336,6 +356,7 @@ function McpConnections({
   const [showAllProviders, setShowAllProviders] = useState(false);
   const [loading, setLoading] = useState(!cached);
   const [busy, setBusy] = useState<string | null>(null);
+  const [toggleErrors, setToggleErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState(cached?.error ?? "");
   const [claudeError, setClaudeError] = useState(cached?.claudeError ?? "");
   const [addOpen, setAddOpen] = useState(false);
@@ -397,7 +418,7 @@ function McpConnections({
   }, [filter, filterProviders]);
 
   async function login(server: ServerRow) {
-    setBusy(server.name);
+    setBusy(serverRowIdentity(server));
     setError("");
     try {
       await invoke("mcp_provider_login", {
@@ -423,7 +444,7 @@ function McpConnections({
       }))
     )
       return;
-    setBusy(server.name);
+    setBusy(serverRowIdentity(server));
     setError("");
     try {
       await invoke("claude_mcp_remove", {
@@ -434,6 +455,36 @@ function McpConnections({
       await refresh();
     } catch (cause) {
       setError(String(cause));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function setEnabled(
+    server: ServerRow,
+    enabled: boolean,
+  ): Promise<void> {
+    if (!serverCanBeToggled(server) || busy !== null) return;
+    const identity = serverRowIdentity(server);
+    setBusy(identity);
+    setError("");
+    setToggleErrors((current) => ({ ...current, [identity]: "" }));
+    try {
+      await invoke("mcp_set_enabled", {
+        cwd,
+        provider: server.provider,
+        scope: server.scope,
+        configPath: server.configPath,
+        name: server.name,
+        enabled,
+      });
+      clearMcpSettingsCache();
+      await refresh();
+    } catch (cause) {
+      setToggleErrors((current) => ({
+        ...current,
+        [identity]: String(cause),
+      }));
     } finally {
       setBusy(null);
     }
@@ -545,7 +596,7 @@ function McpConnections({
         <div className="overflow-hidden rounded-xl border border-content/10 bg-content/3">
           {visible.map((server) => (
             <div
-              key={`${server.provider}:${server.scope}:${server.configPath}:${server.name}`}
+              key={serverRowIdentity(server)}
               className="flex flex-wrap items-center gap-3 border-b border-content/5 px-4 py-3.5 last:border-b-0"
             >
               <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-content/[0.05] ring-1 ring-inset ring-content/[0.06]">
@@ -567,7 +618,29 @@ function McpConnections({
                     {server.configPath}
                   </div>
                 ) : null}
+                {toggleErrors[serverRowIdentity(server)] ? (
+                  <div role="alert" className="mt-1 text-[11px] text-red-400">
+                    {toggleErrors[serverRowIdentity(server)]}
+                  </div>
+                ) : null}
               </div>
+              {serverCanBeToggled(server) ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-content/55">Enabled</span>
+                  <Toggle
+                    label={`Enable ${server.name} (${MCP_PROVIDER_LABELS[server.provider]}, ${server.scope}${server.configPath ? `, ${server.configPath}` : ""})`}
+                    on={server.enabled !== false}
+                    onChange={(enabled) => void setEnabled(server, enabled)}
+                    disabled={busy !== null || loading}
+                  />
+                </div>
+              ) : (
+                <span className="max-w-44 text-[11px] text-content/45">
+                  {server.configPath
+                    ? `Enable control unavailable for ${MCP_PROVIDER_LABELS[server.provider]}.`
+                    : "Enable control unavailable because no local config path was found."}
+                </span>
+              )}
               {server.provider !== "claude_desktop" &&
               server.transport &&
               !["stdio", "local", "ws"].includes(server.transport) ? (
@@ -631,6 +704,12 @@ function McpConnections({
       <p className="text-xs text-content/45">
         Claude Code status comes from its CLI. Other providers show configured
         entries. Sign in opens your browser when supported.
+      </p>
+      <p className="text-xs text-content/45">
+        Claude Code enablement applies to a server name across its config rows
+        for this project. Codex and OpenCode switches affect only the listed
+        config file. Changes take effect in new chats or after the provider
+        reloads.
       </p>
       {addOpen ? (
         <AddServerModal

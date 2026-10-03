@@ -958,6 +958,37 @@ describe("codex live turn sequence", () => {
     await turn;
   });
 
+  it("keeps acceptForSession for an explicit file-change session approval", async () => {
+    const { events, turn } = await startTurn("codex-live");
+    onLine!(
+      JSON.stringify({
+        id: 91,
+        method: "item/fileChange/requestApproval",
+        params: { itemId: "edit_1", reason: "Edit the requested file" },
+      }),
+    );
+    await waitFor(
+      () => events.some((event) => event.type === "approval.requested"),
+      "file-change approval UI",
+    );
+    const request = events.find((event) => event.type === "approval.requested");
+    if (request?.type !== "approval.requested")
+      throw new Error("missing file-change approval");
+    respondCodexApproval("codex-live", request.requestId, "allow", "session");
+    await waitFor(() => parse().some((message) => message.id === 91), "reply");
+    expect(parse().find((message) => message.id === 91)?.result).toEqual({
+      decision: "acceptForSession",
+    });
+    expect(events).toContainEqual({
+      type: "approval.resolved",
+      requestId: request.requestId,
+      decision: "allow",
+      scope: "session",
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
   it("uses session scope for supervised permission requests only when selected", async () => {
     const { events, turn } = await startTurn("codex-live");
     const permissions = { fileSystem: { read: ["/repo/data"] } };
@@ -1606,6 +1637,216 @@ describe("codex live turn sequence", () => {
       content: {},
       _meta: null,
     });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await resumed.turn;
+  });
+
+  it("replays a verified server grant for other tools only in the same chat", async () => {
+    const first = await startTurn("codex-live");
+    sendMcpToolRequest(91, "codebase_status");
+    await waitFor(
+      () => first.events.some((event) => event.type === "approval.requested"),
+      "MCP approval UI",
+    );
+    const approval = first.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+    expect(approval.serverScope).toEqual({
+      serverName: "socraticode",
+      hint: "Allow all tools from socraticode until the chat closes.",
+    });
+    respondCodexApproval("codex-live", approval.requestId, "allow", "server");
+    await waitFor(() => parse().some((message) => message.id === 91), "reply");
+    expect(parse().find((message) => message.id === 91)?.result).toEqual({
+      action: "accept",
+      content: {},
+      _meta: { persist: "session" },
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await first.turn;
+
+    await stopCodexSession("codex-live");
+    sent.length = 0;
+    const resumed = await startTurn("codex-live", { resume: true });
+    sendMcpToolRequest(92, "codebase_search");
+    await waitFor(() => parse().some((message) => message.id === 92), "replayed reply");
+    expect(parse().find((message) => message.id === 92)?.result).toEqual({
+      action: "accept",
+      content: {},
+      _meta: { persist: "session" },
+    });
+    expect(
+      resumed.events.some((event) => event.type === "approval.requested"),
+    ).toBe(false);
+
+    sendMcpToolRequest(93, "lookup", { server: "other" });
+    await waitFor(
+      () => resumed.events.some((event) => event.type === "approval.requested"),
+      "other server approval",
+    );
+    const otherServer = resumed.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (otherServer?.type !== "approval.requested")
+      throw new Error("missing other server approval");
+    expect(otherServer.serverScope?.serverName).toBe("other");
+    respondCodexApproval("codex-live", otherServer.requestId, "deny");
+    await waitFor(() => parse().some((message) => message.id === 93), "deny reply");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await resumed.turn;
+
+    await stopCodexSession("codex-live");
+    sent.length = 0;
+    const otherChat = await startTurn("codex-other");
+    sendMcpToolRequest(94, "codebase_status");
+    await waitFor(
+      () => otherChat.events.some((event) => event.type === "approval.requested"),
+      "new chat approval",
+    );
+    const newChatApproval = otherChat.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (newChatApproval?.type !== "approval.requested")
+      throw new Error("missing new chat approval");
+    respondCodexApproval("codex-other", newChatApproval.requestId, "deny");
+    await waitFor(() => parse().some((message) => message.id === 94), "new chat reply");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await otherChat.turn;
+  });
+
+  it("does not offer or reuse a server grant during Plan", async () => {
+    const first = await startTurn("codex-live");
+    sendMcpToolRequest(91, "codebase_status");
+    await waitFor(
+      () => first.events.some((event) => event.type === "approval.requested"),
+      "MCP approval UI",
+    );
+    const approval = first.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+    respondCodexApproval("codex-live", approval.requestId, "allow", "server");
+    await waitFor(() => parse().some((message) => message.id === 91), "reply");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await first.turn;
+
+    sent.length = 0;
+    const plan = sendFollowupTurn("codex-live", { intent: "plan" });
+    await waitFor(
+      () => parse().some((message) => message.method === "turn/start"),
+      "Plan turn start",
+    );
+    const turnStart = parse().find((message) => message.method === "turn/start");
+    if (typeof turnStart?.id !== "number")
+      throw new Error("missing Plan turn request id");
+    reply(turnStart.id, { turn: { id: "turn_2", status: "inProgress" } });
+    notify("turn/started", { turn: { id: "turn_2", status: "inProgress" } });
+    sendMcpToolRequest(92, "codebase_status");
+    await waitFor(
+      () => plan.events.some((event) => event.type === "approval.requested"),
+      "Plan MCP approval UI",
+    );
+    const planApproval = plan.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (planApproval?.type !== "approval.requested")
+      throw new Error("missing Plan MCP approval");
+    expect(planApproval.serverScope).toBeUndefined();
+    expect(parse().some((message) => message.id === 92)).toBe(false);
+    respondCodexApproval("codex-live", planApproval.requestId, "deny");
+    await waitFor(() => parse().some((message) => message.id === 92), "Plan reply");
+    notify("turn/completed", { turn: { id: "turn_2", status: "completed" } });
+    await plan.turn;
+  });
+
+  it("clears a server grant when Codex binds a replacement native thread", async () => {
+    const first = await startTurn("codex-live");
+    sendMcpToolRequest(91, "codebase_status");
+    await waitFor(
+      () => first.events.some((event) => event.type === "approval.requested"),
+      "MCP approval UI",
+    );
+    const approval = first.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+    respondCodexApproval("codex-live", approval.requestId, "allow", "server");
+    await waitFor(() => parse().some((message) => message.id === 91), "reply");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await first.turn;
+    await stopCodexSession("codex-live");
+
+    bindCodexSession("codex-live", "thr_replaced", "/repo");
+    sent.length = 0;
+    const resumed = await startTurn("codex-live", { resume: true });
+    sendMcpToolRequest(92, "codebase_search");
+    await waitFor(
+      () => resumed.events.some((event) => event.type === "approval.requested"),
+      "approval after native thread replacement",
+    );
+    const next = resumed.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (next?.type !== "approval.requested")
+      throw new Error("missing approval after native thread replacement");
+    respondCodexApproval("codex-live", next.requestId, "deny");
+    await waitFor(() => parse().some((message) => message.id === 92), "reply");
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await resumed.turn;
+  });
+
+  it("does not save a server grant when the Codex chat closes during its response write", async () => {
+    const first = await startTurn("codex-live");
+    sendMcpToolRequest(91, "codebase_status");
+    await waitFor(
+      () => first.events.some((event) => event.type === "approval.requested"),
+      "MCP approval UI",
+    );
+    const approval = first.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (approval?.type !== "approval.requested")
+      throw new Error("missing MCP approval");
+    let releaseWrite: (() => void) | undefined;
+    const responseWrite = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    writeChild.mockImplementationOnce(async (_id, line) => {
+      await responseWrite;
+      sent.push(line);
+    });
+    respondCodexApproval("codex-live", approval.requestId, "allow", "server");
+    await waitFor(
+      () =>
+        writeChild.mock.calls.some((call) => {
+          const message = JSON.parse(call[1]) as Record<string, unknown>;
+          return message.id === 91;
+        }),
+      "pending server response write",
+    );
+    await stopCodexSession("codex-live");
+    releaseWrite?.();
+    await first.turn;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    sent.length = 0;
+    const resumed = await startTurn("codex-live", { resume: true });
+    sendMcpToolRequest(92, "codebase_status");
+    await waitFor(
+      () => resumed.events.some((event) => event.type === "approval.requested"),
+      "server approval after restart",
+    );
+    const next = resumed.events.find(
+      (event) => event.type === "approval.requested",
+    );
+    if (next?.type !== "approval.requested")
+      throw new Error("missing approval after restart");
+    respondCodexApproval("codex-live", next.requestId, "deny");
+    await waitFor(() => parse().some((message) => message.id === 92), "reply");
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await resumed.turn;
   });

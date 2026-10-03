@@ -3767,6 +3767,17 @@ function ApprovalControls({
           Allow for session
         </button>
       ) : null}
+      {approval.serverScope ? (
+        <button
+          type="button"
+          title={approval.serverScope.hint}
+          aria-description={approval.serverScope.hint}
+          className="rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/85 hover:bg-content/20"
+          onClick={() => onApproval(approval.requestId, "allow", "server")}
+        >
+          Allow server for session
+        </button>
+      ) : null}
       <button
         type="button"
         className="rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/70 hover:bg-content/20"
@@ -3779,12 +3790,21 @@ function ApprovalControls({
 }
 
 function SessionApprovalStatus({ block }: { block: Block }) {
-  if (
-    block.approval?.decided !== "allow" ||
-    block.approval.scope !== "session"
-  ) {
+  if (block.approval?.decided !== "allow") {
     return null;
   }
+  if (block.approval.scope === "server") {
+    const serverName = block.approval.serverScope?.serverName;
+    return (
+      <span
+        className="shrink-0 text-[10px] text-content/45"
+        title={serverName ? `Allowed for ${serverName} in this chat` : undefined}
+      >
+        Allowed for server in this chat
+      </span>
+    );
+  }
+  if (block.approval.scope !== "session") return null;
   return (
     <span className="shrink-0 text-[10px] text-content/45">
       Allowed for session

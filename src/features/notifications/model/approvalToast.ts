@@ -8,6 +8,7 @@ export type PendingApprovalNotice = {
   label: string;
   kind: "approval" | "question";
   sessionScopeHint?: string;
+  serverScope?: { serverName: string; hint: string };
   block?: Block;
 };
 
@@ -36,6 +37,9 @@ export function pendingApprovalForSession(
       kind: "approval",
       ...(block.approval.sessionScopeHint
         ? { sessionScopeHint: block.approval.sessionScopeHint }
+        : {}),
+      ...(block.approval.serverScope
+        ? { serverScope: block.approval.serverScope }
         : {}),
       block,
     };
