@@ -1,0 +1,443 @@
+[
+  {
+    "round": 1,
+    "target": "v0.1.56",
+    "sha": "611e05bcde80c096433ef65f3b085693a1be18c5",
+    "previous": "3344bea70341d8ea4d6dea414aa15c13683372e9",
+    "releases": [
+      "v0.1.56"
+    ],
+    "commits": 19,
+    "u_ids": [
+      "U-001",
+      "U-002",
+      "U-003",
+      "U-004",
+      "U-005",
+      "U-006",
+      "U-007",
+      "U-034",
+      "U-035",
+      "U-036",
+      "U-037",
+      "U-038",
+      "U-039",
+      "U-040",
+      "U-041",
+      "U-042"
+    ],
+    "c_ids": [
+      "C-01",
+      "C-02",
+      "C-04",
+      "C-06",
+      "C-07",
+      "C-09",
+      "C-10",
+      "C-11",
+      "C-13",
+      "C-15",
+      "C-16",
+      "C-17",
+      "C-19",
+      "C-20",
+      "C-21",
+      "C-24",
+      "C-25"
+    ],
+    "r_ids": [
+      "R-01",
+      "R-05",
+      "R-07",
+      "R-13",
+      "R-14"
+    ],
+    "d_ids": [
+      "D-05",
+      "D-08",
+      "D-11",
+      "D-12",
+      "D-13",
+      "D-14"
+    ],
+    "size": "L",
+    "baseline_x": 23,
+    "contents": "Drawer/Haze/editor/provider-default/preview/CI repair, macOS Quick composer; source-level streamed-input and confirmation fixes.",
+    "manual": "Drawer keeps local menu/hover; editor format/preview preserve dirty CRLF saves; Cline appears; wallpaper retains five effects; scoped forms, branches and Stop/Queue remain usable."
+  },
+  {
+    "round": 2,
+    "target": "v0.2.0",
+    "sha": "19b992283debd03664dd5eb07aa820c5034b6338",
+    "previous": "611e05bcde80c096433ef65f3b085693a1be18c5",
+    "releases": [
+      "v0.2.0"
+    ],
+    "commits": 15,
+    "u_ids": [
+      "U-007",
+      "U-008",
+      "U-009",
+      "U-010",
+      "U-011",
+      "U-043",
+      "U-044",
+      "U-045",
+      "U-046",
+      "U-047",
+      "U-048",
+      "U-049"
+    ],
+    "c_ids": [
+      "C-01",
+      "C-02",
+      "C-04",
+      "C-06",
+      "C-08",
+      "C-13",
+      "C-14",
+      "C-15",
+      "C-16",
+      "C-17",
+      "C-20",
+      "C-21",
+      "C-22",
+      "C-24",
+      "C-25",
+      "C-26"
+    ],
+    "r_ids": [
+      "R-01",
+      "R-09",
+      "R-13",
+      "R-14",
+      "R-15"
+    ],
+    "d_ids": [
+      "D-01",
+      "D-07",
+      "D-10",
+      "D-12",
+      "D-13",
+      "D-14"
+    ],
+    "size": "L",
+    "baseline_x": 45,
+    "contents": "BTW, opt-in Operator, account information, usage-limit resumes; provider maintenance.",
+    "manual": "Sidechat vs BTW labels; no helper tool access; held queue survives reset/restart; Plan never replays stored grants."
+  },
+  {
+    "round": 3,
+    "target": "v0.3.0",
+    "sha": "c9cdc577996efe71d33d321483521b9de6902004",
+    "previous": "19b992283debd03664dd5eb07aa820c5034b6338",
+    "releases": [
+      "v0.3.0"
+    ],
+    "commits": 21,
+    "u_ids": [
+      "U-001",
+      "U-008",
+      "U-012",
+      "U-013",
+      "U-014",
+      "U-015",
+      "U-050",
+      "U-051",
+      "U-052",
+      "U-053",
+      "U-054",
+      "U-055",
+      "U-056",
+      "U-057",
+      "U-058",
+      "U-059",
+      "U-060",
+      "U-061",
+      "U-062",
+      "U-063"
+    ],
+    "c_ids": [
+      "C-01",
+      "C-02",
+      "C-03",
+      "C-04",
+      "C-06",
+      "C-07",
+      "C-09",
+      "C-11",
+      "C-13",
+      "C-15",
+      "C-16",
+      "C-17",
+      "C-21",
+      "C-23",
+      "C-24",
+      "C-25",
+      "C-26",
+      "C-27"
+    ],
+    "r_ids": [
+      "R-03",
+      "R-04",
+      "R-12",
+      "R-13"
+    ],
+    "d_ids": [
+      "D-04",
+      "D-05",
+      "D-11",
+      "D-13",
+      "D-14"
+    ],
+    "size": "L",
+    "baseline_x": 60,
+    "contents": "Custom keys, configured CLI binaries, JSONC, bulk tab lifecycle; CRLF preservation and provider fixes.",
+    "manual": "Migrated custom binary still launches ACP/Cline; JSONC and formatted CRLF saves round-trip; shortcut conflicts are clear; bulk deletion clears queues and terminals."
+  },
+  {
+    "round": 4,
+    "target": "v0.4.3",
+    "sha": "6ffc99589be087d16bb6d764afdc3502e5046750",
+    "previous": "c9cdc577996efe71d33d321483521b9de6902004",
+    "releases": [
+      "v0.4.0",
+      "v0.4.1",
+      "v0.4.2",
+      "v0.4.3"
+    ],
+    "commits": 25,
+    "u_ids": [
+      "U-009",
+      "U-010",
+      "U-016",
+      "U-017",
+      "U-018",
+      "U-019",
+      "U-020",
+      "U-021",
+      "U-022",
+      "U-064",
+      "U-065",
+      "U-066",
+      "U-067",
+      "U-068",
+      "U-069",
+      "U-070",
+      "U-071",
+      "U-072",
+      "U-073",
+      "U-074",
+      "U-075",
+      "U-076"
+    ],
+    "c_ids": [
+      "C-01",
+      "C-02",
+      "C-04",
+      "C-05",
+      "C-06",
+      "C-07",
+      "C-08",
+      "C-10",
+      "C-12",
+      "C-13",
+      "C-15",
+      "C-16",
+      "C-17",
+      "C-21",
+      "C-23",
+      "C-24",
+      "C-25"
+    ],
+    "r_ids": [
+      "R-10",
+      "R-12",
+      "R-13",
+      "R-14"
+    ],
+    "d_ids": [
+      "D-05",
+      "D-09",
+      "D-12",
+      "D-13",
+      "D-14"
+    ],
+    "size": "L",
+    "baseline_x": 68,
+    "contents": "Multiple folders, native clipboard, adjacent panes, Pi usage, generated images, path copy, celebrations and performance work; include the v0.4.3 Windows regression patch and v0.4.1/v0.4.2 fixes together.",
+    "manual": "Paste image/file attachments and queue them; branches retain generated images after sibling deletion; native clipboard/reveal have no consoles; copy Windows paths; navigation/drawer performance; Windows window startup; celebrations respect reduced motion and never consume human turn ownership."
+  },
+  {
+    "round": 5,
+    "target": "v0.5.0",
+    "sha": "b46230eec3d7854e414dd24135dad95db31e148f",
+    "previous": "6ffc99589be087d16bb6d764afdc3502e5046750",
+    "releases": [
+      "v0.5.0"
+    ],
+    "commits": 13,
+    "u_ids": [
+      "U-023",
+      "U-024",
+      "U-025",
+      "U-077",
+      "U-078",
+      "U-079",
+      "U-080",
+      "U-081",
+      "U-082",
+      "U-083",
+      "U-084",
+      "U-085"
+    ],
+    "c_ids": [
+      "C-01",
+      "C-02",
+      "C-03",
+      "C-04",
+      "C-06",
+      "C-07",
+      "C-09",
+      "C-10",
+      "C-13",
+      "C-15",
+      "C-16",
+      "C-17",
+      "C-19",
+      "C-20",
+      "C-21",
+      "C-22",
+      "C-23",
+      "C-26"
+    ],
+    "r_ids": [
+      "R-02",
+      "R-08",
+      "R-11",
+      "R-12",
+      "R-14",
+      "R-15"
+    ],
+    "d_ids": [
+      "D-03",
+      "D-05",
+      "D-07",
+      "D-12",
+      "D-13",
+      "D-14"
+    ],
+    "size": "L",
+    "baseline_x": 74,
+    "contents": "Remote SSH/host, Help links, cancel commit messages and account readiness refinements.",
+    "manual": "Separate desktop session: connect/reconnect local-to-remote; unsupported provider/scopes/forms shown honestly; cancel helpers without overwriting edits; no extra consoles or credential exposure."
+  },
+  {
+    "round": 6,
+    "target": "v0.6.0",
+    "sha": "48fe62a869658929025b0c67cb386b8a59a39d3e",
+    "previous": "b46230eec3d7854e414dd24135dad95db31e148f",
+    "releases": [
+      "v0.6.0"
+    ],
+    "commits": 26,
+    "u_ids": [
+      "U-010",
+      "U-023",
+      "U-026",
+      "U-027",
+      "U-028",
+      "U-029",
+      "U-030",
+      "U-031",
+      "U-032",
+      "U-086",
+      "U-087",
+      "U-088",
+      "U-089",
+      "U-090",
+      "U-091",
+      "U-092",
+      "U-093",
+      "U-094"
+    ],
+    "c_ids": [
+      "C-01",
+      "C-02",
+      "C-03",
+      "C-06",
+      "C-07",
+      "C-08",
+      "C-09",
+      "C-13",
+      "C-15",
+      "C-16",
+      "C-17",
+      "C-21",
+      "C-22",
+      "C-24",
+      "C-25"
+    ],
+    "r_ids": [
+      "R-04",
+      "R-06",
+      "R-07",
+      "R-12",
+      "R-13"
+    ],
+    "d_ids": [
+      "D-02",
+      "D-05",
+      "D-06",
+      "D-13",
+      "D-14"
+    ],
+    "size": "L",
+    "baseline_x": 76,
+    "contents": "Copy session IDs, remaining quota default, Autosave, executable updates, MCP management, Linux glass, slash modes and later account/usage refinements.",
+    "manual": "Old quota setting policy; Autosave off until enabled and CRLF preserved; MCP forms remain local typed forms; ACP startup remains lazy; updates disabled unless separately approved; Windows wallpaper/glass/hover unchanged."
+  },
+  {
+    "round": 7,
+    "target": "43aac9d216c323a7e04c9037eb0b251dd840cc7a",
+    "sha": "43aac9d216c323a7e04c9037eb0b251dd840cc7a",
+    "previous": "48fe62a869658929025b0c67cb386b8a59a39d3e",
+    "releases": [
+      "post-v0.6.0"
+    ],
+    "commits": 9,
+    "u_ids": [
+      "U-033",
+      "U-095",
+      "U-096",
+      "U-097",
+      "U-098",
+      "U-099",
+      "U-100",
+      "U-101",
+      "U-102"
+    ],
+    "c_ids": [
+      "C-04",
+      "C-06",
+      "C-07",
+      "C-12",
+      "C-13",
+      "C-15",
+      "C-18",
+      "C-19",
+      "C-20",
+      "C-25"
+    ],
+    "r_ids": [
+      "R-12"
+    ],
+    "d_ids": [
+      "D-14"
+    ],
+    "size": "M",
+    "baseline_x": 80,
+    "contents": "Optional nine post-tag commits, including Codex effort animation, Linux ARM artifacts, lazy restore and diff fixes.",
+    "manual": "Windows restored panes/diff navigation, Composer overflow and effort selection; Linux artifacts checked by separate appropriate platform reviewer."
+  }
+]

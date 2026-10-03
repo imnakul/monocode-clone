@@ -1,0 +1,442 @@
+{
+  "counts": {
+    "N": 256,
+    "E": 144,
+    "X": 80,
+    "B": 47
+  },
+  "samples": [
+    {
+      "row": 1,
+      "path": ".gitattributes",
+      "group": "N",
+      "kind": "",
+      "upstream_action": "A",
+      "local_action": "-",
+      "ranges": [
+        "v0.6.0"
+      ]
+    },
+    {
+      "row": 28,
+      "path": "host/owner.ts",
+      "group": "N",
+      "kind": "",
+      "upstream_action": "A",
+      "local_action": "-",
+      "ranges": [
+        "v0.5.0"
+      ]
+    },
+    {
+      "row": 56,
+      "path": "scripts/test-remote-ssh.py",
+      "group": "N",
+      "kind": "",
+      "upstream_action": "A",
+      "local_action": "-",
+      "ranges": [
+        "v0.5.0"
+      ]
+    },
+    {
+      "row": 84,
+      "path": "src-tauri/src/session_store.rs",
+      "group": "X",
+      "kind": "content",
+      "upstream_action": "M",
+      "local_action": "M",
+      "ranges": [
+        "v0.4.0",
+        "v0.4.2",
+        "v0.4.3"
+      ]
+    },
+    {
+      "row": 111,
+      "path": "src/app/shell/TitleBar.tsx",
+      "group": "B",
+      "kind": "",
+      "upstream_action": "M",
+      "local_action": "M",
+      "ranges": [
+        "v0.1.56",
+        "v0.3.0",
+        "v0.6.0"
+      ]
+    },
+    {
+      "row": 139,
+      "path": "src/features/connections/model/remoteSessionActions.ts",
+      "group": "N",
+      "kind": "",
+      "upstream_action": "A",
+      "local_action": "-",
+      "ranges": [
+        "v0.5.0"
+      ]
+    },
+    {
+      "row": 167,
+      "path": "src/features/files/ui/FileTree.tsx",
+      "group": "B",
+      "kind": "",
+      "upstream_action": "M",
+      "local_action": "M",
+      "ranges": [
+        "v0.1.56",
+        "v0.3.0",
+        "v0.4.0",
+        "v0.5.0"
+      ]
+    },
+    {
+      "row": 194,
+      "path": "src/features/projects/model/projectLocationError.ts",
+      "group": "N",
+      "kind": "",
+      "upstream_action": "A",
+      "local_action": "-",
+      "ranges": [
+        "v0.1.56"
+      ]
+    },
+    {
+      "row": 222,
+      "path": "src/features/quick-composer/hooks/useQuickComposerLaunches.ts",
+      "group": "N",
+      "kind": "",
+      "upstream_action": "A",
+      "local_action": "-",
+      "ranges": [
+        "v0.1.56"
+      ]
+    },
+    {
+      "row": 250,
+      "path": "src/features/quick-composer/ui/QuickProjectIcon.tsx",
+      "group": "N",
+      "kind": "",
+      "upstream_action": "A",
+      "local_action": "-",
+      "ranges": [
+        "v0.1.56"
+      ]
+    },
+    {
+      "row": 277,
+      "path": "src/features/sessions/model/mcpCommand.ts",
+      "group": "N",
+      "kind": "",
+      "upstream_action": "A",
+      "local_action": "-",
+      "ranges": [
+        "v0.6.0"
+      ]
+    },
+    {
+      "row": 305,
+      "path": "src/features/sessions/ui/AccessPicker.tsx",
+      "group": "B",
+      "kind": "",
+      "upstream_action": "M",
+      "local_action": "M",
+      "ranges": [
+        "v0.2.0"
+      ]
+    },
+    {
+      "row": 333,
+      "path": "src/features/sessions/ui/ModelPicker.tsx",
+      "group": "X",
+      "kind": "content",
+      "upstream_action": "M",
+      "local_action": "M",
+      "ranges": [
+        "v0.1.56",
+        "v0.2.0",
+        "v0.3.0",
+        "v0.5.0",
+        "post-v0.6.0"
+      ]
+    },
+    {
+      "row": 360,
+      "path": "src/features/settings/model/nativeGlass.test.ts",
+      "group": "N",
+      "kind": "",
+      "upstream_action": "A",
+      "local_action": "-",
+      "ranges": [
+        "v0.6.0"
+      ]
+    },
+    {
+      "row": 388,
+      "path": "src/features/source-control/model/stableDiff.ts",
+      "group": "N",
+      "kind": "",
+      "upstream_action": "A",
+      "local_action": "-",
+      "ranges": [
+        "v0.2.0"
+      ]
+    },
+    {
+      "row": 416,
+      "path": "src/features/workspace/ui/WorkspacePicker.tsx",
+      "group": "E",
+      "kind": "",
+      "upstream_action": "M",
+      "local_action": "-",
+      "ranges": [
+        "v0.1.56",
+        "v0.3.0",
+        "v0.5.0"
+      ]
+    },
+    {
+      "row": 443,
+      "path": "src/integrations/harness/providers/claude/claudeCatalog.ts",
+      "group": "X",
+      "kind": "content",
+      "upstream_action": "M",
+      "local_action": "M",
+      "ranges": [
+        "v0.3.0",
+        "v0.4.0",
+        "v0.5.0"
+      ]
+    },
+    {
+      "row": 471,
+      "path": "src/integrations/harness/providers/fx/fx.ts",
+      "group": "E",
+      "kind": "",
+      "upstream_action": "M",
+      "local_action": "-",
+      "ranges": [
+        "v0.3.0"
+      ]
+    },
+    {
+      "row": 499,
+      "path": "src/integrations/harness/providers/pi/piSkills.ts",
+      "group": "E",
+      "kind": "",
+      "upstream_action": "M",
+      "local_action": "-",
+      "ranges": [
+        "v0.3.0"
+      ]
+    },
+    {
+      "row": 527,
+      "path": "vite.config.ts",
+      "group": "E",
+      "kind": "",
+      "upstream_action": "M",
+      "local_action": "-",
+      "ranges": [
+        "v0.1.56"
+      ]
+    }
+  ],
+  "large": [
+    {
+      "id": "C-02",
+      "hunks": 8,
+      "lines": 192,
+      "paths": [
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/main.rs",
+        "src-tauri/src/search.rs",
+        "src-tauri/src/window.rs"
+      ]
+    },
+    {
+      "id": "C-03",
+      "hunks": 9,
+      "lines": 845,
+      "paths": [
+        "src-tauri/src/harness.rs",
+        "src/integrations/harness/core/child.ts"
+      ]
+    },
+    {
+      "id": "C-04",
+      "hunks": 11,
+      "lines": 170,
+      "paths": [
+        "src/integrations/harness/core/availability.ts",
+        "src/features/sessions/ui/ModelPicker.tsx",
+        "src/integrations/harness/providers/claude/claudeCatalog.ts",
+        "src/integrations/harness/providers/codex/codexCatalog.ts"
+      ]
+    },
+    {
+      "id": "C-07",
+      "hunks": 7,
+      "lines": 267,
+      "paths": [
+        "src/app/shell/MenuBar.tsx",
+        "src/app/shell/ProjectRail.tsx",
+        "src/app/shell/Sidebar.tsx"
+      ]
+    },
+    {
+      "id": "C-13",
+      "hunks": 10,
+      "lines": 470,
+      "paths": [
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/model/session.ts"
+      ]
+    },
+    {
+      "id": "C-15",
+      "hunks": 7,
+      "lines": 189,
+      "paths": [
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/AgentTranscript.test.ts",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/features/workspace/ui/PaneTree.tsx"
+      ]
+    },
+    {
+      "id": "C-16",
+      "hunks": 13,
+      "lines": 786,
+      "paths": [
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/Composer.test.ts"
+      ]
+    },
+    {
+      "id": "C-17",
+      "hunks": 23,
+      "lines": 777,
+      "paths": [
+        "src/features/settings/model/appearance.ts",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/styles/index.css"
+      ]
+    },
+    {
+      "id": "C-19",
+      "hunks": 20,
+      "lines": 380,
+      "paths": [
+        "src/features/source-control/ui/GitChangesPanel.tsx",
+        "src/features/source-control/ui/GitChangesPanel.test.ts",
+        "src/features/source-control/ui/SwitchBranchDialog.tsx",
+        "src/features/source-control/ui/SwitchBranchDialog.test.ts"
+      ]
+    },
+    {
+      "id": "C-22",
+      "hunks": 7,
+      "lines": 174,
+      "paths": [
+        "src/integrations/harness/core/registry.ts",
+        "src/integrations/harness/core/registry.test.ts",
+        "src/integrations/harness/index.ts"
+      ]
+    },
+    {
+      "id": "C-24",
+      "hunks": 9,
+      "lines": 173,
+      "paths": [
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeAdapter.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.test.ts"
+      ]
+    },
+    {
+      "id": "C-25",
+      "hunks": 13,
+      "lines": 219,
+      "paths": [
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexAdapter.ts",
+        "src/integrations/harness/providers/codex/codexElicitation.test.ts",
+        "src/integrations/harness/providers/codex/codexLive.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts"
+      ]
+    },
+    {
+      "id": "C-26",
+      "hunks": 37,
+      "lines": 702,
+      "paths": [
+        "src/integrations/harness/providers/claude/claudeText.ts",
+        "src/integrations/harness/providers/codex/codexText.ts",
+        "src/integrations/harness/providers/opencode/opencodeText.ts",
+        "src/integrations/harness/providers/opencode/opencodeText.test.ts",
+        "src/integrations/harness/providers/opencode/opencodeAdapter.ts"
+      ]
+    }
+  ],
+  "high_risks": [
+    "R-01",
+    "R-02",
+    "R-03",
+    "R-04",
+    "R-05",
+    "R-06",
+    "R-08",
+    "R-11",
+    "R-13",
+    "R-15"
+  ],
+  "corrections": [
+    "L-21 test anchor corrected from unrelated fork test to src/integrations/harness/providers/codex/codexLive.test.ts:1279",
+    "L-22 test anchor corrected from unrelated fork test to src/integrations/harness/providers/claude/claudeLive.test.ts:296",
+    "Removed unrelated D-02 update-notice reference from C-19 helper cancellation resolution.",
+    "L-21 source guard corrected to1229-1231 plus Plan1177",
+    "R-06 exact path/line corrected to providers/ui/HarnessUpdateNotice.tsx:49",
+    "Valid absent-action em dashes normalized to ASCII; console display was misleading"
+  ],
+  "branch": "nakul/windows-support",
+  "branches": [
+    "codex/antigravity-acp",
+    "feat/windows-token-usage-and-context",
+    "feature/antigravity-acp",
+    "feature/cline-provider",
+    "feature/compact-rail-hover",
+    "feature/hari-orchestrator",
+    "feature/mcp-hub",
+    "feature/queue-durability-local5",
+    "feature/remote-chat",
+    "feature/scheduled-tasks",
+    "feature/session-migration",
+    "feature/tasks-foundation",
+    "feature/wallpaper-halftone",
+    "fix/titles-and-token-usage",
+    "main",
+    "nakul/windows-support",
+    "temp-backup-context"
+  ],
+  "stashes": [
+    "stash@{0}",
+    "stash@{1}",
+    "stash@{2}"
+  ],
+  "worktrees": [
+    "mono-clone",
+    "mono-clone-hari",
+    "mono-clone-remote"
+  ],
+  "remote": "1e97594ddf6f40aa24671f7fa09f2048deb1d5eb",
+  "scratch": "E:\\Developing\\OpenSource\\mono-clone-scratch\\intake-trial-20261001-1849",
+  "scratch_bytes": 65877470,
+  "ledger": 128,
+  "instructions": 23,
+  "references": 186
+}

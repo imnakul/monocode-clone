@@ -1,0 +1,1023 @@
+{
+  "conflicts": [
+    {
+      "id": "C-01",
+      "name": "Version label and generated manifests",
+      "paths": [
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/tauri.conf.json"
+      ],
+      "classification": "mechanical",
+      "local": "local5 suffix and Windows installer/archive script",
+      "upstream": "release versions and host/rpm scripts/dependencies",
+      "resolution": "Choose one owner-approved local label; preserve Windows no-sign+NSIS+archive script and union approved upstream scripts/deps. Regenerate affected lock metadata with package-manager tooling; never hand-edit lockfiles.",
+      "tests": "No behavior unit test; exact six version locations and build commands",
+      "hunks": 6,
+      "side_lines": 12,
+      "size": "S",
+      "u_ids": [
+        "U-007",
+        "U-017",
+        "U-019",
+        "U-023",
+        "U-030",
+        "U-042",
+        "U-049",
+        "U-063",
+        "U-067",
+        "U-072",
+        "U-073",
+        "U-075",
+        "U-076",
+        "U-085",
+        "U-094"
+      ],
+      "l_ids": [
+        "L-09",
+        "L-13",
+        "L-14",
+        "L-17"
+      ]
+    },
+    {
+      "id": "C-02",
+      "name": "Windows native plumbing",
+      "paths": [
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/main.rs",
+        "src-tauri/src/search.rs",
+        "src-tauri/src/window.rs"
+      ],
+      "classification": "weave",
+      "local": "scratch-chat/wallpaper/import/ACP commands, hidden process spawning, acrylic preparation",
+      "upstream": "generated-image/search/clipboard/remote registrations; askpass; macOS Quick windows; Linux glass",
+      "resolution": "Union module/command lists once; keep AtomicU64 and AtomicBool, mpsc/thread/AppHandle/Uuid. Keep ensure_scratch_chat alongside generated-image functions. Run askpass exit check and ACP-auth URL check as independent early exits. Preserve Windows preparation before returning upstream WebviewWindow; retain reveal conditional focus. Build cancellable search command through hidden process helper rather than losing console suppression.",
+      "tests": "fs reveal tests; ACP tests; window/search tests; manual zero-console check separate",
+      "hunks": 8,
+      "side_lines": 192,
+      "size": "L",
+      "u_ids": [
+        "U-006",
+        "U-007",
+        "U-008",
+        "U-009",
+        "U-010",
+        "U-012",
+        "U-013",
+        "U-017",
+        "U-019",
+        "U-020",
+        "U-023",
+        "U-028",
+        "U-029",
+        "U-030",
+        "U-031",
+        "U-045",
+        "U-050",
+        "U-054",
+        "U-058",
+        "U-064",
+        "U-066",
+        "U-074",
+        "U-075"
+      ],
+      "l_ids": [
+        "L-03",
+        "L-04",
+        "L-09",
+        "L-13",
+        "L-14",
+        "L-15",
+        "L-16",
+        "L-19",
+        "L-27"
+      ]
+    },
+    {
+      "id": "C-03",
+      "name": "Provider binary authority",
+      "paths": [
+        "src-tauri/src/harness.rs",
+        "src/integrations/harness/core/child.ts"
+      ],
+      "classification": "new product question",
+      "local": "case-insensitive validated override paths, hidden helpers/job cleanup, Cline and official ACP resolver",
+      "upstream": "configured-provider binary paths/args, remote backend abstraction, updater exec output, Unix busy-binary retry",
+      "resolution": "Keep backend canonical resolution and Windows resolved_binary_matches; extend configured resolver with Cline and ACP. Preserve hide_console_window/isolate_child/terminate/job code while adding Unix retry and exec_output. Do not substitute raw Command::new for Windows-aware provider command. D-04 chooses one stored override authority.",
+      "tests": "harness Windows resolver tests; child.test.ts; ACP/Cline live tests; new legacy-override migration test",
+      "hunks": 9,
+      "side_lines": 845,
+      "size": "L",
+      "u_ids": [
+        "U-013",
+        "U-023",
+        "U-029",
+        "U-030",
+        "U-050",
+        "U-053"
+      ],
+      "l_ids": [
+        "L-03",
+        "L-04",
+        "L-13",
+        "L-17"
+      ]
+    },
+    {
+      "id": "C-04",
+      "name": "Discovery and model picker",
+      "paths": [
+        "src/integrations/harness/core/availability.ts",
+        "src/features/sessions/ui/ModelPicker.tsx",
+        "src/integrations/harness/providers/claude/claudeCatalog.ts",
+        "src/integrations/harness/providers/codex/codexCatalog.ts"
+      ],
+      "classification": "weave",
+      "local": "per-provider evidence and lazy ACP handshake, Cline tab, timeout/exit catalog reporting and resolved Claude default alias",
+      "upstream": "shared availability state, per-project visibility, remote model source, configured binary options, version-native Claude IDs",
+      "resolution": "Move local evidenced/error state into one authoritative availability store; include Cline in its Record. Compose project-hidden filters with local per-provider evidence. Local source refresh must still exclude ACP blanket probes; remote source refresh may use host. Keep Claude default/resolved-model fallback and upstream claudeLaunchId concrete IDs. Use distinct Codex probe IDs and upstream configured binary parameters with local exit code/timeout reporting.",
+      "tests": "ModelPicker.test.ts 440/442; availability.test.ts; models/ClaudeCatalog tests; new split-store regression",
+      "hunks": 11,
+      "side_lines": 170,
+      "size": "L",
+      "u_ids": [
+        "U-004",
+        "U-008",
+        "U-012",
+        "U-013",
+        "U-023",
+        "U-033",
+        "U-069"
+      ],
+      "l_ids": [
+        "L-18"
+      ]
+    },
+    {
+      "id": "C-05",
+      "name": "Session SQL and bounded search",
+      "paths": [
+        "src-tauri/src/session_store.rs"
+      ],
+      "classification": "weave",
+      "local": "Windows cwd candidate matching/dedup and v14 queue reconciliation; persisted queue columns",
+      "upstream": "cancellable read-only bounded search, generated-image cleanup lifecycle and restored index checks",
+      "resolution": "Keep current migration lineage through18 and all queue fields in INSERT/SELECT/mapper. Adapt search_sessions_sql to candidate cwd matching (not a single exact cwd), bind budget/limit/cancellation parameters correctly and retain ID dedup. Keep new search budget/truncation behavior; do not restore obsolete SearchRow if unused.",
+      "tests": "session_store queue migration/round-trip/Windows history tests; bounded search tests; new combined search+legacy-drive fixture",
+      "hunks": 3,
+      "side_lines": 135,
+      "size": "M",
+      "u_ids": [
+        "U-020",
+        "U-064",
+        "U-074",
+        "U-075",
+        "U-076"
+      ],
+      "l_ids": [
+        "L-05"
+      ]
+    },
+    {
+      "id": "C-06",
+      "name": "Application lifecycle and send ownership",
+      "paths": [
+        "src/app/App.tsx"
+      ],
+      "classification": "weave",
+      "local": "scratch Chat, terminal cleanup, queue scheduler, review/Sidechat, native fork send flow, forms/session approvals and human-origin flag",
+      "upstream": "remote sessions, preview tabs, BTW, Operator, usage-limit resumes, multi-project opening, CI repairs, lazy UI",
+      "resolution": "Compose sendTurn with exactly one runNativeBranchSend: build Operator/CI prompt first, then fork wrapper, retain humanAuthored. Keep local queue scheduler and terminal start/forget/kill on every close/removal path; add remote history retention independently. Route local approval scope and remote approval separately without advertising unsupported remote session scope. Retain local flexible diff options while adapting upstream pin/kind.",
+      "tests": "queueDurability/sessionRemoval/terminalPanes; branchFlow and handoff tests; operator/usage-limit tests; new combined lifecycle regression",
+      "hunks": 10,
+      "side_lines": 150,
+      "size": "M",
+      "u_ids": [
+        "U-004",
+        "U-005",
+        "U-006",
+        "U-007",
+        "U-008",
+        "U-009",
+        "U-011",
+        "U-012",
+        "U-015",
+        "U-016",
+        "U-018",
+        "U-019",
+        "U-020",
+        "U-022",
+        "U-023",
+        "U-028",
+        "U-029",
+        "U-030",
+        "U-036",
+        "U-038",
+        "U-046",
+        "U-055",
+        "U-062",
+        "U-083",
+        "U-093",
+        "U-096",
+        "U-097",
+        "U-098"
+      ],
+      "l_ids": [
+        "L-02",
+        "L-03",
+        "L-07",
+        "L-19",
+        "L-20",
+        "L-23",
+        "L-25",
+        "L-28"
+      ]
+    },
+    {
+      "id": "C-07",
+      "name": "Shell navigation and compact drawer",
+      "paths": [
+        "src/app/shell/MenuBar.tsx",
+        "src/app/shell/ProjectRail.tsx",
+        "src/app/shell/Sidebar.tsx"
+      ],
+      "classification": "weave",
+      "local": "always-visible menu, SharedHoverHighlight, ChatPanel routing and local project menu",
+      "upstream": "custom keys/autosave menu; extracted useProjectMenu; drawer and remote projects",
+      "resolution": "Union menu imports. Use upstream useProjectMenu rather than duplicate old menu builder, preserving local mode/hover attributes at callers. Keep mode=chat overlay guards and shared highlight. Add upstream drawer only to project sidebar branch; retain mount/performance and remote behavior. Never hide menu behind Alt.",
+      "tests": "Sidebar/TitleBar/hover tests; drawer/rail tests; new Chat-overlay/drawer distinction",
+      "hunks": 7,
+      "side_lines": 267,
+      "size": "L",
+      "u_ids": [
+        "U-001",
+        "U-005",
+        "U-012",
+        "U-023",
+        "U-026",
+        "U-028",
+        "U-055",
+        "U-073",
+        "U-074",
+        "U-098"
+      ],
+      "l_ids": [
+        "L-09"
+      ]
+    },
+    {
+      "id": "C-08",
+      "name": "Usage presentation",
+      "paths": [
+        "src/app/shell/UsageFooter.tsx",
+        "src/app/shell/UsageProviderChip.tsx",
+        "src/features/providers/model/rateLimits.test.ts"
+      ],
+      "classification": "new product question",
+      "local": "optional percentage-left setting and locale-safe metrics",
+      "upstream": "per-account readiness, Pi usage and remaining-percent default",
+      "resolution": "Union React hooks/types and presentation prop; avoid computing remaining twice. D-06 determines whether local toggle remains meaningful or upstream remaining default replaces it. Preserve quota clamp/round tests and exhaustedWindowResetAt tests in separate describes.",
+      "tests": "rateLimits.test.ts; UsageFooter/UsageProviderChip tests; old-setting compatibility case",
+      "hunks": 4,
+      "side_lines": 67,
+      "size": "M",
+      "u_ids": [
+        "U-010",
+        "U-011",
+        "U-019",
+        "U-027"
+      ],
+      "l_ids": []
+    },
+    {
+      "id": "C-09",
+      "name": "CRLF editor lifecycle",
+      "paths": [
+        "src/features/files/editor/editorDoc.test.ts",
+        "src/features/files/ui/FileEditor.tsx"
+      ],
+      "classification": "weave",
+      "local": "EditorDiskSession preserves disk and index EOL separately, logical-dirty check",
+      "upstream": "normalize/detect/restore functions, staged-only lookup via gitDiffFiles, format-on-save/autosave",
+      "resolution": "Keep EditorDiskSession as serializer; adopt gitDiffFiles staged/unstaged decision so true unstaged changes are not hidden by logical equality. Upstream normalization helpers must use the existing shared LineEnding type (R-03). Preserve diskSessionRef serializeForSave/serializeForStage and both test families; add autosave/format/CRLF/disk-conflict matrix.",
+      "tests": "editorDoc.test.ts; editorGit.test.ts; FileEditor.test.ts; lineEndings.test.ts",
+      "hunks": 7,
+      "side_lines": 135,
+      "size": "M",
+      "u_ids": [
+        "U-003",
+        "U-023",
+        "U-028",
+        "U-056"
+      ],
+      "l_ids": []
+    },
+    {
+      "id": "C-10",
+      "name": "File pane loading and filesystem bridge",
+      "paths": [
+        "src/features/files/ui/FilePane.tsx",
+        "src/platform/tauri/fs.test.ts"
+      ],
+      "classification": "weave",
+      "local": "GitFileDiffView plus local wallpaper bridge tests",
+      "upstream": "lazy surfaces/remote paths and pickFolders",
+      "resolution": "Use upstream lazySurface/Suspense structure for shared viewers while retaining GitFileDiffView route for local diff tabs; preserve terminal branch. Union pickFolders and wallpaper test imports without replacing mocks or deleting assertions.",
+      "tests": "FilePane/WorkingTreeDiff tests; fs.test.ts; remote pane tests",
+      "hunks": 2,
+      "side_lines": 30,
+      "size": "S",
+      "u_ids": [
+        "U-005",
+        "U-016",
+        "U-023",
+        "U-083"
+      ],
+      "l_ids": [
+        "L-09"
+      ]
+    },
+    {
+      "id": "C-11",
+      "name": "Pull review and CI repair",
+      "paths": [
+        "src/features/inbox/ui/InboxView.tsx",
+        "src/features/inbox/ui/InboxView.test.ts"
+      ],
+      "classification": "weave",
+      "local": "CodeRabbit Pull review callbacks and hover continuity",
+      "upstream": "GitHub job/check repair session callbacks and status marks",
+      "resolution": "Carry onPullReview and repairSessions/onRepairChecks through every parent/detail component signature and JSX call; keep both InboxView and inboxStatusMark test imports. Preserve distinct review report vs CI prompt fields.",
+      "tests": "InboxView.test.ts; githubTasks.test.ts; ciRepair tests; new both-actions rendered case",
+      "hunks": 8,
+      "side_lines": 23,
+      "size": "S",
+      "u_ids": [
+        "U-006",
+        "U-054"
+      ],
+      "l_ids": []
+    },
+    {
+      "id": "C-12",
+      "name": "Notes restore and refresh",
+      "paths": [
+        "src/features/notes/ui/NotesView.tsx"
+      ],
+      "classification": "weave",
+      "local": "remembered note selection, loading/error and hover system",
+      "upstream": "selection restore-aware initialization; Operator notes-write refresh and markdown",
+      "resolution": "Adopt upstream initializer that validates remembered selection against current notes, keep local loading/error and hover attributes; preserve notes-changed subscription.",
+      "tests": "notes.test.ts; NotesView.hover.test.ts; note-write tests",
+      "hunks": 1,
+      "side_lines": 17,
+      "size": "S",
+      "u_ids": [
+        "U-009",
+        "U-096",
+        "U-102"
+      ],
+      "l_ids": []
+    },
+    {
+      "id": "C-13",
+      "name": "Conversation persistence",
+      "paths": [
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/model/session.ts"
+      ],
+      "classification": "weave",
+      "local": "branch origin/fork fields, token usage, review reports, durable queue fields and Cline",
+      "upstream": "BTW/generated images/CI evidence/Operator/intent/background tasks and remote non-local save rule",
+      "resolution": "Union optional fields and sanitizers; preserve sanitizeBranchOrigin and review alongside sanitizeNestedId/generated image/BTW routines. Keep providerForkPoint on users; retain ciContext and intent/monocode separately. Remote host-owned sessions stay out of local persistence; local queues remain persisted (correct misleading upstream in-memory comment). Never weaken identity validation.",
+      "tests": "sessionStore native-branch/queue tests plus BTW/generated-image/remote tests; SQL queue tests",
+      "hunks": 10,
+      "side_lines": 470,
+      "size": "L",
+      "u_ids": [
+        "U-004",
+        "U-006",
+        "U-007",
+        "U-008",
+        "U-009",
+        "U-011",
+        "U-020",
+        "U-022",
+        "U-023",
+        "U-036",
+        "U-040",
+        "U-050",
+        "U-064",
+        "U-089",
+        "U-093",
+        "U-101"
+      ],
+      "l_ids": [
+        "L-04",
+        "L-20",
+        "L-23",
+        "L-25"
+      ]
+    },
+    {
+      "id": "C-14",
+      "name": "Durable queue and usage limits",
+      "paths": [
+        "src/features/sessions/model/messageQueue.ts",
+        "src/features/sessions/model/messageQueue.test.ts"
+      ],
+      "classification": "weave",
+      "local": "held/steering/failed-turn and editing barriers",
+      "upstream": "usageLimit blocks auto dispatch",
+      "resolution": "Single canDispatchQueuedHead checks busy, usageLimit, paused/resuming/steering/held, preparing handoff and edited head. Preserve both held-failure and usage-limit tests; resume-at-reset must not release independent local held/paused reasons.",
+      "tests": "messageQueue/queueDurability/usageLimit tests; new held+reset and restart cases",
+      "hunks": 2,
+      "side_lines": 24,
+      "size": "S",
+      "u_ids": [
+        "U-011"
+      ],
+      "l_ids": [
+        "L-06"
+      ]
+    },
+    {
+      "id": "C-15",
+      "name": "Answer actions and side conversations",
+      "paths": [
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/AgentTranscript.test.ts",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/features/workspace/ui/PaneTree.tsx"
+      ],
+      "classification": "new product question",
+      "local": "Sidechat/Branch/review-fix, session-scope approvals, forms and context meter",
+      "upstream": "BTW sheet callbacks, remote session view, background tools/CI/image/animations",
+      "resolution": "Keep scope-aware onApproval and McpFormReply through every layer, branch divider tests and all five BTW callbacks if D-01 accepts BTW. D-01 chooses which user-facing Sidechat/BTW actions coexist. Add backgroundTasks to scope-aware transcript props rather than reverting approval signature. Remote session rendering has explicit unsupported feature policy (D-03).",
+      "tests": "AgentTranscript/branchFlow/McpForm/ApprovalToasts tests; BTW/RemoteSession tests",
+      "hunks": 7,
+      "side_lines": 189,
+      "size": "L",
+      "u_ids": [
+        "U-002",
+        "U-005",
+        "U-006",
+        "U-008",
+        "U-009",
+        "U-011",
+        "U-020",
+        "U-022",
+        "U-023",
+        "U-030",
+        "U-036",
+        "U-039",
+        "U-050",
+        "U-059",
+        "U-064",
+        "U-080",
+        "U-081",
+        "U-082",
+        "U-083",
+        "U-089",
+        "U-100"
+      ],
+      "l_ids": [
+        "L-20",
+        "L-23",
+        "L-25",
+        "L-26"
+      ]
+    },
+    {
+      "id": "C-16",
+      "name": "Composer routing",
+      "paths": [
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/Composer.test.ts"
+      ],
+      "classification": "standing call",
+      "local": "Queue/Steer buttons keep Stop, keyboard action resolver, form/question precedence",
+      "upstream": "BTW/MCP/mode commands, awaited paste, remote plan gating, allowBusySubmit replacing Stop",
+      "resolution": "Standing call NOTES \u00a70.1 and archive 2026-09-23: retain canSteer/actionTooltip/actionAriaLabel/handleActionClick/executeComposerAction and dual Stop+send. Parse MCP/mode/BTW before selected local send/queue/steer dispatch, carry text/attachments/intents exactly once. Keep form priority and deterministic FileReader mock. Do not adopt allowBusySubmit stop-replacement branch.",
+      "tests": "Composer.test.ts Stop contract; composerAction tests; MCP forms/command/attachment and BTW tests",
+      "hunks": 13,
+      "side_lines": 786,
+      "size": "L",
+      "u_ids": [
+        "U-004",
+        "U-008",
+        "U-009",
+        "U-011",
+        "U-017",
+        "U-023",
+        "U-030",
+        "U-032",
+        "U-043",
+        "U-083"
+      ],
+      "l_ids": [
+        "L-01",
+        "L-23",
+        "L-24"
+      ]
+    },
+    {
+      "id": "C-17",
+      "name": "Appearance and settings",
+      "paths": [
+        "src/features/settings/model/appearance.ts",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/styles/index.css"
+      ],
+      "classification": "weave",
+      "local": "Windows wallpaper/glass/fonts/hover/frame opacity; AI helper settings; discovery loading/retry/update toasts",
+      "upstream": "Haze, Linux glass, provider scopes/binary UI, format-on-save/keybindings/MCP/scale menu",
+      "resolution": "Union platform/color/storage imports. Keep all local initial appearance applications and stable Popover wash; carry upstream Linux/native theme options. Render AI helper and Editor groups separately. Compose provider scope controls with initialLoading/Recheck; D-02 selects updater UI, D-04 override store. Segmented options support disabled/title/description plus icon. Haze remains chat-only unless D-08 approves wallpaper support.",
+      "tests": "appearance/settings/wallpaper/hover/provider loading tests; scale/menu/MCP tests; Windows manual follow-up",
+      "hunks": 23,
+      "side_lines": 777,
+      "size": "L",
+      "u_ids": [
+        "U-001",
+        "U-002",
+        "U-003",
+        "U-004",
+        "U-007",
+        "U-008",
+        "U-009",
+        "U-010",
+        "U-012",
+        "U-013",
+        "U-022",
+        "U-023",
+        "U-028",
+        "U-030",
+        "U-031",
+        "U-032",
+        "U-043",
+        "U-052",
+        "U-057",
+        "U-086",
+        "U-090",
+        "U-092"
+      ],
+      "l_ids": [
+        "L-09",
+        "L-19"
+      ]
+    },
+    {
+      "id": "C-18",
+      "name": "Changes review scope and line diff",
+      "paths": [
+        "src/features/source-control/model/unifiedDiff.ts",
+        "src/features/source-control/ui/SourceControl.tsx",
+        "src/features/source-control/ui/WorkingTreeDiff.tsx"
+      ],
+      "classification": "weave",
+      "local": "line-ending normalization and flexible staged/unstaged focus options",
+      "upstream": "explicit section kind and line-based big-file diff",
+      "resolution": "Union decodeLineEndings and LINE_DIFF_CONFIG imports; preserve normalizing input and use upstream line diff config. Thread staged/unstaged kind through Open All Changes; preserve focusPath without making section refresh lose selected file. Update direct consumers together.",
+      "tests": "unifiedDiff/gitText/WorkingTreeDiff tests; new selected-path+section switching case",
+      "hunks": 3,
+      "side_lines": 13,
+      "size": "S",
+      "u_ids": [
+        "U-098",
+        "U-099"
+      ],
+      "l_ids": []
+    },
+    {
+      "id": "C-19",
+      "name": "Commit/PR helper and cancellation",
+      "paths": [
+        "src/features/source-control/ui/GitChangesPanel.tsx",
+        "src/features/source-control/ui/GitChangesPanel.test.ts",
+        "src/features/source-control/ui/SwitchBranchDialog.tsx",
+        "src/features/source-control/ui/SwitchBranchDialog.test.ts"
+      ],
+      "classification": "new product question",
+      "local": "selected helper model, structured PR draft dialog and no overwrite of human edits",
+      "upstream": "abort controller/repeat-submit guards, remote PR content and cancel control",
+      "resolution": "D-07 parameter: keep generateHelperCommitMessage/generateHelperPrContent for local calls with AbortSignal; adopt cancel UI and duplicate-generation guard, preserve startText comparison and helperFailureMessage. Remote content uses remote API; do not send remote cwd to local helper. Keep both add/add test suites after reconciling mocks once.",
+      "tests": "helperPipeline/PrDetailsDialog/GitChangesPanel/SwitchBranchDialog tests; add cancel+edited-field combination",
+      "hunks": 20,
+      "side_lines": 380,
+      "size": "L",
+      "u_ids": [
+        "U-005",
+        "U-007",
+        "U-023",
+        "U-025",
+        "U-098"
+      ],
+      "l_ids": [
+        "L-19"
+      ]
+    },
+    {
+      "id": "C-20",
+      "name": "Workspace serialization and preview scope",
+      "paths": [
+        "src/features/workspace/model/layout.ts",
+        "src/features/workspace/model/workspaceSnapshot.ts",
+        "src/features/workspace/model/workspaceSnapshot.test.ts"
+      ],
+      "classification": "weave",
+      "local": "diff/focusKind metadata and Windows encoded-drive repairs",
+      "upstream": "preview tabs, remote-file discriminants, saved-model fallback and staged section kind",
+      "resolution": "Union import lists; keep !file.diff in reusable editor predicate if local special diff viewer is retained. Validate diff/focusKind and remoteFile independently; remoteOwner maps remote paths, else apply repairLegacyEncodedDriveColon. model=stub.model||session.model avoids blank legacy models without catalog normalization.",
+      "tests": "workspaceSnapshot/layout/terminalPanes tests; old Windows snapshot + preview/remote tests",
+      "hunks": 6,
+      "side_lines": 58,
+      "size": "M",
+      "u_ids": [
+        "U-005",
+        "U-023",
+        "U-038",
+        "U-044",
+        "U-098"
+      ],
+      "l_ids": []
+    },
+    {
+      "id": "C-21",
+      "name": "Telemetry reducer",
+      "paths": [
+        "src/integrations/harness/core/apply.ts"
+      ],
+      "classification": "weave",
+      "local": "stampTurnUsage/liveTurnUsage ownership and findTurnOwnerIndex",
+      "upstream": "endedAt parameter/background-task clearing/intent/todo/image events",
+      "resolution": "stopStreaming(session,endedAt=Date.now()) clears backgroundTasks and stamps local token usage before duration using active turn owner; keep findTurnOwnerIndex separate from stampTurnDuration(blocks,endedAt). Do not stamp most-recent internal synthetic user as owner.",
+      "tests": "tokenAccounting/tokenUsageLifecycle/apply tests; background/plan completion tests",
+      "hunks": 3,
+      "side_lines": 22,
+      "size": "S",
+      "u_ids": [
+        "U-006",
+        "U-009",
+        "U-011",
+        "U-020",
+        "U-022",
+        "U-023",
+        "U-036",
+        "U-037",
+        "U-050",
+        "U-083",
+        "U-089",
+        "U-093"
+      ],
+      "l_ids": [
+        "L-20",
+        "L-23",
+        "L-24",
+        "L-25"
+      ]
+    },
+    {
+      "id": "C-22",
+      "name": "Harness interface union",
+      "paths": [
+        "src/integrations/harness/core/registry.ts",
+        "src/integrations/harness/core/registry.test.ts",
+        "src/integrations/harness/index.ts"
+      ],
+      "classification": "weave",
+      "local": "runHelperPrompt/inspectContext/native fork/form/session approval APIs",
+      "upstream": "runTextPrompt/stopTextPrompt/task-list restore/batched flush and cancellation",
+      "resolution": "Keep HelperPromptInput/runHelperPrompt and TextPromptInput/runTextPrompt as distinct contracts; union adapter fields/exports and isolated cancellation. Do not route helper callers into general read-only tool-capable BTW by default (D-07). Extend tests to Cline explicit support/unsupported behavior rather than dropping its provider key.",
+      "tests": "registry/helperPipeline/native context tests; isolated text/BWT tests",
+      "hunks": 7,
+      "side_lines": 174,
+      "size": "L",
+      "u_ids": [
+        "U-008",
+        "U-009",
+        "U-025",
+        "U-029",
+        "U-083",
+        "U-093"
+      ],
+      "l_ids": [
+        "L-19",
+        "L-20",
+        "L-23",
+        "L-24",
+        "L-25"
+      ]
+    },
+    {
+      "id": "C-23",
+      "name": "Removed upstream Antigravity provider",
+      "paths": [
+        "src/integrations/harness/providers/antigravity/antigravity.ts",
+        "src/integrations/harness/providers/antigravity/antigravityCatalog.ts",
+        "src/integrations/harness/providers/antigravity/antigravityLive.test.ts",
+        "src/integrations/harness/providers/antigravity/antigravityProtocol.test.ts"
+      ],
+      "classification": "standing call",
+      "local": "official shared ACP implementation moved to core; old provider tree intentionally removed",
+      "upstream": "old provider binary-override/remote access/clipboard test edits",
+      "resolution": "NOTES \u00a70.3 / archive 2026-09-23 round2.1: retain deletion of these paths. Port relevant configurable-binary/clipboard tests into core ACP tests after verifying native contract. Repair host/providers import before remote host builds; do not resurrect AntigravityBinary/antigravity_args or duplicate command.",
+      "tests": "antigravityAcpLive/protocol/catalog/availability/helper tests; new host ACP integration missing",
+      "hunks": 0,
+      "side_lines": 0,
+      "size": "S",
+      "u_ids": [
+        "U-013",
+        "U-017",
+        "U-023"
+      ],
+      "l_ids": []
+    },
+    {
+      "id": "C-24",
+      "name": "Claude live provider union",
+      "paths": [
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeAdapter.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.test.ts"
+      ],
+      "classification": "weave",
+      "local": "session grants/live controls/native forks/context usage/human-origin helper isolation",
+      "upstream": "streamed input/boundaries/background task lifecycle/task-list restores and text prompts",
+      "resolution": "Union Live fields, task/grant maps and resets; keep delayed providerBound with reported fork ID. Preserve live model/permission controls and grant liveness checks; add pendingAssistantBoundary and background/task logic. Keep runHelperPrompt plus runTextPrompt/stopTextPrompt adapter methods. Union tests, not one test file per side.",
+      "tests": "ClaudeLive/Control/Protocol/Text and branch tests; combined fork/live-control/background tests",
+      "hunks": 9,
+      "side_lines": 173,
+      "size": "L",
+      "u_ids": [
+        "U-008",
+        "U-009",
+        "U-011",
+        "U-013",
+        "U-034",
+        "U-036",
+        "U-037",
+        "U-062",
+        "U-069",
+        "U-087",
+        "U-089",
+        "U-093"
+      ],
+      "l_ids": [
+        "L-03",
+        "L-19",
+        "L-20",
+        "L-21",
+        "L-22",
+        "L-24",
+        "L-25",
+        "L-28"
+      ]
+    },
+    {
+      "id": "C-25",
+      "name": "Codex live provider union",
+      "paths": [
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexAdapter.ts",
+        "src/integrations/harness/providers/codex/codexElicitation.test.ts",
+        "src/integrations/harness/providers/codex/codexLive.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts"
+      ],
+      "classification": "weave",
+      "local": "native fork, cumulative token baselines, MCP typed forms and guarded session grants",
+      "upstream": "per-item text maps, image notifications, usage limits/Operator network state and all Full Access confirmations",
+      "resolution": "Use emittedAssistantByItem/emittedReasoningByItem but retain threadBaseline/lastThreadTotal/turnUsage and inProgressMcpTools resets. In elicitation handler call codexMcpConfirmation with parent candidates; broaden only non-plan Full Access confirmation acceptance, then non-plan stored grant path, then explicit confirmation/form UI. Remove stale isCodexComputerUseAccessConfirmation import/call. Retain session grant liveness and form validation. Union protocol tokenUsage with usageLimited/rateLimits fields.",
+      "tests": "codexLive/Elicitation/Protocol/ApprovalUi, MCP forms and token accounting tests; new confirmation+grant+plan matrix",
+      "hunks": 13,
+      "side_lines": 219,
+      "size": "L",
+      "u_ids": [
+        "U-008",
+        "U-009",
+        "U-011",
+        "U-013",
+        "U-017",
+        "U-020",
+        "U-035",
+        "U-037",
+        "U-040",
+        "U-089",
+        "U-101"
+      ],
+      "l_ids": [
+        "L-19",
+        "L-20",
+        "L-21",
+        "L-23",
+        "L-24",
+        "L-25"
+      ]
+    },
+    {
+      "id": "C-26",
+      "name": "Isolated helper versus read-only text runners",
+      "paths": [
+        "src/integrations/harness/providers/claude/claudeText.ts",
+        "src/integrations/harness/providers/codex/codexText.ts",
+        "src/integrations/harness/providers/opencode/opencodeText.ts",
+        "src/integrations/harness/providers/opencode/opencodeText.test.ts",
+        "src/integrations/harness/providers/opencode/opencodeAdapter.ts"
+      ],
+      "classification": "new product question",
+      "local": "tools denied and HelperToolAttemptError aborts helper; structured output/model preference",
+      "upstream": "read-only BTW tools/events/thread/settings/cancellation and configured runtime binaries",
+      "resolution": "D-07 must keep isolated helper semantics. Add explicit helper isolation mode or retain a dedicated helper runner; noTools/max-turn/deny-all and outputSchema persist only for helper calls, upstream read-only BTW stays separate. Include isolation in reuse key so a tool-enabled runtime cannot serve helper calls. Carry AbortSignal cleanup and thread resume/settings logic without broadening helper permissions.",
+      "tests": "helperPipeline/ClaudeText/CodexText/OpenCodeText tests; new alternating helper/BTW account/model/isolation case",
+      "hunks": 37,
+      "side_lines": 702,
+      "size": "L",
+      "u_ids": [
+        "U-008",
+        "U-013",
+        "U-025"
+      ],
+      "l_ids": [
+        "L-19"
+      ]
+    },
+    {
+      "id": "C-27",
+      "name": "Windows PTY event offsets",
+      "paths": [
+        "src/platform/tauri/pty.ts",
+        "src/platform/tauri/pty.test.ts"
+      ],
+      "classification": "weave",
+      "local": "offset-aware replay and bytesSeen buffering",
+      "upstream": "decodePtyChunk skips malformed base64",
+      "resolution": "decodePtyChunk first; on null do not change bytesSeen or invoke handler. On valid chunk preserve start offset, update bytesSeen and pass offset to handler/pushBuffered. Union decode tests with replay/unsupported notification tests.",
+      "tests": "pty.test.ts; terminalSurfaceParity/TerminalView tests",
+      "hunks": 2,
+      "side_lines": 16,
+      "size": "S",
+      "u_ids": [
+        "U-061"
+      ],
+      "l_ids": []
+    }
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "name": "New availability store omits Cline",
+      "when": "typecheck; runtime split-store discovery",
+      "evidence": "Verified `availabilityState.ts:8\u201320 @ 43aac9d` declares Record<HarnessId,boolean> with ten members; local session.ts:30 includes Cline. Local availability.ts retains its own evidenced state.",
+      "handling": "Add Cline and consolidate one store with local evidence/error semantics; preserve lazy ACP.",
+      "confidence": "High",
+      "u_ids": "U-004",
+      "l_ids": "L-04,L-18"
+    },
+    {
+      "id": "R-02",
+      "name": "Remote host imports the intentionally removed Antigravity provider",
+      "when": "host typecheck/build after standing deletion; runtime",
+      "evidence": "Verified `host/providers.ts:10,142 @ 43aac9d` imports/calls old module; C-23 requires deletion.",
+      "handling": "Port host adapter to core ACP with a verified Node-compatible transport, or explicitly disable remote ACP until that work is approved. Do not restore deleted provider.",
+      "confidence": "High",
+      "u_ids": "U-023",
+      "l_ids": "L-03"
+    },
+    {
+      "id": "R-03",
+      "name": "Clean editorDoc merge has duplicate LineEnding binding",
+      "when": "typecheck",
+      "evidence": "Verified scratch merged editorDoc.ts:7 imports LineEnding and :22 exports a separate LineEnding declaration. No Git conflict.",
+      "handling": "Use/re-export one shared sessions/model/lineEndings type; adapt upstream normalizers to existing encode/decode contract and retain disk/index serializers.",
+      "confidence": "High",
+      "u_ids": "U-056",
+      "l_ids": "L-27"
+    },
+    {
+      "id": "R-04",
+      "name": "Two persisted CLI override stores do not migrate automatically",
+      "when": "runtime with existing settings",
+      "evidence": "Verified local customBinary.ts:3 uses monocode.customBinary.<id>; new providerBinaryPaths.ts:6 uses monocode.providerBinaryPaths.v1.",
+      "handling": "D-04 chooses one store and explicit legacy migration/precedence; keep existing ACP/Cline overrides valid and backend authorization.",
+      "confidence": "High",
+      "u_ids": "U-013",
+      "l_ids": "L-03,L-04,L-13,L-18"
+    },
+    {
+      "id": "R-05",
+      "name": "Clean removal of Codex computer-use helper breaks whole-file local Codex selection",
+      "when": "typecheck after an ours-only resolution",
+      "evidence": "Verified upstream codexElicitation.ts deletes exported isCodexComputerUseAccessConfirmation; local Codex uses it. B merge keeps grants/forms but deletes helper.",
+      "handling": "C-25 removes import/call and uses broader non-plan Full Access only for recognized confirmations; no form auto-fill.",
+      "confidence": "High",
+      "u_ids": "U-040",
+      "l_ids": "L-20,L-21,L-23"
+    },
+    {
+      "id": "R-06",
+      "name": "New update notice blanket probes ACP and duplicates local notifications",
+      "when": "runtime startup/processes and double notices",
+      "evidence": "Verified src/features/providers/ui/HarnessUpdateNotice.tsx:49 calls probeHarnessAvailability() before filtering updatable harnesses; local availability uses lazy exclude options, local ProvidersPage owns UpdateToasts.",
+      "handling": "D-02 chooses one notice flow; exclude ACP from blanket startup probes; keep explicit discovery and honest unknown states.",
+      "confidence": "High",
+      "u_ids": "U-029",
+      "l_ids": "L-03,L-18"
+    },
+    {
+      "id": "R-07",
+      "name": "Haze shares the effect union but wallpaper uses worker rendering",
+      "when": "runtime when selecting Haze for wallpaper",
+      "evidence": "Verified Haze gradient-blur bypasses applyPreparedNewThreadBackground worker conversion; local applyWallpaperPath calls renderWallpaper/prepareNewThreadBackgroundEffect. Inferred wallpaper Haze may take unsupported worker route.",
+      "handling": "D-08: keep Haze chat-only in round1; enumerate wallpaper five effects separately until native wallpaper Haze renderer/guard is approved.",
+      "confidence": "Medium",
+      "u_ids": "U-002",
+      "l_ids": "L-09"
+    },
+    {
+      "id": "R-08",
+      "name": "Remote feature support excludes Cline and local forms/session scopes",
+      "when": "runtime UI and remote protocol",
+      "evidence": "Verified REMOTE_PROVIDERS in connections/model/protocol.ts:7 has ten entries, no Cline; host approve signature accepts decision without ApprovalScope. Local UI forwards scope/forms.",
+      "handling": "D-03 choose explicit support matrix; local features preserved locally; remote hides unsupported scopes/forms rather than silently promising them. Extend protocol only with separate approval.",
+      "confidence": "High",
+      "u_ids": "U-023",
+      "l_ids": "L-04,L-20,L-23,L-25"
+    },
+    {
+      "id": "R-09",
+      "name": "Queue reset auto-resume can bypass independent holds",
+      "when": "runtime/reset timer and restored data",
+      "evidence": "Verified usageLimitResumeDue/add resume loop arrives in App; local queueStatus held/steering barriers are separate. Inferred interaction requires combined tests.",
+      "handling": "Keep held/paused reason authoritative; reset clears usage hold only. Add reset+held/restart tests before enabling automatic resume.",
+      "confidence": "Medium",
+      "u_ids": "U-011",
+      "l_ids": "L-05,L-06"
+    },
+    {
+      "id": "R-10",
+      "name": "Generated image cleanup and native fork copies may share asset IDs",
+      "when": "runtime when deleting a copied branch",
+      "evidence": "Verified generated-image save/delete commands and local forkThreadBlocks copy transcript metadata. Not checked cross-branch asset-reference ownership.",
+      "handling": "Audit cleanup against all saved branch references; add original/branch deletion round-trip before shipping copied image history.",
+      "confidence": "Medium",
+      "u_ids": "U-020",
+      "l_ids": "L-25"
+    },
+    {
+      "id": "R-11",
+      "name": "New host pipeline adds independent build/runtime requirements",
+      "when": "host typecheck/build; packaging/CI",
+      "evidence": "Verified package scripts host:build/test:host and host/tsconfig; CI host packages/Node24, dev esbuild/@types/node.",
+      "handling": "Owner approve CI/dependencies; later worker runs host gates as well as web/Rust. Analysis performed no install/check.",
+      "confidence": "High",
+      "u_ids": "U-023,U-067,U-077",
+      "l_ids": "L-13"
+    },
+    {
+      "id": "R-12",
+      "name": "Native bridge/search union must preserve queue SQL and hidden process behavior",
+      "when": "Rust typecheck/tests; Windows runtime/old DB",
+      "evidence": "Verified SQL v14 queued columns local; upstream18 remains endpoint. Conflict search converts Command to argument vector; new modules spawn subprocesses. Full new spawn-path audit Not checked.",
+      "handling": "Preserve column/placeholder/mapper alignment, Windows cwd alternatives and helper suppression. Audit every added spawn before enabling updates/remote.",
+      "confidence": "Medium",
+      "u_ids": "U-064,U-029,U-023",
+      "l_ids": "L-05,L-13"
+    },
+    {
+      "id": "R-13",
+      "name": "Exact test lists may encode upstream ten providers or UI text",
+      "when": "tests",
+      "evidence": "Verified registry.test.ts source provider-support list lacks local Cline; ModelPicker.test still asserts 440/442 and quota tests differ used/left text.",
+      "handling": "Add Cline support/explicit unsupported classification to new test lists; keep old local dimensions; D-06 controls quota text. Never weaken tests to green.",
+      "confidence": "High",
+      "u_ids": "U-008,U-027",
+      "l_ids": "L-04,L-12"
+    },
+    {
+      "id": "R-14",
+      "name": "Old snapshots must union remote/preview discriminants with local diff metadata",
+      "when": "runtime restore/old data",
+      "evidence": "Verified workspaceSnapshot.ts conflict compares remoteFile/remoteOwner against diff/focusKind/drive-colon repair. New fields absent in old records.",
+      "handling": "Restore absent fields with backward defaults; retain validation of local diff/focusKind and legacy drive normalization only for local paths; add persisted fixture matrix.",
+      "confidence": "Medium",
+      "u_ids": "U-005,U-023",
+      "l_ids": "L-07,L-08,L-16"
+    },
+    {
+      "id": "R-15",
+      "name": "New read-only text runtimes cannot replace tool-free helpers",
+      "when": "runtime helper isolation",
+      "evidence": "Verified ClaudeText hunk switches noTools:true to settings permission/maxTurns; CodexText changes item/started tool rejection to event forwarding; OpenCodeText no longer rejects helper tool parts.",
+      "handling": "D-07 must require distinct helper isolation/reuse key; structured output and fail-closed tool attempt regressions remain.",
+      "confidence": "High",
+      "u_ids": "U-008",
+      "l_ids": "L-19"
+    }
+  ]
+}

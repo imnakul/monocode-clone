@@ -1,0 +1,4719 @@
+{
+  "items": [
+    {
+      "id": "U-001",
+      "kind": "feature",
+      "description": "Compact rail has a temporary sidebar drawer and hidden-rail project menus",
+      "release": "v0.1.56",
+      "commits": [
+        "9fb7710f21c71c1e6380a5a51f78afdc31bf89d2",
+        "3e3a81ce1500ed5df0cb74eb9ebcf746b3aad842",
+        "c3005b04f65af9d59a30a43b6b8a8e0981c40681",
+        "55489167bb4068d5d0431e2f6e262a4165292752",
+        "c01e31b3506ff7941160e24b64a6d4283734f1f6",
+        "dd5c039354ea3b0aef3f54557d227ab9d84a9dd9"
+      ],
+      "paths": [
+        "src/app/shell/ProjectRail.tsx",
+        "src/app/shell/Sidebar.tsx",
+        "src/app/shell/SidebarRename.test.ts",
+        "src/app/shell/useProjectMenu.tsx",
+        "src/features/projects/model/projectGroups.ts",
+        "src/features/projects/model/recents.ts",
+        "src/features/projects/ui/ProjectGroups.test.ts",
+        "src/features/projects/ui/SearchableProjectPicker.tsx",
+        "src/features/sessions/ui/LiveAgentsPreview.tsx",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/workspace/model/tabGroups.ts",
+        "src/shared/ui/icons.tsx",
+        "src/styles/index.css"
+      ],
+      "relation": "L-02,L-09,L-10; local compact-hover overlap",
+      "windows": "Cross-platform UI; Windows expected, live behavior Not checked",
+      "depends": "sidebar state, project picker, appearance settings"
+    },
+    {
+      "id": "U-002",
+      "kind": "feature",
+      "description": "Haze background effect with preview",
+      "release": "v0.1.56",
+      "commits": [
+        "778b527b005e29308eee2eb0079c700af458b80f"
+      ],
+      "paths": [
+        "src/features/projects/ui/ProjectBackgroundDialog.test.ts",
+        "src/features/projects/ui/ProjectBackgroundDialog.tsx",
+        "src/features/projects/ui/useProjectBackgroundEffect.ts",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/features/settings/model/appearance.test.ts",
+        "src/features/settings/model/appearance.ts",
+        "src/features/settings/model/newThreadBackgroundEffects.test.ts",
+        "src/features/settings/model/newThreadBackgroundEffects.ts",
+        "src/features/settings/ui/GradientBlurBackground.tsx",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/styles/index.css"
+      ],
+      "relation": "L-09 wallpaper renderer and effects",
+      "windows": "Cross-platform gradient-blur UI; Windows expected, packaged renderer Not checked",
+      "depends": "GradientBlurBackground and explicit bypass of worker conversion; wallpaper routing requires separation"
+    },
+    {
+      "id": "U-003",
+      "kind": "feature",
+      "description": "Choose whether supported files are formatted when saved",
+      "release": "v0.1.56",
+      "commits": [
+        "28b814a89b2a89f41af9f0ca36da67f15c364057"
+      ],
+      "paths": [
+        "src/features/files/ui/FileEditor.tsx",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/SettingsView.tsx"
+      ],
+      "relation": "L-27 line-ending/editor work",
+      "windows": "Cross-platform editor; Windows expected",
+      "depends": "persisted formatOnSave setting; Prettier-supported languages"
+    },
+    {
+      "id": "U-004",
+      "kind": "feature",
+      "description": "Provider defaults and picker visibility can vary by project",
+      "release": "v0.1.56",
+      "commits": [
+        "26e66e37403fe35190b7aead5037bc93c1269a75"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/features/automations/ui/AutomationsView.tsx",
+        "src/features/projects/model/projectData.ts",
+        "src/features/sessions/model/models.test.ts",
+        "src/features/sessions/model/models.ts",
+        "src/features/sessions/model/projectProviders.test.ts",
+        "src/features/sessions/model/projectProviders.ts",
+        "src/features/sessions/model/projectSessionDefaults.test.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/ModelPicker.tsx",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/integrations/harness/core/availability.ts",
+        "src/integrations/harness/core/availabilityState.ts",
+        "src/shared/ui/icons.tsx"
+      ],
+      "relation": "L-04 Cline; L-18 discovery; per-instance provider plan",
+      "windows": "Cross-platform settings; Windows expected",
+      "depends": "settings scopes, provider maps and blank-session defaults"
+    },
+    {
+      "id": "U-005",
+      "kind": "feature",
+      "description": "Reusable preview tabs become permanent after editing or double-click",
+      "release": "v0.1.56",
+      "commits": [
+        "b6baa44f051596f0b383a4bb66da245d66b00a8d"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/shell/Sidebar.tsx",
+        "src/app/shell/TitleBar.tsx",
+        "src/features/files/ui/FilePane.tsx",
+        "src/features/files/ui/FileTree.tsx",
+        "src/features/projects/ui/ProjectSearch.tsx",
+        "src/features/search/model/search.ts",
+        "src/features/sessions/model/sessionRemoval.test.ts",
+        "src/features/sessions/model/sessionWorkspaceLifecycle.test.ts",
+        "src/features/source-control/ui/GitChangesPanel.tsx",
+        "src/features/source-control/ui/GitHistoryGraph.tsx",
+        "src/features/workspace/model/layout.test.ts",
+        "src/features/workspace/model/layout.ts",
+        "src/features/workspace/model/workspaceSnapshot.ts",
+        "src/features/workspace/ui/PaneTree.tsx",
+        "src/features/workspace/ui/SurfaceTabs.tsx"
+      ],
+      "relation": "L-07,L-08 terminal cleanup; workspace snapshots",
+      "windows": "Cross-platform workspace; Windows expected",
+      "depends": "Tab preview state, workspace serialization and tab/pane actions"
+    },
+    {
+      "id": "U-006",
+      "kind": "feature",
+      "description": "Pull requests show checks, job steps and repair conversations",
+      "release": "v0.1.56",
+      "commits": [
+        "3e28087b55e04f78bf21324ec46acd1bf430555d"
+      ],
+      "paths": [
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/lib.rs",
+        "src/app/App.tsx",
+        "src/features/inbox/hooks/useGithubPrChecks.test.ts",
+        "src/features/inbox/hooks/useGithubPrChecks.ts",
+        "src/features/inbox/model/ciRepair.test.ts",
+        "src/features/inbox/model/ciRepair.ts",
+        "src/features/inbox/model/ciRepairSessions.test.ts",
+        "src/features/inbox/model/ciRepairSessions.ts",
+        "src/features/inbox/model/ciRepairTracking.test.ts",
+        "src/features/inbox/model/ciRepairTracking.ts",
+        "src/features/inbox/model/githubPrChecks.test.ts",
+        "src/features/inbox/model/githubPrChecks.ts",
+        "src/features/inbox/ui/CheckEvidence.tsx",
+        "src/features/inbox/ui/CheckRepairForm.tsx",
+        "src/features/inbox/ui/CheckRepairProgress.tsx",
+        "src/features/inbox/ui/InboxPrChecks.test.ts",
+        "src/features/inbox/ui/InboxPrChecks.tsx",
+        "src/features/inbox/ui/InboxPrChecksRepair.test.ts",
+        "src/features/inbox/ui/InboxView.test.ts",
+        "src/features/inbox/ui/InboxView.tsx",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/ciRepairContext.test.ts",
+        "src/features/sessions/model/editLastTurn.test.ts",
+        "src/features/sessions/model/editLastTurn.ts",
+        "src/features/sessions/model/handoff.test.ts",
+        "src/features/sessions/model/handoff.ts",
+        "src/features/sessions/model/secondOpinion.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/ui/AgentTranscript.test.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/integrations/harness/core/apply.ts"
+      ],
+      "relation": "L-26 review-fix/Pull review overlap",
+      "windows": "Cross-platform GitHub/UI; Windows requires functioning gh",
+      "depends": "GitHub check APIs, repair state and linked session persistence"
+    },
+    {
+      "id": "U-007",
+      "kind": "feature",
+      "description": "Floating Quick composer starts sessions over other apps",
+      "release": "v0.1.56",
+      "commits": [
+        "618efe437f73debd2439460d7a7c3d1586dc3dc9",
+        "b3034f16fd84a6a2c55fc8973fb42036fc0a3333"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "quick-composer.html",
+        "src-tauri/Cargo.toml",
+        "src-tauri/capabilities/default.json",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/macos_background.rs",
+        "src-tauri/src/menu.rs",
+        "src-tauri/src/quick_composer.rs",
+        "src-tauri/src/quick_composer/delivery.rs",
+        "src-tauri/src/quick_composer/git_popup.rs",
+        "src-tauri/src/quick_composer/screenshots.rs",
+        "src-tauri/src/reminders.rs",
+        "src-tauri/src/window.rs",
+        "src/app/App.tsx",
+        "src/app/model/managedSubmission.test.ts",
+        "src/app/model/managedSubmission.ts",
+        "src/app/model/quickLaunchSession.test.ts",
+        "src/app/model/quickLaunchSession.ts",
+        "src/app/model/submissionAcceptance.test.ts",
+        "src/app/model/submissionAcceptance.ts",
+        "src/features/projects/model/projectLocationError.ts",
+        "src/features/quick-composer/hooks/useQuickComposerLaunches.ts",
+        "src/features/quick-composer/main.tsx",
+        "src/features/quick-composer/model/launchDelivery.test.ts",
+        "src/features/quick-composer/model/launchDelivery.ts",
+        "src/features/quick-composer/model/prepareQuickComposer.test.ts",
+        "src/features/quick-composer/model/prepareQuickComposer.ts",
+        "src/features/quick-composer/model/quickAttachments.test.ts",
+        "src/features/quick-composer/model/quickAttachments.ts",
+        "src/features/quick-composer/model/quickComposer.test.ts",
+        "src/features/quick-composer/model/quickComposer.ts",
+        "src/features/quick-composer/model/quickComposerDefaults.test.ts",
+        "src/features/quick-composer/model/quickComposerShortcut.test.ts",
+        "src/features/quick-composer/model/quickComposerShortcut.ts",
+        "src/features/quick-composer/model/quickGitPopup.ts",
+        "src/features/quick-composer/model/quickWorkspace.test.ts",
+        "src/features/quick-composer/model/quickWorkspace.ts",
+        "src/features/quick-composer/ui/QuickComposer.attachments.test.ts",
+        "src/features/quick-composer/ui/QuickComposer.tsx",
+        "src/features/quick-composer/ui/QuickGitPopup.firstOpen.test.ts",
+        "src/features/quick-composer/ui/QuickGitPopup.test.ts",
+        "src/features/quick-composer/ui/QuickGitPopup.tsx",
+        "src/features/quick-composer/ui/QuickModelSelector.css",
+        "src/features/quick-composer/ui/QuickModelSelector.test.ts",
+        "src/features/quick-composer/ui/QuickModelSelector.tsx",
+        "src/features/quick-composer/ui/QuickPermissions.test.ts",
+        "src/features/quick-composer/ui/QuickPermissions.tsx",
+        "src/features/quick-composer/ui/QuickProjectIcon.test.ts",
+        "src/features/quick-composer/ui/QuickProjectIcon.tsx",
+        "src/features/quick-composer/ui/QuickWorkspaceControls.test.ts",
+        "src/features/quick-composer/ui/QuickWorkspaceControls.tsx",
+        "src/features/quick-composer/ui/useQuickAttachments.test.ts",
+        "src/features/quick-composer/ui/useQuickAttachments.ts",
+        "src/features/quick-composer/ui/useQuickPickerMotion.test.ts",
+        "src/features/quick-composer/ui/useQuickPickerMotion.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/QuickComposerShortcutEditor.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/features/source-control/hooks/useProjectBranches.ts",
+        "src/features/source-control/ui/BranchPicker.tsx",
+        "src/features/source-control/ui/GitPickerTrigger.tsx",
+        "src/features/source-control/ui/SwitchBranchDialog.tsx",
+        "src/features/workspace/ui/WorkspacePicker.tsx",
+        "src/shared/ui/Modal.tsx",
+        "src/shared/ui/NativePopupHost.tsx",
+        "src/shared/ui/Popover.tsx",
+        "vite.config.ts"
+      ],
+      "relation": "new; L-04,L-19 provider/helper lists",
+      "windows": "Verified macOS-only entry point; Windows unavailable",
+      "depends": "new quick-composer frontend entry, native global shortcut, screenshot command/capability"
+    },
+    {
+      "id": "U-008",
+      "kind": "feature",
+      "description": "BTW gives a read-only side conversation on an answer",
+      "release": "v0.2.0",
+      "commits": [
+        "67ad7dd47465f8492446b52534ca061533ce5d5f",
+        "796e03ab20dd7c8cdcbc2b8aabc902638cd452a6",
+        "e611f0091b7795c6cee6b11c4838b5f5b9fc6254",
+        "9b1ddc8dfa9b1d6e4cf77f0f1ba35b890bec597e"
+      ],
+      "paths": [
+        "src-tauri/src/fs.rs",
+        "src/app/App.tsx",
+        "src/app/shell/GlassBackdrop.tsx",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/btw.test.ts",
+        "src/features/sessions/model/btw.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/BtwPopover.test.ts",
+        "src/features/sessions/ui/BtwPopover.tsx",
+        "src/features/sessions/ui/BtwQuestionBurst.test.ts",
+        "src/features/sessions/ui/BtwQuestionBurst.tsx",
+        "src/features/sessions/ui/BtwSheet.test.ts",
+        "src/features/sessions/ui/BtwSheet.tsx",
+        "src/features/sessions/ui/Composer.test.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/ModelPicker.tsx",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/features/workspace/ui/PaneTree.tsx",
+        "src/integrations/harness/core/abortTextPrompt.test.ts",
+        "src/integrations/harness/core/abortTextPrompt.ts",
+        "src/integrations/harness/core/registry.test.ts",
+        "src/integrations/harness/core/registry.ts",
+        "src/integrations/harness/index.ts",
+        "src/integrations/harness/providers/claude/claudeAdapter.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+        "src/integrations/harness/providers/claude/claudeText.ts",
+        "src/integrations/harness/providers/codex/codexAdapter.ts",
+        "src/integrations/harness/providers/codex/codexApprovalUi.test.ts",
+        "src/integrations/harness/providers/codex/codexText.ts",
+        "src/integrations/harness/providers/cursor/cursorAdapter.ts",
+        "src/integrations/harness/providers/cursor/cursorText.test.ts",
+        "src/integrations/harness/providers/cursor/cursorText.ts",
+        "src/integrations/harness/providers/grok/grokAdapter.ts",
+        "src/integrations/harness/providers/grok/grokText.test.ts",
+        "src/integrations/harness/providers/grok/grokText.ts",
+        "src/integrations/harness/providers/omp/ompAdapter.ts",
+        "src/integrations/harness/providers/opencode/opencodeAdapter.ts",
+        "src/integrations/harness/providers/opencode/opencodeText.test.ts",
+        "src/integrations/harness/providers/opencode/opencodeText.ts",
+        "src/integrations/harness/providers/pi/piAdapter.ts",
+        "src/integrations/harness/providers/pi/piText.test.ts",
+        "src/integrations/harness/providers/pi/piText.ts",
+        "src/styles/index.css"
+      ],
+      "relation": "duplicates/overlaps L-26 Sidechat; L-19 helper choice",
+      "windows": "Cross-provider text adapters; Windows expected, Antigravity/Cline coverage needs decision",
+      "depends": "saved BTW threads/model settings; provider text interfaces; animated sheet"
+    },
+    {
+      "id": "U-009",
+      "kind": "feature",
+      "description": "Operator grants a thread opt-in app control, later note writing and worktrees",
+      "release": "v0.2.0",
+      "commits": [
+        "b6f56e6883bf047816247e52c7cb59f6e288ba47",
+        "69f602db40b5eb7dae0ff1d16bcba632378860aa",
+        "c576783ac14a50a0998222146fd9838d85d52ffb",
+        "fce518ce2e2f73b727d260d13e7d53b5c8e33be1"
+      ],
+      "paths": [
+        "README.md",
+        "src-tauri/src/control.rs",
+        "src-tauri/src/control_cli.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/main.rs",
+        "src/app/App.tsx",
+        "src/app/model/quickLaunchSession.test.ts",
+        "src/app/model/quickLaunchSession.ts",
+        "src/features/agent-app/model/agentApp.test.ts",
+        "src/features/agent-app/model/agentApp.ts",
+        "src/features/agent-app/model/sessionConversation.test.ts",
+        "src/features/agent-app/model/sessionConversation.ts",
+        "src/features/notes/notes.ts",
+        "src/features/notes/ui/NotesView.test.ts",
+        "src/features/notes/ui/NotesView.tsx",
+        "src/features/quick-composer/model/quickComposer.ts",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/editLastTurn.test.ts",
+        "src/features/sessions/model/editLastTurn.ts",
+        "src/features/sessions/model/monocodeCommand.test.ts",
+        "src/features/sessions/model/monocodeCommand.ts",
+        "src/features/sessions/model/monocodeToolCall.test.ts",
+        "src/features/sessions/model/monocodeToolCall.ts",
+        "src/features/sessions/model/operatorCommand.test.ts",
+        "src/features/sessions/model/operatorCommand.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/model/transcriptActivity.test.ts",
+        "src/features/sessions/model/transcriptActivity.ts",
+        "src/features/sessions/ui/AgentTranscript.test.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/AgentTranscriptErrorDisclosure.test.ts",
+        "src/features/sessions/ui/Composer.test.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/MonocodeSparkles.test.ts",
+        "src/features/sessions/ui/MonocodeSparkles.tsx",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/registry.ts",
+        "src/integrations/harness/core/types.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts",
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexLive.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts",
+        "src/shared/ui/icons.tsx",
+        "src/styles/index.css"
+      ],
+      "relation": "parked orchestration handoff/lead-control overlap; L-28 human origin",
+      "windows": "Cross-platform local CLI/control; Windows expected",
+      "depends": "control commands/grants, agentApp schemas, session flag and notes/worktree actions"
+    },
+    {
+      "id": "U-010",
+      "kind": "feature",
+      "description": "Account controls show plan and organization, later usage/readiness and hidden identity",
+      "release": "v0.2.0",
+      "commits": [
+        "47db85e8c2d69578a16f82718efc3a56745c82d3",
+        "76465752fb6cf255f416e6d57d7b4370779dd0b9",
+        "312f781243a162922bbb509a1ebc143338db0d00",
+        "158ce7803fe75e6b9297ffec0f7d638866d562cd",
+        "adbe2dbd67251a1fecbb2cee2177bec54267736e"
+      ],
+      "paths": [
+        "src-tauri/src/account_identity.rs",
+        "src-tauri/src/lib.rs",
+        "src/app/shell/UsageFooter.tsx",
+        "src/app/shell/UsageFooterAuth.test.ts",
+        "src/app/shell/UsageProviderChip.test.ts",
+        "src/app/shell/UsageProviderChip.tsx",
+        "src/features/providers/model/accountUsage.test.ts",
+        "src/features/providers/model/accountUsage.ts",
+        "src/features/providers/model/providerAccountIdentity.ts",
+        "src/features/providers/model/rateLimits.test.ts",
+        "src/features/providers/model/rateLimits.ts",
+        "src/features/providers/model/rateLimitsCache.ts",
+        "src/features/providers/model/rateLimitsFetch.test.ts",
+        "src/features/providers/model/rateLimitsFetch.ts",
+        "src/features/providers/ui/ProviderAccountSubtitle.tsx",
+        "src/features/providers/ui/ProviderAccountUsage.tsx",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/JiraSettings.test.ts",
+        "src/features/settings/ui/JiraSettings.tsx",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/shared/ui/PrivateEmail.tsx"
+      ],
+      "relation": "L-12 quota; L-19 account-isolated helpers; provider-instance plan",
+      "windows": "Claude/Codex account APIs; Windows expected",
+      "depends": "account cache, per-account rate limits, polling and reveal state"
+    },
+    {
+      "id": "U-011",
+      "kind": "feature",
+      "description": "Usage-limit notice pauses a queue and can resume after reset",
+      "release": "v0.2.0",
+      "commits": [
+        "bb46e56aca5e199809209b66f52bbcb148f00d15"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/features/providers/model/rateLimits.test.ts",
+        "src/features/providers/model/rateLimits.ts",
+        "src/features/sessions/model/messageQueue.test.ts",
+        "src/features/sessions/model/messageQueue.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/model/usageLimit.test.ts",
+        "src/features/sessions/model/usageLimit.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/features/sessions/ui/UsageLimitNotice.tsx",
+        "src/features/workspace/ui/PaneTree.tsx",
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/types.ts",
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.ts",
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts"
+      ],
+      "relation": "L-05,L-06 durable/held queues; L-12 usage",
+      "windows": "Cross-platform provider state; Windows expected",
+      "depends": "usage-limit session state, timer, queue scheduling and stored restore policy"
+    },
+    {
+      "id": "U-012",
+      "kind": "feature",
+      "description": "Custom shortcuts can be recorded, disabled and reset",
+      "release": "v0.3.0",
+      "commits": [
+        "ee56686471cdbe2db2a7d2b8c6bf655a9bf3ecbb"
+      ],
+      "paths": [
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/menu.rs",
+        "src/app/App.tsx",
+        "src/app/shell/MenuBar.tsx",
+        "src/features/files/editor/editorSearch.ts",
+        "src/features/files/ui/FilePreviewSearch.test.ts",
+        "src/features/files/ui/FilePreviewSearch.tsx",
+        "src/features/quick-composer/model/quickComposerShortcut.test.ts",
+        "src/features/quick-composer/model/quickComposerShortcut.ts",
+        "src/features/sessions/ui/ModelPicker.tsx",
+        "src/features/sessions/ui/TranscriptFind.tsx",
+        "src/features/settings/model/appShortcuts.test.ts",
+        "src/features/settings/model/appShortcuts.ts",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/model/zoomKeybinding.test.ts",
+        "src/features/settings/model/zoomKeybinding.ts",
+        "src/features/settings/ui/QuickComposerShortcutEditor.test.ts",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/features/workspace/model/tabKeys.test.ts",
+        "src/features/workspace/model/tabKeys.ts",
+        "src/features/workspace/ui/WorkspacePicker.tsx"
+      ],
+      "relation": "menu/keyboard conventions L-01,L-02",
+      "windows": "Cross-platform keys; macOS native menu extras",
+      "depends": "keybinding schema/storage, app/editor/tab menus and conflict validation"
+    },
+    {
+      "id": "U-013",
+      "kind": "feature",
+      "description": "Set a validated CLI binary path for each provider",
+      "release": "v0.3.0",
+      "commits": [
+        "fde0d8419617df48113b85c1578da186ae7c093b"
+      ],
+      "paths": [
+        "src-tauri/src/harness.rs",
+        "src-tauri/src/lib.rs",
+        "src/features/providers/model/providerBinaryPaths.test.ts",
+        "src/features/providers/model/providerBinaryPaths.ts",
+        "src/features/providers/model/rateLimitsFetch.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/integrations/harness/core/auth.test.ts",
+        "src/integrations/harness/core/auth.ts",
+        "src/integrations/harness/core/child.test.ts",
+        "src/integrations/harness/core/child.ts",
+        "src/integrations/harness/providers/antigravity/antigravity.ts",
+        "src/integrations/harness/providers/antigravity/antigravityCatalog.ts",
+        "src/integrations/harness/providers/antigravity/antigravityLive.test.ts",
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeCatalog.ts",
+        "src/integrations/harness/providers/claude/claudeText.ts",
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexCatalog.ts",
+        "src/integrations/harness/providers/codex/codexText.ts",
+        "src/integrations/harness/providers/cursor/cursor.ts",
+        "src/integrations/harness/providers/cursor/cursorCatalog.ts",
+        "src/integrations/harness/providers/cursor/cursorText.ts",
+        "src/integrations/harness/providers/fx/fx.ts",
+        "src/integrations/harness/providers/fx/fxCatalog.ts",
+        "src/integrations/harness/providers/grok/grok.ts",
+        "src/integrations/harness/providers/grok/grokCatalog.ts",
+        "src/integrations/harness/providers/grok/grokText.ts",
+        "src/integrations/harness/providers/hermes/hermes.ts",
+        "src/integrations/harness/providers/hermes/hermesCatalog.ts",
+        "src/integrations/harness/providers/omp/ompLive.test.ts",
+        "src/integrations/harness/providers/opencode/opencode.ts",
+        "src/integrations/harness/providers/opencode/opencodeCatalog.ts",
+        "src/integrations/harness/providers/opencode/opencodeText.ts",
+        "src/integrations/harness/providers/pi/piCatalog.ts",
+        "src/integrations/harness/providers/pi/piFamily.ts",
+        "src/integrations/harness/providers/pi/piSkills.test.ts",
+        "src/integrations/harness/providers/pi/piSkills.ts",
+        "src/integrations/harness/providers/pi/piText.ts",
+        "src/main.tsx"
+      ],
+      "relation": "duplicates existing override L-13,L-18; L-03 ACP resolver",
+      "windows": "Backend resolution includes Windows; validation untested in this run",
+      "depends": "provider override settings, native version probing and maps"
+    },
+    {
+      "id": "U-014",
+      "kind": "feature",
+      "description": "Editor and diff preview highlight JSON with comments",
+      "release": "v0.3.0",
+      "commits": [
+        "1ce9057c5b5d07b733c2900340851391c637c3ea"
+      ],
+      "paths": [
+        "src/features/files/editor/editorLanguage.test.ts",
+        "src/features/files/editor/editorLanguage.ts",
+        "src/features/files/editor/syntaxTokens.test.ts"
+      ],
+      "relation": "new editor language",
+      "windows": "Cross-platform CodeMirror; Windows expected",
+      "depends": "JSONC language mapping"
+    },
+    {
+      "id": "U-015",
+      "kind": "feature",
+      "description": "A tab menu archives or deletes all its conversations",
+      "release": "v0.3.0",
+      "commits": [
+        "0d3db9c26a460f1354dcf350969d87a6896b8bf0"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/shell/TitleBar.tsx",
+        "src/app/shell/TitleBarMenu.test.ts"
+      ],
+      "relation": "L-07 queue/terminal removal ownership",
+      "windows": "Cross-platform UI; Windows expected",
+      "depends": "bulk session lifecycle callbacks"
+    },
+    {
+      "id": "U-016",
+      "kind": "feature",
+      "description": "Open multiple project folders in one selection",
+      "release": "v0.4.0",
+      "commits": [
+        "1dd1fc060310c3ca2453a5413ebd329c827e80ad"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/features/projects/model/projectOpenRun.test.ts",
+        "src/features/projects/model/projectOpenRun.ts",
+        "src/platform/tauri/fs.test.ts",
+        "src/platform/tauri/fs.ts"
+      ],
+      "relation": "project lifecycle",
+      "windows": "Cross-platform dialog/UI; Windows expected",
+      "depends": "folder selection arrays, recents/activation order"
+    },
+    {
+      "id": "U-017",
+      "kind": "feature",
+      "description": "Paste screenshots or copied files/folders as attachments",
+      "release": "v0.4.0",
+      "commits": [
+        "d836e225e3c8fd17d5602a1b2d2af8dc6107de78"
+      ],
+      "paths": [
+        "Cargo.lock",
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/pasteboard.rs",
+        "src/features/quick-composer/ui/useQuickAttachments.test.ts",
+        "src/features/quick-composer/ui/useQuickAttachments.ts",
+        "src/features/sessions/model/attachments.ts",
+        "src/features/sessions/ui/AttachmentChip.tsx",
+        "src/features/sessions/ui/Composer.pasteImage.test.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/integrations/harness/core/fileAttachments.test.ts",
+        "src/integrations/harness/providers/antigravity/antigravityProtocol.test.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.ts",
+        "src/integrations/harness/providers/codex/codexAttachments.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts",
+        "src/integrations/harness/providers/omp/ompLive.test.ts",
+        "src/integrations/harness/providers/opencode/opencodeProtocol.ts",
+        "src/integrations/harness/providers/pi/piProtocol.ts",
+        "src/platform/tauri/clipboard.test.ts",
+        "src/platform/tauri/clipboard.ts",
+        "src/platform/tauri/fs.ts",
+        "src/shared/lib/draftRestore.test.ts",
+        "src/shared/lib/draftRestore.ts"
+      ],
+      "relation": "L-05 queued attachments; L-23 forms unaffected",
+      "windows": "Native clipboard Windows branches present; Wayland handling added",
+      "depends": "clipboard paths/screenshots, tauri command wiring, main/Quick composer"
+    },
+    {
+      "id": "U-018",
+      "kind": "feature",
+      "description": "Start sessions in adjacent split panes",
+      "release": "v0.4.0",
+      "commits": [
+        "daaa9537f395cacfc66ea7253139686efd3851b7"
+      ],
+      "paths": [
+        "README.md",
+        "src-tauri/src/control_cli.rs",
+        "src/app/App.tsx",
+        "src/app/model/quickLaunchSession.test.ts",
+        "src/app/model/quickLaunchSession.ts",
+        "src/features/agent-app/model/agentApp.test.ts",
+        "src/features/agent-app/model/agentApp.ts"
+      ],
+      "relation": "L-07,L-08 workspace lifecycle; Hari plan",
+      "windows": "Cross-platform layout; Windows expected",
+      "depends": "pane insertion, operator target options"
+    },
+    {
+      "id": "U-019",
+      "kind": "feature",
+      "description": "Pi shows subscription usage",
+      "release": "v0.4.0",
+      "commits": [
+        "d4a1c5d63af35dceb472d72a34516d63b67da464"
+      ],
+      "paths": [
+        "Cargo.lock",
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/pi_usage.rs",
+        "src/app/App.tsx",
+        "src/app/shell/PiUsage.test.ts",
+        "src/app/shell/PiUsage.tsx",
+        "src/app/shell/UsageFooter.tsx",
+        "src/app/shell/UsageProviderChip.tsx",
+        "src/features/providers/model/piUsage.test.ts",
+        "src/features/providers/model/piUsage.ts",
+        "src/integrations/harness/providers/pi/piFamily.ts",
+        "src/integrations/harness/providers/pi/piLive.test.ts"
+      ],
+      "relation": "L-12 meter provider union",
+      "windows": "Backend supported provider configuration; Windows expected",
+      "depends": "Pi usage parser and rate-limit maps"
+    },
+    {
+      "id": "U-020",
+      "kind": "feature",
+      "description": "Codex-generated images persist and appear in conversations",
+      "release": "v0.4.0",
+      "commits": [
+        "0bd994638ade391ccc99615bcf84eb6730641195"
+      ],
+      "paths": [
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/session_store.rs",
+        "src/app/App.tsx",
+        "src/features/search/model/appSearch.ts",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/btw.test.ts",
+        "src/features/sessions/model/btw.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/model/sessionRemoval.ts",
+        "src/features/sessions/model/transcriptFind.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/AttachmentChip.test.ts",
+        "src/features/sessions/ui/GeneratedImage.tsx",
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/types.ts",
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexLive.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts",
+        "src/platform/tauri/fs.ts"
+      ],
+      "relation": "L-05 attachments; L-25 branch transcripts",
+      "windows": "Cross-platform asset handling; Windows expected",
+      "depends": "image materialization, protocol events, generated asset paths and cleanup"
+    },
+    {
+      "id": "U-021",
+      "kind": "feature",
+      "description": "Copy the selected Explorer path with a shortcut",
+      "release": "v0.4.0",
+      "commits": [
+        "ec59d92edc2a37b16d7f74d016ee6687c92f188f"
+      ],
+      "paths": [
+        "src/features/files/ui/FileTree.test.ts",
+        "src/features/files/ui/FileTree.tsx"
+      ],
+      "relation": "new file action",
+      "windows": "Cross-platform platform-aware key; Windows expected",
+      "depends": "Explorer focus/path resolution and keyboard mapping"
+    },
+    {
+      "id": "U-022",
+      "kind": "feature",
+      "description": "Completed plan and orchestrator turns celebrate distinctly",
+      "release": "v0.4.0",
+      "commits": [
+        "38d8f587a252e8d0261c1ead88dca32f5af9bd81"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/MonocodeSparkles.test.ts",
+        "src/features/sessions/ui/MonocodeSparkles.tsx",
+        "src/features/sessions/ui/OrchestratorConstellation.tsx",
+        "src/features/sessions/ui/PlanStepsBurst.tsx",
+        "src/features/sessions/ui/turnCelebration.test.ts",
+        "src/features/sessions/ui/turnCelebration.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/styles/index.css"
+      ],
+      "relation": "parked Hari modes; L-28 intent ownership",
+      "windows": "Cross-platform motion; Windows expected",
+      "depends": "saved turn intent and animations/reduced motion"
+    },
+    {
+      "id": "U-023",
+      "kind": "feature",
+      "description": "Persistent remote sessions and workspaces over SSH",
+      "release": "v0.5.0",
+      "commits": [
+        "2515c1504d940456dc1df6565d0460b4f55c6b7c",
+        "22358b5e4772b2f9e980204571ca9b780a65f019",
+        "a04624faef8d9720d2160b4b4a83fb7d6cb8e309",
+        "8bba3cc0ff2776e82e77937f3ee65b7b6d23ff1b",
+        "6e58a42064dd753de2b3ff2a56e651908f51ddd9"
+      ],
+      "paths": [
+        ".gitattributes",
+        ".github/workflows/ci.yml",
+        ".github/workflows/release.yml",
+        "CHANGELOG.md",
+        "README.md",
+        "docs/remote-access.md",
+        "host/attachments.test.ts",
+        "host/attachments.ts",
+        "host/bootstrap.test.ts",
+        "host/browse.test.ts",
+        "host/browse.ts",
+        "host/build.mjs",
+        "host/child-backend.test.ts",
+        "host/child-backend.ts",
+        "host/cli.test.ts",
+        "host/cli.ts",
+        "host/engine.test.ts",
+        "host/engine.ts",
+        "host/git-branches.test.ts",
+        "host/git-branches.ts",
+        "host/git-worktrees.test.ts",
+        "host/git-worktrees.ts",
+        "host/large-sync.test.ts",
+        "host/opencode-transport.test.ts",
+        "host/owner.test.ts",
+        "host/owner.ts",
+        "host/package.mjs",
+        "host/process.test.ts",
+        "host/process.ts",
+        "host/provider-guard.mjs",
+        "host/provider-transport.test.ts",
+        "host/providers.test.ts",
+        "host/providers.ts",
+        "host/server.test.ts",
+        "host/server.ts",
+        "host/service.test.ts",
+        "host/service.ts",
+        "host/store.ts",
+        "host/sync-transfer.test.ts",
+        "host/sync-transfer.ts",
+        "host/tsconfig.json",
+        "host/vitest.config.ts",
+        "host/windows-acl.ps1",
+        "host/windows-bootstrap.test.ts",
+        "host/windows.test.ts",
+        "host/windows.ts",
+        "host/workspace-commands.ts",
+        "host/workspace.test.ts",
+        "host/workspace.ts",
+        "package-lock.json",
+        "package.json",
+        "scripts/test-remote-ssh.py",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/main.rs",
+        "src-tauri/src/remote.rs",
+        "src-tauri/src/remote_bootstrap.ps1",
+        "src-tauri/src/remote_bootstrap.sh",
+        "src-tauri/src/remote_ssh.rs",
+        "src-tauri/src/ssh_askpass.rs",
+        "src/app/App.tsx",
+        "src/app/shell/ProjectRail.tsx",
+        "src/app/shell/SettingsRail.tsx",
+        "src/app/shell/Sidebar.tsx",
+        "src/features/connections/model/connections.ts",
+        "src/features/connections/model/protocol.test.ts",
+        "src/features/connections/model/protocol.ts",
+        "src/features/connections/model/remoteAttachmentPreviews.test.ts",
+        "src/features/connections/model/remoteAttachmentPreviews.ts",
+        "src/features/connections/model/remoteAttachments.test.ts",
+        "src/features/connections/model/remoteAttachments.ts",
+        "src/features/connections/model/remoteCommands.test.ts",
+        "src/features/connections/model/remoteCommands.ts",
+        "src/features/connections/model/remoteModels.test.ts",
+        "src/features/connections/model/remoteModels.ts",
+        "src/features/connections/model/remoteOutbox.test.ts",
+        "src/features/connections/model/remoteProjects.test.ts",
+        "src/features/connections/model/remoteProjects.ts",
+        "src/features/connections/model/remoteSessionActions.ts",
+        "src/features/connections/model/remoteSessionState.test.ts",
+        "src/features/connections/model/remoteSessionState.ts",
+        "src/features/connections/ui/AddRemoteProjectDialog.test.ts",
+        "src/features/connections/ui/AddRemoteProjectDialog.tsx",
+        "src/features/connections/ui/ConnectionsSettings.test.ts",
+        "src/features/connections/ui/ConnectionsSettings.tsx",
+        "src/features/connections/ui/RemoteSession.test.ts",
+        "src/features/connections/ui/RemoteSession.tsx",
+        "src/features/files/ui/FileEditor.tsx",
+        "src/features/files/ui/FilePane.remote.test.ts",
+        "src/features/files/ui/FilePane.tsx",
+        "src/features/files/ui/FilePaneNavigation.test.ts",
+        "src/features/files/ui/FilePicker.test.ts",
+        "src/features/files/ui/FilePicker.tsx",
+        "src/features/files/ui/FileTree.tsx",
+        "src/features/projects/model/projectLocation.ts",
+        "src/features/projects/model/recents.ts",
+        "src/features/projects/ui/ProjectSearch.tsx",
+        "src/features/search/model/search.test.ts",
+        "src/features/search/model/search.ts",
+        "src/features/search/ui/SearchView.tsx",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/ui/AgentTranscript.test.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/ModelPicker.tsx",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/features/sessions/ui/modelSource.ts",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/features/skills/model/skills.ts",
+        "src/features/skills/ui/SkillPicker.tsx",
+        "src/features/source-control/model/worktrees.ts",
+        "src/features/source-control/ui/GitChangesPanel.test.ts",
+        "src/features/source-control/ui/GitChangesPanel.tsx",
+        "src/features/source-control/ui/GitPickerTrigger.tsx",
+        "src/features/workspace/model/layout.test.ts",
+        "src/features/workspace/model/layout.ts",
+        "src/features/workspace/model/workspaceSnapshot.test.ts",
+        "src/features/workspace/model/workspaceSnapshot.ts",
+        "src/features/workspace/ui/SurfaceTabs.tsx",
+        "src/features/workspace/ui/WorkspacePicker.tsx",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/child.ts",
+        "src/integrations/harness/providers/antigravity/antigravityCatalog.ts",
+        "src/integrations/harness/providers/antigravity/antigravityLive.test.ts",
+        "src/integrations/harness/providers/claude/claudeCatalog.ts",
+        "src/integrations/harness/providers/codex/codexCatalog.ts",
+        "src/integrations/harness/providers/cursor/cursorCatalog.ts",
+        "src/integrations/harness/providers/cursor/cursorStore.ts",
+        "src/integrations/harness/providers/fx/fxCatalog.ts",
+        "src/integrations/harness/providers/grok/grokCatalog.ts",
+        "src/integrations/harness/providers/hermes/hermes.ts",
+        "src/integrations/harness/providers/hermes/hermesCatalog.ts",
+        "src/integrations/harness/providers/hermes/hermesLive.test.ts",
+        "src/integrations/harness/providers/opencode/opencodeCatalog.ts",
+        "src/integrations/harness/providers/pi/piCatalog.test.ts",
+        "src/integrations/harness/providers/pi/piCatalog.ts",
+        "src/main.tsx",
+        "src/platform/tauri/fs.ts",
+        "src/shared/lib/paths.test.ts",
+        "src/shared/lib/paths.ts",
+        "src/shared/lib/remotePaths.ts",
+        "src/shared/ui/icons.tsx"
+      ],
+      "relation": "duplicates planned/local feature/remote-chat; L-03,L-04 provider support gap",
+      "windows": "Verified Windows bootstrap/ACL/tests exist; runtime Not checked",
+      "depends": "new host/ TS build/package, SSH pair/tunnel, native remote bridge, Connections settings, remote persistence, CI host assets"
+    },
+    {
+      "id": "U-024",
+      "kind": "feature",
+      "description": "Help menu opens website, repository and issue links",
+      "release": "v0.5.0",
+      "commits": [
+        "a28a998573004532f689a75a5dd21c007142d692"
+      ],
+      "paths": [
+        "src-tauri/src/menu.rs"
+      ],
+      "relation": "L-02 menu ownership",
+      "windows": "Cross-platform in-app menu; Windows expected",
+      "depends": "opener links and menu commands"
+    },
+    {
+      "id": "U-025",
+      "kind": "feature",
+      "description": "Cancel generated Git commit messages",
+      "release": "v0.5.0",
+      "commits": [
+        "a7e1f3dfda1f565820a2043735b71e4b10673631"
+      ],
+      "paths": [
+        "src/features/source-control/ui/GitChangesPanel.test.ts",
+        "src/features/source-control/ui/GitChangesPanel.tsx",
+        "src/features/source-control/ui/SwitchBranchDialog.test.ts",
+        "src/features/source-control/ui/SwitchBranchDialog.tsx",
+        "src/integrations/harness/core/registry.ts",
+        "src/integrations/harness/core/textHarness.ts",
+        "src/integrations/harness/providers/claude/claudeGit.ts",
+        "src/integrations/harness/providers/claude/claudeText.ts",
+        "src/integrations/harness/providers/codex/codexGit.ts",
+        "src/integrations/harness/providers/codex/codexText.ts",
+        "src/integrations/harness/providers/cursor/cursorGit.ts",
+        "src/integrations/harness/providers/cursor/cursorText.ts",
+        "src/integrations/harness/providers/grok/grokGit.ts",
+        "src/integrations/harness/providers/grok/grokText.ts",
+        "src/integrations/harness/providers/opencode/opencodeGit.ts",
+        "src/integrations/harness/providers/opencode/opencodeText.ts"
+      ],
+      "relation": "L-19 helper pipeline cancellation overlap",
+      "windows": "Cross-platform async UI; Windows expected",
+      "depends": "abort and superseded-result guards"
+    },
+    {
+      "id": "U-026",
+      "kind": "feature",
+      "description": "Copy MonoCode or provider session ID",
+      "release": "v0.6.0",
+      "commits": [
+        "16e9fea62e697043fc5173b770a5708662f3c91e"
+      ],
+      "paths": [
+        "host/engine.test.ts",
+        "host/store.ts",
+        "src/app/shell/Sidebar.tsx",
+        "src/app/shell/SidebarRename.test.ts",
+        "src/features/connections/model/protocol.ts"
+      ],
+      "relation": "L-25 native fork identity and summary fields",
+      "windows": "Cross-platform clipboard; Windows expected",
+      "depends": "session summary native-ID cache and menu actions"
+    },
+    {
+      "id": "U-027",
+      "kind": "feature",
+      "description": "Provider usage shows remaining percentage by default",
+      "release": "v0.6.0",
+      "commits": [
+        "d0943b175237813722cf9403de7a9c675486480e"
+      ],
+      "paths": [
+        "src/app/shell/UsageProviderChip.test.ts",
+        "src/app/shell/UsageProviderChip.tsx",
+        "src/features/providers/ui/ProviderAccountUsage.tsx",
+        "src/features/settings/ui/SettingsView.test.ts"
+      ],
+      "relation": "duplicates/competes L-12 remaining quota preference",
+      "windows": "Cross-platform rate-limit math; Windows expected",
+      "depends": "meter format/default and tests"
+    },
+    {
+      "id": "U-028",
+      "kind": "feature",
+      "description": "Editor Autosave after one idle second, off by default",
+      "release": "v0.6.0",
+      "commits": [
+        "71fd1b54beca76bfb9f273af518352f9f3f32fcd",
+        "0f71918063823bcf8dfcb128deebec4be65b60da"
+      ],
+      "paths": [
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/menu.rs",
+        "src/app/App.tsx",
+        "src/app/shell/MenuBar.tsx",
+        "src/features/files/ui/FileEditor.tsx",
+        "src/features/files/ui/FilePaneLineEndings.test.ts",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/model/settings.ts"
+      ],
+      "relation": "L-27 editor preservation",
+      "windows": "Cross-platform timers; Windows expected",
+      "depends": "autosave storage, Format on save and disk-conflict guard"
+    },
+    {
+      "id": "U-029",
+      "kind": "feature",
+      "description": "In-app CLI updates with installed-version verification",
+      "release": "v0.6.0",
+      "commits": [
+        "1595870fd7abce8fdfea1894f0202791aa02101f",
+        "378adad9f5e5fb8ead308473f63057544e67085b"
+      ],
+      "paths": [
+        "src-tauri/src/harness.rs",
+        "src-tauri/src/harness_updates.rs",
+        "src-tauri/src/lib.rs",
+        "src/app/App.tsx",
+        "src/features/providers/model/harnessUpdates.test.ts",
+        "src/features/providers/model/harnessUpdates.ts",
+        "src/features/providers/ui/HarnessUpdateNotice.test.ts",
+        "src/features/providers/ui/HarnessUpdateNotice.tsx",
+        "src/integrations/harness/core/child.ts",
+        "src/integrations/harness/core/registry.ts"
+      ],
+      "relation": "duplicates L-18 lightweight update toasts; L-13 binaries; L-19 helpers",
+      "windows": "Backend Windows install paths/child helper; runtime Not checked",
+      "depends": "harness_updates commands, update methods, cross-window model refresh"
+    },
+    {
+      "id": "U-030",
+      "kind": "feature",
+      "description": "MCP settings discover/manage provider connections; /mcp selects server tags",
+      "release": "v0.6.0",
+      "commits": [
+        "e691b4658cea8d1d80a5ea47be7cd3ad4abd23be",
+        "1708c42dbc41b74d3f8bec568c3f0141bfdc4d03",
+        "fec434a00a5a1954cedd9243d30d46a7f051d492",
+        "e322b7f0f070403d3730aea0c239a1a778aa56ba"
+      ],
+      "paths": [
+        "Cargo.lock",
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/control.rs",
+        "src-tauri/src/harness.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/mcp.rs",
+        "src/app/App.tsx",
+        "src/app/shell/SettingsRail.tsx",
+        "src/features/files/ui/FilePaneLineEndings.test.ts",
+        "src/features/files/ui/FilePaneNavigation.test.ts",
+        "src/features/sessions/model/draftCache.test.ts",
+        "src/features/sessions/model/draftCache.ts",
+        "src/features/sessions/model/mcpCommand.test.ts",
+        "src/features/sessions/model/mcpCommand.ts",
+        "src/features/sessions/model/mcpPicker.test.ts",
+        "src/features/sessions/model/mcpPicker.ts",
+        "src/features/sessions/ui/Composer.test.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/McpServerPicker.tsx",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/features/settings/model/mcp.test.ts",
+        "src/features/settings/model/mcp.ts",
+        "src/features/settings/model/mcpSettingsCache.test.ts",
+        "src/features/settings/model/mcpSettingsCache.ts",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/McpSettings.test.ts",
+        "src/features/settings/ui/McpSettings.tsx",
+        "src/features/settings/ui/SettingsView.tsx"
+      ],
+      "relation": "planned feature/mcp-hub; L-03,L-04 providers unsupported; L-20,L-23 approvals/forms distinct",
+      "windows": "Backend provider CLI/config parsing; Windows branches present, CLI compatibility Not checked",
+      "depends": "new mcp Rust module/commands, toml_edit dependency, provider config writes, project cache and saved draft tags"
+    },
+    {
+      "id": "U-031",
+      "kind": "feature",
+      "description": "Linux dark-mode glass can be enabled",
+      "release": "v0.6.0",
+      "commits": [
+        "1b39ceb95bff9f2b68a62f0753014885759044b6",
+        "2cbd5067ebdcdbea2631bd6be433c7d621d66657"
+      ],
+      "paths": [
+        "src-tauri/src/macos.rs",
+        "src-tauri/src/window.rs",
+        "src-tauri/tauri.linux.conf.json",
+        "src/features/settings/model/appearance.ts",
+        "src/features/settings/model/nativeGlass.test.ts",
+        "src/features/settings/model/settings.flags.test.ts",
+        "src/features/settings/ui/QuickComposerShortcutEditor.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/platform/tauri/platform.ts",
+        "src/shared/lib/colorUtils.test.ts",
+        "src/shared/lib/colorUtils.ts",
+        "src/styles/index.css"
+      ],
+      "relation": "L-09 glass CSS/platform handling",
+      "windows": "Verified Linux-specific native path; Windows must retain its acrylic",
+      "depends": "body-glass preference, native transparency and reduced-motion transitions"
+    },
+    {
+      "id": "U-032",
+      "kind": "feature",
+      "description": "Slash commands select Plan/Orchestrator mode or save a draft",
+      "release": "v0.6.0",
+      "commits": [
+        "e833e83db2ce90b2c9dd5608ef817bf8613f21d6"
+      ],
+      "paths": [
+        "src-tauri/src/quick_composer.rs",
+        "src-tauri/src/quick_composer/delivery.rs",
+        "src/app/model/quickLaunchSession.test.ts",
+        "src/app/model/quickLaunchSession.ts",
+        "src/features/quick-composer/model/quickComposer.ts",
+        "src/features/quick-composer/ui/QuickComposer.commands.test.ts",
+        "src/features/quick-composer/ui/QuickComposer.tsx",
+        "src/features/quick-composer/ui/useQuickPickerMotion.test.ts",
+        "src/features/quick-composer/ui/useQuickPickerMotion.ts",
+        "src/features/sessions/model/draftCommand.ts",
+        "src/features/sessions/model/orchestratorCommand.ts",
+        "src/features/sessions/ui/Composer.test.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/modeCommands.tsx",
+        "src/features/skills/model/skills.ts",
+        "src/features/skills/model/slashCommands.ts",
+        "src/styles/index.css"
+      ],
+      "relation": "L-01 queue/steer; L-06 holds; parked orchestration modes",
+      "windows": "Cross-platform main/Quick composer; Windows expected",
+      "depends": "command parser, inline mode pills and draft save behavior"
+    },
+    {
+      "id": "U-033",
+      "kind": "feature",
+      "description": "Codex effort selection animates its choices",
+      "release": "post-v0.6.0",
+      "commits": [
+        "43aac9d216c323a7e04c9037eb0b251dd840cc7a"
+      ],
+      "paths": [
+        "src/features/sessions/ui/ModelPicker.css",
+        "src/features/sessions/ui/ModelPicker.test.ts",
+        "src/features/sessions/ui/ModelPicker.tsx"
+      ],
+      "relation": "new model picker polish",
+      "windows": "Cross-platform UI; Windows expected",
+      "depends": "picker motion; post-tag approval required"
+    },
+    {
+      "id": "U-034",
+      "kind": "maintenance",
+      "description": "Reconcile streamed Claude tool inputs",
+      "release": "v0.1.56",
+      "commits": [
+        "81486bd746c787af126d4993c8bb8811c3e07c92"
+      ],
+      "paths": [
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-035",
+      "kind": "maintenance",
+      "description": "Deduplicate Codex text by item",
+      "release": "v0.1.56",
+      "commits": [
+        "ef17ac02348949c724ad733adc7df2cfdc12ae59"
+      ],
+      "paths": [
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexLive.test.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-036",
+      "kind": "maintenance",
+      "description": "Show background work when Claude yields",
+      "release": "v0.1.56",
+      "commits": [
+        "4504eb0d435895a247e914747d1f19a1115672ed"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/model/transcriptActivity.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/types.ts",
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-037",
+      "kind": "maintenance",
+      "description": "Preserve assistant message boundaries in streamed output",
+      "release": "v0.1.56",
+      "commits": [
+        "b8e9a7fc166313d9fd4b55b1874890a53a5dad88"
+      ],
+      "paths": [
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts",
+        "src/integrations/harness/providers/codex/codexLive.test.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-038",
+      "kind": "maintenance",
+      "description": "Remember the terminal dock side across projects (#400)",
+      "release": "v0.1.56",
+      "commits": [
+        "e724cdf0628a9a9ca53e4e11736ac121c6b5d8d9"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/model/appLifecycle.test.ts",
+        "src/app/model/appLifecycle.ts",
+        "src/features/sessions/model/inFlight.ts",
+        "src/features/workspace/model/workspaceSnapshot.test.ts",
+        "src/features/workspace/model/workspaceSnapshot.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-039",
+      "kind": "maintenance",
+      "description": "fix: open the file that match the activity log label, not preview.path (#330)",
+      "release": "v0.1.56",
+      "commits": [
+        "38a797e86384a5136f26e5350421df5482d86968"
+      ],
+      "paths": [
+        "src/features/sessions/model/transcriptActivity.test.ts",
+        "src/features/sessions/model/transcriptActivity.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/main.tsx",
+        "src/shared/lib/paths.test.ts",
+        "src/shared/lib/paths.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-040",
+      "kind": "maintenance",
+      "description": "Fix Codex Full Access MCP approvals (#402)",
+      "release": "v0.1.56",
+      "commits": [
+        "879ae4b819d928f632ce74fd9a3d5258b71bbe3a"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "src/features/sessions/model/session.ts",
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexElicitation.test.ts",
+        "src/integrations/harness/providers/codex/codexElicitation.ts",
+        "src/integrations/harness/providers/codex/codexLive.test.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-041",
+      "kind": "maintenance",
+      "description": "fix(pi): ignore tool progress updates after the tool ends (#391)",
+      "release": "v0.1.56",
+      "commits": [
+        "bffe301020bfc6ff963fb7021bed995a5dcfef4b"
+      ],
+      "paths": [
+        "src/integrations/harness/providers/omp/ompLive.test.ts",
+        "src/integrations/harness/providers/pi/piFamily.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-042",
+      "kind": "maintenance",
+      "description": "Release v0.1.56",
+      "release": "v0.1.56",
+      "commits": [
+        "611e05bcde80c096433ef65f3b085693a1be18c5"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/tauri.conf.json"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-043",
+      "kind": "maintenance",
+      "description": "fix: make composer controls responsive (#414)",
+      "release": "v0.2.0",
+      "commits": [
+        "0f8da85290cd34fe2c8f6f34d1e14a4c410f45fb"
+      ],
+      "paths": [
+        "src/features/quick-composer/ui/QuickPermissions.tsx",
+        "src/features/sessions/ui/AccessPicker.tsx",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/source-control/ui/BranchPicker.tsx",
+        "src/features/source-control/ui/GitPickerTrigger.tsx",
+        "src/features/source-control/ui/WorktreePicker.tsx",
+        "src/shared/ui/icons.tsx",
+        "src/styles/index.css"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-044",
+      "kind": "maintenance",
+      "description": "Fix model selection when resuming interrupted sessions (#422)",
+      "release": "v0.2.0",
+      "commits": [
+        "dc5345a20b2d5794c7148e0b7a418c97fad20949"
+      ],
+      "paths": [
+        "src/app/shell/SidebarRename.test.ts",
+        "src/features/sessions/model/models.test.ts",
+        "src/features/sessions/model/models.ts",
+        "src/features/workspace/model/workspaceSnapshot.test.ts",
+        "src/features/workspace/model/workspaceSnapshot.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-045",
+      "kind": "maintenance",
+      "description": "fix: exit app when last window closes on Linux (#419)",
+      "release": "v0.2.0",
+      "commits": [
+        "762f1f820b7b1ffdc71e217616578da0a9172b5f"
+      ],
+      "paths": [
+        "src-tauri/src/lib.rs"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-046",
+      "kind": "maintenance",
+      "description": "Remember the selected sidebar tab per project",
+      "release": "v0.2.0",
+      "commits": [
+        "8257a975e83b3ba03cb35a313581bac26435a197"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/model/quickLaunchSession.test.ts",
+        "src/app/model/quickLaunchSession.ts",
+        "src/features/projects/model/projectData.test.ts",
+        "src/features/projects/model/projectData.ts",
+        "src/features/settings/model/projectSidebarTab.test.ts",
+        "src/features/settings/model/projectSidebarTab.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-047",
+      "kind": "maintenance",
+      "description": "Defer Escape handling past later keydown listeners",
+      "release": "v0.2.0",
+      "commits": [
+        "2242bcd75932f61b5271f54777f4e459ea39e696"
+      ],
+      "paths": [
+        "src/features/workspace/model/tabKeys.test.ts",
+        "src/features/workspace/model/tabKeys.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-048",
+      "kind": "maintenance",
+      "description": "Add stableDiff utilities to prevent unnecessary re-renders",
+      "release": "v0.2.0",
+      "commits": [
+        "5725987fe0968bc2787086a9f2349937f83ca51c"
+      ],
+      "paths": [
+        "src/features/source-control/model/stableDiff.test.ts",
+        "src/features/source-control/model/stableDiff.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-049",
+      "kind": "maintenance",
+      "description": "Release v0.2.0",
+      "release": "v0.2.0",
+      "commits": [
+        "19b992283debd03664dd5eb07aa820c5034b6338"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/tauri.conf.json"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-050",
+      "kind": "maintenance",
+      "description": "Restore Claude shell commands in session transcripts",
+      "release": "v0.3.0",
+      "commits": [
+        "f028d9e6cfe162f7b11552a7288ffc94900b48f2"
+      ],
+      "paths": [
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/harness.rs",
+        "src-tauri/src/lib.rs",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/platform/tauri/fs.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-051",
+      "kind": "maintenance",
+      "description": "Support macOS terminal editing shortcuts",
+      "release": "v0.3.0",
+      "commits": [
+        "ed3c44c60b2b388f5afd77e616ca8076fc215fb2"
+      ],
+      "paths": [
+        "src/features/terminal/model/terminalKeys.test.ts",
+        "src/features/terminal/model/terminalKeys.ts",
+        "src/features/terminal/ui/TerminalView.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-052",
+      "kind": "maintenance",
+      "description": "Drop word-fade spans when fade animation finishes",
+      "release": "v0.3.0",
+      "commits": [
+        "fd3ee03f233c3d26ad1f6e09405588fb8eb74a9c"
+      ],
+      "paths": [
+        "src/features/sessions/ui/AgentMarkdown.tsx",
+        "src/features/sessions/ui/wordFade.test.ts",
+        "src/styles/index.css"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-053",
+      "kind": "maintenance",
+      "description": "Run the same claude the user's shell does (#448)",
+      "release": "v0.3.0",
+      "commits": [
+        "d2a625e4c32fbc4c9aab65374462cbea6c650ae2"
+      ],
+      "paths": [
+        "src-tauri/src/harness.rs"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-054",
+      "kind": "maintenance",
+      "description": "Fix completed GitHub issue status icon (#455)",
+      "release": "v0.3.0",
+      "commits": [
+        "c43c209dac67e2d06f512a6b7785b7c23677abd1"
+      ],
+      "paths": [
+        "src-tauri/src/fs.rs",
+        "src/features/inbox/model/githubTasks.ts",
+        "src/features/inbox/ui/InboxView.test.ts",
+        "src/features/inbox/ui/InboxView.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-055",
+      "kind": "maintenance",
+      "description": "Remove redundant Explorer changes button (#466)",
+      "release": "v0.3.0",
+      "commits": [
+        "da554f570050733356baf6ed18c27ce36959b1e7"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/shell/Sidebar.tsx",
+        "src/features/files/ui/FileTree.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-056",
+      "kind": "maintenance",
+      "description": "fix(files): preserve CRLF line endings in the editor (#412)",
+      "release": "v0.3.0",
+      "commits": [
+        "3fb4c1134ca538c24902d1efe76ec2fff12f361c"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "src/features/files/editor/editorDoc.test.ts",
+        "src/features/files/editor/editorDoc.ts",
+        "src/features/files/ui/FileEditor.tsx",
+        "src/features/files/ui/FileEditorCrlfGit.test.ts",
+        "src/features/files/ui/FilePaneLineEndings.test.ts",
+        "src/features/files/ui/FilePaneNavigation.test.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-057",
+      "kind": "maintenance",
+      "description": "Clash a keybinding against the modifier the platform uses (#453)",
+      "release": "v0.3.0",
+      "commits": [
+        "4186e976ed6bff6e337bb938229702a00fe4ce74"
+      ],
+      "paths": [
+        "src/features/settings/model/settings.test.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-058",
+      "kind": "maintenance",
+      "description": "fix(git): keep diff file paths relative to nested workspaces (#465)",
+      "release": "v0.3.0",
+      "commits": [
+        "7aa645dbfeb1839ff935f0706668c237cea3d609"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "src-tauri/src/fs.rs"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-059",
+      "kind": "maintenance",
+      "description": "fix: offer a second opinion from the same harness when only one is enabled (#421)",
+      "release": "v0.3.0",
+      "commits": [
+        "90c5a655c0f62224543f1e3654d05c5cf9178664"
+      ],
+      "paths": [
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/AgentTranscriptSecondOpinion.test.ts",
+        "src/features/sessions/ui/SecondOpinionButton.test.ts",
+        "src/features/sessions/ui/SecondOpinionButton.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-060",
+      "kind": "maintenance",
+      "description": "Clarify second opinion disabled state",
+      "release": "v0.3.0",
+      "commits": [
+        "ed696cc39e65924d1b645ed14644e7736bd0a435"
+      ],
+      "paths": [
+        "src/features/sessions/ui/AgentTranscriptSecondOpinion.test.ts",
+        "src/features/sessions/ui/SecondOpinionButton.test.ts",
+        "src/features/sessions/ui/SecondOpinionButton.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-061",
+      "kind": "maintenance",
+      "description": "fix: don't crash pty-data listener on a malformed chunk (#472)",
+      "release": "v0.3.0",
+      "commits": [
+        "8463340613ef6a3a24db5e15abd4b3b4b83bd7b2"
+      ],
+      "paths": [
+        "src/platform/tauri/pty.test.ts",
+        "src/platform/tauri/pty.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-062",
+      "kind": "maintenance",
+      "description": "Let the turn go once an inline subagent has reported back (#452)",
+      "release": "v0.3.0",
+      "commits": [
+        "6b313ab951cd891a0adb144384e193152d0ad2f4"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/features/sessions/model/plan.ts",
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-063",
+      "kind": "maintenance",
+      "description": "Release v0.3.0",
+      "release": "v0.3.0",
+      "commits": [
+        "c9cdc577996efe71d33d321483521b9de6902004"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/tauri.conf.json"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-064",
+      "kind": "maintenance",
+      "description": "perf: bound and cancel work across search hot paths (#462)",
+      "release": "v0.4.0",
+      "commits": [
+        "04da09f4c8417cbc7b326888ac5275255b017d15"
+      ],
+      "paths": [
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/search.rs",
+        "src-tauri/src/session_store.rs",
+        "src/features/files/editor/editorSearch.test.ts",
+        "src/features/files/editor/editorSearch.ts",
+        "src/features/projects/ui/ProjectSearch.tsx",
+        "src/features/search/model/search.test.ts",
+        "src/features/search/model/search.ts",
+        "src/features/search/ui/SearchView.tsx",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/transcriptHighlights.test.ts",
+        "src/features/sessions/model/transcriptHighlights.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-065",
+      "kind": "maintenance",
+      "description": "Clear terminal on Cmd+K when App: Search is disabled or rebound (#491)",
+      "release": "v0.4.0",
+      "commits": [
+        "bef7c90bb9730f0af0bdb4cf5820c8a1070e38db"
+      ],
+      "paths": [
+        "src/features/terminal/model/terminalKeys.test.ts",
+        "src/features/terminal/model/terminalKeys.ts",
+        "src/features/terminal/ui/TerminalView.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-066",
+      "kind": "maintenance",
+      "description": "Let git find gpg when MonoCode is launched from Finder (#484)",
+      "release": "v0.4.0",
+      "commits": [
+        "4f6c17ea835a593a4003ebdfa63f2e13bcca7355"
+      ],
+      "paths": [
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/lib.rs"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-067",
+      "kind": "maintenance",
+      "description": "Fedora rpm packaging (#362)",
+      "release": "v0.4.0",
+      "commits": [
+        "52640dcaa67cf1dd85f95b13d9742c8dbdbbfa1a"
+      ],
+      "paths": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/release.yml",
+        "README.md",
+        "package.json",
+        "scripts/install-linux-deps-fedora.sh",
+        "src-tauri/tauri.conf.json"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-068",
+      "kind": "maintenance",
+      "description": "Disable persisted checkout credentials in release workflow",
+      "release": "v0.4.0",
+      "commits": [
+        "f8769ee103783b0e744685677874c19daa749f90"
+      ],
+      "paths": [
+        ".github/workflows/release.yml"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-069",
+      "kind": "maintenance",
+      "description": "Keep Claude versioned models on their full native ids (#488)",
+      "release": "v0.4.0",
+      "commits": [
+        "6b8376f95eef8275a79635665133941dc9294fd7"
+      ],
+      "paths": [
+        "src/features/sessions/model/models.test.ts",
+        "src/features/sessions/model/models.ts",
+        "src/integrations/harness/providers/claude/claudeCatalog.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.test.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-070",
+      "kind": "maintenance",
+      "description": "Preserve unknown Claude model versions",
+      "release": "v0.4.0",
+      "commits": [
+        "79ca3747d02b98dcc75243ebacec3ddf774a6749"
+      ],
+      "paths": [
+        "src/features/sessions/model/models.test.ts",
+        "src/features/sessions/model/models.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-071",
+      "kind": "maintenance",
+      "description": "fix(projects): keep project name visible in picker when parent path is long (#507)",
+      "release": "v0.4.0",
+      "commits": [
+        "417168326a57615271ce6efcf24aa4c252d75ef5"
+      ],
+      "paths": [
+        "src/features/projects/ui/SearchableProjectPicker.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-072",
+      "kind": "maintenance",
+      "description": "Release v0.4.0",
+      "release": "v0.4.0",
+      "commits": [
+        "7288fb6ebd1a27758eaec779d95b25797d214e17"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/tauri.conf.json"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-073",
+      "kind": "maintenance",
+      "description": "Fix project rail reopening lag and release v0.4.1",
+      "release": "v0.4.1",
+      "commits": [
+        "413d699a39436a03c6fc244f381c41eb3c71a680"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/src/menu.rs",
+        "src-tauri/tauri.conf.json",
+        "src/app/shell/ProjectRail.tsx",
+        "src/app/shell/Sidebar.tsx",
+        "src/app/shell/SidebarRename.test.ts",
+        "src/app/shell/useProjectMenu.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-074",
+      "kind": "maintenance",
+      "description": "Reduce startup and transcript UI performance costs",
+      "release": "v0.4.2",
+      "commits": [
+        "9eebd8948a3b0d5268ac79d7c38a30cb5b3f9d76"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/session_store.rs",
+        "src/app/shell/ProjectRail.tsx",
+        "src/features/projects/ui/ProjectGroups.test.ts",
+        "src/features/sessions/ui/ComposerRunner.test.ts",
+        "src/features/sessions/ui/ComposerRunner.tsx",
+        "src/features/source-control/hooks/useProjectDiffStats.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-075",
+      "kind": "maintenance",
+      "description": "Add performance regression guards and release v0.4.2",
+      "release": "v0.4.2",
+      "commits": [
+        "e3220ca6bc466022d3b0b3196fbc911b3fa10d54"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/session_store.rs",
+        "src-tauri/tauri.conf.json",
+        "src/features/sessions/ui/ComposerRunner.test.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-076",
+      "kind": "maintenance",
+      "description": "Make startup regression test work on Windows and prepare v0.4.3",
+      "release": "v0.4.3",
+      "commits": [
+        "6ffc99589be087d16bb6d764afdc3502e5046750"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/session_store.rs",
+        "src-tauri/tauri.conf.json"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-077",
+      "kind": "maintenance",
+      "description": "Publish updater feed after host release assets (#528)",
+      "release": "v0.5.0",
+      "commits": [
+        "67ffc0b42d0e1411ec5402d2ebc971bab71dbb7e"
+      ],
+      "paths": [
+        ".github/workflows/release.yml"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-078",
+      "kind": "maintenance",
+      "description": "Wait for provider guard before Windows test cleanup",
+      "release": "v0.5.0",
+      "commits": [
+        "553b1a2235562a9e98dd9eeb9b94583d34c84f7e"
+      ],
+      "paths": [
+        "host/child-backend.test.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-079",
+      "kind": "maintenance",
+      "description": "Improve automation card layout and accessibility",
+      "release": "v0.5.0",
+      "commits": [
+        "d8377d2df086a1d11f8a8d65c6caa61a33bee978"
+      ],
+      "paths": [
+        "src/features/automations/ui/AutomationsView.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-080",
+      "kind": "maintenance",
+      "description": "Prevent auto-scroll re-pinning when scrolling away from bottom",
+      "release": "v0.5.0",
+      "commits": [
+        "6c4b1c660f15ace288fb6aede93eadafdb49de8f"
+      ],
+      "paths": [
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/AgentTranscriptScroll.test.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-081",
+      "kind": "maintenance",
+      "description": "Hold reader's place when turns above viewport resize",
+      "release": "v0.5.0",
+      "commits": [
+        "52cc279957b624653595301896e7667ddc1711a7"
+      ],
+      "paths": [
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/AgentTranscriptScroll.test.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-082",
+      "kind": "maintenance",
+      "description": "Simplify turn removal handling in scroll anchor",
+      "release": "v0.5.0",
+      "commits": [
+        "70bb58691c084b34b04129c871a2e1f5c9f20180"
+      ],
+      "paths": [
+        "src/features/sessions/ui/AgentTranscript.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-083",
+      "kind": "maintenance",
+      "description": "Optimize app startup and batched harness updates",
+      "release": "v0.5.0",
+      "commits": [
+        "1a3215d8f1d45207843da89383369ba8039664d2"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/model/appLifecycle.test.ts",
+        "src/app/model/appLifecycle.ts",
+        "src/app/model/bootWorkspace.test.ts",
+        "src/app/model/harnessFlush.test.ts",
+        "src/app/model/harnessFlush.ts",
+        "src/features/files/ui/FilePane.tsx",
+        "src/features/files/ui/FilePaneNavigation.test.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/TranscriptPool.test.ts",
+        "src/features/sessions/ui/TranscriptPool.tsx",
+        "src/features/terminal/ui/ProjectTerminalDock.tsx",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/applyBatch.test.ts",
+        "src/integrations/harness/index.ts",
+        "src/main.tsx",
+        "src/shared/ui/lazySurface.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-084",
+      "kind": "maintenance",
+      "description": "Increase Windows integration test timeouts",
+      "release": "v0.5.0",
+      "commits": [
+        "bf32549a991d90e718ec4d1b69910db7226a3067"
+      ],
+      "paths": [
+        "host/vitest.config.ts",
+        "host/windows.test.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-085",
+      "kind": "maintenance",
+      "description": "Prepare v0.5.0 release",
+      "release": "v0.5.0",
+      "commits": [
+        "b46230eec3d7854e414dd24135dad95db31e148f"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "docs/remote-access.md",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/tauri.conf.json"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-086",
+      "kind": "maintenance",
+      "description": "Stop triple-click in agent replies from running to the end of the reply (#535)",
+      "release": "v0.6.0",
+      "commits": [
+        "af4c01df66b4e1172be8594b60fece51f1986ed6"
+      ],
+      "paths": [
+        "src/features/sessions/ui/AgentMarkdown.tsx",
+        "src/features/sessions/ui/agentMarkdownSpacing.test.ts",
+        "src/styles/index.css"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-087",
+      "kind": "maintenance",
+      "description": "Show one row per background subagent (#536)",
+      "release": "v0.6.0",
+      "commits": [
+        "877ab2c91590730849b02b00661ba7291e0df36b"
+      ],
+      "paths": [
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-088",
+      "kind": "maintenance",
+      "description": "Fix launch crash on macOS 12 caused by empty Window menu (#509)",
+      "release": "v0.6.0",
+      "commits": [
+        "dad02c13bb318dd77e5895e1f221e0c25c6d82e9"
+      ],
+      "paths": [
+        "src-tauri/src/menu.rs"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-089",
+      "kind": "maintenance",
+      "description": "Fix/claude subagent error output (#569)",
+      "release": "v0.6.0",
+      "commits": [
+        "41b0b8ea3b7ad7109bbb6ee3fa4277d2fd818bec"
+      ],
+      "paths": [
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/model/transcriptActivity.ts",
+        "src/features/sessions/ui/AgentTranscript.test.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/integrations/harness/core/acpSubagents.test.ts",
+        "src/integrations/harness/core/acpSubagents.ts",
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/types.ts",
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts",
+        "src/integrations/harness/providers/cursor/cursor.ts",
+        "src/integrations/harness/providers/cursor/cursorLive.test.ts",
+        "src/integrations/harness/providers/cursor/cursorSubagents.test.ts",
+        "src/integrations/harness/providers/cursor/cursorSubagents.ts",
+        "src/integrations/harness/providers/opencode/opencode.ts",
+        "src/integrations/harness/providers/opencode/opencodeLive.test.ts",
+        "src/integrations/harness/providers/pi/piSubagents.test.ts",
+        "src/integrations/harness/providers/pi/piSubagents.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-090",
+      "kind": "maintenance",
+      "description": "fix: highlight text and untagged code fence as js (#471)",
+      "release": "v0.6.0",
+      "commits": [
+        "c9892f0d84275810be50fff2ab61a8c1028af722"
+      ],
+      "paths": [
+        "src/features/sessions/ui/AgentMarkdown.test.ts",
+        "src/features/sessions/ui/AgentMarkdown.tsx",
+        "src/styles/index.css"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-091",
+      "kind": "maintenance",
+      "description": "Use dashboard icon for session sidebar toggle",
+      "release": "v0.6.0",
+      "commits": [
+        "cdc1441dc51e3709cd843e5c316608a123f323c6"
+      ],
+      "paths": [
+        "src/app/shell/TitleBar.tsx",
+        "src/shared/ui/icons.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-092",
+      "kind": "maintenance",
+      "description": "Fix interface scale breaking the UI while dragging (#559)",
+      "release": "v0.6.0",
+      "commits": [
+        "b4f5befbc27d148f08125a060980ea4a446d578d"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "src/features/settings/model/uiScale.test.ts",
+        "src/features/settings/model/uiScale.ts",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-093",
+      "kind": "maintenance",
+      "description": "fix(claude): show TaskCreate/TaskUpdate in the todo panel (#513)",
+      "release": "v0.6.0",
+      "commits": [
+        "2cfc17889a54897f6c52045a2aa305afffd5c200"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/model/appLifecycle.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/session.ts",
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/preview.ts",
+        "src/integrations/harness/core/registry.test.ts",
+        "src/integrations/harness/core/registry.ts",
+        "src/integrations/harness/core/types.ts",
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeAdapter.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-094",
+      "kind": "maintenance",
+      "description": "Prepare v0.6.0 release",
+      "release": "v0.6.0",
+      "commits": [
+        "48fe62a869658929025b0c67cb386b8a59a39d3e"
+      ],
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/tauri.conf.json"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-095",
+      "kind": "maintenance",
+      "description": "Fix ARM64 Linux build: use libc::c_char for the ptsname_r buffer (#584)",
+      "release": "post-v0.6.0",
+      "commits": [
+        "7ce63cb80e2afc48a170358f1d86381da238d802"
+      ],
+      "paths": [
+        "src-tauri/src/pty.rs"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-096",
+      "kind": "maintenance",
+      "description": "Improve navigation responsiveness with idle preloading",
+      "release": "post-v0.6.0",
+      "commits": [
+        "4e876a880d7cbd1f79fa8a124a05ce4d5e8ecfb1"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/model/preloadNavigation.test.ts",
+        "src/app/model/preloadNavigation.ts",
+        "src/features/automations/model/automations.ts",
+        "src/features/automations/ui/AutomationsView.test.ts",
+        "src/features/automations/ui/AutomationsView.tsx",
+        "src/features/notes/ui/NotesView.test.ts",
+        "src/features/notes/ui/NotesView.tsx",
+        "src/shared/ui/lazySurface.test.ts",
+        "src/shared/ui/lazySurface.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-097",
+      "kind": "maintenance",
+      "description": "Restore previous view after closing settings",
+      "release": "post-v0.6.0",
+      "commits": [
+        "8fae56666a903bf1232828293e73df51f90d7578"
+      ],
+      "paths": [
+        "src/app/App.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-098",
+      "kind": "maintenance",
+      "description": "Scope the Changes review to the section it was opened from (#582)",
+      "release": "post-v0.6.0",
+      "commits": [
+        "fea2c0a5d08fc710bfa29b6f00de581f83a10303"
+      ],
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/shell/Sidebar.tsx",
+        "src/features/source-control/model/workingTreeDiff.test.ts",
+        "src/features/source-control/model/workingTreeDiff.ts",
+        "src/features/source-control/ui/GitChangesPanel.tsx",
+        "src/features/source-control/ui/SourceControl.tsx",
+        "src/features/source-control/ui/WorkingTreeDiff.tsx",
+        "src/features/workspace/model/layout.test.ts",
+        "src/features/workspace/model/layout.ts",
+        "src/features/workspace/ui/SurfaceTabs.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-099",
+      "kind": "maintenance",
+      "description": "Diff whole files line by line in the changes view (#590)",
+      "release": "post-v0.6.0",
+      "commits": [
+        "5c00fe2a2ca829fb41da0cf83c282d93eb22771e"
+      ],
+      "paths": [
+        "src/features/files/editor/editorGit.ts",
+        "src/features/source-control/model/lineDiff.test.ts",
+        "src/features/source-control/model/lineDiff.ts",
+        "src/features/source-control/model/unifiedDiff.ts",
+        "src/features/source-control/ui/WorkingTreeDiff.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-100",
+      "kind": "maintenance",
+      "description": "Fix chat bubbles overflowing narrow session panes (#575)",
+      "release": "post-v0.6.0",
+      "commits": [
+        "4bb4a0007493cdd1bb1aef87fdd858c21e03c568"
+      ],
+      "paths": [
+        "src/features/sessions/ui/AgentTranscript.bubbleWidth.test.ts",
+        "src/features/sessions/ui/AgentTranscript.copy.test.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-101",
+      "kind": "maintenance",
+      "description": "Recover Codex commands for bare Shell rows (#581)",
+      "release": "post-v0.6.0",
+      "commits": [
+        "36bb26c64393692d92144ff5dad834ae4d585c9a"
+      ],
+      "paths": [
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/data/sessionStoreRestore.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    },
+    {
+      "id": "U-102",
+      "kind": "maintenance",
+      "description": "fix(markdown): keep a document's lines on their own lines (#595)",
+      "release": "post-v0.6.0",
+      "commits": [
+        "a67e614fbed50524f2f8ea03d825fbdc43de1a1d"
+      ],
+      "paths": [
+        "src/features/notes/ui/NotesView.test.ts",
+        "src/features/notes/ui/NotesView.tsx",
+        "src/features/sessions/ui/AgentMarkdown.tsx",
+        "src/features/sessions/ui/MarkdownDocumentPreview.test.ts",
+        "src/features/sessions/ui/MarkdownDocumentPreview.tsx",
+        "src/features/sessions/ui/hardBreaks.test.ts",
+        "src/features/sessions/ui/hardBreaks.ts"
+      ],
+      "relation": "review changed paths against preservation list",
+      "windows": "platform inferred from diff; runtime Not checked",
+      "depends": "see changed files and diff evidence"
+    }
+  ],
+  "commits": [
+    {
+      "sha": "81486bd746c787af126d4993c8bb8811c3e07c92",
+      "subject": "Reconcile streamed Claude tool inputs",
+      "release": "v0.1.56",
+      "paths": [
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts"
+      ],
+      "u_id": "U-034"
+    },
+    {
+      "sha": "ef17ac02348949c724ad733adc7df2cfdc12ae59",
+      "subject": "Deduplicate Codex text by item",
+      "release": "v0.1.56",
+      "paths": [
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexLive.test.ts"
+      ],
+      "u_id": "U-035"
+    },
+    {
+      "sha": "9fb7710f21c71c1e6380a5a51f78afdc31bf89d2",
+      "subject": "Add slide-out sidebar drawer in compact rail",
+      "release": "v0.1.56",
+      "paths": [
+        "src/app/shell/Sidebar.tsx",
+        "src/app/shell/SidebarRename.test.ts"
+      ],
+      "u_id": "U-001"
+    },
+    {
+      "sha": "4504eb0d435895a247e914747d1f19a1115672ed",
+      "subject": "Show background work when Claude yields",
+      "release": "v0.1.56",
+      "paths": [
+        "src/app/App.tsx",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/model/transcriptActivity.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/types.ts",
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.ts"
+      ],
+      "u_id": "U-036"
+    },
+    {
+      "sha": "778b527b005e29308eee2eb0079c700af458b80f",
+      "subject": "feat(appearance): add Haze chat background effect (#390)",
+      "release": "v0.1.56",
+      "paths": [
+        "src/features/projects/ui/ProjectBackgroundDialog.test.ts",
+        "src/features/projects/ui/ProjectBackgroundDialog.tsx",
+        "src/features/projects/ui/useProjectBackgroundEffect.ts",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/features/settings/model/appearance.test.ts",
+        "src/features/settings/model/appearance.ts",
+        "src/features/settings/model/newThreadBackgroundEffects.test.ts",
+        "src/features/settings/model/newThreadBackgroundEffects.ts",
+        "src/features/settings/ui/GradientBlurBackground.tsx",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/styles/index.css"
+      ],
+      "u_id": "U-002"
+    },
+    {
+      "sha": "3e3a81ce1500ed5df0cb74eb9ebcf746b3aad842",
+      "subject": "feat(sidebar): open project context menu while the rail is hidden (#389)",
+      "release": "v0.1.56",
+      "paths": [
+        "src/app/shell/ProjectRail.tsx",
+        "src/app/shell/Sidebar.tsx",
+        "src/app/shell/SidebarRename.test.ts",
+        "src/app/shell/useProjectMenu.tsx",
+        "src/features/projects/model/projectGroups.ts",
+        "src/features/projects/model/recents.ts",
+        "src/features/projects/ui/ProjectGroups.test.ts",
+        "src/features/projects/ui/SearchableProjectPicker.tsx",
+        "src/features/workspace/model/tabGroups.ts"
+      ],
+      "u_id": "U-001"
+    },
+    {
+      "sha": "c3005b04f65af9d59a30a43b6b8a8e0981c40681",
+      "subject": "Default collapsed project rail to icon mode",
+      "release": "v0.1.56",
+      "paths": [
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/SettingsView.test.ts"
+      ],
+      "u_id": "U-001"
+    },
+    {
+      "sha": "55489167bb4068d5d0431e2f6e262a4165292752",
+      "subject": "Adjust sidebar spacing and hide empty action groups",
+      "release": "v0.1.56",
+      "paths": [
+        "src/app/shell/Sidebar.tsx",
+        "src/features/sessions/ui/LiveAgentsPreview.tsx"
+      ],
+      "u_id": "U-001"
+    },
+    {
+      "sha": "b8e9a7fc166313d9fd4b55b1874890a53a5dad88",
+      "subject": "Preserve assistant message boundaries in streamed output",
+      "release": "v0.1.56",
+      "paths": [
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts",
+        "src/integrations/harness/providers/codex/codexLive.test.ts"
+      ],
+      "u_id": "U-037"
+    },
+    {
+      "sha": "28b814a89b2a89f41af9f0ca36da67f15c364057",
+      "subject": "Added format on save toggle in settings (#396)",
+      "release": "v0.1.56",
+      "paths": [
+        "src/features/files/ui/FileEditor.tsx",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/SettingsView.tsx"
+      ],
+      "u_id": "U-003"
+    },
+    {
+      "sha": "26e66e37403fe35190b7aead5037bc93c1269a75",
+      "subject": "feat(settings): scope the Providers defaults to a project or globally (#395)",
+      "release": "v0.1.56",
+      "paths": [
+        "src/app/App.tsx",
+        "src/features/automations/ui/AutomationsView.tsx",
+        "src/features/projects/model/projectData.ts",
+        "src/features/sessions/model/models.test.ts",
+        "src/features/sessions/model/models.ts",
+        "src/features/sessions/model/projectProviders.test.ts",
+        "src/features/sessions/model/projectProviders.ts",
+        "src/features/sessions/model/projectSessionDefaults.test.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/ModelPicker.tsx",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/integrations/harness/core/availability.ts",
+        "src/integrations/harness/core/availabilityState.ts",
+        "src/shared/ui/icons.tsx"
+      ],
+      "u_id": "U-004"
+    },
+    {
+      "sha": "e724cdf0628a9a9ca53e4e11736ac121c6b5d8d9",
+      "subject": "Remember the terminal dock side across projects (#400)",
+      "release": "v0.1.56",
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/model/appLifecycle.test.ts",
+        "src/app/model/appLifecycle.ts",
+        "src/features/sessions/model/inFlight.ts",
+        "src/features/workspace/model/workspaceSnapshot.test.ts",
+        "src/features/workspace/model/workspaceSnapshot.ts"
+      ],
+      "u_id": "U-038"
+    },
+    {
+      "sha": "38a797e86384a5136f26e5350421df5482d86968",
+      "subject": "fix: open the file that match the activity log label, not preview.path (#330)",
+      "release": "v0.1.56",
+      "paths": [
+        "src/features/sessions/model/transcriptActivity.test.ts",
+        "src/features/sessions/model/transcriptActivity.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/main.tsx",
+        "src/shared/lib/paths.test.ts",
+        "src/shared/lib/paths.ts"
+      ],
+      "u_id": "U-039"
+    },
+    {
+      "sha": "879ae4b819d928f632ce74fd9a3d5258b71bbe3a",
+      "subject": "Fix Codex Full Access MCP approvals (#402)",
+      "release": "v0.1.56",
+      "paths": [
+        "CHANGELOG.md",
+        "src/features/sessions/model/session.ts",
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexElicitation.test.ts",
+        "src/integrations/harness/providers/codex/codexElicitation.ts",
+        "src/integrations/harness/providers/codex/codexLive.test.ts"
+      ],
+      "u_id": "U-040"
+    },
+    {
+      "sha": "b6baa44f051596f0b383a4bb66da245d66b00a8d",
+      "subject": "feat(workspace): add preview tabs that reuse one temporary tab (#385)",
+      "release": "v0.1.56",
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/shell/Sidebar.tsx",
+        "src/app/shell/TitleBar.tsx",
+        "src/features/files/ui/FilePane.tsx",
+        "src/features/files/ui/FileTree.tsx",
+        "src/features/projects/ui/ProjectSearch.tsx",
+        "src/features/search/model/search.ts",
+        "src/features/sessions/model/sessionRemoval.test.ts",
+        "src/features/sessions/model/sessionWorkspaceLifecycle.test.ts",
+        "src/features/source-control/ui/GitChangesPanel.tsx",
+        "src/features/source-control/ui/GitHistoryGraph.tsx",
+        "src/features/workspace/model/layout.test.ts",
+        "src/features/workspace/model/layout.ts",
+        "src/features/workspace/model/workspaceSnapshot.ts",
+        "src/features/workspace/ui/PaneTree.tsx",
+        "src/features/workspace/ui/SurfaceTabs.tsx"
+      ],
+      "u_id": "U-005"
+    },
+    {
+      "sha": "bffe301020bfc6ff963fb7021bed995a5dcfef4b",
+      "subject": "fix(pi): ignore tool progress updates after the tool ends (#391)",
+      "release": "v0.1.56",
+      "paths": [
+        "src/integrations/harness/providers/omp/ompLive.test.ts",
+        "src/integrations/harness/providers/pi/piFamily.ts"
+      ],
+      "u_id": "U-041"
+    },
+    {
+      "sha": "3e28087b55e04f78bf21324ec46acd1bf430555d",
+      "subject": "Add GitHub PR checks, job details, and AI repair tracking (#364)",
+      "release": "v0.1.56",
+      "paths": [
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/lib.rs",
+        "src/app/App.tsx",
+        "src/features/inbox/hooks/useGithubPrChecks.test.ts",
+        "src/features/inbox/hooks/useGithubPrChecks.ts",
+        "src/features/inbox/model/ciRepair.test.ts",
+        "src/features/inbox/model/ciRepair.ts",
+        "src/features/inbox/model/ciRepairSessions.test.ts",
+        "src/features/inbox/model/ciRepairSessions.ts",
+        "src/features/inbox/model/ciRepairTracking.test.ts",
+        "src/features/inbox/model/ciRepairTracking.ts",
+        "src/features/inbox/model/githubPrChecks.test.ts",
+        "src/features/inbox/model/githubPrChecks.ts",
+        "src/features/inbox/ui/CheckEvidence.tsx",
+        "src/features/inbox/ui/CheckRepairForm.tsx",
+        "src/features/inbox/ui/CheckRepairProgress.tsx",
+        "src/features/inbox/ui/InboxPrChecks.test.ts",
+        "src/features/inbox/ui/InboxPrChecks.tsx",
+        "src/features/inbox/ui/InboxPrChecksRepair.test.ts",
+        "src/features/inbox/ui/InboxView.test.ts",
+        "src/features/inbox/ui/InboxView.tsx",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/ciRepairContext.test.ts",
+        "src/features/sessions/model/editLastTurn.test.ts",
+        "src/features/sessions/model/editLastTurn.ts",
+        "src/features/sessions/model/handoff.test.ts",
+        "src/features/sessions/model/handoff.ts",
+        "src/features/sessions/model/secondOpinion.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/ui/AgentTranscript.test.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/integrations/harness/core/apply.ts"
+      ],
+      "u_id": "U-006"
+    },
+    {
+      "sha": "618efe437f73debd2439460d7a7c3d1586dc3dc9",
+      "subject": "Add macOS floating quick composer (#398)",
+      "release": "v0.1.56",
+      "paths": [
+        "Cargo.lock",
+        "quick-composer.html",
+        "src-tauri/Cargo.toml",
+        "src-tauri/capabilities/default.json",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/macos_background.rs",
+        "src-tauri/src/menu.rs",
+        "src-tauri/src/quick_composer.rs",
+        "src-tauri/src/quick_composer/delivery.rs",
+        "src-tauri/src/quick_composer/git_popup.rs",
+        "src-tauri/src/quick_composer/screenshots.rs",
+        "src-tauri/src/reminders.rs",
+        "src-tauri/src/window.rs",
+        "src/app/App.tsx",
+        "src/app/model/managedSubmission.test.ts",
+        "src/app/model/managedSubmission.ts",
+        "src/app/model/quickLaunchSession.test.ts",
+        "src/app/model/quickLaunchSession.ts",
+        "src/app/model/submissionAcceptance.test.ts",
+        "src/app/model/submissionAcceptance.ts",
+        "src/features/projects/model/projectLocationError.ts",
+        "src/features/quick-composer/hooks/useQuickComposerLaunches.ts",
+        "src/features/quick-composer/main.tsx",
+        "src/features/quick-composer/model/launchDelivery.test.ts",
+        "src/features/quick-composer/model/launchDelivery.ts",
+        "src/features/quick-composer/model/prepareQuickComposer.test.ts",
+        "src/features/quick-composer/model/prepareQuickComposer.ts",
+        "src/features/quick-composer/model/quickAttachments.test.ts",
+        "src/features/quick-composer/model/quickAttachments.ts",
+        "src/features/quick-composer/model/quickComposer.test.ts",
+        "src/features/quick-composer/model/quickComposer.ts",
+        "src/features/quick-composer/model/quickComposerDefaults.test.ts",
+        "src/features/quick-composer/model/quickGitPopup.ts",
+        "src/features/quick-composer/model/quickWorkspace.test.ts",
+        "src/features/quick-composer/model/quickWorkspace.ts",
+        "src/features/quick-composer/ui/QuickComposer.attachments.test.ts",
+        "src/features/quick-composer/ui/QuickComposer.tsx",
+        "src/features/quick-composer/ui/QuickGitPopup.firstOpen.test.ts",
+        "src/features/quick-composer/ui/QuickGitPopup.test.ts",
+        "src/features/quick-composer/ui/QuickGitPopup.tsx",
+        "src/features/quick-composer/ui/QuickModelSelector.css",
+        "src/features/quick-composer/ui/QuickModelSelector.test.ts",
+        "src/features/quick-composer/ui/QuickModelSelector.tsx",
+        "src/features/quick-composer/ui/QuickPermissions.test.ts",
+        "src/features/quick-composer/ui/QuickPermissions.tsx",
+        "src/features/quick-composer/ui/QuickProjectIcon.test.ts",
+        "src/features/quick-composer/ui/QuickProjectIcon.tsx",
+        "src/features/quick-composer/ui/QuickWorkspaceControls.test.ts",
+        "src/features/quick-composer/ui/QuickWorkspaceControls.tsx",
+        "src/features/quick-composer/ui/useQuickAttachments.test.ts",
+        "src/features/quick-composer/ui/useQuickAttachments.ts",
+        "src/features/quick-composer/ui/useQuickPickerMotion.test.ts",
+        "src/features/quick-composer/ui/useQuickPickerMotion.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/features/source-control/hooks/useProjectBranches.ts",
+        "src/features/source-control/ui/BranchPicker.tsx",
+        "src/features/source-control/ui/GitPickerTrigger.tsx",
+        "src/features/source-control/ui/SwitchBranchDialog.tsx",
+        "src/features/workspace/ui/WorkspacePicker.tsx",
+        "src/shared/ui/Modal.tsx",
+        "src/shared/ui/NativePopupHost.tsx",
+        "src/shared/ui/Popover.tsx",
+        "vite.config.ts"
+      ],
+      "u_id": "U-007"
+    },
+    {
+      "sha": "611e05bcde80c096433ef65f3b085693a1be18c5",
+      "subject": "Release v0.1.56",
+      "release": "v0.1.56",
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/tauri.conf.json"
+      ],
+      "u_id": "U-042"
+    },
+    {
+      "sha": "0f8da85290cd34fe2c8f6f34d1e14a4c410f45fb",
+      "subject": "fix: make composer controls responsive (#414)",
+      "release": "v0.2.0",
+      "paths": [
+        "src/features/quick-composer/ui/QuickPermissions.tsx",
+        "src/features/sessions/ui/AccessPicker.tsx",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/source-control/ui/BranchPicker.tsx",
+        "src/features/source-control/ui/GitPickerTrigger.tsx",
+        "src/features/source-control/ui/WorktreePicker.tsx",
+        "src/shared/ui/icons.tsx",
+        "src/styles/index.css"
+      ],
+      "u_id": "U-043"
+    },
+    {
+      "sha": "67ad7dd47465f8492446b52534ca061533ce5d5f",
+      "subject": "Add a BTW conversation feature on every agent message (#353)",
+      "release": "v0.2.0",
+      "paths": [
+        "src-tauri/src/fs.rs",
+        "src/app/App.tsx",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/btw.test.ts",
+        "src/features/sessions/model/btw.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/BtwPopover.test.ts",
+        "src/features/sessions/ui/BtwPopover.tsx",
+        "src/features/sessions/ui/Composer.test.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/ModelPicker.tsx",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/features/workspace/ui/PaneTree.tsx",
+        "src/integrations/harness/core/abortTextPrompt.test.ts",
+        "src/integrations/harness/core/abortTextPrompt.ts",
+        "src/integrations/harness/core/registry.test.ts",
+        "src/integrations/harness/core/registry.ts",
+        "src/integrations/harness/index.ts",
+        "src/integrations/harness/providers/claude/claudeAdapter.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+        "src/integrations/harness/providers/claude/claudeText.ts",
+        "src/integrations/harness/providers/codex/codexAdapter.ts",
+        "src/integrations/harness/providers/codex/codexApprovalUi.test.ts",
+        "src/integrations/harness/providers/codex/codexText.ts",
+        "src/integrations/harness/providers/cursor/cursorAdapter.ts",
+        "src/integrations/harness/providers/cursor/cursorText.ts",
+        "src/integrations/harness/providers/grok/grokAdapter.ts",
+        "src/integrations/harness/providers/grok/grokText.ts",
+        "src/integrations/harness/providers/omp/ompAdapter.ts",
+        "src/integrations/harness/providers/opencode/opencodeAdapter.ts",
+        "src/integrations/harness/providers/opencode/opencodeText.ts",
+        "src/integrations/harness/providers/pi/piAdapter.ts",
+        "src/integrations/harness/providers/pi/piText.ts",
+        "src/styles/index.css"
+      ],
+      "u_id": "U-008"
+    },
+    {
+      "sha": "47db85e8c2d69578a16f82718efc3a56745c82d3",
+      "subject": "Show plan, email and org on provider accounts (#372)",
+      "release": "v0.2.0",
+      "paths": [
+        "src-tauri/src/account_identity.rs",
+        "src-tauri/src/lib.rs",
+        "src/app/shell/UsageProviderChip.tsx",
+        "src/features/providers/model/providerAccountIdentity.ts",
+        "src/features/settings/ui/SettingsView.tsx"
+      ],
+      "u_id": "U-010"
+    },
+    {
+      "sha": "796e03ab20dd7c8cdcbc2b8aabc902638cd452a6",
+      "subject": "Embed BTW controls within transcript metadata",
+      "release": "v0.2.0",
+      "paths": [
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/BtwPopover.tsx"
+      ],
+      "u_id": "U-008"
+    },
+    {
+      "sha": "dc5345a20b2d5794c7148e0b7a418c97fad20949",
+      "subject": "Fix model selection when resuming interrupted sessions (#422)",
+      "release": "v0.2.0",
+      "paths": [
+        "src/app/shell/SidebarRename.test.ts",
+        "src/features/sessions/model/models.test.ts",
+        "src/features/sessions/model/models.ts",
+        "src/features/workspace/model/workspaceSnapshot.test.ts",
+        "src/features/workspace/model/workspaceSnapshot.ts"
+      ],
+      "u_id": "U-044"
+    },
+    {
+      "sha": "762f1f820b7b1ffdc71e217616578da0a9172b5f",
+      "subject": "fix: exit app when last window closes on Linux (#419)",
+      "release": "v0.2.0",
+      "paths": [
+        "src-tauri/src/lib.rs"
+      ],
+      "u_id": "U-045"
+    },
+    {
+      "sha": "b6f56e6883bf047816247e52c7cb59f6e288ba47",
+      "subject": "Add opt-in MonoCode app CLI for agent sessions (#423)",
+      "release": "v0.2.0",
+      "paths": [
+        "README.md",
+        "src-tauri/src/control.rs",
+        "src-tauri/src/control_cli.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/main.rs",
+        "src/app/App.tsx",
+        "src/app/model/quickLaunchSession.test.ts",
+        "src/app/model/quickLaunchSession.ts",
+        "src/features/agent-app/model/agentApp.test.ts",
+        "src/features/agent-app/model/agentApp.ts",
+        "src/features/agent-app/model/sessionConversation.test.ts",
+        "src/features/agent-app/model/sessionConversation.ts",
+        "src/features/quick-composer/model/quickComposer.ts",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/editLastTurn.test.ts",
+        "src/features/sessions/model/editLastTurn.ts",
+        "src/features/sessions/model/monocodeCommand.test.ts",
+        "src/features/sessions/model/monocodeCommand.ts",
+        "src/features/sessions/model/monocodeToolCall.test.ts",
+        "src/features/sessions/model/monocodeToolCall.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/model/transcriptActivity.test.ts",
+        "src/features/sessions/model/transcriptActivity.ts",
+        "src/features/sessions/ui/AgentTranscript.test.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/AgentTranscriptErrorDisclosure.test.ts",
+        "src/features/sessions/ui/Composer.test.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/MonocodeSparkles.test.ts",
+        "src/features/sessions/ui/MonocodeSparkles.tsx",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/registry.ts",
+        "src/integrations/harness/core/types.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts",
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexLive.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts",
+        "src/shared/ui/icons.tsx",
+        "src/styles/index.css"
+      ],
+      "u_id": "U-009"
+    },
+    {
+      "sha": "8257a975e83b3ba03cb35a313581bac26435a197",
+      "subject": "Remember the selected sidebar tab per project",
+      "release": "v0.2.0",
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/model/quickLaunchSession.test.ts",
+        "src/app/model/quickLaunchSession.ts",
+        "src/features/projects/model/projectData.test.ts",
+        "src/features/projects/model/projectData.ts",
+        "src/features/settings/model/projectSidebarTab.test.ts",
+        "src/features/settings/model/projectSidebarTab.ts"
+      ],
+      "u_id": "U-046"
+    },
+    {
+      "sha": "2242bcd75932f61b5271f54777f4e459ea39e696",
+      "subject": "Defer Escape handling past later keydown listeners",
+      "release": "v0.2.0",
+      "paths": [
+        "src/features/workspace/model/tabKeys.test.ts",
+        "src/features/workspace/model/tabKeys.ts"
+      ],
+      "u_id": "U-047"
+    },
+    {
+      "sha": "bb46e56aca5e199809209b66f52bbcb148f00d15",
+      "subject": "Add usage limit handling with auto-resume option",
+      "release": "v0.2.0",
+      "paths": [
+        "src/app/App.tsx",
+        "src/features/providers/model/rateLimits.test.ts",
+        "src/features/providers/model/rateLimits.ts",
+        "src/features/sessions/model/messageQueue.test.ts",
+        "src/features/sessions/model/messageQueue.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/model/usageLimit.test.ts",
+        "src/features/sessions/model/usageLimit.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/features/sessions/ui/UsageLimitNotice.tsx",
+        "src/features/workspace/ui/PaneTree.tsx",
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/types.ts",
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.ts",
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts"
+      ],
+      "u_id": "U-011"
+    },
+    {
+      "sha": "e611f0091b7795c6cee6b11c4838b5f5b9fc6254",
+      "subject": "Refine metrics badge and BTW popover button styling",
+      "release": "v0.2.0",
+      "paths": [
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/BtwPopover.tsx"
+      ],
+      "u_id": "U-008"
+    },
+    {
+      "sha": "69f602db40b5eb7dae0ff1d16bcba632378860aa",
+      "subject": "Rename the MonoCode command to /operator",
+      "release": "v0.2.0",
+      "paths": [
+        "README.md",
+        "src-tauri/src/control.rs",
+        "src-tauri/src/control_cli.rs",
+        "src/app/App.tsx",
+        "src/features/agent-app/model/agentApp.test.ts",
+        "src/features/agent-app/model/agentApp.ts",
+        "src/features/agent-app/model/sessionConversation.ts",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/model/editLastTurn.test.ts",
+        "src/features/sessions/model/editLastTurn.ts",
+        "src/features/sessions/model/monocodeCommand.test.ts",
+        "src/features/sessions/model/monocodeCommand.ts",
+        "src/features/sessions/model/operatorCommand.test.ts",
+        "src/features/sessions/model/operatorCommand.ts",
+        "src/features/sessions/ui/AgentTranscript.test.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/Composer.test.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/MonocodeSparkles.tsx",
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts",
+        "src/styles/index.css"
+      ],
+      "u_id": "U-009"
+    },
+    {
+      "sha": "b3034f16fd84a6a2c55fc8973fb42036fc0a3333",
+      "subject": "Add customizable Quick Composer global shortcut",
+      "release": "v0.2.0",
+      "paths": [
+        "CHANGELOG.md",
+        "src-tauri/src/quick_composer.rs",
+        "src/app/App.tsx",
+        "src/features/quick-composer/model/quickComposer.ts",
+        "src/features/quick-composer/model/quickComposerShortcut.test.ts",
+        "src/features/quick-composer/model/quickComposerShortcut.ts",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/QuickComposerShortcutEditor.test.ts",
+        "src/features/settings/ui/SettingsView.tsx"
+      ],
+      "u_id": "U-007"
+    },
+    {
+      "sha": "5725987fe0968bc2787086a9f2349937f83ca51c",
+      "subject": "Add stableDiff utilities to prevent unnecessary re-renders",
+      "release": "v0.2.0",
+      "paths": [
+        "src/features/source-control/model/stableDiff.test.ts",
+        "src/features/source-control/model/stableDiff.ts"
+      ],
+      "u_id": "U-048"
+    },
+    {
+      "sha": "19b992283debd03664dd5eb07aa820c5034b6338",
+      "subject": "Release v0.2.0",
+      "release": "v0.2.0",
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/tauri.conf.json"
+      ],
+      "u_id": "U-049"
+    },
+    {
+      "sha": "0d3db9c26a460f1354dcf350969d87a6896b8bf0",
+      "subject": "Add archive and delete actions to title tab menus",
+      "release": "v0.3.0",
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/shell/TitleBar.tsx",
+        "src/app/shell/TitleBarMenu.test.ts"
+      ],
+      "u_id": "U-015"
+    },
+    {
+      "sha": "f028d9e6cfe162f7b11552a7288ffc94900b48f2",
+      "subject": "Restore Claude shell commands in session transcripts",
+      "release": "v0.3.0",
+      "paths": [
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/harness.rs",
+        "src-tauri/src/lib.rs",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/platform/tauri/fs.ts"
+      ],
+      "u_id": "U-050"
+    },
+    {
+      "sha": "ed3c44c60b2b388f5afd77e616ca8076fc215fb2",
+      "subject": "Support macOS terminal editing shortcuts",
+      "release": "v0.3.0",
+      "paths": [
+        "src/features/terminal/model/terminalKeys.test.ts",
+        "src/features/terminal/model/terminalKeys.ts",
+        "src/features/terminal/ui/TerminalView.tsx"
+      ],
+      "u_id": "U-051"
+    },
+    {
+      "sha": "fde0d8419617df48113b85c1578da186ae7c093b",
+      "subject": "feat(settings): add configurable Agent CLI binary paths (#407)",
+      "release": "v0.3.0",
+      "paths": [
+        "src-tauri/src/harness.rs",
+        "src-tauri/src/lib.rs",
+        "src/features/providers/model/providerBinaryPaths.test.ts",
+        "src/features/providers/model/providerBinaryPaths.ts",
+        "src/features/providers/model/rateLimitsFetch.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/integrations/harness/core/auth.test.ts",
+        "src/integrations/harness/core/auth.ts",
+        "src/integrations/harness/core/child.test.ts",
+        "src/integrations/harness/core/child.ts",
+        "src/integrations/harness/providers/antigravity/antigravity.ts",
+        "src/integrations/harness/providers/antigravity/antigravityCatalog.ts",
+        "src/integrations/harness/providers/antigravity/antigravityLive.test.ts",
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeCatalog.ts",
+        "src/integrations/harness/providers/claude/claudeText.ts",
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexCatalog.ts",
+        "src/integrations/harness/providers/codex/codexText.ts",
+        "src/integrations/harness/providers/cursor/cursor.ts",
+        "src/integrations/harness/providers/cursor/cursorCatalog.ts",
+        "src/integrations/harness/providers/cursor/cursorText.ts",
+        "src/integrations/harness/providers/fx/fx.ts",
+        "src/integrations/harness/providers/fx/fxCatalog.ts",
+        "src/integrations/harness/providers/grok/grok.ts",
+        "src/integrations/harness/providers/grok/grokCatalog.ts",
+        "src/integrations/harness/providers/grok/grokText.ts",
+        "src/integrations/harness/providers/hermes/hermes.ts",
+        "src/integrations/harness/providers/hermes/hermesCatalog.ts",
+        "src/integrations/harness/providers/omp/ompLive.test.ts",
+        "src/integrations/harness/providers/opencode/opencode.ts",
+        "src/integrations/harness/providers/opencode/opencodeCatalog.ts",
+        "src/integrations/harness/providers/opencode/opencodeText.ts",
+        "src/integrations/harness/providers/pi/piCatalog.ts",
+        "src/integrations/harness/providers/pi/piFamily.ts",
+        "src/integrations/harness/providers/pi/piSkills.test.ts",
+        "src/integrations/harness/providers/pi/piSkills.ts",
+        "src/integrations/harness/providers/pi/piText.ts",
+        "src/main.tsx"
+      ],
+      "u_id": "U-013"
+    },
+    {
+      "sha": "1ce9057c5b5d07b733c2900340851391c637c3ea",
+      "subject": "feat(editor): highlight .jsonc files (#382)",
+      "release": "v0.3.0",
+      "paths": [
+        "src/features/files/editor/editorLanguage.test.ts",
+        "src/features/files/editor/editorLanguage.ts",
+        "src/features/files/editor/syntaxTokens.test.ts"
+      ],
+      "u_id": "U-014"
+    },
+    {
+      "sha": "fd3ee03f233c3d26ad1f6e09405588fb8eb74a9c",
+      "subject": "Drop word-fade spans when fade animation finishes",
+      "release": "v0.3.0",
+      "paths": [
+        "src/features/sessions/ui/AgentMarkdown.tsx",
+        "src/features/sessions/ui/wordFade.test.ts",
+        "src/styles/index.css"
+      ],
+      "u_id": "U-052"
+    },
+    {
+      "sha": "ee56686471cdbe2db2a7d2b8c6bf655a9bf3ecbb",
+      "subject": "Feat/customizable keybindings (#438)",
+      "release": "v0.3.0",
+      "paths": [
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/menu.rs",
+        "src/app/App.tsx",
+        "src/app/shell/MenuBar.tsx",
+        "src/features/files/editor/editorSearch.ts",
+        "src/features/files/ui/FilePreviewSearch.test.ts",
+        "src/features/files/ui/FilePreviewSearch.tsx",
+        "src/features/quick-composer/model/quickComposerShortcut.test.ts",
+        "src/features/quick-composer/model/quickComposerShortcut.ts",
+        "src/features/sessions/ui/ModelPicker.tsx",
+        "src/features/sessions/ui/TranscriptFind.tsx",
+        "src/features/settings/model/appShortcuts.test.ts",
+        "src/features/settings/model/appShortcuts.ts",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/model/zoomKeybinding.test.ts",
+        "src/features/settings/model/zoomKeybinding.ts",
+        "src/features/settings/ui/QuickComposerShortcutEditor.test.ts",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/features/workspace/model/tabKeys.test.ts",
+        "src/features/workspace/model/tabKeys.ts",
+        "src/features/workspace/ui/WorkspacePicker.tsx"
+      ],
+      "u_id": "U-012"
+    },
+    {
+      "sha": "c01e31b3506ff7941160e24b64a6d4283734f1f6",
+      "subject": "Refine compact sidebar icons and activity indicator",
+      "release": "v0.3.0",
+      "paths": [
+        "src/app/shell/Sidebar.tsx",
+        "src/shared/ui/icons.tsx",
+        "src/styles/index.css"
+      ],
+      "u_id": "U-001"
+    },
+    {
+      "sha": "d2a625e4c32fbc4c9aab65374462cbea6c650ae2",
+      "subject": "Run the same claude the user's shell does (#448)",
+      "release": "v0.3.0",
+      "paths": [
+        "src-tauri/src/harness.rs"
+      ],
+      "u_id": "U-053"
+    },
+    {
+      "sha": "c43c209dac67e2d06f512a6b7785b7c23677abd1",
+      "subject": "Fix completed GitHub issue status icon (#455)",
+      "release": "v0.3.0",
+      "paths": [
+        "src-tauri/src/fs.rs",
+        "src/features/inbox/model/githubTasks.ts",
+        "src/features/inbox/ui/InboxView.test.ts",
+        "src/features/inbox/ui/InboxView.tsx"
+      ],
+      "u_id": "U-054"
+    },
+    {
+      "sha": "da554f570050733356baf6ed18c27ce36959b1e7",
+      "subject": "Remove redundant Explorer changes button (#466)",
+      "release": "v0.3.0",
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/shell/Sidebar.tsx",
+        "src/features/files/ui/FileTree.tsx"
+      ],
+      "u_id": "U-055"
+    },
+    {
+      "sha": "3fb4c1134ca538c24902d1efe76ec2fff12f361c",
+      "subject": "fix(files): preserve CRLF line endings in the editor (#412)",
+      "release": "v0.3.0",
+      "paths": [
+        "CHANGELOG.md",
+        "src/features/files/editor/editorDoc.test.ts",
+        "src/features/files/editor/editorDoc.ts",
+        "src/features/files/ui/FileEditor.tsx",
+        "src/features/files/ui/FileEditorCrlfGit.test.ts",
+        "src/features/files/ui/FilePaneLineEndings.test.ts",
+        "src/features/files/ui/FilePaneNavigation.test.ts"
+      ],
+      "u_id": "U-056"
+    },
+    {
+      "sha": "4186e976ed6bff6e337bb938229702a00fe4ce74",
+      "subject": "Clash a keybinding against the modifier the platform uses (#453)",
+      "release": "v0.3.0",
+      "paths": [
+        "src/features/settings/model/settings.test.ts"
+      ],
+      "u_id": "U-057"
+    },
+    {
+      "sha": "7aa645dbfeb1839ff935f0706668c237cea3d609",
+      "subject": "fix(git): keep diff file paths relative to nested workspaces (#465)",
+      "release": "v0.3.0",
+      "paths": [
+        "CHANGELOG.md",
+        "src-tauri/src/fs.rs"
+      ],
+      "u_id": "U-058"
+    },
+    {
+      "sha": "90c5a655c0f62224543f1e3654d05c5cf9178664",
+      "subject": "fix: offer a second opinion from the same harness when only one is enabled (#421)",
+      "release": "v0.3.0",
+      "paths": [
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/AgentTranscriptSecondOpinion.test.ts",
+        "src/features/sessions/ui/SecondOpinionButton.test.ts",
+        "src/features/sessions/ui/SecondOpinionButton.tsx"
+      ],
+      "u_id": "U-059"
+    },
+    {
+      "sha": "ed696cc39e65924d1b645ed14644e7736bd0a435",
+      "subject": "Clarify second opinion disabled state",
+      "release": "v0.3.0",
+      "paths": [
+        "src/features/sessions/ui/AgentTranscriptSecondOpinion.test.ts",
+        "src/features/sessions/ui/SecondOpinionButton.test.ts",
+        "src/features/sessions/ui/SecondOpinionButton.tsx"
+      ],
+      "u_id": "U-060"
+    },
+    {
+      "sha": "dd5c039354ea3b0aef3f54557d227ab9d84a9dd9",
+      "subject": "Reduce compact project picker mascot size",
+      "release": "v0.3.0",
+      "paths": [
+        "src/features/projects/ui/SearchableProjectPicker.tsx"
+      ],
+      "u_id": "U-001"
+    },
+    {
+      "sha": "9b1ddc8dfa9b1d6e4cf77f0f1ba35b890bec597e",
+      "subject": "Move BTW side conversations into an animated sheet (#476)",
+      "release": "v0.3.0",
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/shell/GlassBackdrop.tsx",
+        "src/features/sessions/model/btw.test.ts",
+        "src/features/sessions/model/btw.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/BtwPopover.test.ts",
+        "src/features/sessions/ui/BtwPopover.tsx",
+        "src/features/sessions/ui/BtwQuestionBurst.test.ts",
+        "src/features/sessions/ui/BtwQuestionBurst.tsx",
+        "src/features/sessions/ui/BtwSheet.test.ts",
+        "src/features/sessions/ui/BtwSheet.tsx",
+        "src/features/sessions/ui/Composer.test.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/features/workspace/ui/PaneTree.tsx",
+        "src/integrations/harness/providers/cursor/cursorText.test.ts",
+        "src/integrations/harness/providers/cursor/cursorText.ts",
+        "src/integrations/harness/providers/grok/grokText.test.ts",
+        "src/integrations/harness/providers/grok/grokText.ts",
+        "src/integrations/harness/providers/opencode/opencodeText.test.ts",
+        "src/integrations/harness/providers/opencode/opencodeText.ts",
+        "src/integrations/harness/providers/pi/piText.test.ts",
+        "src/integrations/harness/providers/pi/piText.ts",
+        "src/styles/index.css"
+      ],
+      "u_id": "U-008"
+    },
+    {
+      "sha": "8463340613ef6a3a24db5e15abd4b3b4b83bd7b2",
+      "subject": "fix: don't crash pty-data listener on a malformed chunk (#472)",
+      "release": "v0.3.0",
+      "paths": [
+        "src/platform/tauri/pty.test.ts",
+        "src/platform/tauri/pty.ts"
+      ],
+      "u_id": "U-061"
+    },
+    {
+      "sha": "6b313ab951cd891a0adb144384e193152d0ad2f4",
+      "subject": "Let the turn go once an inline subagent has reported back (#452)",
+      "release": "v0.3.0",
+      "paths": [
+        "src/app/App.tsx",
+        "src/features/sessions/model/plan.ts",
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts"
+      ],
+      "u_id": "U-062"
+    },
+    {
+      "sha": "c9cdc577996efe71d33d321483521b9de6902004",
+      "subject": "Release v0.3.0",
+      "release": "v0.3.0",
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/tauri.conf.json"
+      ],
+      "u_id": "U-063"
+    },
+    {
+      "sha": "c576783ac14a50a0998222146fd9838d85d52ffb",
+      "subject": "Add Operator note writing support",
+      "release": "v0.4.0",
+      "paths": [
+        "src-tauri/src/control_cli.rs",
+        "src/app/App.tsx",
+        "src/features/agent-app/model/agentApp.test.ts",
+        "src/features/agent-app/model/agentApp.ts",
+        "src/features/notes/notes.ts",
+        "src/features/notes/ui/NotesView.test.ts",
+        "src/features/notes/ui/NotesView.tsx",
+        "src/features/sessions/model/monocodeToolCall.test.ts",
+        "src/features/sessions/model/monocodeToolCall.ts"
+      ],
+      "u_id": "U-009"
+    },
+    {
+      "sha": "1dd1fc060310c3ca2453a5413ebd329c827e80ad",
+      "subject": "Open several projects from one folder picker (#443)",
+      "release": "v0.4.0",
+      "paths": [
+        "src/app/App.tsx",
+        "src/features/projects/model/projectOpenRun.test.ts",
+        "src/features/projects/model/projectOpenRun.ts",
+        "src/platform/tauri/fs.test.ts",
+        "src/platform/tauri/fs.ts"
+      ],
+      "u_id": "U-016"
+    },
+    {
+      "sha": "04da09f4c8417cbc7b326888ac5275255b017d15",
+      "subject": "perf: bound and cancel work across search hot paths (#462)",
+      "release": "v0.4.0",
+      "paths": [
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/search.rs",
+        "src-tauri/src/session_store.rs",
+        "src/features/files/editor/editorSearch.test.ts",
+        "src/features/files/editor/editorSearch.ts",
+        "src/features/projects/ui/ProjectSearch.tsx",
+        "src/features/search/model/search.test.ts",
+        "src/features/search/model/search.ts",
+        "src/features/search/ui/SearchView.tsx",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/transcriptHighlights.test.ts",
+        "src/features/sessions/model/transcriptHighlights.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx"
+      ],
+      "u_id": "U-064"
+    },
+    {
+      "sha": "d836e225e3c8fd17d5602a1b2d2af8dc6107de78",
+      "subject": "Paste a screenshot into the composer, and attach a copied file or folder (#479)",
+      "release": "v0.4.0",
+      "paths": [
+        "Cargo.lock",
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/pasteboard.rs",
+        "src/features/quick-composer/ui/useQuickAttachments.test.ts",
+        "src/features/quick-composer/ui/useQuickAttachments.ts",
+        "src/features/sessions/model/attachments.ts",
+        "src/features/sessions/ui/AttachmentChip.tsx",
+        "src/features/sessions/ui/Composer.pasteImage.test.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/integrations/harness/core/fileAttachments.test.ts",
+        "src/integrations/harness/providers/antigravity/antigravityProtocol.test.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.ts",
+        "src/integrations/harness/providers/codex/codexAttachments.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts",
+        "src/integrations/harness/providers/omp/ompLive.test.ts",
+        "src/integrations/harness/providers/opencode/opencodeProtocol.ts",
+        "src/integrations/harness/providers/pi/piProtocol.ts",
+        "src/platform/tauri/clipboard.test.ts",
+        "src/platform/tauri/clipboard.ts",
+        "src/platform/tauri/fs.ts",
+        "src/shared/lib/draftRestore.test.ts",
+        "src/shared/lib/draftRestore.ts"
+      ],
+      "u_id": "U-017"
+    },
+    {
+      "sha": "bef7c90bb9730f0af0bdb4cf5820c8a1070e38db",
+      "subject": "Clear terminal on Cmd+K when App: Search is disabled or rebound (#491)",
+      "release": "v0.4.0",
+      "paths": [
+        "src/features/terminal/model/terminalKeys.test.ts",
+        "src/features/terminal/model/terminalKeys.ts",
+        "src/features/terminal/ui/TerminalView.tsx"
+      ],
+      "u_id": "U-065"
+    },
+    {
+      "sha": "76465752fb6cf255f416e6d57d7b4370779dd0b9",
+      "subject": "Show per-account usage and readiness in Settings and the footer picker (#492)",
+      "release": "v0.4.0",
+      "paths": [
+        "src/app/shell/UsageProviderChip.tsx",
+        "src/features/providers/model/accountUsage.test.ts",
+        "src/features/providers/model/accountUsage.ts",
+        "src/features/providers/model/rateLimits.test.ts",
+        "src/features/providers/model/rateLimits.ts",
+        "src/features/providers/model/rateLimitsFetch.test.ts",
+        "src/features/providers/model/rateLimitsFetch.ts",
+        "src/features/providers/ui/ProviderAccountUsage.tsx",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/SettingsView.tsx"
+      ],
+      "u_id": "U-010"
+    },
+    {
+      "sha": "4f6c17ea835a593a4003ebdfa63f2e13bcca7355",
+      "subject": "Let git find gpg when MonoCode is launched from Finder (#484)",
+      "release": "v0.4.0",
+      "paths": [
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/lib.rs"
+      ],
+      "u_id": "U-066"
+    },
+    {
+      "sha": "daaa9537f395cacfc66ea7253139686efd3851b7",
+      "subject": "Support splitting new sessions into adjacent panes",
+      "release": "v0.4.0",
+      "paths": [
+        "README.md",
+        "src-tauri/src/control_cli.rs",
+        "src/app/App.tsx",
+        "src/app/model/quickLaunchSession.test.ts",
+        "src/app/model/quickLaunchSession.ts",
+        "src/features/agent-app/model/agentApp.test.ts",
+        "src/features/agent-app/model/agentApp.ts"
+      ],
+      "u_id": "U-018"
+    },
+    {
+      "sha": "52640dcaa67cf1dd85f95b13d9742c8dbdbbfa1a",
+      "subject": "Fedora rpm packaging (#362)",
+      "release": "v0.4.0",
+      "paths": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/release.yml",
+        "README.md",
+        "package.json",
+        "scripts/install-linux-deps-fedora.sh",
+        "src-tauri/tauri.conf.json"
+      ],
+      "u_id": "U-067"
+    },
+    {
+      "sha": "312f781243a162922bbb509a1ebc143338db0d00",
+      "subject": "Cache provider rate limits across views and remounts",
+      "release": "v0.4.0",
+      "paths": [
+        "src/app/shell/UsageFooter.tsx",
+        "src/app/shell/UsageFooterAuth.test.ts",
+        "src/features/providers/model/accountUsage.test.ts",
+        "src/features/providers/model/accountUsage.ts",
+        "src/features/providers/model/rateLimits.test.ts",
+        "src/features/providers/model/rateLimits.ts",
+        "src/features/providers/model/rateLimitsCache.ts",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx"
+      ],
+      "u_id": "U-010"
+    },
+    {
+      "sha": "f8769ee103783b0e744685677874c19daa749f90",
+      "subject": "Disable persisted checkout credentials in release workflow",
+      "release": "v0.4.0",
+      "paths": [
+        ".github/workflows/release.yml"
+      ],
+      "u_id": "U-068"
+    },
+    {
+      "sha": "d4a1c5d63af35dceb472d72a34516d63b67da464",
+      "subject": "Add pi usage (#431)",
+      "release": "v0.4.0",
+      "paths": [
+        "Cargo.lock",
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/pi_usage.rs",
+        "src/app/App.tsx",
+        "src/app/shell/PiUsage.test.ts",
+        "src/app/shell/PiUsage.tsx",
+        "src/app/shell/UsageFooter.tsx",
+        "src/app/shell/UsageProviderChip.tsx",
+        "src/features/providers/model/piUsage.test.ts",
+        "src/features/providers/model/piUsage.ts",
+        "src/integrations/harness/providers/pi/piFamily.ts",
+        "src/integrations/harness/providers/pi/piLive.test.ts"
+      ],
+      "u_id": "U-019"
+    },
+    {
+      "sha": "fce518ce2e2f73b727d260d13e7d53b5c8e33be1",
+      "subject": "Add worktree management to agent app CLI",
+      "release": "v0.4.0",
+      "paths": [
+        "README.md",
+        "src-tauri/src/control_cli.rs",
+        "src/app/App.tsx",
+        "src/features/agent-app/model/agentApp.test.ts",
+        "src/features/agent-app/model/agentApp.ts"
+      ],
+      "u_id": "U-009"
+    },
+    {
+      "sha": "158ce7803fe75e6b9297ffec0f7d638866d562cd",
+      "subject": "Add rate limit polling intervals",
+      "release": "v0.4.0",
+      "paths": [
+        "src/features/providers/model/rateLimits.ts"
+      ],
+      "u_id": "U-010"
+    },
+    {
+      "sha": "6b8376f95eef8275a79635665133941dc9294fd7",
+      "subject": "Keep Claude versioned models on their full native ids (#488)",
+      "release": "v0.4.0",
+      "paths": [
+        "src/features/sessions/model/models.test.ts",
+        "src/features/sessions/model/models.ts",
+        "src/integrations/harness/providers/claude/claudeCatalog.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.test.ts"
+      ],
+      "u_id": "U-069"
+    },
+    {
+      "sha": "79ca3747d02b98dcc75243ebacec3ddf774a6749",
+      "subject": "Preserve unknown Claude model versions",
+      "release": "v0.4.0",
+      "paths": [
+        "src/features/sessions/model/models.test.ts",
+        "src/features/sessions/model/models.ts"
+      ],
+      "u_id": "U-070"
+    },
+    {
+      "sha": "417168326a57615271ce6efcf24aa4c252d75ef5",
+      "subject": "fix(projects): keep project name visible in picker when parent path is long (#507)",
+      "release": "v0.4.0",
+      "paths": [
+        "src/features/projects/ui/SearchableProjectPicker.tsx"
+      ],
+      "u_id": "U-071"
+    },
+    {
+      "sha": "0bd994638ade391ccc99615bcf84eb6730641195",
+      "subject": "fix(codex): persist and render generated images (#399)",
+      "release": "v0.4.0",
+      "paths": [
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/session_store.rs",
+        "src/app/App.tsx",
+        "src/features/search/model/appSearch.ts",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/btw.test.ts",
+        "src/features/sessions/model/btw.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/model/sessionRemoval.ts",
+        "src/features/sessions/model/transcriptFind.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/AttachmentChip.test.ts",
+        "src/features/sessions/ui/GeneratedImage.tsx",
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/types.ts",
+        "src/integrations/harness/providers/codex/codex.ts",
+        "src/integrations/harness/providers/codex/codexLive.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts",
+        "src/platform/tauri/fs.ts"
+      ],
+      "u_id": "U-020"
+    },
+    {
+      "sha": "ec59d92edc2a37b16d7f74d016ee6687c92f188f",
+      "subject": "Add `Cmd/Ctrl+Shift+C` to copy the explorer path (#404)",
+      "release": "v0.4.0",
+      "paths": [
+        "src/features/files/ui/FileTree.test.ts",
+        "src/features/files/ui/FileTree.tsx"
+      ],
+      "u_id": "U-021"
+    },
+    {
+      "sha": "38d8f587a252e8d0261c1ead88dca32f5af9bd81",
+      "subject": "Add plan and orchestrator turn celebrations",
+      "release": "v0.4.0",
+      "paths": [
+        "src/app/App.tsx",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/MonocodeSparkles.test.ts",
+        "src/features/sessions/ui/MonocodeSparkles.tsx",
+        "src/features/sessions/ui/OrchestratorConstellation.tsx",
+        "src/features/sessions/ui/PlanStepsBurst.tsx",
+        "src/features/sessions/ui/turnCelebration.test.ts",
+        "src/features/sessions/ui/turnCelebration.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/styles/index.css"
+      ],
+      "u_id": "U-022"
+    },
+    {
+      "sha": "7288fb6ebd1a27758eaec779d95b25797d214e17",
+      "subject": "Release v0.4.0",
+      "release": "v0.4.0",
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/tauri.conf.json"
+      ],
+      "u_id": "U-072"
+    },
+    {
+      "sha": "413d699a39436a03c6fc244f381c41eb3c71a680",
+      "subject": "Fix project rail reopening lag and release v0.4.1",
+      "release": "v0.4.1",
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/src/menu.rs",
+        "src-tauri/tauri.conf.json",
+        "src/app/shell/ProjectRail.tsx",
+        "src/app/shell/Sidebar.tsx",
+        "src/app/shell/SidebarRename.test.ts",
+        "src/app/shell/useProjectMenu.tsx"
+      ],
+      "u_id": "U-073"
+    },
+    {
+      "sha": "9eebd8948a3b0d5268ac79d7c38a30cb5b3f9d76",
+      "subject": "Reduce startup and transcript UI performance costs",
+      "release": "v0.4.2",
+      "paths": [
+        "CHANGELOG.md",
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/session_store.rs",
+        "src/app/shell/ProjectRail.tsx",
+        "src/features/projects/ui/ProjectGroups.test.ts",
+        "src/features/sessions/ui/ComposerRunner.test.ts",
+        "src/features/sessions/ui/ComposerRunner.tsx",
+        "src/features/source-control/hooks/useProjectDiffStats.ts"
+      ],
+      "u_id": "U-074"
+    },
+    {
+      "sha": "e3220ca6bc466022d3b0b3196fbc911b3fa10d54",
+      "subject": "Add performance regression guards and release v0.4.2",
+      "release": "v0.4.2",
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/fs.rs",
+        "src-tauri/src/session_store.rs",
+        "src-tauri/tauri.conf.json",
+        "src/features/sessions/ui/ComposerRunner.test.ts"
+      ],
+      "u_id": "U-075"
+    },
+    {
+      "sha": "6ffc99589be087d16bb6d764afdc3502e5046750",
+      "subject": "Make startup regression test work on Windows and prepare v0.4.3",
+      "release": "v0.4.3",
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/session_store.rs",
+        "src-tauri/tauri.conf.json"
+      ],
+      "u_id": "U-076"
+    },
+    {
+      "sha": "2515c1504d940456dc1df6565d0460b4f55c6b7c",
+      "subject": "Add remote agent sessions with SSH setup for Windows, macOS, and Linux (#432)",
+      "release": "v0.5.0",
+      "paths": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/release.yml",
+        "README.md",
+        "docs/remote-access.md",
+        "host/attachments.test.ts",
+        "host/attachments.ts",
+        "host/bootstrap.test.ts",
+        "host/browse.test.ts",
+        "host/browse.ts",
+        "host/build.mjs",
+        "host/child-backend.test.ts",
+        "host/child-backend.ts",
+        "host/cli.test.ts",
+        "host/cli.ts",
+        "host/engine.test.ts",
+        "host/engine.ts",
+        "host/git-branches.test.ts",
+        "host/git-branches.ts",
+        "host/git-worktrees.test.ts",
+        "host/git-worktrees.ts",
+        "host/large-sync.test.ts",
+        "host/owner.test.ts",
+        "host/owner.ts",
+        "host/package.mjs",
+        "host/process.ts",
+        "host/provider-guard.mjs",
+        "host/provider-transport.test.ts",
+        "host/providers.ts",
+        "host/server.test.ts",
+        "host/server.ts",
+        "host/service.test.ts",
+        "host/service.ts",
+        "host/store.ts",
+        "host/sync-transfer.test.ts",
+        "host/sync-transfer.ts",
+        "host/tsconfig.json",
+        "host/vitest.config.ts",
+        "host/windows-acl.ps1",
+        "host/windows-bootstrap.test.ts",
+        "host/windows.test.ts",
+        "host/windows.ts",
+        "host/workspace-commands.ts",
+        "host/workspace.test.ts",
+        "host/workspace.ts",
+        "package-lock.json",
+        "package.json",
+        "scripts/test-remote-ssh.py",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/main.rs",
+        "src-tauri/src/remote.rs",
+        "src-tauri/src/remote_bootstrap.ps1",
+        "src-tauri/src/remote_bootstrap.sh",
+        "src-tauri/src/remote_ssh.rs",
+        "src-tauri/src/ssh_askpass.rs",
+        "src/app/App.tsx",
+        "src/app/shell/ProjectRail.tsx",
+        "src/app/shell/SettingsRail.tsx",
+        "src/app/shell/Sidebar.tsx",
+        "src/features/connections/model/connections.ts",
+        "src/features/connections/model/protocol.test.ts",
+        "src/features/connections/model/protocol.ts",
+        "src/features/connections/model/remoteAttachmentPreviews.test.ts",
+        "src/features/connections/model/remoteAttachmentPreviews.ts",
+        "src/features/connections/model/remoteAttachments.test.ts",
+        "src/features/connections/model/remoteAttachments.ts",
+        "src/features/connections/model/remoteCommands.test.ts",
+        "src/features/connections/model/remoteCommands.ts",
+        "src/features/connections/model/remoteModels.test.ts",
+        "src/features/connections/model/remoteModels.ts",
+        "src/features/connections/model/remoteOutbox.test.ts",
+        "src/features/connections/model/remoteProjects.test.ts",
+        "src/features/connections/model/remoteProjects.ts",
+        "src/features/connections/model/remoteSessionActions.ts",
+        "src/features/connections/model/remoteSessionState.test.ts",
+        "src/features/connections/model/remoteSessionState.ts",
+        "src/features/connections/ui/AddRemoteProjectDialog.test.ts",
+        "src/features/connections/ui/AddRemoteProjectDialog.tsx",
+        "src/features/connections/ui/ConnectionsSettings.test.ts",
+        "src/features/connections/ui/ConnectionsSettings.tsx",
+        "src/features/connections/ui/RemoteSession.test.ts",
+        "src/features/connections/ui/RemoteSession.tsx",
+        "src/features/files/ui/FileEditor.tsx",
+        "src/features/files/ui/FilePane.remote.test.ts",
+        "src/features/files/ui/FilePane.tsx",
+        "src/features/files/ui/FilePaneNavigation.test.ts",
+        "src/features/files/ui/FilePicker.test.ts",
+        "src/features/files/ui/FilePicker.tsx",
+        "src/features/files/ui/FileTree.tsx",
+        "src/features/projects/model/projectLocation.ts",
+        "src/features/projects/model/recents.ts",
+        "src/features/projects/ui/ProjectSearch.tsx",
+        "src/features/search/model/search.test.ts",
+        "src/features/search/model/search.ts",
+        "src/features/search/ui/SearchView.tsx",
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/ui/AgentTranscript.test.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/ModelPicker.tsx",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/features/sessions/ui/modelSource.ts",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/features/skills/model/skills.ts",
+        "src/features/skills/ui/SkillPicker.tsx",
+        "src/features/source-control/model/worktrees.ts",
+        "src/features/source-control/ui/GitChangesPanel.test.ts",
+        "src/features/source-control/ui/GitChangesPanel.tsx",
+        "src/features/source-control/ui/GitPickerTrigger.tsx",
+        "src/features/workspace/model/layout.test.ts",
+        "src/features/workspace/model/layout.ts",
+        "src/features/workspace/model/workspaceSnapshot.test.ts",
+        "src/features/workspace/model/workspaceSnapshot.ts",
+        "src/features/workspace/ui/SurfaceTabs.tsx",
+        "src/features/workspace/ui/WorkspacePicker.tsx",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/child.ts",
+        "src/integrations/harness/providers/claude/claudeCatalog.ts",
+        "src/integrations/harness/providers/codex/codexCatalog.ts",
+        "src/main.tsx",
+        "src/platform/tauri/fs.ts",
+        "src/shared/lib/paths.test.ts",
+        "src/shared/lib/paths.ts",
+        "src/shared/lib/remotePaths.ts",
+        "src/shared/ui/icons.tsx"
+      ],
+      "u_id": "U-023"
+    },
+    {
+      "sha": "67ffc0b42d0e1411ec5402d2ebc971bab71dbb7e",
+      "subject": "Publish updater feed after host release assets (#528)",
+      "release": "v0.5.0",
+      "paths": [
+        ".github/workflows/release.yml"
+      ],
+      "u_id": "U-077"
+    },
+    {
+      "sha": "553b1a2235562a9e98dd9eeb9b94583d34c84f7e",
+      "subject": "Wait for provider guard before Windows test cleanup",
+      "release": "v0.5.0",
+      "paths": [
+        "host/child-backend.test.ts"
+      ],
+      "u_id": "U-078"
+    },
+    {
+      "sha": "d8377d2df086a1d11f8a8d65c6caa61a33bee978",
+      "subject": "Improve automation card layout and accessibility",
+      "release": "v0.5.0",
+      "paths": [
+        "src/features/automations/ui/AutomationsView.tsx"
+      ],
+      "u_id": "U-079"
+    },
+    {
+      "sha": "6c4b1c660f15ace288fb6aede93eadafdb49de8f",
+      "subject": "Prevent auto-scroll re-pinning when scrolling away from bottom",
+      "release": "v0.5.0",
+      "paths": [
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/AgentTranscriptScroll.test.ts"
+      ],
+      "u_id": "U-080"
+    },
+    {
+      "sha": "52cc279957b624653595301896e7667ddc1711a7",
+      "subject": "Hold reader's place when turns above viewport resize",
+      "release": "v0.5.0",
+      "paths": [
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/AgentTranscriptScroll.test.ts"
+      ],
+      "u_id": "U-081"
+    },
+    {
+      "sha": "70bb58691c084b34b04129c871a2e1f5c9f20180",
+      "subject": "Simplify turn removal handling in scroll anchor",
+      "release": "v0.5.0",
+      "paths": [
+        "src/features/sessions/ui/AgentTranscript.tsx"
+      ],
+      "u_id": "U-082"
+    },
+    {
+      "sha": "22358b5e4772b2f9e980204571ca9b780a65f019",
+      "subject": "Add remote access support for remaining providers (#539)",
+      "release": "v0.5.0",
+      "paths": [
+        "docs/remote-access.md",
+        "host/child-backend.test.ts",
+        "host/child-backend.ts",
+        "host/cli.ts",
+        "host/opencode-transport.test.ts",
+        "host/process.test.ts",
+        "host/process.ts",
+        "host/provider-transport.test.ts",
+        "host/providers.test.ts",
+        "host/providers.ts",
+        "host/server.test.ts",
+        "host/server.ts",
+        "src/features/connections/model/protocol.ts",
+        "src/features/connections/model/remoteModels.test.ts",
+        "src/features/connections/model/remoteModels.ts",
+        "src/features/connections/ui/ConnectionsSettings.test.ts",
+        "src/features/connections/ui/ConnectionsSettings.tsx",
+        "src/features/connections/ui/RemoteSession.test.ts",
+        "src/features/connections/ui/RemoteSession.tsx",
+        "src/integrations/harness/core/child.ts",
+        "src/integrations/harness/providers/antigravity/antigravityCatalog.ts",
+        "src/integrations/harness/providers/antigravity/antigravityLive.test.ts",
+        "src/integrations/harness/providers/cursor/cursorCatalog.ts",
+        "src/integrations/harness/providers/cursor/cursorStore.ts",
+        "src/integrations/harness/providers/fx/fxCatalog.ts",
+        "src/integrations/harness/providers/grok/grokCatalog.ts",
+        "src/integrations/harness/providers/hermes/hermes.ts",
+        "src/integrations/harness/providers/hermes/hermesCatalog.ts",
+        "src/integrations/harness/providers/hermes/hermesLive.test.ts",
+        "src/integrations/harness/providers/opencode/opencodeCatalog.ts",
+        "src/integrations/harness/providers/pi/piCatalog.test.ts",
+        "src/integrations/harness/providers/pi/piCatalog.ts"
+      ],
+      "u_id": "U-023"
+    },
+    {
+      "sha": "1a3215d8f1d45207843da89383369ba8039664d2",
+      "subject": "Optimize app startup and batched harness updates",
+      "release": "v0.5.0",
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/model/appLifecycle.test.ts",
+        "src/app/model/appLifecycle.ts",
+        "src/app/model/bootWorkspace.test.ts",
+        "src/app/model/harnessFlush.test.ts",
+        "src/app/model/harnessFlush.ts",
+        "src/features/files/ui/FilePane.tsx",
+        "src/features/files/ui/FilePaneNavigation.test.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/TranscriptPool.test.ts",
+        "src/features/sessions/ui/TranscriptPool.tsx",
+        "src/features/terminal/ui/ProjectTerminalDock.tsx",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/applyBatch.test.ts",
+        "src/integrations/harness/index.ts",
+        "src/main.tsx",
+        "src/shared/ui/lazySurface.tsx"
+      ],
+      "u_id": "U-083"
+    },
+    {
+      "sha": "bf32549a991d90e718ec4d1b69910db7226a3067",
+      "subject": "Increase Windows integration test timeouts",
+      "release": "v0.5.0",
+      "paths": [
+        "host/vitest.config.ts",
+        "host/windows.test.ts"
+      ],
+      "u_id": "U-084"
+    },
+    {
+      "sha": "a28a998573004532f689a75a5dd21c007142d692",
+      "subject": "Add Help menu links for website and GitHub",
+      "release": "v0.5.0",
+      "paths": [
+        "src-tauri/src/menu.rs"
+      ],
+      "u_id": "U-024"
+    },
+    {
+      "sha": "a7e1f3dfda1f565820a2043735b71e4b10673631",
+      "subject": "Allow canceling generated commit messages",
+      "release": "v0.5.0",
+      "paths": [
+        "src/features/source-control/ui/GitChangesPanel.test.ts",
+        "src/features/source-control/ui/GitChangesPanel.tsx",
+        "src/features/source-control/ui/SwitchBranchDialog.test.ts",
+        "src/features/source-control/ui/SwitchBranchDialog.tsx",
+        "src/integrations/harness/core/registry.ts",
+        "src/integrations/harness/core/textHarness.ts",
+        "src/integrations/harness/providers/claude/claudeGit.ts",
+        "src/integrations/harness/providers/claude/claudeText.ts",
+        "src/integrations/harness/providers/codex/codexGit.ts",
+        "src/integrations/harness/providers/codex/codexText.ts",
+        "src/integrations/harness/providers/cursor/cursorGit.ts",
+        "src/integrations/harness/providers/cursor/cursorText.ts",
+        "src/integrations/harness/providers/grok/grokGit.ts",
+        "src/integrations/harness/providers/grok/grokText.ts",
+        "src/integrations/harness/providers/opencode/opencodeGit.ts",
+        "src/integrations/harness/providers/opencode/opencodeText.ts"
+      ],
+      "u_id": "U-025"
+    },
+    {
+      "sha": "b46230eec3d7854e414dd24135dad95db31e148f",
+      "subject": "Prepare v0.5.0 release",
+      "release": "v0.5.0",
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "docs/remote-access.md",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/tauri.conf.json"
+      ],
+      "u_id": "U-085"
+    },
+    {
+      "sha": "16e9fea62e697043fc5173b770a5708662f3c91e",
+      "subject": "Add session ID copying to the sidebar",
+      "release": "v0.6.0",
+      "paths": [
+        "host/engine.test.ts",
+        "host/store.ts",
+        "src/app/shell/Sidebar.tsx",
+        "src/app/shell/SidebarRename.test.ts",
+        "src/features/connections/model/protocol.ts"
+      ],
+      "u_id": "U-026"
+    },
+    {
+      "sha": "d0943b175237813722cf9403de7a9c675486480e",
+      "subject": "Show remaining usage in provider meters",
+      "release": "v0.6.0",
+      "paths": [
+        "src/app/shell/UsageProviderChip.test.ts",
+        "src/app/shell/UsageProviderChip.tsx",
+        "src/features/providers/ui/ProviderAccountUsage.tsx",
+        "src/features/settings/ui/SettingsView.test.ts"
+      ],
+      "u_id": "U-027"
+    },
+    {
+      "sha": "a04624faef8d9720d2160b4b4a83fb7d6cb8e309",
+      "subject": "Fix Windows host ACLs, PowerShell errors, and stale remote catalogs (#567)",
+      "release": "v0.6.0",
+      "paths": [
+        "CHANGELOG.md",
+        "host/server.test.ts",
+        "host/server.ts",
+        "host/windows-acl.ps1",
+        "host/windows.test.ts",
+        "host/windows.ts",
+        "src/features/connections/ui/RemoteSession.test.ts",
+        "src/features/connections/ui/RemoteSession.tsx"
+      ],
+      "u_id": "U-023"
+    },
+    {
+      "sha": "af4c01df66b4e1172be8594b60fece51f1986ed6",
+      "subject": "Stop triple-click in agent replies from running to the end of the reply (#535)",
+      "release": "v0.6.0",
+      "paths": [
+        "src/features/sessions/ui/AgentMarkdown.tsx",
+        "src/features/sessions/ui/agentMarkdownSpacing.test.ts",
+        "src/styles/index.css"
+      ],
+      "u_id": "U-086"
+    },
+    {
+      "sha": "877ab2c91590730849b02b00661ba7291e0df36b",
+      "subject": "Show one row per background subagent (#536)",
+      "release": "v0.6.0",
+      "paths": [
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts"
+      ],
+      "u_id": "U-087"
+    },
+    {
+      "sha": "dad02c13bb318dd77e5895e1f221e0c25c6d82e9",
+      "subject": "Fix launch crash on macOS 12 caused by empty Window menu (#509)",
+      "release": "v0.6.0",
+      "paths": [
+        "src-tauri/src/menu.rs"
+      ],
+      "u_id": "U-088"
+    },
+    {
+      "sha": "41b0b8ea3b7ad7109bbb6ee3fa4277d2fd818bec",
+      "subject": "Fix/claude subagent error output (#569)",
+      "release": "v0.6.0",
+      "paths": [
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/session.ts",
+        "src/features/sessions/model/transcriptActivity.ts",
+        "src/features/sessions/ui/AgentTranscript.test.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx",
+        "src/integrations/harness/core/acpSubagents.test.ts",
+        "src/integrations/harness/core/acpSubagents.ts",
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/types.ts",
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts",
+        "src/integrations/harness/providers/cursor/cursor.ts",
+        "src/integrations/harness/providers/cursor/cursorLive.test.ts",
+        "src/integrations/harness/providers/cursor/cursorSubagents.test.ts",
+        "src/integrations/harness/providers/cursor/cursorSubagents.ts",
+        "src/integrations/harness/providers/opencode/opencode.ts",
+        "src/integrations/harness/providers/opencode/opencodeLive.test.ts",
+        "src/integrations/harness/providers/pi/piSubagents.test.ts",
+        "src/integrations/harness/providers/pi/piSubagents.ts"
+      ],
+      "u_id": "U-089"
+    },
+    {
+      "sha": "c9892f0d84275810be50fff2ab61a8c1028af722",
+      "subject": "fix: highlight text and untagged code fence as js (#471)",
+      "release": "v0.6.0",
+      "paths": [
+        "src/features/sessions/ui/AgentMarkdown.test.ts",
+        "src/features/sessions/ui/AgentMarkdown.tsx",
+        "src/styles/index.css"
+      ],
+      "u_id": "U-090"
+    },
+    {
+      "sha": "71fd1b54beca76bfb9f273af518352f9f3f32fcd",
+      "subject": "Add configurable file editor autosave (#475)",
+      "release": "v0.6.0",
+      "paths": [
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/menu.rs",
+        "src/app/App.tsx",
+        "src/app/shell/MenuBar.tsx",
+        "src/features/files/ui/FileEditor.tsx",
+        "src/features/files/ui/FilePaneLineEndings.test.ts",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/model/settings.ts"
+      ],
+      "u_id": "U-028"
+    },
+    {
+      "sha": "1595870fd7abce8fdfea1894f0202791aa02101f",
+      "subject": "Add harness update detection and in-app update UI",
+      "release": "v0.6.0",
+      "paths": [
+        "src-tauri/src/harness.rs",
+        "src-tauri/src/harness_updates.rs",
+        "src-tauri/src/lib.rs",
+        "src/app/App.tsx",
+        "src/features/providers/model/harnessUpdates.test.ts",
+        "src/features/providers/model/harnessUpdates.ts",
+        "src/features/providers/ui/HarnessUpdateNotice.test.ts",
+        "src/features/providers/ui/HarnessUpdateNotice.tsx",
+        "src/integrations/harness/core/child.ts",
+        "src/integrations/harness/core/registry.ts"
+      ],
+      "u_id": "U-029"
+    },
+    {
+      "sha": "cdc1441dc51e3709cd843e5c316608a123f323c6",
+      "subject": "Use dashboard icon for session sidebar toggle",
+      "release": "v0.6.0",
+      "paths": [
+        "src/app/shell/TitleBar.tsx",
+        "src/shared/ui/icons.tsx"
+      ],
+      "u_id": "U-091"
+    },
+    {
+      "sha": "adbe2dbd67251a1fecbb2cee2177bec54267736e",
+      "subject": "Protect provider account emails until revealed",
+      "release": "v0.6.0",
+      "paths": [
+        "src/app/shell/UsageProviderChip.test.ts",
+        "src/app/shell/UsageProviderChip.tsx",
+        "src/features/providers/model/providerAccountIdentity.ts",
+        "src/features/providers/ui/ProviderAccountSubtitle.tsx",
+        "src/features/settings/ui/JiraSettings.test.ts",
+        "src/features/settings/ui/JiraSettings.tsx",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/shared/ui/PrivateEmail.tsx"
+      ],
+      "u_id": "U-010"
+    },
+    {
+      "sha": "b4f5befbc27d148f08125a060980ea4a446d578d",
+      "subject": "Fix interface scale breaking the UI while dragging (#559)",
+      "release": "v0.6.0",
+      "paths": [
+        "CHANGELOG.md",
+        "src/features/settings/model/uiScale.test.ts",
+        "src/features/settings/model/uiScale.ts",
+        "src/features/settings/ui/SettingsView.test.ts",
+        "src/features/settings/ui/SettingsView.tsx"
+      ],
+      "u_id": "U-092"
+    },
+    {
+      "sha": "0f71918063823bcf8dfcb128deebec4be65b60da",
+      "subject": "Use fake timers before mounting the file editor",
+      "release": "v0.6.0",
+      "paths": [
+        "src/features/files/ui/FilePaneLineEndings.test.ts"
+      ],
+      "u_id": "U-028"
+    },
+    {
+      "sha": "e691b4658cea8d1d80a5ea47be7cd3ad4abd23be",
+      "subject": "feat(mcp): add provider-wide MCP settings and server modal (#458)",
+      "release": "v0.6.0",
+      "paths": [
+        "Cargo.lock",
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/control.rs",
+        "src-tauri/src/harness.rs",
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/mcp.rs",
+        "src/app/App.tsx",
+        "src/app/shell/SettingsRail.tsx",
+        "src/features/files/ui/FilePaneLineEndings.test.ts",
+        "src/features/files/ui/FilePaneNavigation.test.ts",
+        "src/features/sessions/model/draftCache.test.ts",
+        "src/features/sessions/model/draftCache.ts",
+        "src/features/sessions/model/mcpCommand.test.ts",
+        "src/features/sessions/model/mcpCommand.ts",
+        "src/features/sessions/model/mcpPicker.test.ts",
+        "src/features/sessions/model/mcpPicker.ts",
+        "src/features/sessions/ui/Composer.test.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/McpServerPicker.tsx",
+        "src/features/sessions/ui/SessionPane.tsx",
+        "src/features/settings/model/mcp.test.ts",
+        "src/features/settings/model/mcp.ts",
+        "src/features/settings/model/settings.test.ts",
+        "src/features/settings/model/settings.ts",
+        "src/features/settings/ui/McpSettings.test.ts",
+        "src/features/settings/ui/McpSettings.tsx",
+        "src/features/settings/ui/SettingsView.tsx"
+      ],
+      "u_id": "U-030"
+    },
+    {
+      "sha": "2cfc17889a54897f6c52045a2aa305afffd5c200",
+      "subject": "fix(claude): show TaskCreate/TaskUpdate in the todo panel (#513)",
+      "release": "v0.6.0",
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/model/appLifecycle.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/model/session.ts",
+        "src/integrations/harness/core/apply.test.ts",
+        "src/integrations/harness/core/apply.ts",
+        "src/integrations/harness/core/preview.ts",
+        "src/integrations/harness/core/registry.test.ts",
+        "src/integrations/harness/core/registry.ts",
+        "src/integrations/harness/core/types.ts",
+        "src/integrations/harness/providers/claude/claude.ts",
+        "src/integrations/harness/providers/claude/claudeAdapter.ts",
+        "src/integrations/harness/providers/claude/claudeLive.test.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+        "src/integrations/harness/providers/claude/claudeProtocol.ts"
+      ],
+      "u_id": "U-093"
+    },
+    {
+      "sha": "8bba3cc0ff2776e82e77937f3ee65b7b6d23ff1b",
+      "subject": "Preserve host session creation timestamps",
+      "release": "v0.6.0",
+      "paths": [
+        "host/engine.test.ts",
+        "host/engine.ts"
+      ],
+      "u_id": "U-023"
+    },
+    {
+      "sha": "1b39ceb95bff9f2b68a62f0753014885759044b6",
+      "subject": "Enable transparent glass on Linux in dark mode (#561)",
+      "release": "v0.6.0",
+      "paths": [
+        "src-tauri/src/macos.rs",
+        "src-tauri/src/window.rs",
+        "src-tauri/tauri.linux.conf.json",
+        "src/features/settings/model/appearance.ts",
+        "src/features/settings/model/nativeGlass.test.ts",
+        "src/features/settings/model/settings.flags.test.ts",
+        "src/features/settings/ui/QuickComposerShortcutEditor.test.ts",
+        "src/features/settings/ui/SettingsView.tsx",
+        "src/platform/tauri/platform.ts",
+        "src/shared/lib/colorUtils.test.ts",
+        "src/shared/lib/colorUtils.ts",
+        "src/styles/index.css"
+      ],
+      "u_id": "U-031"
+    },
+    {
+      "sha": "2cbd5067ebdcdbea2631bd6be433c7d621d66657",
+      "subject": "Preserve glass transitions for reduced-motion tabs",
+      "release": "v0.6.0",
+      "paths": [
+        "src/styles/index.css"
+      ],
+      "u_id": "U-031"
+    },
+    {
+      "sha": "1708c42dbc41b74d3f8bec568c3f0141bfdc4d03",
+      "subject": "fix(mcp): allow OpenCode 2 global timeout settings (#580)",
+      "release": "v0.6.0",
+      "paths": [
+        "src-tauri/src/mcp.rs"
+      ],
+      "u_id": "U-030"
+    },
+    {
+      "sha": "fec434a00a5a1954cedd9243d30d46a7f051d492",
+      "subject": "Cache MCP settings and add project selection",
+      "release": "v0.6.0",
+      "paths": [
+        "src/features/settings/model/mcpSettingsCache.ts",
+        "src/features/settings/ui/McpSettings.test.ts",
+        "src/features/settings/ui/McpSettings.tsx",
+        "src/features/settings/ui/SettingsView.tsx"
+      ],
+      "u_id": "U-030"
+    },
+    {
+      "sha": "6e58a42064dd753de2b3ff2a56e651908f51ddd9",
+      "subject": "Normalize Unix bootstrap scripts to LF line endings",
+      "release": "v0.6.0",
+      "paths": [
+        ".gitattributes",
+        "src-tauri/src/remote_ssh.rs"
+      ],
+      "u_id": "U-023"
+    },
+    {
+      "sha": "e322b7f0f070403d3730aea0c239a1a778aa56ba",
+      "subject": "Cache MCP discovery and honor provider binary settings",
+      "release": "v0.6.0",
+      "paths": [
+        "src-tauri/src/harness.rs",
+        "src-tauri/src/mcp.rs",
+        "src/features/sessions/model/mcpPicker.test.ts",
+        "src/features/sessions/model/mcpPicker.ts",
+        "src/features/sessions/ui/Composer.test.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/settings/model/mcp.ts",
+        "src/features/settings/model/mcpSettingsCache.test.ts",
+        "src/features/settings/model/mcpSettingsCache.ts",
+        "src/features/settings/ui/McpSettings.test.ts",
+        "src/features/settings/ui/McpSettings.tsx"
+      ],
+      "u_id": "U-030"
+    },
+    {
+      "sha": "378adad9f5e5fb8ead308473f63057544e67085b",
+      "subject": "Broadcast harness updates across windows",
+      "release": "v0.6.0",
+      "paths": [
+        "src/features/providers/model/harnessUpdates.test.ts",
+        "src/features/providers/model/harnessUpdates.ts",
+        "src/features/providers/ui/HarnessUpdateNotice.test.ts"
+      ],
+      "u_id": "U-029"
+    },
+    {
+      "sha": "e833e83db2ce90b2c9dd5608ef817bf8613f21d6",
+      "subject": "Add mode commands (/plan, /orchestrator, /draft)",
+      "release": "v0.6.0",
+      "paths": [
+        "src-tauri/src/quick_composer.rs",
+        "src-tauri/src/quick_composer/delivery.rs",
+        "src/app/model/quickLaunchSession.test.ts",
+        "src/app/model/quickLaunchSession.ts",
+        "src/features/quick-composer/model/quickComposer.ts",
+        "src/features/quick-composer/ui/QuickComposer.commands.test.ts",
+        "src/features/quick-composer/ui/QuickComposer.tsx",
+        "src/features/quick-composer/ui/useQuickPickerMotion.test.ts",
+        "src/features/quick-composer/ui/useQuickPickerMotion.ts",
+        "src/features/sessions/model/draftCommand.ts",
+        "src/features/sessions/model/orchestratorCommand.ts",
+        "src/features/sessions/ui/Composer.test.ts",
+        "src/features/sessions/ui/Composer.tsx",
+        "src/features/sessions/ui/modeCommands.tsx",
+        "src/features/skills/model/skills.ts",
+        "src/features/skills/model/slashCommands.ts",
+        "src/styles/index.css"
+      ],
+      "u_id": "U-032"
+    },
+    {
+      "sha": "48fe62a869658929025b0c67cb386b8a59a39d3e",
+      "subject": "Prepare v0.6.0 release",
+      "release": "v0.6.0",
+      "paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/tauri.conf.json"
+      ],
+      "u_id": "U-094"
+    },
+    {
+      "sha": "7ce63cb80e2afc48a170358f1d86381da238d802",
+      "subject": "Fix ARM64 Linux build: use libc::c_char for the ptsname_r buffer (#584)",
+      "release": "post-v0.6.0",
+      "paths": [
+        "src-tauri/src/pty.rs"
+      ],
+      "u_id": "U-095"
+    },
+    {
+      "sha": "4e876a880d7cbd1f79fa8a124a05ce4d5e8ecfb1",
+      "subject": "Improve navigation responsiveness with idle preloading",
+      "release": "post-v0.6.0",
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/model/preloadNavigation.test.ts",
+        "src/app/model/preloadNavigation.ts",
+        "src/features/automations/model/automations.ts",
+        "src/features/automations/ui/AutomationsView.test.ts",
+        "src/features/automations/ui/AutomationsView.tsx",
+        "src/features/notes/ui/NotesView.test.ts",
+        "src/features/notes/ui/NotesView.tsx",
+        "src/shared/ui/lazySurface.test.ts",
+        "src/shared/ui/lazySurface.tsx"
+      ],
+      "u_id": "U-096"
+    },
+    {
+      "sha": "8fae56666a903bf1232828293e73df51f90d7578",
+      "subject": "Restore previous view after closing settings",
+      "release": "post-v0.6.0",
+      "paths": [
+        "src/app/App.tsx"
+      ],
+      "u_id": "U-097"
+    },
+    {
+      "sha": "fea2c0a5d08fc710bfa29b6f00de581f83a10303",
+      "subject": "Scope the Changes review to the section it was opened from (#582)",
+      "release": "post-v0.6.0",
+      "paths": [
+        "src/app/App.tsx",
+        "src/app/shell/Sidebar.tsx",
+        "src/features/source-control/model/workingTreeDiff.test.ts",
+        "src/features/source-control/model/workingTreeDiff.ts",
+        "src/features/source-control/ui/GitChangesPanel.tsx",
+        "src/features/source-control/ui/SourceControl.tsx",
+        "src/features/source-control/ui/WorkingTreeDiff.tsx",
+        "src/features/workspace/model/layout.test.ts",
+        "src/features/workspace/model/layout.ts",
+        "src/features/workspace/ui/SurfaceTabs.tsx"
+      ],
+      "u_id": "U-098"
+    },
+    {
+      "sha": "5c00fe2a2ca829fb41da0cf83c282d93eb22771e",
+      "subject": "Diff whole files line by line in the changes view (#590)",
+      "release": "post-v0.6.0",
+      "paths": [
+        "src/features/files/editor/editorGit.ts",
+        "src/features/source-control/model/lineDiff.test.ts",
+        "src/features/source-control/model/lineDiff.ts",
+        "src/features/source-control/model/unifiedDiff.ts",
+        "src/features/source-control/ui/WorkingTreeDiff.tsx"
+      ],
+      "u_id": "U-099"
+    },
+    {
+      "sha": "4bb4a0007493cdd1bb1aef87fdd858c21e03c568",
+      "subject": "Fix chat bubbles overflowing narrow session panes (#575)",
+      "release": "post-v0.6.0",
+      "paths": [
+        "src/features/sessions/ui/AgentTranscript.bubbleWidth.test.ts",
+        "src/features/sessions/ui/AgentTranscript.copy.test.ts",
+        "src/features/sessions/ui/AgentTranscript.tsx"
+      ],
+      "u_id": "U-100"
+    },
+    {
+      "sha": "36bb26c64393692d92144ff5dad834ae4d585c9a",
+      "subject": "Recover Codex commands for bare Shell rows (#581)",
+      "release": "post-v0.6.0",
+      "paths": [
+        "src/features/sessions/data/sessionStore.test.ts",
+        "src/features/sessions/data/sessionStore.ts",
+        "src/features/sessions/data/sessionStoreRestore.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.test.ts",
+        "src/integrations/harness/providers/codex/codexProtocol.ts"
+      ],
+      "u_id": "U-101"
+    },
+    {
+      "sha": "a67e614fbed50524f2f8ea03d825fbdc43de1a1d",
+      "subject": "fix(markdown): keep a document's lines on their own lines (#595)",
+      "release": "post-v0.6.0",
+      "paths": [
+        "src/features/notes/ui/NotesView.test.ts",
+        "src/features/notes/ui/NotesView.tsx",
+        "src/features/sessions/ui/AgentMarkdown.tsx",
+        "src/features/sessions/ui/MarkdownDocumentPreview.test.ts",
+        "src/features/sessions/ui/MarkdownDocumentPreview.tsx",
+        "src/features/sessions/ui/hardBreaks.test.ts",
+        "src/features/sessions/ui/hardBreaks.ts"
+      ],
+      "u_id": "U-102"
+    },
+    {
+      "sha": "43aac9d216c323a7e04c9037eb0b251dd840cc7a",
+      "subject": "Add cool animations for Effort selection in Codex (#516)",
+      "release": "post-v0.6.0",
+      "paths": [
+        "src/features/sessions/ui/ModelPicker.css",
+        "src/features/sessions/ui/ModelPicker.test.ts",
+        "src/features/sessions/ui/ModelPicker.tsx"
+      ],
+      "u_id": "U-033"
+    }
+  ],
+  "tags": [
+    "v0.1.55",
+    "v0.1.56",
+    "v0.2.0",
+    "v0.3.0",
+    "v0.4.0",
+    "v0.4.1",
+    "v0.4.2",
+    "v0.4.3",
+    "v0.5.0",
+    "v0.6.0",
+    "43aac9d216c323a7e04c9037eb0b251dd840cc7a"
+  ]
+}

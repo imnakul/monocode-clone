@@ -1,0 +1,3263 @@
+diff --git a/src/app/App.tsx b/src/app/App.tsx
+index 629e8a0..4cea08e 100644
+--- a/src/app/App.tsx
++++ b/src/app/App.tsx
+@@ -211,6 +211,7 @@ import {
+   isLiveHarness,
+   registerBuiltinHarnesses,
+   respondHarnessApproval,
++  respondHarnessForm,
+   respondHarnessQuestion,
+   keepHarnessQuestionOpen,
+   sendHarnessTurn,
+@@ -227,6 +228,7 @@ import {
+   type ApprovalDecision,
+   type ApprovalScope,
+   type HarnessEvent,
++  type McpFormReply,
+   type UserQuestionReply,
+ } from "../integrations/harness";
+ import { supportsHarnessLogin } from "../integrations/harness/core/authSupport";
+@@ -4291,6 +4293,7 @@ export default function App({
+             busy: false,
+             queueStatus: "paused" as const,
+             pendingQuestion: undefined,
++            pendingForm: undefined,
+           };
+           sessionsRef.current = sessionsRef.current.map((entry) =>
+             entry.id === id ? stopped : entry,
+@@ -7832,6 +7835,15 @@ export default function App({
+     [],
+   );
+ 
++  const onFormReply = useCallback(
++    (sessionId: string, requestId: number, reply: McpFormReply) => {
++      const session = sessionsRef.current.find((s) => s.id === sessionId);
++      if (!session || session.worktreeRemoved) return;
++      respondHarnessForm(session.harness, sessionId, requestId, reply);
++    },
++    [],
++  );
++
+   const onQuestionInteraction = useCallback(
+     (sessionId: string, requestId: number) => {
+       const session = sessionsRef.current.find((s) => s.id === sessionId);
+@@ -9411,6 +9423,7 @@ export default function App({
+     onDeleteSession: onDeleteHistorySession,
+     onApproval,
+     onQuestionReply,
++    onFormReply,
+     onQuestionInteraction,
+     onOpenFile,
+     onOpenDiff,
+diff --git a/src/features/sessions/data/sessionStore.test.ts b/src/features/sessions/data/sessionStore.test.ts
+index 5a6b62c..904b6cf 100644
+--- a/src/features/sessions/data/sessionStore.test.ts
++++ b/src/features/sessions/data/sessionStore.test.ts
+@@ -1,5 +1,6 @@
+ import { describe, expect, it } from "vitest";
+ import { newSession, type Block, type Session } from "../model/session";
++import { applyHarnessEvent } from "../../../integrations/harness/core/apply";
+ import {
+   isPersistableId,
+   persistFingerprint,
+@@ -625,6 +626,55 @@ describe("persistFingerprint", () => {
+     );
+   });
+ 
++  it("never persists a pending form or fingerprints its request lifecycle", () => {
++    const before = base();
++    const requested = applyHarnessEvent(before, {
++      type: "form.requested",
++      requestId: 19,
++      serverName: "docs",
++      message: "A private form prompt",
++      fields: [
++        {
++          key: "account_name",
++          label: "Account name",
++          kind: "text",
++          required: true,
++        },
++      ],
++    });
++    const secondPending = {
++      ...requested,
++      pendingForm: {
++        requestId: 20,
++        serverName: "another-server",
++        message: "A different prompt",
++        fields: [
++          {
++            key: "other_secret",
++            label: "Other secret",
++            kind: "text" as const,
++            required: false,
++          },
++        ],
++      },
++    };
++    const persisted = sanitizeSessionForPersist(requested);
++    const serialized = JSON.stringify(persisted);
++    expect(persisted).not.toHaveProperty("pendingForm");
++    expect(serialized).not.toContain("account_name");
++    expect(serialized).not.toContain("A private form prompt");
++    expect(serialized).not.toContain("draft-only-value");
++    expect(persistFingerprint(requested)).toBe(persistFingerprint(before));
++    expect(persistFingerprint(secondPending)).toBe(persistFingerprint(requested));
++
++    const resolved = applyHarnessEvent(requested, {
++      type: "form.resolved",
++      requestId: 19,
++      decision: "submitted",
++    });
++    expect(persistFingerprint(resolved)).toBe(persistFingerprint(before));
++  });
++
+   it("treats a path-like provider session id as absent", () => {
+     const session = base();
+     expect(
+diff --git a/src/features/sessions/model/mcpForm.test.ts b/src/features/sessions/model/mcpForm.test.ts
+new file mode 100644
+index 0000000..2158f99
+--- /dev/null
++++ b/src/features/sessions/model/mcpForm.test.ts
+@@ -0,0 +1,332 @@
++import { describe, expect, it } from "vitest";
++import {
++  initialMcpFormDraft,
++  validateMcpForm,
++  type McpFormField,
++} from "./mcpForm";
++
++describe("MCP form draft and validation", () => {
++  it("initializes defaults for every field kind", () => {
++    const fields: McpFormField[] = [
++      { key: "name", label: "Name", required: true, kind: "text" },
++      {
++        key: "count",
++        label: "Count",
++        required: false,
++        kind: "number",
++        integer: true,
++        default: 3,
++      },
++      {
++        key: "notify",
++        label: "Notify",
++        required: false,
++        kind: "boolean",
++        default: true,
++      },
++      {
++        key: "color",
++        label: "Color",
++        required: false,
++        kind: "choice",
++        options: [{ value: "red", label: "Red" }],
++        default: "red",
++      },
++      {
++        key: "tags",
++        label: "Tags",
++        required: false,
++        kind: "multi",
++        options: [{ value: "one", label: "One" }],
++        default: ["one"],
++      },
++    ];
++
++    expect(initialMcpFormDraft(fields)).toEqual({
++      name: "",
++      count: "3",
++      notify: true,
++      color: "red",
++      tags: ["one"],
++    });
++  });
++
++  it.each([
++    {
++      field: { key: "name", label: "Name", required: true, kind: "text" },
++      value: "  ",
++      error: "Required.",
++    },
++    {
++      field: {
++        key: "name",
++        label: "Name",
++        required: true,
++        kind: "text",
++        minLength: 2,
++      },
++      value: "a",
++      error: "Use at least 2 characters.",
++    },
++    {
++      field: {
++        key: "name",
++        label: "Name",
++        required: true,
++        kind: "text",
++        maxLength: 2,
++      },
++      value: "abc",
++      error: "Use at most 2 characters.",
++    },
++    {
++      field: {
++        key: "email",
++        label: "Email",
++        required: true,
++        kind: "text",
++        format: "email",
++      },
++      value: "a@b",
++      error: "Enter a valid email address.",
++    },
++    {
++      field: {
++        key: "url",
++        label: "URL",
++        required: true,
++        kind: "text",
++        format: "uri",
++      },
++      value: "example.com",
++      error: "Enter a full URL, like https://example.com.",
++    },
++    {
++      field: {
++        key: "date",
++        label: "Date",
++        required: true,
++        kind: "text",
++        format: "date",
++      },
++      value: "2026-02-30",
++      error: "Use the format YYYY-MM-DD.",
++    },
++    {
++      field: {
++        key: "dateTime",
++        label: "Date and time",
++        required: true,
++        kind: "text",
++        format: "date-time",
++      },
++      value: "not a date",
++      error: "Enter a date and time.",
++    },
++    {
++      field: {
++        key: "count",
++        label: "Count",
++        required: true,
++        kind: "number",
++        integer: false,
++      },
++      value: "abc",
++      error: "Enter a number.",
++    },
++    {
++      field: {
++        key: "count",
++        label: "Count",
++        required: true,
++        kind: "number",
++        integer: true,
++      },
++      value: "2.5",
++      error: "Enter a whole number.",
++    },
++    {
++      field: {
++        key: "count",
++        label: "Count",
++        required: true,
++        kind: "number",
++        integer: false,
++        minimum: 2,
++      },
++      value: "1",
++      error: "Must be at least 2.",
++    },
++    {
++      field: {
++        key: "count",
++        label: "Count",
++        required: true,
++        kind: "number",
++        integer: false,
++        maximum: 10,
++      },
++      value: "11",
++      error: "Must be at most 10.",
++    },
++    {
++      field: {
++        key: "color",
++        label: "Color",
++        required: true,
++        kind: "choice",
++        options: [{ value: "red", label: "Red" }],
++      },
++      value: "",
++      error: "Required.",
++    },
++    {
++      field: {
++        key: "tags",
++        label: "Tags",
++        required: true,
++        kind: "multi",
++        options: [
++          { value: "a", label: "A" },
++          { value: "b", label: "B" },
++          { value: "c", label: "C" },
++        ],
++        maxItems: 2,
++      },
++      value: ["a", "b", "c"],
++      error: "Choose at most 2.",
++    },
++    {
++      field: {
++        key: "tags",
++        label: "Tags",
++        required: false,
++        kind: "multi",
++        options: [
++          { value: "a", label: "A" },
++          { value: "b", label: "B" },
++        ],
++        minItems: 2,
++      },
++      value: [],
++      error: "Choose at least 2.",
++    },
++  ] satisfies Array<{ field: McpFormField; value: string | string[]; error: string }>) (
++    "validates $field.kind field $field.key",
++    ({ field, value, error }) => {
++      expect(validateMcpForm([field], { [field.key]: value })).toEqual({
++        ok: false,
++        errors: { [field.key]: error },
++      });
++    },
++  );
++
++  it("converts a valid draft and omits empty optional values", () => {
++    const fields: McpFormField[] = [
++      { key: "name", label: "Name", required: true, kind: "text" },
++      {
++        key: "size",
++        label: "Size",
++        required: false,
++        kind: "number",
++        integer: true,
++        minimum: 1,
++        maximum: 10,
++      },
++      {
++        key: "color",
++        label: "Color",
++        required: true,
++        kind: "choice",
++        options: [
++          { value: "r", label: "Red" },
++          { value: "g", label: "Green" },
++        ],
++      },
++      {
++        key: "tags",
++        label: "Tags",
++        required: false,
++        kind: "multi",
++        options: [
++          { value: "a", label: "A" },
++          { value: "b", label: "B" },
++          { value: "c", label: "C" },
++        ],
++        maxItems: 2,
++      },
++      {
++        key: "notify",
++        label: "Notify",
++        required: false,
++        kind: "boolean",
++        default: true,
++      },
++      { key: "optional", label: "Optional", required: false, kind: "text" },
++    ];
++
++    expect(
++      validateMcpForm(fields, {
++        name: "Al",
++        size: "4",
++        color: "g",
++        tags: ["a"],
++        notify: false,
++        optional: "   ",
++      }),
++    ).toEqual({
++      ok: true,
++      content: {
++        name: "Al",
++        size: 4,
++        color: "g",
++        tags: ["a"],
++        notify: false,
++      },
++    });
++  });
++
++  it("counts text length in Unicode code points and preserves entered whitespace", () => {
++    expect(
++      validateMcpForm(
++        [
++          {
++            key: "name",
++            label: "Name",
++            required: true,
++            kind: "text",
++            minLength: 2,
++          },
++        ],
++        { name: "😀A" },
++      ),
++    ).toEqual({ ok: true, content: { name: "😀A" } });
++    expect(
++      validateMcpForm(
++        [{ key: "name", label: "Name", required: false, kind: "text" }],
++        { name: "  value  " },
++      ),
++    ).toEqual({ ok: true, content: { name: "  value  " } });
++  });
++
++  it("keeps multi choices in declared option order and filters unknown values", () => {
++    expect(
++      validateMcpForm(
++        [
++          {
++            key: "tags",
++            label: "Tags",
++            required: false,
++            kind: "multi",
++            options: [
++              { value: "a", label: "A" },
++              { value: "b", label: "B" },
++              { value: "c", label: "C" },
++            ],
++          },
++        ],
++        { tags: ["c", "invalid", "a"] },
++      ),
++    ).toEqual({ ok: true, content: { tags: ["a", "c"] } });
++  });
++});
+diff --git a/src/features/sessions/model/mcpForm.ts b/src/features/sessions/model/mcpForm.ts
+new file mode 100644
+index 0000000..1cce823
+--- /dev/null
++++ b/src/features/sessions/model/mcpForm.ts
+@@ -0,0 +1,228 @@
++export type McpFormOption = { value: string; label: string };
++
++type McpFormFieldBase = {
++  key: string;
++  label: string;
++  description?: string;
++  required: boolean;
++};
++
++export type McpFormField =
++  | (McpFormFieldBase & {
++      kind: "text";
++      default?: string;
++      format?: "email" | "uri" | "date" | "date-time";
++      minLength?: number;
++      maxLength?: number;
++    })
++  | (McpFormFieldBase & {
++      kind: "number";
++      integer: boolean;
++      default?: number;
++      minimum?: number;
++      maximum?: number;
++    })
++  | (McpFormFieldBase & { kind: "boolean"; default?: boolean })
++  | (McpFormFieldBase & {
++      kind: "choice";
++      options: McpFormOption[];
++      default?: string;
++    })
++  | (McpFormFieldBase & {
++      kind: "multi";
++      options: McpFormOption[];
++      default?: string[];
++      minItems?: number;
++      maxItems?: number;
++    });
++
++export type McpFormPrompt = {
++  requestId: number;
++  serverName: string;
++  message: string;
++  fields: McpFormField[];
++};
++
++export type McpFormValue = string | number | boolean | string[];
++export type McpFormReply =
++  | { kind: "submit"; content: Record<string, McpFormValue> }
++  | { kind: "decline" };
++export type McpFormDraft = Record<string, string | boolean | string[]>;
++
++export function initialMcpFormDraft(fields: McpFormField[]): McpFormDraft {
++  return Object.fromEntries(
++    fields.map((field) => {
++      switch (field.kind) {
++        case "text":
++          return [field.key, field.default ?? ""];
++        case "number":
++          return [field.key, field.default != null ? String(field.default) : ""];
++        case "boolean":
++          return [field.key, field.default ?? false];
++        case "choice":
++          return [field.key, field.default ?? ""];
++        case "multi":
++          return [field.key, field.default ?? []];
++      }
++    }),
++  );
++}
++
++export type McpFormValidation =
++  | { ok: true; content: Record<string, McpFormValue> }
++  | { ok: false; errors: Record<string, string> };
++
++export function validateMcpForm(
++  fields: McpFormField[],
++  draft: McpFormDraft,
++): McpFormValidation {
++  const content: Array<[string, McpFormValue]> = [];
++  const errors: Array<[string, string]> = [];
++
++  for (const field of fields) {
++    const value = Object.prototype.hasOwnProperty.call(draft, field.key)
++      ? draft[field.key]
++      : undefined;
++
++    switch (field.kind) {
++      case "text": {
++        if (value === undefined) {
++          if (field.required) errors.push([field.key, "Required."]);
++          break;
++        }
++        if (typeof value !== "string") {
++          errors.push([field.key, "Required."]);
++          break;
++        }
++        const error = validateText(field, value);
++        if (error) {
++          errors.push([field.key, error]);
++        } else if (value.trim() !== "") {
++          content.push([field.key, value]);
++        }
++        break;
++      }
++      case "number": {
++        if (value === undefined) {
++          if (field.required) errors.push([field.key, "Required."]);
++          break;
++        }
++        if (typeof value !== "string") {
++          errors.push([field.key, "Enter a number."]);
++          break;
++        }
++        const trimmed = value.trim();
++        if (trimmed === "") {
++          if (field.required) errors.push([field.key, "Required."]);
++          break;
++        }
++        if (!/^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(trimmed)) {
++          errors.push([field.key, "Enter a number."]);
++          break;
++        }
++        const number = Number(trimmed);
++        if (!Number.isFinite(number)) {
++          errors.push([field.key, "Enter a number."]);
++        } else if (field.integer && !Number.isInteger(number)) {
++          errors.push([field.key, "Enter a whole number."]);
++        } else if (field.minimum != null && number < field.minimum) {
++          errors.push([field.key, `Must be at least ${field.minimum}.`]);
++        } else if (field.maximum != null && number > field.maximum) {
++          errors.push([field.key, `Must be at most ${field.maximum}.`]);
++        } else {
++          content.push([field.key, number]);
++        }
++        break;
++      }
++      case "boolean":
++        content.push([
++          field.key,
++          typeof value === "boolean" ? value : field.default ?? false,
++        ]);
++        break;
++      case "choice": {
++        const choice = typeof value === "string" ? value : "";
++        if (choice === "") {
++          if (field.required) errors.push([field.key, "Required."]);
++        } else if (!field.options.some((option) => option.value === choice)) {
++          errors.push([field.key, "Choose a valid option."]);
++        } else {
++          content.push([field.key, choice]);
++        }
++        break;
++      }
++      case "multi": {
++        const selected = Array.isArray(value)
++          ? new Set(value.filter((entry): entry is string => typeof entry === "string"))
++          : new Set<string>();
++        const values = field.options
++          .filter((option) => selected.has(option.value))
++          .map((option) => option.value);
++        if (values.length === 0 && field.required) {
++          errors.push([field.key, "Required."]);
++        } else if (
++          field.minItems != null &&
++          values.length < field.minItems
++        ) {
++          errors.push([field.key, `Choose at least ${field.minItems}.`]);
++        } else if (
++          field.maxItems != null &&
++          values.length > field.maxItems
++        ) {
++          errors.push([field.key, `Choose at most ${field.maxItems}.`]);
++        } else if (values.length > 0) {
++          content.push([field.key, values]);
++        }
++        break;
++      }
++    }
++  }
++
++  return errors.length > 0
++    ? { ok: false, errors: Object.fromEntries(errors) }
++    : { ok: true, content: Object.fromEntries(content) };
++}
++
++function validateText(
++  field: Extract<McpFormField, { kind: "text" }>,
++  value: string,
++): string | null {
++  if (value.trim() === "") return field.required ? "Required." : null;
++  const length = [...value].length;
++  if (field.minLength != null && length < field.minLength)
++    return `Use at least ${field.minLength} characters.`;
++  if (field.maxLength != null && length > field.maxLength)
++    return `Use at most ${field.maxLength} characters.`;
++
++  switch (field.format) {
++    case "email":
++      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
++        ? null
++        : "Enter a valid email address.";
++    case "uri": {
++      try {
++        return new URL(value).protocol
++          ? null
++          : "Enter a full URL, like https://example.com.";
++      } catch {
++        return "Enter a full URL, like https://example.com.";
++      }
++    }
++    case "date": {
++      if (!/^\d{4}-\d{2}-\d{2}$/.test(value))
++        return "Use the format YYYY-MM-DD.";
++      const parsed = new Date(`${value}T00:00:00Z`);
++      return !Number.isNaN(parsed.getTime()) &&
++        parsed.toISOString().slice(0, 10) === value
++        ? null
++        : "Use the format YYYY-MM-DD.";
++    }
++    case "date-time":
++      return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value) &&
++        !Number.isNaN(Date.parse(value))
++        ? null
++        : "Enter a date and time.";
++    default:
++      return null;
++  }
++}
+diff --git a/src/features/sessions/model/session.ts b/src/features/sessions/model/session.ts
+index 5997708..346d0a4 100644
+--- a/src/features/sessions/model/session.ts
++++ b/src/features/sessions/model/session.ts
+@@ -2,6 +2,7 @@ import type { ContextUsage } from "./contextUsage";
+ import type { ProcessedUsage } from "./tokenAccounting";
+ import { deriveLocalSessionTitle } from "./sessionTitle";
+ import type { UserQuestionPrompt } from "./userQuestion";
++import type { McpFormPrompt } from "./mcpForm";
+ import type { HandoffComposerCard } from "./handoff";
+ import type { InboxComposerCard } from "../../inbox/model/githubTasks";
+ import type { InboxAskContext } from "../../inbox/model/inboxAsk";
+@@ -416,6 +417,8 @@ export type Session = {
+    * In-memory; request ids do not survive restarts.
+    */
+   pendingQuestion?: UserQuestionPrompt;
++  /** Live MCP form. In-memory; request ids and values never persist. */
++  pendingForm?: McpFormPrompt;
+ };
+ 
+ /**
+diff --git a/src/features/sessions/ui/Composer.test.ts b/src/features/sessions/ui/Composer.test.ts
+index 23c079e..c7d830e 100644
+--- a/src/features/sessions/ui/Composer.test.ts
++++ b/src/features/sessions/ui/Composer.test.ts
+@@ -24,6 +24,7 @@ vi.mock("../../source-control/hooks/useProjectBranches", () => ({
+ import { Composer, ComposerAction } from "./Composer";
+ import type { ComposerTurnOptions, Attachment } from "../model/session";
+ import type { UserQuestionPrompt } from "../model/userQuestion";
++import type { McpFormPrompt } from "../model/mcpForm";
+ 
+ function renderAction(busy: boolean, hasValue: boolean) {
+   return renderToStaticMarkup(
+@@ -91,6 +92,8 @@ describe("Composer question focus", () => {
+     busy = false,
+     focusToken = 0,
+     initialDraft?: string,
++    currentForm?: McpFormPrompt,
++    onFormReply: (requestId: number, reply: unknown) => void = vi.fn(),
+   ) {
+     await act(async () =>
+       root.render(
+@@ -110,13 +113,34 @@ describe("Composer question focus", () => {
+           onRuntimeModeChange: () => {},
+           onSubmit: () => {},
+           question: currentQuestion,
++          form: currentForm,
+           onQuestionReply,
++          onFormReply,
+           busy,
+         }),
+       ),
+     );
+   }
+ 
++  it("shows questions before forms and shows a form when no question is pending", async () => {
++    const form: McpFormPrompt = {
++      requestId: 2,
++      serverName: "Docs",
++      message: "Fill in these details",
++      fields: [{ key: "name", label: "Name", required: true, kind: "text" }],
++    };
++    const onFormReply = vi.fn();
++    await renderComposer(question, vi.fn(), false, 0, undefined, form, onFormReply);
++
++    expect(container.textContent).toContain("Pick one");
++    expect(container.textContent).not.toContain("Fill in these details");
++
++    await renderComposer(undefined, vi.fn(), false, 0, undefined, form, onFormReply);
++
++    expect(container.textContent).toContain("Fill in these details");
++    expect(container.querySelector('input[id="mcp-form-2-0"]')).not.toBeNull();
++  });
++
+   it("keeps drafts and blocks sending until a working copy is selected", async () => {
+     const onSubmit = vi.fn();
+     const props = {
+diff --git a/src/features/sessions/ui/Composer.tsx b/src/features/sessions/ui/Composer.tsx
+index 8e2ea75..7148cb8 100644
+--- a/src/features/sessions/ui/Composer.tsx
++++ b/src/features/sessions/ui/Composer.tsx
+@@ -81,6 +81,7 @@ import type {
+   UserQuestionPrompt,
+   UserQuestionReply,
+ } from "../model/userQuestion";
++import type { McpFormPrompt, McpFormReply } from "../model/mcpForm";
+ import { isImeComposition } from "../../../shared/lib/keyboard";
+ import {
+   createBlankSkill,
+@@ -115,6 +116,7 @@ import { NoteMiniCard } from "../../notes/ui";
+ import { HandoffMiniCard } from "./HandoffMiniCard";
+ import { ModelControlPills, ModelPicker } from "./ModelPicker";
+ import { QuestionForm } from "./QuestionForm";
++import { McpForm } from "./McpForm";
+ import { SkillPicker } from "../../skills/ui/SkillPicker";
+ import { pathKey, projectKey } from "../../../shared/lib/paths";
+ import { consumeQuoteRequest, type QuoteRequest } from "../model/quoteDraft";
+@@ -189,6 +191,7 @@ type Props = {
+   noteCard?: NoteComposerCard;
+   handoffCard?: HandoffComposerCard;
+   question?: UserQuestionPrompt;
++  form?: McpFormPrompt;
+   busy?: boolean;
+   canSteer?: boolean;
+   editLastTurnSupported?: boolean;
+@@ -216,6 +219,7 @@ type Props = {
+   onNoteCardDismiss?: () => void;
+   onHandoffCardDismiss?: () => void;
+   onQuestionReply?: (requestId: number, reply: UserQuestionReply) => void;
++  onFormReply?: (requestId: number, reply: McpFormReply) => void;
+   onQuestionInteraction?: (requestId: number) => void;
+   onSubmit: (
+     text: string,
+@@ -540,6 +544,8 @@ export function Composer({
+   onNoteCardDismiss,
+   onHandoffCardDismiss,
+   onQuestionReply,
++  form,
++  onFormReply,
+   onQuestionInteraction,
+   onSubmit,
+   canSaveDraft = false,
+@@ -1707,6 +1713,8 @@ export function Composer({
+           onReply={onQuestionReply}
+           onInteraction={onQuestionInteraction}
+         />
++      ) : form && onFormReply ? (
++        <McpForm prompt={form} onReply={onFormReply} />
+       ) : null}
+       {children}
+       <MessageQueue
+diff --git a/src/features/sessions/ui/McpForm.test.ts b/src/features/sessions/ui/McpForm.test.ts
+new file mode 100644
+index 0000000..3f3315c
+--- /dev/null
++++ b/src/features/sessions/ui/McpForm.test.ts
+@@ -0,0 +1,262 @@
++// @vitest-environment happy-dom
++import { act, createElement } from "react";
++import { createRoot, type Root } from "react-dom/client";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { McpForm } from "./McpForm";
++import type { McpFormPrompt, McpFormReply } from "../model/mcpForm";
++
++let container: HTMLDivElement;
++let root: Root;
++
++beforeEach(() => {
++  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
++  container = document.createElement("div");
++  document.body.append(container);
++  root = createRoot(container);
++});
++
++afterEach(() => {
++  act(() => root.unmount());
++  container.remove();
++  vi.useRealTimers();
++  vi.unstubAllGlobals();
++});
++
++const basePrompt: McpFormPrompt = {
++  requestId: 7,
++  serverName: "Docs",
++  message: "Fill in these details",
++  fields: [
++    {
++      key: "name",
++      label: "Name",
++      required: true,
++      kind: "text",
++      minLength: 2,
++    },
++    {
++      key: "count",
++      label: "Count",
++      required: false,
++      kind: "number",
++      integer: true,
++      default: 3,
++    },
++    {
++      key: "color",
++      label: "Color",
++      required: true,
++      kind: "choice",
++      options: [
++        { value: "red", label: "Red" },
++        { value: "green", label: "Green" },
++      ],
++    },
++    {
++      key: "tags",
++      label: "Tags",
++      required: false,
++      kind: "multi",
++      options: [
++        { value: "a", label: "A" },
++        { value: "b", label: "B" },
++      ],
++    },
++    {
++      key: "notify",
++      label: "Notify",
++      required: false,
++      kind: "boolean",
++      default: true,
++    },
++  ],
++};
++
++function renderForm(
++  prompt = basePrompt,
++  onReply: (requestId: number, reply: McpFormReply) => void = vi.fn(),
++) {
++  act(() => root.render(createElement(McpForm, { prompt, onReply })));
++  return onReply;
++}
++
++function input(id: string): HTMLInputElement {
++  const element = container.querySelector<HTMLInputElement>(`#${id}`);
++  if (!element) throw new Error(`Missing input ${id}`);
++  return element;
++}
++
++function setInputValue(control: HTMLInputElement, value: string): void {
++  const setter = Object.getOwnPropertyDescriptor(
++    HTMLInputElement.prototype,
++    "value",
++  )?.set;
++  setter?.call(control, value);
++  control.dispatchEvent(new Event("input", { bubbles: true }));
++}
++
++function click(selector: string): void {
++  const button = container.querySelector<HTMLButtonElement>(selector);
++  if (!button) throw new Error(`Missing button ${selector}`);
++  act(() => button.click());
++}
++
++describe("McpForm controls and replies", () => {
++  it("renders the provider message and one labelled control for each field kind", () => {
++    renderForm();
++
++    expect(container.textContent).toContain("Docs");
++    expect(container.textContent).toContain("Fill in these details");
++    expect(input("mcp-form-7-0").type).toBe("text");
++    expect(input("mcp-form-7-1").type).toBe("text");
++    expect(input("mcp-form-7-1").inputMode).toBe("numeric");
++    expect(input("mcp-form-7-2-option-0").type).toBe("radio");
++    expect(input("mcp-form-7-3-option-0").type).toBe("checkbox");
++    expect(input("mcp-form-7-4").type).toBe("checkbox");
++    expect(container.querySelectorAll("label[for]")).toHaveLength(7);
++    expect(container.querySelector("[data-question-form]")).not.toBeNull();
++    expect(container.querySelector("form")?.className).toContain("max-h-[50vh]");
++  });
++
++  it("renders formatted text inputs and a select for choices with more than six options", () => {
++    const prompt: McpFormPrompt = {
++      ...basePrompt,
++      fields: [
++        {
++          key: "email",
++          label: "Email",
++          required: true,
++          kind: "text",
++          format: "email",
++        },
++        {
++          key: "website",
++          label: "Website",
++          required: false,
++          kind: "text",
++          format: "uri",
++        },
++        {
++          key: "date",
++          label: "Date",
++          required: false,
++          kind: "text",
++          format: "date",
++        },
++        {
++          key: "time",
++          label: "Time",
++          required: false,
++          kind: "text",
++          format: "date-time",
++        },
++        {
++          key: "category",
++          label: "Category",
++          required: false,
++          kind: "choice",
++          options: Array.from({ length: 7 }, (_, index) => ({
++            value: `v${index}`,
++            label: `Value ${index}`,
++          })),
++        },
++        {
++          key: "amount",
++          label: "Amount",
++          required: false,
++          kind: "number",
++          integer: false,
++        },
++      ],
++    };
++    renderForm(prompt);
++
++    expect(input("mcp-form-7-0").type).toBe("email");
++    expect(input("mcp-form-7-1").type).toBe("url");
++    expect(input("mcp-form-7-2").type).toBe("date");
++    expect(input("mcp-form-7-3").type).toBe("datetime-local");
++    expect(container.querySelector("select#mcp-form-7-4")).not.toBeNull();
++    expect(input("mcp-form-7-5").inputMode).toBe("decimal");
++  });
++
++  it("shows and focuses the first invalid field without replying", () => {
++    const onReply = vi.fn();
++    renderForm(basePrompt, onReply);
++    click('button[type="submit"]');
++
++    const name = input("mcp-form-7-0");
++    const error = container.querySelector<HTMLParagraphElement>(
++      "#mcp-form-7-0-error",
++    );
++    expect(error?.textContent).toBe("Required.");
++    expect(name.getAttribute("aria-describedby")).toContain(error?.id);
++    expect(name.getAttribute("aria-invalid")).toBe("true");
++    expect(document.activeElement).toBe(name);
++    expect(container.querySelector('[role="alert"]')).toBeNull();
++    expect(onReply).not.toHaveBeenCalled();
++  });
++
++  it("submits valid values once even if Submit is clicked twice", () => {
++    const onReply = vi.fn();
++    renderForm(basePrompt, onReply);
++    act(() => {
++      setInputValue(input("mcp-form-7-0"), "Al");
++      input("mcp-form-7-2-option-1").click();
++      input("mcp-form-7-3-option-0").click();
++      input("mcp-form-7-4").click();
++      container.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
++      container.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
++    });
++
++    expect(onReply).toHaveBeenCalledTimes(1);
++    expect(onReply).toHaveBeenCalledWith(7, {
++      kind: "submit",
++      content: {
++        name: "Al",
++        count: 3,
++        color: "green",
++        tags: ["a"],
++        notify: false,
++      },
++    });
++    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
++  });
++
++  it("sends a decline without including draft values", () => {
++    const onReply = vi.fn();
++    renderForm(basePrompt, onReply);
++    act(() => {
++      setInputValue(input("mcp-form-7-0"), "private value");
++      container.querySelector<HTMLButtonElement>('button[type="button"]')?.click();
++    });
++
++    expect(onReply).toHaveBeenCalledWith(7, { kind: "decline" });
++  });
++
++  it("resets drafts and errors when the request id changes", () => {
++    renderForm();
++    act(() => setInputValue(input("mcp-form-7-0"), "Old value"));
++    click('button[type="submit"]');
++    expect(container.textContent).toContain("Required.");
++
++    const nextPrompt = { ...basePrompt, requestId: 8 };
++    act(() => root.render(createElement(McpForm, { prompt: nextPrompt, onReply: vi.fn() })));
++
++    expect(input("mcp-form-8-0").value).toBe("");
++    expect(container.textContent).not.toContain("Required.");
++  });
++
++  it("keeps a rejected response retryable after two seconds", () => {
++    vi.useFakeTimers();
++    const onReply = vi.fn();
++    renderForm(basePrompt, onReply);
++    act(() => {
++      setInputValue(input("mcp-form-7-0"), "Al");
++      input("mcp-form-7-2-option-0").click();
++      container.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
++    });
++    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
++    act(() => vi.advanceTimersByTime(2_000));
++    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false);
++  });
++});
+diff --git a/src/features/sessions/ui/McpForm.tsx b/src/features/sessions/ui/McpForm.tsx
+new file mode 100644
+index 0000000..cf515d8
+--- /dev/null
++++ b/src/features/sessions/ui/McpForm.tsx
+@@ -0,0 +1,385 @@
++import { useEffect, useRef, useState, type FormEvent } from "react";
++import { MessageSquare } from "../../../shared/ui/icons";
++import {
++  initialMcpFormDraft,
++  validateMcpForm,
++  type McpFormDraft,
++  type McpFormField,
++  type McpFormPrompt,
++  type McpFormReply,
++} from "../model/mcpForm";
++
++type Props = {
++  prompt: McpFormPrompt;
++  onReply: (requestId: number, reply: McpFormReply) => void;
++};
++
++export function McpForm({ prompt, onReply }: Props) {
++  const [draft, setDraft] = useState<McpFormDraft>(() =>
++    initialMcpFormDraft(prompt.fields),
++  );
++  const [errors, setErrors] = useState<Record<string, string>>({});
++  const [submitting, setSubmitting] = useState(false);
++  const controls = useRef(new Map<string, HTMLElement>());
++  const submittingRef = useRef(false);
++  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
++  const requestIdRef = useRef(prompt.requestId);
++  requestIdRef.current = prompt.requestId;
++
++  useEffect(() => {
++    if (resetTimer.current !== null) clearTimeout(resetTimer.current);
++    resetTimer.current = null;
++    submittingRef.current = false;
++    setSubmitting(false);
++    setErrors({});
++    setDraft(initialMcpFormDraft(prompt.fields));
++  }, [prompt.requestId, prompt.fields]);
++
++  useEffect(
++    () => () => {
++      if (resetTimer.current !== null) clearTimeout(resetTimer.current);
++    },
++    [],
++  );
++
++  const updateDraft = (key: string, value: string | boolean | string[]) => {
++    setDraft((current) => ({ ...current, [key]: value }));
++    setErrors((current) => {
++      if (!(key in current)) return current;
++      const next = { ...current };
++      delete next[key];
++      return next;
++    });
++  };
++
++  const submit = (event: FormEvent<HTMLFormElement>) => {
++    event.preventDefault();
++    if (submittingRef.current) return;
++
++    const result = validateMcpForm(prompt.fields, draft);
++    if (!result.ok) {
++      setErrors(result.errors);
++      const firstInvalid = prompt.fields.find((field) => result.errors[field.key]);
++      if (firstInvalid) controls.current.get(firstInvalid.key)?.focus();
++      return;
++    }
++
++    submittingRef.current = true;
++    setSubmitting(true);
++    setErrors({});
++    onReply(prompt.requestId, { kind: "submit", content: result.content });
++    const submittedRequestId = prompt.requestId;
++    resetTimer.current = setTimeout(() => {
++      if (requestIdRef.current !== submittedRequestId) return;
++      submittingRef.current = false;
++      setSubmitting(false);
++      resetTimer.current = null;
++    }, 2_000);
++  };
++
++  return (
++    <div
++      className="px-1.5 pb-1.5"
++      data-question-form
++      onKeyDownCapture={(event) => {
++        if (event.key === "Escape") {
++          event.preventDefault();
++          event.stopPropagation();
++        }
++      }}
++    >
++      <form
++        className="max-h-[50vh] overflow-y-auto rounded-lg border border-content/10 bg-content/3 px-3 py-2.5"
++        onSubmit={submit}
++      >
++        <div className="flex items-center gap-1.5">
++          <MessageSquare
++            className="size-3.5 shrink-0 text-content/45"
++            strokeWidth={1.75}
++          />
++          <span className="min-w-0 flex-1 truncate text-[11px] text-content/50">
++            {prompt.serverName}
++          </span>
++        </div>
++        <p className="mt-1.5 text-[12px] leading-snug text-content/75">
++          {prompt.message}
++        </p>
++
++        <div className="mt-2.5 flex flex-col gap-2.5">
++          {prompt.fields.map((field, fieldIndex) => (
++            <FormField
++              key={`${prompt.requestId}-${field.key}`}
++              field={field}
++              fieldIndex={fieldIndex}
++              requestId={prompt.requestId}
++              value={draft[field.key]}
++              error={errors[field.key]}
++              onValueChange={updateDraft}
++              registerControl={(key, node) => {
++                if (node) controls.current.set(key, node);
++                else controls.current.delete(key);
++              }}
++            />
++          ))}
++        </div>
++
++        <div className="mt-2.5 flex items-center justify-end gap-2">
++          <button
++            type="button"
++            disabled={submitting}
++            className="h-6 rounded-md border border-content/15 px-2.5 text-[11px] text-content/70 hover:bg-content/5 disabled:opacity-40"
++            onClick={() => {
++              if (submittingRef.current) return;
++              submittingRef.current = true;
++              setSubmitting(true);
++              onReply(prompt.requestId, { kind: "decline" });
++              const declinedRequestId = prompt.requestId;
++              resetTimer.current = setTimeout(() => {
++                if (requestIdRef.current !== declinedRequestId) return;
++                submittingRef.current = false;
++                setSubmitting(false);
++                resetTimer.current = null;
++              }, 2_000);
++            }}
++          >
++            Decline
++          </button>
++          <button
++            type="submit"
++            disabled={submitting}
++            className="h-6 rounded-md bg-content px-2.5 text-[11px] font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
++          >
++            Submit
++          </button>
++        </div>
++      </form>
++    </div>
++  );
++}
++
++function FormField({
++  field,
++  fieldIndex,
++  requestId,
++  value,
++  error,
++  onValueChange,
++  registerControl,
++}: {
++  field: McpFormField;
++  fieldIndex: number;
++  requestId: number;
++  value: McpFormDraft[string] | undefined;
++  error?: string;
++  onValueChange: (key: string, value: string | boolean | string[]) => void;
++  registerControl: (key: string, node: HTMLElement | null) => void;
++}) {
++  const controlId = `mcp-form-${requestId}-${fieldIndex}`;
++  const descriptionId = `${controlId}-description`;
++  const errorId = `${controlId}-error`;
++  const describedBy = [
++    field.description ? descriptionId : undefined,
++    error ? errorId : undefined,
++  ]
++    .filter((id): id is string => id !== undefined)
++    .join(" ");
++  const optional = !field.required;
++  const label = (
++    <>
++      {field.label}
++      {optional ? (
++        <span className="ml-1 text-[11px] font-normal text-content/40">
++          (optional)
++        </span>
++      ) : null}
++    </>
++  );
++  const fieldLabelClass = "text-[12px] font-medium leading-snug text-content";
++  const description = field.description ? (
++    <p id={descriptionId} className="mt-0.5 text-[11px] leading-snug text-content/50">
++      {field.description}
++    </p>
++  ) : null;
++  const errorText = error ? (
++    <p id={errorId} className="mt-1 text-[11px] text-red-400">
++      {error}
++    </p>
++  ) : null;
++  const inputClass = `mt-1.5 w-full rounded-md border bg-transparent px-2 py-1 text-[12px] text-content outline-none placeholder:text-content/35 focus:border-content/30 ${
++    error ? "border-red-400/60" : "border-content/15"
++  }`;
++
++  if (field.kind === "boolean") {
++    return (
++      <fieldset className="min-w-0">
++        <label
++          htmlFor={controlId}
++          className={`${fieldLabelClass} flex min-h-6 items-center gap-2`}
++        >
++          <input
++            ref={(node) => registerControl(field.key, node)}
++            id={controlId}
++            type="checkbox"
++            checked={typeof value === "boolean" ? value : field.default ?? false}
++            aria-required={field.required}
++            aria-describedby={describedBy || undefined}
++            aria-invalid={error ? true : undefined}
++            onChange={(event) => onValueChange(field.key, event.target.checked)}
++          />
++          <span>{label}</span>
++        </label>
++        {description}
++        {errorText}
++      </fieldset>
++    );
++  }
++
++  if (field.kind === "choice" && field.options.length <= 6) {
++    const selected = typeof value === "string" ? value : "";
++    return (
++      <fieldset
++        className="min-w-0"
++        aria-required={field.required}
++        aria-describedby={describedBy || undefined}
++      >
++        <legend className={fieldLabelClass}>{label}</legend>
++        {description}
++        <div className="mt-1.5 flex flex-col gap-1">
++          {field.options.map((option, optionIndex) => {
++            const optionId = `${controlId}-option-${optionIndex}`;
++            return (
++              <label
++                key={option.value}
++                htmlFor={optionId}
++                className="flex min-h-6 items-center gap-2 text-[12px] text-content/80"
++              >
++                <input
++                  ref={(node) => registerControl(field.key, node)}
++                  id={optionId}
++                  type="radio"
++                  name={controlId}
++                  value={option.value}
++                  checked={selected === option.value}
++                  aria-required={field.required}
++                  aria-describedby={describedBy || undefined}
++                  aria-invalid={error ? true : undefined}
++                  onChange={() => onValueChange(field.key, option.value)}
++                />
++                <span>{option.label}</span>
++              </label>
++            );
++          })}
++        </div>
++        {errorText}
++      </fieldset>
++    );
++  }
++
++  if (field.kind === "multi") {
++    const selected = Array.isArray(value) ? value : [];
++    return (
++      <fieldset
++        className="min-w-0"
++        aria-required={field.required || (field.minItems ?? 0) > 0}
++        aria-describedby={describedBy || undefined}
++      >
++        <legend className={fieldLabelClass}>{label}</legend>
++        {description}
++        <div className="mt-1.5 flex flex-col gap-1">
++          {field.options.map((option, optionIndex) => {
++            const optionId = `${controlId}-option-${optionIndex}`;
++            return (
++              <label
++                key={option.value}
++                htmlFor={optionId}
++                className="flex min-h-6 items-center gap-2 text-[12px] text-content/80"
++              >
++                <input
++                  ref={(node) => registerControl(field.key, node)}
++                  id={optionId}
++                  type="checkbox"
++                  checked={selected.includes(option.value)}
++                  aria-describedby={describedBy || undefined}
++                  aria-invalid={error ? true : undefined}
++                  onChange={(event) => {
++                    const next = event.target.checked
++                      ? [...selected, option.value]
++                      : selected.filter((entry) => entry !== option.value);
++                    onValueChange(field.key, next);
++                  }}
++                />
++                <span>{option.label}</span>
++              </label>
++            );
++          })}
++        </div>
++        {errorText}
++      </fieldset>
++    );
++  }
++
++  if (field.kind === "choice") {
++    return (
++      <div className="min-w-0">
++        <label htmlFor={controlId} className={fieldLabelClass}>
++          {label}
++        </label>
++        {description}
++        <select
++          ref={(node) => registerControl(field.key, node)}
++          id={controlId}
++          value={typeof value === "string" ? value : ""}
++          aria-required={field.required}
++          aria-describedby={describedBy || undefined}
++          aria-invalid={error ? true : undefined}
++          onChange={(event) => onValueChange(field.key, event.target.value)}
++          className={`${inputClass} h-8`}
++        >
++          <option value="">Choose an option</option>
++          {field.options.map((option) => (
++            <option key={option.value} value={option.value}>
++              {option.label}
++            </option>
++          ))}
++        </select>
++        {errorText}
++      </div>
++    );
++  }
++
++  const inputType =
++    field.kind === "text"
++      ? field.format === "date-time"
++        ? "datetime-local"
++        : field.format === "uri"
++          ? "url"
++          : field.format ?? "text"
++      : "text";
++  return (
++    <div className="min-w-0">
++      <label htmlFor={controlId} className={fieldLabelClass}>
++        {label}
++      </label>
++      {description}
++      <input
++        ref={(node) => registerControl(field.key, node)}
++        id={controlId}
++        type={field.kind === "number" ? "text" : inputType}
++        inputMode={
++          field.kind === "number"
++            ? field.integer
++              ? "numeric"
++              : "decimal"
++            : undefined
++        }
++        value={typeof value === "string" ? value : ""}
++        aria-required={field.required}
++        aria-describedby={describedBy || undefined}
++        aria-invalid={error ? true : undefined}
++        onChange={(event) => onValueChange(field.key, event.target.value)}
++        className={inputClass}
++      />
++      {errorText}
++    </div>
++  );
++}
+diff --git a/src/features/sessions/ui/SessionPane.tsx b/src/features/sessions/ui/SessionPane.tsx
+index 66af31c..92f6eec 100644
+--- a/src/features/sessions/ui/SessionPane.tsx
++++ b/src/features/sessions/ui/SessionPane.tsx
+@@ -30,6 +30,7 @@ import {
+   canSteerHarness,
+   type ApprovalDecision,
+   type ApprovalScope,
++  type McpFormReply,
+   type UserQuestionReply,
+ } from "../../../integrations/harness";
+ import {
+@@ -171,6 +172,11 @@ type Props = {
+     requestId: number,
+     reply: UserQuestionReply,
+   ) => void;
++  onFormReply: (
++    sessionId: string,
++    requestId: number,
++    reply: McpFormReply,
++  ) => void;
+   onQuestionInteraction?: (sessionId: string, requestId: number) => void;
+   onOpenFile: (path: string) => void;
+   onOpenDiff: (
+@@ -241,6 +247,7 @@ export const SessionPane = memo(function SessionPane({
+   onApproval,
+   onReviewFix,
+   onQuestionReply,
++  onFormReply,
+   onQuestionInteraction,
+   onOpenFile,
+   onOpenDiff,
+@@ -326,6 +333,11 @@ export const SessionPane = memo(function SessionPane({
+       onQuestionReply(session.id, requestId, reply),
+     [onQuestionReply, session.id],
+   );
++  const replyForm = useCallback(
++    (requestId: number, reply: McpFormReply) =>
++      onFormReply(session.id, requestId, reply),
++    [onFormReply, session.id],
++  );
+   const openPlan = useCallback(
+     (blockId: string) => onOpenPlan(session.id, blockId),
+     [onOpenPlan, session.id],
+@@ -513,11 +525,13 @@ export const SessionPane = memo(function SessionPane({
+       noteCard={session.noteCard}
+       handoffCard={session.handoffCard}
+       question={session.pendingQuestion}
++      form={session.pendingForm}
+       onQuoteRequestConsumed={acknowledgeQuote}
+       onInboxCardDismiss={() => onInboxCardDismiss?.(session.id)}
+       onNoteCardDismiss={() => onNoteCardDismiss?.(session.id)}
+       onHandoffCardDismiss={() => onHandoffCardDismiss?.(session.id)}
+       onQuestionReply={replyQuestion}
++      onFormReply={replyForm}
+       onQuestionInteraction={(id) => onQuestionInteraction?.(session.id, id)}
+       onFocus={() => onFocus(session.id)}
+       onCwdChange={(cwd) => onCwdChange(session.id, cwd)}
+diff --git a/src/features/workspace/ui/PaneTree.tsx b/src/features/workspace/ui/PaneTree.tsx
+index e2b3b39..7121380 100644
+--- a/src/features/workspace/ui/PaneTree.tsx
++++ b/src/features/workspace/ui/PaneTree.tsx
+@@ -18,6 +18,7 @@ import {
+ import type {
+   ApprovalDecision,
+   ApprovalScope,
++  McpFormReply,
+   UserQuestionReply,
+ } from "../../../integrations/harness";
+ import type { EditorNavigationTarget } from "../../search/model/search";
+@@ -135,6 +136,11 @@ type Shared = {
+     requestId: number,
+     reply: UserQuestionReply,
+   ) => void;
++  onFormReply: (
++    sessionId: string,
++    requestId: number,
++    reply: McpFormReply,
++  ) => void;
+   onQuestionInteraction?: (sessionId: string, requestId: number) => void;
+   onOpenFile: (path: string) => void;
+   editorNavigation?: EditorNavigationTarget | null;
+@@ -230,6 +236,7 @@ function PaneTreeComponent({
+   onApproval,
+   onReviewFix,
+   onQuestionReply,
++  onFormReply,
+   onQuestionInteraction,
+   onOpenFile,
+   editorNavigation,
+@@ -482,6 +489,7 @@ function PaneTreeComponent({
+                 onApproval={onApproval}
+                 onReviewFix={onReviewFix}
+                 onQuestionReply={onQuestionReply}
++                onFormReply={onFormReply}
+                 onQuestionInteraction={onQuestionInteraction}
+                 onOpenFile={onOpenFile}
+                 onOpenDiff={onOpenDiff}
+diff --git a/src/integrations/harness/core/apply.test.ts b/src/integrations/harness/core/apply.test.ts
+index 0f195f0..bbe7127 100644
+--- a/src/integrations/harness/core/apply.test.ts
++++ b/src/integrations/harness/core/apply.test.ts
+@@ -882,6 +882,58 @@ describe("clarifying questions", () => {
+   });
+ });
+ 
++describe("MCP form prompts", () => {
++  const fields = [
++    {
++      key: "name",
++      label: "Name",
++      kind: "text" as const,
++      required: true,
++    },
++  ];
++
++  it("stores the visible form in memory", () => {
++    const session = applyHarnessEvent(newSession("codex", "/repo"), {
++      type: "form.requested",
++      requestId: 12,
++      serverName: "docs",
++      message: "Choose a name",
++      fields,
++    });
++
++    expect(session.pendingForm).toEqual({
++      requestId: 12,
++      serverName: "docs",
++      message: "Choose a name",
++      fields,
++    });
++    expect(session.blocks).toEqual([]);
++  });
++
++  it("clears only the form with a matching request id", () => {
++    const pending = applyHarnessEvent(newSession("codex", "/repo"), {
++      type: "form.requested",
++      requestId: 12,
++      serverName: "docs",
++      message: "Choose a name",
++      fields,
++    });
++    const otherResolved = applyHarnessEvent(pending, {
++      type: "form.resolved",
++      requestId: 13,
++      decision: "cancelled",
++    });
++    expect(otherResolved.pendingForm).toBe(pending.pendingForm);
++
++    const cleared = applyHarnessEvent(otherResolved, {
++      type: "form.resolved",
++      requestId: 12,
++      decision: "submitted",
++    });
++    expect(cleared.pendingForm).toBeUndefined();
++  });
++});
++
+ describe("subagent steps", () => {
+   it("keeps model metadata before steps arrive and preserves it through later updates", () => {
+     let session = applyHarnessEvent(newSession("codex", "/tmp"), {
+diff --git a/src/integrations/harness/core/apply.ts b/src/integrations/harness/core/apply.ts
+index d1cd539..56fef9d 100644
+--- a/src/integrations/harness/core/apply.ts
++++ b/src/integrations/harness/core/apply.ts
+@@ -102,6 +102,20 @@ export function applyHarnessEvent(
+       return session.pendingQuestion?.requestId === event.requestId
+         ? { ...session, pendingQuestion: undefined }
+         : session;
++    case "form.requested":
++      return {
++        ...session,
++        pendingForm: {
++          requestId: event.requestId,
++          serverName: event.serverName,
++          message: event.message,
++          fields: event.fields,
++        },
++      };
++    case "form.resolved":
++      return session.pendingForm?.requestId === event.requestId
++        ? { ...session, pendingForm: undefined }
++        : session;
+     case "context":
+       return {
+         ...session,
+diff --git a/src/integrations/harness/core/registry.ts b/src/integrations/harness/core/registry.ts
+index 99f83af..cd5b80a 100644
+--- a/src/integrations/harness/core/registry.ts
++++ b/src/integrations/harness/core/registry.ts
+@@ -4,6 +4,7 @@ import type { GeneratedSessionTitle } from "../../../features/sessions/model/ses
+ import type { PrContent } from "../../../features/source-control/model/gitText";
+ import { hasLiveCatalog } from "../../../features/sessions/model/models";
+ import type { UserQuestionReply } from "../../../features/sessions/model/userQuestion";
++import type { McpFormReply } from "../../../features/sessions/model/mcpForm";
+ import type { NativeCommandProvider } from "./nativeCommands";
+ import type {
+   ApprovalDecision,
+@@ -60,6 +61,11 @@ export type HarnessAdapter = {
+     requestId: number,
+     reply: UserQuestionReply,
+   ): void;
++  respondForm?(
++    sessionId: string,
++    requestId: number,
++    reply: McpFormReply,
++  ): void;
+   /** Keep a timed question open once the user starts answering it. */
+   keepQuestionOpen?(sessionId: string, requestId: number): void;
+   /** Kill the child but keep resume state for later rebind. */
+@@ -319,6 +325,15 @@ export function respondHarnessQuestion(
+   getHarness(harness)?.respondQuestion?.(sessionId, requestId, reply);
+ }
+ 
++export function respondHarnessForm(
++  harness: HarnessId,
++  sessionId: string,
++  requestId: number,
++  reply: McpFormReply,
++): void {
++  getHarness(harness)?.respondForm?.(sessionId, requestId, reply);
++}
++
+ export function keepHarnessQuestionOpen(
+   harness: HarnessId,
+   sessionId: string,
+diff --git a/src/integrations/harness/core/types.ts b/src/integrations/harness/core/types.ts
+index 3aec168..8f33c9a 100644
+--- a/src/integrations/harness/core/types.ts
++++ b/src/integrations/harness/core/types.ts
+@@ -9,6 +9,7 @@ import type {
+   TurnMetrics,
+ } from "../../../features/sessions/model/session";
+ import type { UserQuestion } from "../../../features/sessions/model/userQuestion";
++import type { McpFormField } from "../../../features/sessions/model/mcpForm";
+ import { type ProcessedUsage } from "../../../features/sessions/model/tokenAccounting";
+ 
+ export type HarnessEvent =
+@@ -102,6 +103,18 @@ export type HarnessEvent =
+       requestId: number;
+       decision: "answered" | "skipped" | "cancelled";
+     }
++  | {
++      type: "form.requested";
++      requestId: number;
++      serverName: string;
++      message: string;
++      fields: McpFormField[];
++    }
++  | {
++      type: "form.resolved";
++      requestId: number;
++      decision: "submitted" | "declined" | "cancelled";
++    }
+   | {
+       type: "tasks.updated";
+       key?: string;
+diff --git a/src/integrations/harness/index.ts b/src/integrations/harness/index.ts
+index 65b205c..697df0a 100644
+--- a/src/integrations/harness/index.ts
++++ b/src/integrations/harness/index.ts
+@@ -169,6 +169,7 @@ export {
+   cancelHarnessTurn,
+   respondHarnessApproval,
+   respondHarnessQuestion,
++  respondHarnessForm,
+   keepHarnessQuestionOpen,
+   stopHarnessSession,
+   forgetHarnessSession,
+@@ -189,6 +190,7 @@ export {
+ } from "./core/helperText";
+ export type { HelperPrDraft, HelperPrOutcome } from "./core/helperText";
+ export type { HelperPromptInput } from "./core/registry";
++export type { McpFormReply } from "../../features/sessions/model/mcpForm";
+ export type {
+   ApprovalDecision,
+   ApprovalScope,
+diff --git a/src/integrations/harness/providers/codex/codex.ts b/src/integrations/harness/providers/codex/codex.ts
+index 623ed0b..a01931e 100644
+--- a/src/integrations/harness/providers/codex/codex.ts
++++ b/src/integrations/harness/providers/codex/codex.ts
+@@ -2,6 +2,13 @@ import { nativeModelId } from "../../../../features/sessions/model/models";
+ import { sameProviderAccountId } from "../../../../features/providers/model/providerAccounts";
+ import type { RuntimeMode } from "../../../../features/sessions/model/session";
+ import { questionPromptTitle, type UserQuestionReply } from "../../../../features/sessions/model/userQuestion";
++import {
++  validateMcpForm,
++  type McpFormDraft,
++  type McpFormField,
++  type McpFormReply,
++  type McpFormValue,
++} from "../../../../features/sessions/model/mcpForm";
+ import {
+   codexUsageToProcessed,
+   diffCodexUsage,
+@@ -37,7 +44,9 @@ import { codexQuestions, codexQuestionResponse } from "./codexQuestions";
+ import {
+   codexMcpApprovalKindKeys,
+   codexMcpConfirmation,
++  codexMcpForm,
+   isCodexComputerUseAccessConfirmation,
++  type McpFormUnsupportedReason,
+ } from "./codexElicitation";
+ import { joinStreamText, snapshotRemainder } from "../../core/streamText";
+ import type {
+@@ -73,6 +82,13 @@ type PendingQuestion = {
+   resolve: (reply: UserQuestionReply | "cancelled") => void;
+ };
+ 
++type PendingForm = {
++  rpcId: JsonRpcId;
++  threadId: string;
++  event: Extract<HarnessEvent, { type: "form.requested" }>;
++  resolve: (reply: McpFormReply | "cancelled") => void;
++};
++
+ // Match Codex's non-blocking question policy: a minute of grace, then a
+ // minute of countdown. Interaction keeps the question open for the user.
+ const QUESTION_AUTO_RESOLVE_MS = 120_000;
+@@ -89,6 +105,8 @@ type Live = {
+   approvals: Map<number, PendingApproval>;
+   questions: Map<number, PendingQuestion>;
+   visibleQuestionId: number | null;
++  forms: Map<number, PendingForm>;
++  visibleFormId: number | null;
+   nextApprovalUiId: number;
+   cancelled: boolean;
+   muteUpdates: boolean;
+@@ -293,6 +311,23 @@ export function respondCodexQuestion(
+   liveByThread.get(sessionId)?.questions.get(requestId)?.resolve(reply);
+ }
+ 
++export function respondCodexForm(
++  sessionId: string,
++  requestId: number,
++  reply: McpFormReply,
++): void {
++  const pending = liveByThread.get(sessionId)?.forms.get(requestId);
++  if (!pending) return;
++  if (
++    reply.kind === "submit" &&
++    !isValidMcpFormContent(pending.event.fields, reply.content)
++  ) {
++    console.debug("[monocode] codex form rejected invalid reply", { requestId });
++    return;
++  }
++  pending.resolve(reply);
++}
++
+ export function keepCodexQuestionOpen(
+   sessionId: string,
+   requestId: number,
+@@ -311,9 +346,12 @@ function clearServerRequests(live: Live): void {
+     clearTimeout(pending.timer);
+     pending.resolve("cancelled");
+   }
++  for (const pending of live.forms.values()) pending.resolve("cancelled");
+   live.approvals.clear();
+   live.questions.clear();
++  live.forms.clear();
+   live.visibleQuestionId = null;
++  live.visibleFormId = null;
+ }
+ 
+ function showNextQuestion(live: Live): void {
+@@ -337,6 +375,13 @@ function showNextQuestion(live: Live): void {
+   }
+ }
+ 
++function showNextForm(live: Live): void {
++  if (live.visibleFormId !== null && live.forms.has(live.visibleFormId)) return;
++  const next = live.forms.entries().next().value;
++  live.visibleFormId = next?.[0] ?? null;
++  if (next) live.onEvent(next[1].event);
++}
++
+ export async function cancelCodexTurn(sessionId: string): Promise<void> {
+   const live = liveByThread.get(sessionId);
+   if (!live) {
+@@ -578,6 +623,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+       approvals: new Map(),
+       questions: new Map(),
+       visibleQuestionId: null,
++      forms: new Map(),
++      visibleFormId: null,
+       nextApprovalUiId: 1,
+       cancelled: false,
+       muteUpdates: didResume,
+@@ -710,6 +757,13 @@ function handleNotification(live: Live, method: string, params: unknown): void {
+       )
+         pending.resolve("cancelled");
+     }
++    for (const pending of live.forms.values()) {
++      if (
++        pending.rpcId === rec?.requestId &&
++        pending.threadId === rec?.threadId
++      )
++        pending.resolve("cancelled");
++    }
+     return;
+   }
+   // Child threads share this connection. Their lifecycle must not touch the
+@@ -1059,14 +1113,7 @@ async function handleServerRequest(
+   }
+ 
+   if (method === "mcpServer/elicitation/request") {
+-    logCodexElicitation(params);
+-    const confirmation = codexMcpConfirmation(params);
+-    if (!confirmation || live.cancelled || live.muteUpdates) {
+-      if (!live.cancelled && !live.muteUpdates)
+-        live.onEvent({
+-          type: "status",
+-          text: "This MCP server requested a form or browser sign-in that MonoCode does not support yet. Complete it in the server's own interface.",
+-        });
++    if (live.cancelled || live.muteUpdates) {
+       await live.rpc.respond(id, {
+         action: "cancel",
+         content: null,
+@@ -1074,74 +1121,146 @@ async function handleServerRequest(
+       });
+       return;
+     }
+-    if (
+-      !live.planning &&
+-      live.runtimeMode === "full-access" &&
+-      isCodexComputerUseAccessConfirmation(params)
+-    ) {
++    const confirmation = codexMcpConfirmation(params);
++    if (confirmation) {
++      logCodexElicitation(params);
++      if (
++        !live.planning &&
++        live.runtimeMode === "full-access" &&
++        isCodexComputerUseAccessConfirmation(params)
++      ) {
++        await live.rpc.respond(id, {
++          action: "accept",
++          content: confirmation.content,
++          _meta: null,
++        });
++        return;
++      }
++      const grantKey = confirmation.mcpToolGrant?.key;
++      if (
++        grantKey &&
++        mcpGrantsByThread.get(live.sessionId)?.has(grantKey)
++      ) {
++        await live.rpc.respond(id, {
++          action: "accept",
++          content: confirmation.content,
++          _meta: { persist: "session" },
++        });
++        return;
++      }
++      const uiId = live.nextApprovalUiId++;
++      const pending = waitApproval(
++        live,
++        uiId,
++        id,
++        "permissions",
++        threadId,
++        grantKey,
++      );
++      // Other MCP consent must carry the user's decision, including in Full Access.
++      live.onEvent({
++        type: "approval.requested",
++        requestId: uiId,
++        kind: "other",
++        title: confirmation.title,
++        ...(confirmation.mcpToolGrant
++          ? {
++              sessionScope: {
++                hint: "Stop asking for this tool until the chat closes.",
++              },
++            }
++          : {}),
++      });
++      const outcome = await pending;
++      const decision = outcome === "cancelled" ? "cancelled" : outcome.decision;
++      const scope = outcome === "cancelled" ? undefined : outcome.scope;
++      live.onEvent({
++        type: "approval.resolved",
++        requestId: uiId,
++        decision,
++        ...(scope ? { scope } : {}),
++      });
++      if (outcome === "cancelled") return;
++      const sessionGrant =
++        decision === "allow" && scope === "session" && grantKey !== undefined;
+       await live.rpc.respond(id, {
+-        action: "accept",
+-        content: confirmation.content,
+-        _meta: null,
++        action: decision === "allow" ? "accept" : "decline",
++        content: decision === "allow" ? confirmation.content : null,
++        _meta: sessionGrant ? { persist: "session" } : null,
+       });
++      if (sessionGrant) {
++        const grants = mcpGrantsByThread.get(live.sessionId) ?? new Set<string>();
++        grants.add(grantKey);
++        mcpGrantsByThread.set(live.sessionId, grants);
++      }
+       return;
+     }
+-    const grantKey = confirmation.mcpToolGrant?.key;
+-    if (
+-      grantKey &&
+-      mcpGrantsByThread.get(live.sessionId)?.has(grantKey)
+-    ) {
++
++    const parsed = codexMcpForm(params);
++    if (!parsed.ok) {
++      live.onEvent({
++        type: "status",
++        text: unsupportedMcpFormMessage(parsed.serverName, parsed.reason),
++      });
+       await live.rpc.respond(id, {
+-        action: "accept",
+-        content: confirmation.content,
+-        _meta: { persist: "session" },
++        action: "cancel",
++        content: null,
++        _meta: null,
+       });
+       return;
+     }
++
+     const uiId = live.nextApprovalUiId++;
+-    const pending = waitApproval(
+-      live,
+-      uiId,
+-      id,
+-      "permissions",
+-      threadId,
+-      grantKey,
+-    );
+-    // Other MCP consent must carry the user's decision, including in Full Access.
+-    live.onEvent({
+-      type: "approval.requested",
++    const event: Extract<HarnessEvent, { type: "form.requested" }> = {
++      type: "form.requested",
+       requestId: uiId,
+-      kind: "other",
+-      title: confirmation.title,
+-      ...(confirmation.mcpToolGrant
+-        ? {
+-            sessionScope: {
+-              hint: "Stop asking for this tool until the chat closes.",
+-            },
+-          }
+-        : {}),
+-    });
+-    const outcome = await pending;
+-    const decision = outcome === "cancelled" ? "cancelled" : outcome.decision;
+-    const scope = outcome === "cancelled" ? undefined : outcome.scope;
+-    live.onEvent({
+-      type: "approval.resolved",
+-      requestId: uiId,
+-      decision,
+-      ...(scope ? { scope } : {}),
+-    });
+-    if (outcome === "cancelled") return;
+-    const sessionGrant =
+-      decision === "allow" && scope === "session" && grantKey !== undefined;
+-    await live.rpc.respond(id, {
+-      action: decision === "allow" ? "accept" : "decline",
+-      content: decision === "allow" ? confirmation.content : null,
+-      _meta: sessionGrant ? { persist: "session" } : null,
++      serverName: parsed.serverName,
++      message: parsed.message,
++      fields: parsed.fields,
++    };
++    const outcome = new Promise<McpFormReply | "cancelled">((resolve) => {
++      live.forms.set(uiId, { rpcId: id, threadId, event, resolve });
+     });
+-    if (sessionGrant) {
+-      const grants = mcpGrantsByThread.get(live.sessionId) ?? new Set<string>();
+-      grants.add(grantKey);
+-      mcpGrantsByThread.set(live.sessionId, grants);
++    showNextForm(live);
++    try {
++      const reply = await outcome;
++      live.onEvent({
++        type: "form.resolved",
++        requestId: uiId,
++        decision:
++          reply === "cancelled"
++            ? "cancelled"
++            : reply.kind === "submit"
++              ? "submitted"
++              : "declined",
++      });
++      if (reply === "cancelled") return;
++      if (reply.kind === "submit") {
++        const count = Object.keys(reply.content).length;
++        live.onEvent({
++          type: "status",
++          text: `${parsed.serverName}: form submitted (${count} ${count === 1 ? "field" : "fields"}).`,
++        });
++        await live.rpc.respond(id, {
++          action: "accept",
++          content: reply.content,
++          _meta: null,
++        });
++      } else {
++        live.onEvent({
++          type: "status",
++          text: `${parsed.serverName}: form declined.`,
++        });
++        await live.rpc.respond(id, {
++          action: "decline",
++          content: null,
++          _meta: null,
++        });
++      }
++    } finally {
++      live.forms.delete(uiId);
++      if (live.visibleFormId === uiId) live.visibleFormId = null;
++      showNextForm(live);
+     }
+     return;
+   }
+@@ -1307,6 +1426,77 @@ function logCodexElicitation(params: unknown): void {
+   });
+ }
+ 
++function unsupportedMcpFormMessage(
++  serverName: string,
++  reason: McpFormUnsupportedReason,
++): string {
++  switch (reason) {
++    case "url":
++      return `${serverName} asked for a browser sign-in. MonoCode can't show that here, so the request was cancelled. Complete it in the server's own interface.`;
++    case "secret":
++      return `${serverName} asked for a password or secret. MonoCode doesn't collect secrets in forms, so the request was cancelled. Enter it in the server's own interface.`;
++    case "field-type":
++      return `${serverName} sent a form with a field type MonoCode can't show yet, so the request was cancelled. Complete it in the server's own interface.`;
++    case "too-many":
++      return `${serverName} sent a form with more than 20 fields, so the request was cancelled. Complete it in the server's own interface.`;
++    case "shape":
++      return `${serverName} sent a form MonoCode couldn't read, so the request was cancelled. Complete it in the server's own interface.`;
++  }
++}
++
++function isValidMcpFormContent(
++  fields: McpFormField[],
++  content: Record<string, McpFormValue>,
++): boolean {
++  const fieldKeys = new Set(fields.map((field) => field.key));
++  if (Object.keys(content).some((key) => !fieldKeys.has(key))) return false;
++
++  const draft: McpFormDraft = {};
++  for (const field of fields) {
++    const hasValue = Object.prototype.hasOwnProperty.call(content, field.key);
++    const value = content[field.key];
++    if (!hasValue) {
++      if (field.kind === "boolean") return false;
++      continue;
++    }
++    switch (field.kind) {
++      case "text":
++      case "choice":
++        if (typeof value !== "string") return false;
++        draft[field.key] = value;
++        break;
++      case "number":
++        if (typeof value !== "number" || !Number.isFinite(value)) return false;
++        draft[field.key] = String(value);
++        break;
++      case "boolean":
++        if (typeof value !== "boolean") return false;
++        draft[field.key] = value;
++        break;
++      case "multi":
++        if (!isStringValueArray(value)) return false;
++        draft[field.key] = value;
++        break;
++    }
++  }
++
++  const validated = validateMcpForm(fields, draft);
++  if (!validated.ok) return false;
++  const submittedKeys = Object.keys(content).sort();
++  const validatedKeys = Object.keys(validated.content).sort();
++  return (
++    submittedKeys.length === validatedKeys.length &&
++    submittedKeys.every((key, index) => key === validatedKeys[index]) &&
++    validatedKeys.every(
++      (key) => JSON.stringify(content[key]) === JSON.stringify(validated.content[key]),
++    )
++  );
++}
++
++function isStringValueArray(value: McpFormValue): value is string[] {
++  return Array.isArray(value) && value.every((entry: unknown) => typeof entry === "string");
++}
++
+ function safeCodexPersistValue(value: unknown): "session" | "always" | "other" {
+   return value === "session" || value === "always" ? value : "other";
+ }
+diff --git a/src/integrations/harness/providers/codex/codexAdapter.ts b/src/integrations/harness/providers/codex/codexAdapter.ts
+index 763ad77..cee3207 100644
+--- a/src/integrations/harness/providers/codex/codexAdapter.ts
++++ b/src/integrations/harness/providers/codex/codexAdapter.ts
+@@ -6,6 +6,7 @@ import {
+   forgetCodexSession,
+   keepCodexQuestionOpen,
+   respondCodexApproval,
++  respondCodexForm,
+   respondCodexQuestion,
+   sendCodexTurn,
+   steerCodexTurn,
+@@ -30,6 +31,7 @@ export const codexAdapter: HarnessAdapter = {
+   steerTurn: steerCodexTurn,
+   cancelTurn: cancelCodexTurn,
+   respondApproval: respondCodexApproval,
++  respondForm: respondCodexForm,
+   respondQuestion: respondCodexQuestion,
+   keepQuestionOpen: keepCodexQuestionOpen,
+   stopSession: stopCodexSession,
+diff --git a/src/integrations/harness/providers/codex/codexElicitation.test.ts b/src/integrations/harness/providers/codex/codexElicitation.test.ts
+index 1b28003..2c388e1 100644
+--- a/src/integrations/harness/providers/codex/codexElicitation.test.ts
++++ b/src/integrations/harness/providers/codex/codexElicitation.test.ts
+@@ -1,9 +1,12 @@
+ import { afterEach, describe, expect, it } from "vitest";
+ import {
+   codexMcpConfirmation,
++  codexMcpForm,
+   isCodexComputerUseAccessConfirmation,
++  isSecretField,
+   setCodexMcpApprovalKindKeysForTest,
+ } from "./codexElicitation";
++import type { McpFormField } from "../../../../features/sessions/model/mcpForm";
+ 
+ const confirmation = {
+   mode: "form",
+@@ -159,3 +162,195 @@ describe("Codex MCP confirmations", () => {
+     ).toBe(false);
+   });
+ });
++
++describe("Codex MCP forms", () => {
++  const request = (
++    properties: Record<string, unknown>,
++    required?: unknown,
++    mode = "form",
++  ) => ({
++    mode,
++    serverName: "docs",
++    message: "Fill these in",
++    requestedSchema: {
++      type: "object",
++      properties,
++      ...(required === undefined ? {} : { required }),
++    },
++  });
++
++  it("parses primitive, choice and multi fields in property order", () => {
++    expect(
++      codexMcpForm(
++        request(
++          {
++            name: { type: "string", title: "Name", minLength: 2 },
++            size: {
++              type: "integer",
++              minimum: 1,
++              maximum: 10,
++              default: 3,
++            },
++            color: {
++              type: "string",
++              oneOf: [
++                { const: "r", title: "Red" },
++                { const: "g", title: "Green" },
++              ],
++            },
++            tags: {
++              type: "array",
++              items: { type: "string", enum: ["a", "b", "c"] },
++              maxItems: 2,
++            },
++            notify: { type: "boolean", default: true },
++          },
++          ["name", "color"],
++        ),
++      ),
++    ).toEqual({
++      ok: true,
++      serverName: "docs",
++      message: "Fill these in",
++      fields: [
++        {
++          key: "name",
++          label: "Name",
++          kind: "text",
++          minLength: 2,
++          required: true,
++        },
++        {
++          key: "size",
++          label: "size",
++          kind: "number",
++          integer: true,
++          minimum: 1,
++          maximum: 10,
++          default: 3,
++          required: false,
++        },
++        {
++          key: "color",
++          label: "color",
++          kind: "choice",
++          options: [
++            { value: "r", label: "Red" },
++            { value: "g", label: "Green" },
++          ],
++          required: true,
++        },
++        {
++          key: "tags",
++          label: "tags",
++          kind: "multi",
++          options: [
++            { value: "a", label: "a" },
++            { value: "b", label: "b" },
++            { value: "c", label: "c" },
++          ],
++          maxItems: 2,
++          required: false,
++        },
++        {
++          key: "notify",
++          label: "notify",
++          kind: "boolean",
++          default: true,
++          required: false,
++        },
++      ],
++    });
++  });
++
++  it("uses enumNames only when every label is present", () => {
++    const valid = codexMcpForm(
++      request({
++        color: { type: "string", enum: ["x", "y"], enumNames: ["Ex", "Why"] },
++      }),
++    );
++    const fallback = codexMcpForm(
++      request({
++        color: { type: "string", enum: ["x", "y"], enumNames: ["Ex"] },
++      }),
++    );
++    expect(valid.ok && valid.fields[0]).toMatchObject({
++      options: [
++        { value: "x", label: "Ex" },
++        { value: "y", label: "Why" },
++      ],
++    });
++    expect(fallback.ok && fallback.fields[0]).toMatchObject({
++      options: [
++        { value: "x", label: "x" },
++        { value: "y", label: "y" },
++      ],
++    });
++  });
++
++  it.each([
++    ["url", { ...request({}, []), mode: "url" }, "url"],
++    ["unknown mode", request({ name: { type: "string" } }, [], "other"), "shape"],
++    ["object field", request({ nested: { type: "object" } }), "field-type"],
++    ["unknown constraint", request({ name: { type: "string", pattern: ".*" } }), "field-type"],
++    ["unknown format", request({ phone: { type: "string", format: "phone" } }), "field-type"],
++    ["too many fields", request(Object.fromEntries(Array.from({ length: 21 }, (_, index) => [`f${index}`, { type: "string" }]))), "too-many"],
++    ["missing required key", request({ name: { type: "string" } }, ["missing"]), "shape"],
++    ["invalid length bounds", request({ name: { type: "string", minLength: 5, maxLength: 2 } }), "shape"],
++    ["empty enum", request({ value: { type: "string", enum: [] } }), "shape"],
++    ["secret in key", request({ api_key: { type: "string" } }), "secret"],
++    ["secret in title", request({ field: { type: "string", title: "Your password" } }), "secret"],
++    ["weak secret key", request({ token: { type: "string" } }), "secret"],
++    ["camel case secret key", request({ githubAccessToken: { type: "string" } }), "secret"],
++    ["weak secret title", request({ field: { type: "string", title: "PIN" } }), "secret"],
++    ["secret description", request({ notes: { type: "string", title: "Notes", description: "Enter your password" } }), "secret"],
++    ["unconstrained openai form", request({}, undefined, "openai/form"), "shape"],
++  ] as const)("rejects %s with %s", (_label, params, reason) => {
++    const result = codexMcpForm(params);
++    expect(result.ok).toBe(false);
++    if (!result.ok) expect(result.reason).toBe(reason);
++  });
++
++  it.each([
++    ["token_budget", "Token budget", undefined],
++    ["max_tokens", undefined, undefined],
++    ["pin_item", "Pin this item", undefined],
++    ["note", undefined, "Pin this item to the top"],
++    ["tokenizer", undefined, undefined],
++    ["limit", undefined, "Token budget for the reply"],
++  ] as const)("allows benign secret-like text in %s", (key, title, description) => {
++    const field: McpFormField = {
++      key,
++      label: title ?? key,
++      ...(description ? { description } : {}),
++      required: false,
++      kind: "text",
++    };
++    expect(isSecretField(field)).toBe(false);
++    expect(
++      codexMcpForm(
++        request({
++          [key]: {
++            type: "string",
++            ...(title ? { title } : {}),
++            ...(description ? { description } : {}),
++          },
++        }),
++      ).ok,
++    ).toBe(true);
++  });
++
++  it("defaults names and message and rejects a default outside its options", () => {
++    expect(
++      codexMcpForm({
++        mode: "form",
++        requestedSchema: {
++          type: "object",
++          properties: {
++            color: { type: "string", enum: ["red"], default: "blue" },
++          },
++        },
++      }),
++    ).toEqual({ ok: false, reason: "shape", serverName: "MCP server" });
++  });
++});
+diff --git a/src/integrations/harness/providers/codex/codexElicitation.ts b/src/integrations/harness/providers/codex/codexElicitation.ts
+index 50f3d57..7cdc8c1 100644
+--- a/src/integrations/harness/providers/codex/codexElicitation.ts
++++ b/src/integrations/harness/providers/codex/codexElicitation.ts
+@@ -1,4 +1,8 @@
+ import { asRecord, stringField } from "./codexProtocol";
++import type {
++  McpFormField,
++  McpFormOption,
++} from "../../../../features/sessions/model/mcpForm";
+ 
+ /** Codex CLI 0.159.0's installed binary uses this approval-kind metadata key. */
+ export const CODEX_MCP_APPROVAL_KIND_KEYS: readonly string[] = [
+@@ -20,6 +24,461 @@ export function codexMcpApprovalKindKeys(): readonly string[] {
+ 
+ export type CodexMcpToolGrant = { key: string };
+ 
++export type McpFormUnsupportedReason =
++  | "url"
++  | "secret"
++  | "field-type"
++  | "too-many"
++  | "shape";
++
++export type CodexMcpFormResult =
++  | {
++      ok: true;
++      serverName: string;
++      message: string;
++      fields: McpFormField[];
++    }
++  | {
++      ok: false;
++      reason: McpFormUnsupportedReason;
++      serverName: string;
++    };
++
++type FieldParseResult =
++  | { ok: true; field: McpFormField }
++  | { ok: false; reason: "shape" | "field-type" };
++
++const TOP_LEVEL_SCHEMA_KEYS = [
++  "type",
++  "properties",
++  "required",
++  "title",
++  "description",
++  "$schema",
++  "additionalProperties",
++];
++
++const COMMON_FIELD_KEYS = ["type", "default", "title", "description"];
++
++const STRONG_SECRET_PHRASES = [
++  "password",
++  "passwd",
++  "passphrase",
++  "passcode",
++  "secret",
++  "credential",
++  "credentials",
++  "api key",
++  "apikey",
++  "private key",
++  "access token",
++  "refresh token",
++  "auth token",
++  "bearer token",
++  "session token",
++  "otp",
++  "one time password",
++  "one time code",
++  "verification code",
++  "2fa code",
++  "mfa code",
++];
++
++const WEAK_SECRET_WORDS = new Set(["token", "pin", "pin code", "code"]);
++
++/** Parses Codex's structured form requests without interpreting approval metadata. */
++export function codexMcpForm(params: unknown): CodexMcpFormResult {
++  const rec = asRecord(params);
++  const serverName = stringField(rec, "serverName") ?? "MCP server";
++  const unsupported = (reason: McpFormUnsupportedReason): CodexMcpFormResult =>
++    ({ ok: false, reason, serverName });
++
++  if (rec?.mode === "url") return unsupported("url");
++  if (!["form", "openai/form", "openaiForm"].includes(String(rec?.mode)))
++    return unsupported("shape");
++
++  const schema = asRecord(rec?.requestedSchema);
++  const properties = asRecord(schema?.properties);
++  if (
++    !schema ||
++    schema.type !== "object" ||
++    !properties ||
++    !hasOnlyKeys(schema, TOP_LEVEL_SCHEMA_KEYS)
++  )
++    return unsupported("shape");
++
++  const keys = Object.keys(properties);
++  const requiredValue = schema.required;
++  const requiredKeys: string[] = [];
++  if (requiredValue !== undefined) {
++    if (!isStringArray(requiredValue)) return unsupported("shape");
++    for (const key of requiredValue) {
++      if (!Object.prototype.hasOwnProperty.call(properties, key))
++        return unsupported("shape");
++      requiredKeys.push(key);
++    }
++  }
++  if (keys.length > 20) return unsupported("too-many");
++  if (keys.length === 0) return unsupported("shape");
++
++  const fields: McpFormField[] = [];
++  for (const key of keys) {
++    const parsed = parseMcpFormField(
++      key,
++      properties[key],
++      requiredKeys.includes(key),
++    );
++    if (!parsed.ok) return unsupported(parsed.reason);
++    fields.push(parsed.field);
++  }
++  if (fields.some(isSecretField)) return unsupported("secret");
++
++  return {
++    ok: true,
++    serverName,
++    message: stringField(rec, "message") ?? "Fill in this form",
++    fields,
++  };
++}
++
++/** Detects credential fields while allowing ordinary words like "token budget". */
++export function isSecretField(field: McpFormField): boolean {
++  const key = normalizeSecretText(field.key);
++  const title = normalizeSecretText(field.label);
++  const description = normalizeSecretText(field.description ?? "");
++  const texts = [key, title, description];
++  if (
++    texts.some((text) => STRONG_SECRET_PHRASES.some((phrase) => hasPhrase(text, phrase)))
++  )
++    return true;
++  return WEAK_SECRET_WORDS.has(key) || WEAK_SECRET_WORDS.has(title);
++}
++
++function parseMcpFormField(
++  key: string,
++  value: unknown,
++  required: boolean,
++): FieldParseResult {
++  const field = asRecord(value);
++  if (!field) return { ok: false, reason: "field-type" };
++
++  const base = {
++    key,
++    label: stringField(field, "title") ?? key,
++    ...(stringField(field, "description")
++      ? { description: stringField(field, "description") }
++      : {}),
++    required,
++  };
++  const type = field.type;
++  if (type === "string") {
++    const hasEnum = Object.prototype.hasOwnProperty.call(field, "enum");
++    const hasOneOf = Object.prototype.hasOwnProperty.call(field, "oneOf");
++    if (hasEnum && hasOneOf) return { ok: false, reason: "shape" };
++    if (hasEnum || hasOneOf) {
++      if (
++        !hasOnlyKeys(field, [
++          ...COMMON_FIELD_KEYS,
++          "enum",
++          "enumNames",
++          "oneOf",
++        ])
++      )
++        return { ok: false, reason: "field-type" };
++      const options = hasEnum
++        ? parseEnumOptions(field.enum, field.enumNames)
++        : parseOneOfOptions(field.oneOf);
++      if (!options) return { ok: false, reason: "shape" };
++      if (hasDefault(field) && !isOptionValue(field.default, options))
++        return { ok: false, reason: "shape" };
++      return {
++        ok: true,
++        field: {
++          ...base,
++          kind: "choice",
++          options,
++          ...(typeof field.default === "string"
++            ? { default: field.default }
++            : {}),
++        },
++      };
++    }
++    if (
++      !hasOnlyKeys(field, [
++        ...COMMON_FIELD_KEYS,
++        "format",
++        "minLength",
++        "maxLength",
++      ])
++    )
++      return { ok: false, reason: "field-type" };
++    const format = field.format;
++    if (
++      format !== undefined &&
++      !["email", "uri", "date", "date-time"].includes(String(format))
++    )
++      return { ok: false, reason: "field-type" };
++    if (
++      (hasDefault(field) && typeof field.default !== "string") ||
++      !validNonNegativeIntegerIfPresent(field, "minLength") ||
++      !validNonNegativeIntegerIfPresent(field, "maxLength") ||
++      (typeof field.minLength === "number" &&
++        typeof field.maxLength === "number" &&
++        field.minLength > field.maxLength)
++    )
++      return { ok: false, reason: "shape" };
++    return {
++      ok: true,
++      field: {
++        ...base,
++        kind: "text",
++        ...(isTextFormat(format)
++          ? { format }
++          : {}),
++        ...(typeof field.minLength === "number"
++          ? { minLength: field.minLength }
++          : {}),
++        ...(typeof field.maxLength === "number"
++          ? { maxLength: field.maxLength }
++          : {}),
++        ...(typeof field.default === "string"
++          ? { default: field.default }
++          : {}),
++      },
++    };
++  }
++
++  if (type === "number" || type === "integer") {
++    if (!hasOnlyKeys(field, [...COMMON_FIELD_KEYS, "minimum", "maximum"]))
++      return { ok: false, reason: "field-type" };
++    if (
++      (hasDefault(field) && !isFiniteNumber(field.default)) ||
++      !validFiniteNumberIfPresent(field, "minimum") ||
++      !validFiniteNumberIfPresent(field, "maximum") ||
++      (typeof field.minimum === "number" &&
++        typeof field.maximum === "number" &&
++        field.minimum > field.maximum) ||
++      (typeof field.default === "number" &&
++        ((type === "integer" && !Number.isInteger(field.default)) ||
++          (typeof field.minimum === "number" && field.default < field.minimum) ||
++          (typeof field.maximum === "number" && field.default > field.maximum)))
++    )
++      return { ok: false, reason: "shape" };
++    return {
++      ok: true,
++      field: {
++        ...base,
++        kind: "number",
++        integer: type === "integer",
++        ...(typeof field.minimum === "number"
++          ? { minimum: field.minimum }
++          : {}),
++        ...(typeof field.maximum === "number"
++          ? { maximum: field.maximum }
++          : {}),
++        ...(typeof field.default === "number" ? { default: field.default } : {}),
++      },
++    };
++  }
++
++  if (type === "boolean") {
++    if (!hasOnlyKeys(field, COMMON_FIELD_KEYS))
++      return { ok: false, reason: "field-type" };
++    if (hasDefault(field) && typeof field.default !== "boolean")
++      return { ok: false, reason: "shape" };
++    return {
++      ok: true,
++      field: {
++        ...base,
++        kind: "boolean",
++        ...(typeof field.default === "boolean" ? { default: field.default } : {}),
++      },
++    };
++  }
++
++  if (type === "array") {
++    if (
++      !hasOnlyKeys(field, [
++        ...COMMON_FIELD_KEYS,
++        "items",
++        "minItems",
++        "maxItems",
++      ])
++    )
++      return { ok: false, reason: "field-type" };
++    const options = parseMultiOptions(field.items);
++    if (!options) return { ok: false, reason: "shape" };
++    if (
++      !validNonNegativeIntegerIfPresent(field, "minItems") ||
++      !validNonNegativeIntegerIfPresent(field, "maxItems")
++    )
++      return { ok: false, reason: "shape" };
++    const minItems = typeof field.minItems === "number" ? field.minItems : 0;
++    const maxItems =
++      typeof field.maxItems === "number" ? field.maxItems : options.length;
++    if (minItems > maxItems || maxItems > options.length)
++      return { ok: false, reason: "shape" };
++    if (
++      hasDefault(field) &&
++      (!isStringArray(field.default) ||
++        new Set(field.default).size !== field.default.length ||
++        field.default.some(
++          (value) => !options.some((option) => option.value === value),
++        ) ||
++        field.default.length < minItems ||
++        field.default.length > maxItems)
++    )
++      return { ok: false, reason: "shape" };
++    return {
++      ok: true,
++      field: {
++        ...base,
++        kind: "multi",
++        options,
++        ...(typeof field.minItems === "number"
++          ? { minItems: field.minItems }
++          : {}),
++        ...(typeof field.maxItems === "number"
++          ? { maxItems: field.maxItems }
++          : {}),
++        ...(isStringArray(field.default) ? { default: field.default } : {}),
++      },
++    };
++  }
++
++  return { ok: false, reason: "field-type" };
++}
++
++function parseEnumOptions(
++  value: unknown,
++  names: unknown,
++): McpFormOption[] | null {
++  if (!isNonEmptyUniqueStringArray(value, true)) return null;
++  const labels =
++    isStringArray(names) && names.length === value.length ? names : value;
++  return value.map((entry, index) => ({ value: entry, label: labels[index] }));
++}
++
++function parseOneOfOptions(value: unknown): McpFormOption[] | null {
++  if (!isUnknownArray(value) || value.length === 0) return null;
++  const options: McpFormOption[] = [];
++  const values = new Set<string>();
++  for (const entry of value) {
++    const option = asRecord(entry);
++    if (
++      !option ||
++      !hasOnlyKeys(option, ["const", "title"]) ||
++      typeof option.const !== "string" ||
++      typeof option.title !== "string" ||
++      values.has(option.const)
++    )
++      return null;
++    values.add(option.const);
++    options.push({ value: option.const, label: option.title });
++  }
++  return options;
++}
++
++function parseMultiOptions(value: unknown): McpFormOption[] | null {
++  const items = asRecord(value);
++  if (!items) return null;
++  if (
++    items.type === "string" &&
++    hasOnlyKeys(items, ["type", "enum"]) &&
++    isNonEmptyUniqueStringArray(items.enum, true)
++  )
++    return items.enum.map((entry) => ({ value: entry, label: entry }));
++  if (hasOnlyKeys(items, ["anyOf"])) return parseOneOfOptions(items.anyOf);
++  return null;
++}
++
++function isOptionValue(value: unknown, options: McpFormOption[]): value is string {
++  return (
++    typeof value === "string" &&
++    options.some((option) => option.value === value)
++  );
++}
++
++function validNonNegativeIntegerIfPresent(
++  record: Record<string, unknown>,
++  key: string,
++): boolean {
++  const value = record[key];
++  return (
++    !Object.prototype.hasOwnProperty.call(record, key) ||
++    (typeof value === "number" && Number.isInteger(value) && value >= 0)
++  );
++}
++
++function validFiniteNumberIfPresent(
++  record: Record<string, unknown>,
++  key: string,
++): boolean {
++  const value = record[key];
++  return (
++    !Object.prototype.hasOwnProperty.call(record, key) || isFiniteNumber(value)
++  );
++}
++
++function isFiniteNumber(value: unknown): value is number {
++  return typeof value === "number" && Number.isFinite(value);
++}
++
++function hasDefault(record: Record<string, unknown>): boolean {
++  return Object.prototype.hasOwnProperty.call(record, "default");
++}
++
++function hasOnlyKeys(
++  record: Record<string, unknown>,
++  allowed: readonly string[],
++): boolean {
++  return Object.keys(record).every((key) => allowed.includes(key));
++}
++
++function isStringArray(value: unknown): value is string[] {
++  return Array.isArray(value) && value.every((entry: unknown) => typeof entry === "string");
++}
++
++function isUnknownArray(value: unknown): value is unknown[] {
++  return Array.isArray(value);
++}
++
++function isTextFormat(
++  value: unknown,
++): value is "email" | "uri" | "date" | "date-time" {
++  return (
++    value === "email" ||
++    value === "uri" ||
++    value === "date" ||
++    value === "date-time"
++  );
++}
++
++function isNonEmptyUniqueStringArray(
++  value: unknown,
++  requireNonEmptyEntries: boolean,
++): value is string[] {
++  return (
++    isStringArray(value) &&
++    value.length > 0 &&
++    value.every((entry) => !requireNonEmptyEntries || entry.length > 0) &&
++    new Set(value).size === value.length
++  );
++}
++
++function normalizeSecretText(value: string): string {
++  return value
++    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
++    .toLowerCase()
++    .split(/[^a-z0-9]+/)
++    .filter(Boolean)
++    .join(" ");
++}
++
++function hasPhrase(text: string, phrase: string): boolean {
++  return ` ${text} `.includes(` ${phrase} `);
++}
++
+ /** App access is covered by the user's explicit Full Access selection. */
+ export function isCodexComputerUseAccessConfirmation(params: unknown): boolean {
+   const rec = asRecord(params);
+diff --git a/src/integrations/harness/providers/codex/codexLive.test.ts b/src/integrations/harness/providers/codex/codexLive.test.ts
+index 867ef41..f651845 100644
+--- a/src/integrations/harness/providers/codex/codexLive.test.ts
++++ b/src/integrations/harness/providers/codex/codexLive.test.ts
+@@ -23,6 +23,7 @@ const {
+   cancelCodexTurn,
+   keepCodexQuestionOpen,
+   respondCodexApproval,
++  respondCodexForm,
+   respondCodexQuestion,
+   rewindCodexLastTurn,
+   sendCodexTurn,
+@@ -1288,23 +1289,219 @@ describe("codex live turn sequence", () => {
+     },
+   );
+ 
+-  it("reports unsupported MCP forms instead of returning an empty success", async () => {
++  it("submits a supported form without exposing its values in events", async () => {
+     const { events, turn } = await startTurn("codex-live");
+     onLine!(
+       JSON.stringify({
+-        id: 90,
+-        method: "item/tool/requestUserInput",
++        id: 91,
++        method: "mcpServer/elicitation/request",
+         params: {
+-          questions: [{ id: "q", question: "Choose a name", options: null }],
++          mode: "form",
++          serverName: "docs",
++          message: "Choose a display name",
++          requestedSchema: {
++            type: "object",
++            properties: { name: { type: "string", title: "Name" } },
++            required: ["name"],
++          },
+         },
+       }),
+     );
++    await waitFor(
++      () => events.some((event) => event.type === "form.requested"),
++      "form UI",
++    );
++    const requested = events.find((event) => event.type === "form.requested");
++    if (requested?.type !== "form.requested")
++      throw new Error("missing MCP form");
++    expect(parse().some((message) => message.id === 91)).toBe(false);
++
++    respondCodexForm("codex-live", requested.requestId, {
++      kind: "submit",
++      content: { name: "Al" },
++    });
++    await waitFor(() => parse().some((message) => message.id === 91), "form reply");
++
++    expect(events.map((event) => event.type)).toContain("form.resolved");
++    expect(events).toContainEqual({
++      type: "status",
++      text: "docs: form submitted (1 field).",
++    });
++    expect(
++      events.findIndex((event) => event.type === "form.requested"),
++    ).toBeLessThan(events.findIndex((event) => event.type === "form.resolved"));
++    expect(
++      events.findIndex((event) => event.type === "form.resolved"),
++    ).toBeLessThan(events.findIndex((event) => event.type === "status"));
++    expect(parse().find((message) => message.id === 91)?.result).toEqual({
++      action: "accept",
++      content: { name: "Al" },
++      _meta: null,
++    });
++    expect(JSON.stringify(events)).not.toContain("Al");
++    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
++    await turn;
++  });
++
++  it("keeps forms with approval metadata out of slice 1 grants", async () => {
++    const { events, turn } = await startTurn("codex-live");
++    const sendRequest = (id: number, includeProperties: boolean) =>
++      onLine!(
++        JSON.stringify({
++          id,
++          method: "mcpServer/elicitation/request",
++          params: {
++            mode: "form",
++            serverName: "socraticode",
++            message: "Fill in the values",
++            requestedSchema: {
++              type: "object",
++              properties: includeProperties
++                ? { name: { type: "string" }, team: { type: "string" } }
++                : {},
++            },
++            _meta: {
++              codex_approval_kind: "mcp_tool_call",
++              persist: ["session", "always"],
++              tool_name: "codebase_search",
++            },
++          },
++        }),
++      );
++
++    sendRequest(91, true);
++    await waitFor(
++      () => events.some((event) => event.type === "form.requested"),
++      "form request with approval metadata",
++    );
++    const form = events.find((event) => event.type === "form.requested");
++    if (form?.type !== "form.requested") throw new Error("missing form");
++    expect(events.some((event) => event.type === "approval.requested")).toBe(false);
++    respondCodexForm("codex-live", form.requestId, {
++      kind: "submit",
++      content: { name: "Al", team: "docs" },
++    });
++    await waitFor(() => parse().some((message) => message.id === 91), "form reply");
++    expect(parse().find((message) => message.id === 91)?.result).toEqual({
++      action: "accept",
++      content: { name: "Al", team: "docs" },
++      _meta: null,
++    });
++
++    sendRequest(92, false);
++    await waitFor(
++      () => events.some((event) => event.type === "approval.requested"),
++      "confirmation approval",
++    );
++    const approval = events.find((event) => event.type === "approval.requested");
++    if (approval?.type !== "approval.requested")
++      throw new Error("missing confirmation approval");
++    expect(approval.sessionScope?.hint).toBe(
++      "Stop asking for this tool until the chat closes.",
++    );
++    respondCodexApproval("codex-live", approval.requestId, "deny");
++    await waitFor(() => parse().some((message) => message.id === 92), "approval reply");
++    expect(events.some((event) => event.type === "form.requested" && event.requestId === approval.requestId)).toBe(false);
++    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
++    await turn;
++  });
++
++  it("queues forms in arrival order and shows one at a time", async () => {
++    const { events, turn } = await startTurn("codex-live");
++    const sendForm = (id: number, key: string) =>
++      onLine!(
++        JSON.stringify({
++          id,
++          method: "mcpServer/elicitation/request",
++          params: {
++            mode: "form",
++            serverName: "docs",
++            message: `Fill ${key}`,
++            requestedSchema: {
++              type: "object",
++              properties: { [key]: { type: "string" } },
++              required: [key],
++            },
++          },
++        }),
++      );
++    sendForm(91, "first");
++    sendForm(92, "second");
++    await waitFor(
++      () => events.filter((event) => event.type === "form.requested").length === 1,
++      "first form",
++    );
++    const first = events.find((event) => event.type === "form.requested");
++    if (first?.type !== "form.requested") throw new Error("missing first form");
++    expect(first.fields[0]?.key).toBe("first");
++    expect(events.filter((event) => event.type === "form.requested")).toHaveLength(1);
++
++    respondCodexForm("codex-live", first.requestId, {
++      kind: "submit",
++      content: { first: "one" },
++    });
++    await waitFor(
++      () => events.filter((event) => event.type === "form.requested").length === 2,
++      "second form",
++    );
++    const requested = events.filter((event) => event.type === "form.requested");
++    const second = requested[1];
++    if (second?.type !== "form.requested") throw new Error("missing second form");
++    expect(second.fields[0]?.key).toBe("second");
++    respondCodexForm("codex-live", second.requestId, {
++      kind: "submit",
++      content: { second: "two" },
++    });
++    await waitFor(() => parse().some((message) => message.id === 92), "second reply");
++    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
++    await turn;
++  });
++
++  it("declines a form with no content and records only the decision", async () => {
++    const { events, turn } = await startTurn("codex-live");
+     onLine!(
+       JSON.stringify({
+         id: 91,
+         method: "mcpServer/elicitation/request",
+         params: {
+           mode: "form",
++          serverName: "docs",
++          requestedSchema: {
++            type: "object",
++            properties: { name: { type: "string" } },
++          },
++        },
++      }),
++    );
++    await waitFor(() => events.some((event) => event.type === "form.requested"), "form UI");
++    const form = events.find((event) => event.type === "form.requested");
++    if (form?.type !== "form.requested") throw new Error("missing form");
++    respondCodexForm("codex-live", form.requestId, { kind: "decline" });
++    await waitFor(() => parse().some((message) => message.id === 91), "decline reply");
++
++    expect(parse().find((message) => message.id === 91)?.result).toEqual({
++      action: "decline",
++      content: null,
++      _meta: null,
++    });
++    expect(events).toContainEqual({
++      type: "status",
++      text: "docs: form declined.",
++    });
++    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
++    await turn;
++  });
++
++  it("rejects invalid replies without resolving the form", async () => {
++    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
++    const { events, turn } = await startTurn("codex-live");
++    onLine!(
++      JSON.stringify({
++        id: 91,
++        method: "mcpServer/elicitation/request",
++        params: {
++          mode: "form",
++          serverName: "docs",
+           requestedSchema: {
+             type: "object",
+             properties: { name: { type: "string" } },
+@@ -1313,6 +1510,128 @@ describe("codex live turn sequence", () => {
+         },
+       }),
+     );
++    await waitFor(() => events.some((event) => event.type === "form.requested"), "form UI");
++    const form = events.find((event) => event.type === "form.requested");
++    if (form?.type !== "form.requested") throw new Error("missing form");
++    respondCodexForm("codex-live", form.requestId, {
++      kind: "submit",
++      content: {},
++    });
++
++    expect(debug).toHaveBeenCalledWith(
++      "[monocode] codex form rejected invalid reply",
++      { requestId: form.requestId },
++    );
++    expect(parse().some((message) => message.id === 91)).toBe(false);
++    expect(events.some((event) => event.type === "form.resolved")).toBe(false);
++    respondCodexForm("codex-live", form.requestId, {
++      kind: "submit",
++      content: { name: "Al" },
++    });
++    await waitFor(() => parse().some((message) => message.id === 91), "valid retry");
++    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
++    await turn;
++  });
++
++  it("cancels a form when the server resolves its request and ignores late replies", async () => {
++    const { events, turn } = await startTurn("codex-live");
++    onLine!(
++      JSON.stringify({
++        id: 91,
++        method: "mcpServer/elicitation/request",
++        params: {
++          mode: "form",
++          serverName: "docs",
++          requestedSchema: {
++            type: "object",
++            properties: { name: { type: "string" } },
++          },
++        },
++      }),
++    );
++    await waitFor(() => events.some((event) => event.type === "form.requested"), "form UI");
++    const form = events.find((event) => event.type === "form.requested");
++    if (form?.type !== "form.requested") throw new Error("missing form");
++    notify("serverRequest/resolved", { threadId: "thr_1", requestId: 91 });
++    await waitFor(() => events.some((event) => event.type === "form.resolved"), "cancel event");
++    expect(events).toContainEqual({
++      type: "form.resolved",
++      requestId: form.requestId,
++      decision: "cancelled",
++    });
++    respondCodexForm("codex-live", form.requestId, {
++      kind: "submit",
++      content: { name: "late" },
++    });
++    expect(parse().some((message) => message.id === 91)).toBe(false);
++    expect(events.some((event) => event.type === "status")).toBe(false);
++    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
++    await turn;
++  });
++
++  it("cancels a visible form when the turn stops", async () => {
++    const { events, turn } = await startTurn("codex-live");
++    onLine!(
++      JSON.stringify({
++        id: 91,
++        method: "mcpServer/elicitation/request",
++        params: {
++          mode: "form",
++          serverName: "docs",
++          requestedSchema: {
++            type: "object",
++            properties: { name: { type: "string" } },
++          },
++        },
++      }),
++    );
++    await waitFor(() => events.some((event) => event.type === "form.requested"), "form UI");
++    const form = events.find((event) => event.type === "form.requested");
++    if (form?.type !== "form.requested") throw new Error("missing form");
++
++    const cancelling = cancelCodexTurn("codex-live");
++    await waitFor(
++      () => parse().some((message) => message.method === "turn/interrupt"),
++      "turn interrupt",
++    );
++    const interrupt = parse().find((message) => message.method === "turn/interrupt");
++    reply(interrupt!.id as number, {});
++    await cancelling;
++    await turn;
++
++    expect(events).toContainEqual({
++      type: "form.resolved",
++      requestId: form.requestId,
++      decision: "cancelled",
++    });
++    expect(parse().some((message) => message.id === 91)).toBe(false);
++    expect(events.some((event) => event.type === "status")).toBe(false);
++  });
++
++  it("reports unsupported MCP forms instead of returning an empty success", async () => {
++    const { events, turn } = await startTurn("codex-live");
++    onLine!(
++      JSON.stringify({
++        id: 90,
++        method: "item/tool/requestUserInput",
++        params: {
++          questions: [{ id: "q", question: "Choose a name", options: null }],
++        },
++      }),
++    );
++    onLine!(
++      JSON.stringify({
++        id: 91,
++        method: "mcpServer/elicitation/request",
++        params: {
++          mode: "url",
++          serverName: "github",
++          elicitationId: "e1",
++          message: "Sign in",
++          url: "https://example.com",
++        },
++      }),
++    );
+     await waitFor(() => parse().some((m) => m.id === 91), "MCP cancel");
+     expect(parse().find((m) => m.id === 91)?.result).toEqual({
+       action: "cancel",
+@@ -1321,7 +1640,7 @@ describe("codex live turn sequence", () => {
+     });
+     expect(events).toContainEqual({
+       type: "status",
+-      text: expect.stringContaining("does not support yet"),
++      text: expect.stringContaining("browser sign-in"),
+     });
+     onLine!(
+       JSON.stringify({ id: 92, method: "future/requestApproval", params: {} }),

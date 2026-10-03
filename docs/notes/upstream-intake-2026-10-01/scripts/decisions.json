@@ -1,0 +1,156 @@
+[
+  {
+    "id": "D-01",
+    "today": "Sidechat can make a separate conversation from an answer.",
+    "upstream": "BTW adds a read-only question sheet beside the same answer.",
+    "tradeoff": "These overlap, but a temporary question is different from a new conversation; U-008, L-26, C-15.",
+    "action": "Merge both to keep both functionalities",
+    "reason": "Keep Sidechat for a durable branch and BTW for read-only questions, with distinct labels.",
+    "c_ids": "C-15",
+    "r_ids": "R-15",
+    "rounds": "2"
+  },
+  {
+    "id": "D-02",
+    "today": "Provider settings show lightweight update notices.",
+    "upstream": "Updates can be installed inside the app, with a second notice system.",
+    "tradeoff": "Two notices and extra startup probing would confuse users; U-029, L-18, C-17, R-06.",
+    "action": "Something else",
+    "reason": "Defer installation until Windows subprocess safety is audited; use one notice flow and lazy ACP discovery.",
+    "c_ids": "C-17",
+    "r_ids": "R-06,R-12",
+    "rounds": "6"
+  },
+  {
+    "id": "D-03",
+    "today": "Our local sessions support Cline, native branches, approval scopes and forms; remote work is parked.",
+    "upstream": "SSH sessions persist on another machine; not all our local controls are supported there.",
+    "tradeoff": "Host imports our deleted provider, omits Cline, and has a narrower approval contract; U-023, C-23, R-02/R-08/R-11.",
+    "action": "Something else",
+    "reason": "Split remote into its own round; publish an explicit supported-feature matrix and keep remote ACP/Cline unsupported until approved ports exist.",
+    "c_ids": "C-03,C-15,C-23,C-26",
+    "r_ids": "R-02,R-08,R-11",
+    "rounds": "5"
+  },
+  {
+    "id": "D-04",
+    "today": "Existing custom CLI paths work through our validated discovery.",
+    "upstream": "A different settings screen stores provider paths in a new place.",
+    "tradeoff": "Without migration old overrides may be ignored; U-013, C-03, R-04.",
+    "action": "Merge both to keep both functionalities",
+    "reason": "Use one canonical validated store, migrate old values once, preserve ACP/Cline, and report invalid paths.",
+    "c_ids": "C-03,C-04,C-17",
+    "r_ids": "R-04",
+    "rounds": "3"
+  },
+  {
+    "id": "D-05",
+    "today": "The current app uses our established dependencies and window permissions.",
+    "upstream": "New clipboard, MCP, host and platform features require extra libraries and permissions.",
+    "tradeoff": "Registry provenance and full new native contracts were not audited; stage 2 dependency supplement and R-11/R-12.",
+    "action": "Something else",
+    "reason": "Approve packages, capabilities and CI per round after reviewer provenance/security checks; do not authorize all changes from this brief.",
+    "c_ids": "C-01,C-02",
+    "r_ids": "R-11,R-12",
+    "rounds": "1,3,4,5,6"
+  },
+  {
+    "id": "D-06",
+    "today": "Users can choose whether quota shows the percentage left.",
+    "upstream": "Quota shows the percentage left by default.",
+    "tradeoff": "Two implementations of the same preference; U-027, L-12, C-08, R-13.",
+    "action": "Bring and overwrite with new change",
+    "reason": "Prefer the upstream remaining default, preserving clamp/round behavior; decide how old saved preference is honored or retired.",
+    "c_ids": "C-08",
+    "r_ids": "R-13",
+    "rounds": "6"
+  },
+  {
+    "id": "D-07",
+    "today": "Git helpers use the selected helper model and cannot use tools.",
+    "upstream": "BTW uses read-only tools; generated commit messages gain Cancel.",
+    "tradeoff": "Sharing a runner could broaden helper access; U-008/U-025, L-19, C-19/C-26, R-15.",
+    "action": "Keep local change",
+    "reason": "Keep tool-free structured helpers as a separate mode; add upstream cancellation without allowing their tool use.",
+    "c_ids": "C-19,C-22,C-26",
+    "r_ids": "R-15",
+    "rounds": "2,5"
+  },
+  {
+    "id": "D-08",
+    "today": "Five Windows wallpaper effects and chat backgrounds work independently.",
+    "upstream": "Haze adds a blurred chat background.",
+    "tradeoff": "The shared effect list can accidentally offer Haze to the wallpaper renderer; U-002, L-09, R-07.",
+    "action": "Merge both to keep both functionalities",
+    "reason": "Take Haze for chat only; keep the existing five wallpaper effects and their renderer.",
+    "c_ids": "C-17",
+    "r_ids": "R-07",
+    "rounds": "1"
+  },
+  {
+    "id": "D-09",
+    "today": "Native branches copy conversation history.",
+    "upstream": "Copied histories can contain persistent generated images.",
+    "tradeoff": "Deleting one branch might remove another branch's image; U-020, L-25, R-10. Ownership is Not checked.",
+    "action": "Something else",
+    "reason": "Require reference-ownership audit and original/branch deletion regression before enabling copied image history.",
+    "c_ids": "C-05,C-13",
+    "r_ids": "R-10",
+    "rounds": "4"
+  },
+  {
+    "id": "D-10",
+    "today": "Held or paused queued messages wait for the user.",
+    "upstream": "A usage limit can resume waiting messages automatically after reset.",
+    "tradeoff": "Reset must clear only the usage hold, not an independent user hold; U-011, L-05/L-06, R-09.",
+    "action": "Merge both to keep both functionalities",
+    "reason": "Keep independent hold reasons; enable auto-resume only after combined reset/restart tests.",
+    "c_ids": "C-06,C-14",
+    "r_ids": "R-09",
+    "rounds": "2"
+  },
+  {
+    "id": "D-11",
+    "today": "Cline, CRLF editing and scoped Codex confirmations work locally.",
+    "upstream": "Some files merge cleanly but their combined declarations or imports disagree.",
+    "tradeoff": "R-01 missing Cline map entry; R-03 duplicate type; R-05 removed helper still used by ours-only resolution.",
+    "action": "Something else",
+    "reason": "Repair these source contracts before any round is accepted; preserve validated forms and non-plan grant boundaries.",
+    "c_ids": "C-04,C-09,C-25",
+    "r_ids": "R-01,R-03,R-05",
+    "rounds": "1,3"
+  },
+  {
+    "id": "D-12",
+    "today": "Old workspaces restore Windows paths, local diff tabs and durable queues.",
+    "upstream": "Preview tabs and remote paths extend saved records and bounded session search.",
+    "tradeoff": "Legacy-record behavior and new Windows spawns need combined evidence; R-12/R-14.",
+    "action": "Merge both to keep both functionalities",
+    "reason": "Keep legacy defaults, local path repair and SQL queue columns; approve stored-data handling after fixtures pass.",
+    "c_ids": "C-05,C-13,C-20",
+    "r_ids": "R-12,R-14",
+    "rounds": "1,2,4,5"
+  },
+  {
+    "id": "D-13",
+    "today": "The build stays on v0.1.55 plus local features, and parked work remains parked.",
+    "upstream": "A sequence of upstream releases adds drawer, editor, account, Operator and MCP features.",
+    "tradeoff": "33 feature candidates, with existing menu/hover/queue preservation; stages 2\u20134. Platform-only Quick composer brings no Windows feature.",
+    "action": "Something else",
+    "reason": "Confirm the feature menu and release scope before each round; keep Operator off until separately approved and exclude parked Hari work.",
+    "c_ids": "C-06,C-07,C-16,C-17",
+    "r_ids": "",
+    "rounds": "1,2,3,4,5,6"
+  },
+  {
+    "id": "D-14",
+    "today": "The installed label is 0.1.55-local5-provider-fixes.",
+    "upstream": "A newer local label identifies each accepted intake round.",
+    "tradeoff": "Newest stable tag is v0.6.0; pinned main has nine additional commits, including U-033 and U-095\u2013U-102.",
+    "action": "Something else",
+    "reason": "Choose each local version label and separately approve or defer all nine post-tag commits. Default plan stops at v0.6.0.",
+    "c_ids": "C-01",
+    "r_ids": "",
+    "rounds": "1,2,3,4,5,6,7"
+  }
+]

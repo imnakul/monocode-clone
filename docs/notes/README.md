@@ -1,0 +1,16 @@
+# Notes directory
+
+Supporting reference documents and implementation records. These are not active specs.
+
+- [windows-060-build/README.md](windows-060-build/README.md) — 0.6.0 installer, checks, caveats and preserved build logs.
+- [analyst-and-claude-prompts.md](analyst-and-claude-prompts.md) — standing instructions for the research flow; each agent reads its own part (Part A Codex, Part B Claude)
+- [antigravity-acp-implementation-notes.md](antigravity-acp-implementation-notes.md)
+- [jira.md](jira.md)
+- [local4-token-usage-hardening-record.md](local4-token-usage-hardening-record.md)
+- [orchestration-parking-30sept.md](orchestration-parking-30sept.md)
+- [UPSTREAM-AUTOMATION-INTAKE.md](UPSTREAM-AUTOMATION-INTAKE.md)
+- [windows-provider-stabilization.md](windows-provider-stabilization.md)
+
+Historical or uncertain plans and audits: [archive index](archive/README.md).
+
+Reference image: [screenshot.jpg](assets/screenshot.jpg).

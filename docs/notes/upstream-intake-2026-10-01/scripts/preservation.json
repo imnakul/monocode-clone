@@ -1,0 +1,575 @@
+[
+  {
+    "id": "L-01",
+    "behaviour": "Busy chats keep Stop and Queue/Steer-aware send",
+    "owners": [
+      "src/features/sessions/ui/Composer.tsx"
+    ],
+    "proof": "src/features/sessions/ui/Composer.tsx:163",
+    "excerpt": "import { resolveComposerActionAriaLabel, resolveComposerActionTooltip, resolveComposerButtonAction, resolveComposerKeyAction, resolveEffectiveSuggestionAction, type ActionResolutionContext } from \"./composerAction\";",
+    "test": "src/features/sessions/ui/Composer.test.ts:47",
+    "test_excerpt": "it(\"keeps Stop visible and labels send with the follow-up action\", () => {",
+    "standing": "NOTES \u00a70.1; archive 2026-09-23 product calls",
+    "windows": "No"
+  },
+  {
+    "id": "L-02",
+    "behaviour": "Menu bar stays visible",
+    "owners": [
+      "src/app/App.tsx"
+    ],
+    "proof": "src/app/App.tsx:9651",
+    "excerpt": "<MenuBar",
+    "test": "src/app/shell/TitleBar.test.ts:25",
+    "test_excerpt": "it(\"layers conversation and file when split across panes\", () => {",
+    "standing": "NOTES \u00a70.2; archive 2026-09-23 round 2.3",
+    "windows": "No"
+  },
+  {
+    "id": "L-03",
+    "behaviour": "Antigravity uses the shared official ACP runtime",
+    "owners": [
+      "AGENTS.md",
+      "src-tauri/Cargo.toml",
+      "src-tauri/src/antigravity_acp.rs",
+      "src-tauri/src/harness.rs",
+      "src-tauri/src/lib.rs",
+      "src-tauri/src/main.rs",
+      "src/app/App.tsx",
+      "src/features/sessions/model/systemBreakdown.test.ts",
+      "src/features/sessions/model/systemBreakdown.ts",
+      "src/integrations/harness/core/antigravityAcpLive.test.ts",
+      "src/integrations/harness/core/antigravityRuntimeHost.ts",
+      "src/integrations/harness/core/types.ts",
+      "src/integrations/harness/providers/claude/claude.ts",
+      "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+      "src/integrations/harness/providers/claude/claudeProtocol.ts"
+    ],
+    "proof": "src/integrations/harness/core/antigravityRuntimeHost.ts:54",
+    "excerpt": "export async function acquireAntigravityRuntime(",
+    "test": "src/integrations/harness/core/antigravityAcpLive.test.ts:68",
+    "test_excerpt": "it(\"routes string-ID approvals and native reasoning/tool updates without losing the option ID\", async (): Promise<void> => {",
+    "standing": "NOTES \u00a70.3; archive 2026-09-23 round 2.1",
+    "windows": "No"
+  },
+  {
+    "id": "L-04",
+    "behaviour": "Cline remains a selectable eleventh provider",
+    "owners": [
+      "src-tauri/src/harness.rs",
+      "src-tauri/src/lib.rs",
+      "src/assets/providers/cline.svg",
+      "src/features/sessions/model/session.ts"
+    ],
+    "proof": "src/features/sessions/model/session.ts:30",
+    "excerpt": "| \"cline\"",
+    "test": "src/features/sessions/ui/ModelPicker.test.ts:170",
+    "test_excerpt": "expect(modelFlyout.style.height).toBe(\"440px\");",
+    "standing": "NOTES \u00a70.4; archive 2026-09-23 round 2.4",
+    "windows": "No"
+  },
+  {
+    "id": "L-05",
+    "behaviour": "Queued text and attachments persist safely across restart",
+    "owners": [
+      "src-tauri/src/session_store.rs",
+      "src/features/sessions/model/queueDurability.ts"
+    ],
+    "proof": "src/features/sessions/model/queueDurability.ts:31",
+    "excerpt": "export class QueueDurabilityScheduler {",
+    "test": "src/features/sessions/model/queueDurability.test.ts:18",
+    "test_excerpt": "it(\"preserves a pasted image payload through save and restore\", async () => {",
+    "standing": "NOTES \u00a70.5; archive 2026-09-24 standing calls",
+    "windows": "No"
+  },
+  {
+    "id": "L-06",
+    "behaviour": "Steer cancellation and held queues do not dispatch unsafely",
+    "owners": [
+      "src/features/sessions/model/messageQueue.ts"
+    ],
+    "proof": "src/features/sessions/model/messageQueue.ts:38",
+    "excerpt": "* Busy / paused / resuming / steering / held / preparing-handoff / editing-the-head all wait.",
+    "test": "src/features/sessions/model/messageQueue.test.ts:33",
+    "test_excerpt": "it(\"returns the first queued follow-up\", () => {",
+    "standing": "NOTES \u00a70.5",
+    "windows": "No"
+  },
+  {
+    "id": "L-07",
+    "behaviour": "Removing a chat evicts queue state and kills disappearing terminals",
+    "owners": [
+      "src/app/App.tsx"
+    ],
+    "proof": "src/app/App.tsx:4498",
+    "excerpt": "for (const id of disappearedTerminalIds(",
+    "test": "src/features/workspace/model/terminalPanes.test.ts:6",
+    "test_excerpt": "it(\"returns ids whose terminal files vanish between two tab sets\", () => {",
+    "standing": "NOTES \u00a70.5; archive 2026-09-23 round 2.5",
+    "windows": "No"
+  },
+  {
+    "id": "L-08",
+    "behaviour": "Terminals start lazily and release on close",
+    "owners": [
+      "src/features/terminal/ui/TerminalView.tsx"
+    ],
+    "proof": "src/features/terminal/ui/TerminalView.tsx:35",
+    "excerpt": "import { hasTerminalSpawned, isTerminalStarted, isTerminalWanted, markTerminalExited, requestTerminalStart, retryTerminalStart, startTerminal, subscribeTerminalLifecycle, terminalExitCode } from \"../../sessions/model/terminalLifecycle\";",
+    "test": "src/features/sessions/ui/TerminalView.test.ts:171",
+    "test_excerpt": "it(\"restores visible terminals dormant with zero spawns\", async () => {",
+    "standing": "NOTES \u00a70.6; archive 2026-09-24 standing calls",
+    "windows": "No"
+  },
+  {
+    "id": "L-09",
+    "behaviour": "Wallpaper and menu controls, five effects and packaged rendering remain",
+    "owners": [
+      "src-tauri/src/fs.rs",
+      "src-tauri/src/lib.rs",
+      "src-tauri/tauri.conf.json",
+      "src/app/shell/Sidebar.tsx",
+      "src/app/shell/SidebarRename.test.ts",
+      "src/features/projects/ui/SearchableProjectPicker.tsx",
+      "src/features/settings/model/appearance.test.ts",
+      "src/features/settings/model/appearance.ts",
+      "src/features/settings/model/appearance.wallpaper.test.ts",
+      "src/features/settings/model/newThreadBackgroundEffects.test.ts",
+      "src/features/settings/model/settings.ts",
+      "src/features/settings/ui/SettingsView.tsx",
+      "src/features/settings/ui/SettingsView.wallpaper.test.ts",
+      "src/platform/tauri/fs.test.ts",
+      "src/platform/tauri/fs.ts"
+    ],
+    "proof": "src/features/settings/model/appearance.ts:879",
+    "excerpt": "export async function applyWallpaperPath(",
+    "test": "src/features/settings/model/appearance.wallpaper.test.ts:77",
+    "test_excerpt": "it(\"uses an independent wallpaper URL and the shared Halftone renderer\", async () => {",
+    "standing": "NOTES \u00a70.7; archive 2026-09-23 settings call",
+    "windows": "Yes"
+  },
+  {
+    "id": "L-10",
+    "behaviour": "Shared sliding hover uses a stable glass frame",
+    "owners": [
+      "src/shared/ui/Popover.tsx"
+    ],
+    "proof": "src/shared/ui/Popover.tsx:265",
+    "excerpt": "<SharedHoverHighlight />",
+    "test": "src/shared/ui/Popover.hover.test.ts:63",
+    "test_excerpt": "it(\"paints the marker between the frame wash and the transparent content layer\", () => {",
+    "standing": "NOTES \u00a70.8; archive 2026-09-23 hover provenance",
+    "windows": "No"
+  },
+  {
+    "id": "L-11",
+    "behaviour": "Context and dollar accounting share usage and turn metrics",
+    "owners": [
+      "src/features/sessions/model/tokenAccounting.ts"
+    ],
+    "proof": "src/features/sessions/model/tokenAccounting.ts:9",
+    "excerpt": "export type ProcessedUsage = {",
+    "test": "src/features/sessions/model/tokenAccounting.test.ts:20",
+    "test_excerpt": "it(\"respects Codex subset accounting (input includes cached, output includes reasoning)\", () => {",
+    "standing": "NOTES \u00a70.9; archive 2026-09-23 theme decisions",
+    "windows": "No"
+  },
+  {
+    "id": "L-12",
+    "behaviour": "Remaining quota can be shown as a percentage",
+    "owners": [
+      "src/features/providers/model/rateLimits.ts"
+    ],
+    "proof": "src/features/providers/model/rateLimits.ts:183",
+    "excerpt": "const remaining = Math.max(0, Math.min(100, 100 - clampUsedPercent(usedPercent)));",
+    "test": "src/features/providers/model/rateLimits.test.ts:25",
+    "test_excerpt": "it(\"uses the compact 5h / wk labels\", () => {",
+    "standing": "NOTES \u00a70.9",
+    "windows": "No"
+  },
+  {
+    "id": "L-13",
+    "behaviour": "Windows provider discovery hides helpers and controls process trees",
+    "owners": [
+      "Cargo.lock",
+      "index.html",
+      "src-tauri/Cargo.toml",
+      "src-tauri/build.rs",
+      "src-tauri/src/fs.rs",
+      "src-tauri/src/harness.rs",
+      "src-tauri/src/lib.rs",
+      "src-tauri/src/search.rs",
+      "src-tauri/src/window.rs",
+      "src-tauri/tauri.conf.json",
+      "src-tauri/tauri.windows.conf.json"
+    ],
+    "proof": "src-tauri/src/harness.rs:129",
+    "excerpt": "let assigned = AssignProcessToJobObject(job, process) != 0;",
+    "test": "src-tauri/src/harness.rs:4086",
+    "test_excerpt": "fn which_in_path_takes_the_first_executable_hit() {",
+    "standing": "NOTES \u00a70.10; WORKING-AGREEMENT Windows rules",
+    "windows": "Yes"
+  },
+  {
+    "id": "L-14",
+    "behaviour": "Windows terminal uses ConPTY with stalled-output replay",
+    "owners": [
+      "Cargo.lock",
+      "src-tauri/Cargo.toml",
+      "src-tauri/src/lib.rs",
+      "src-tauri/src/pty.rs"
+    ],
+    "proof": "src-tauri/src/pty.rs:393",
+    "excerpt": "fn spawn_windows(",
+    "test": "src-tauri/src/pty.rs:583",
+    "test_excerpt": "fn conpty_spawns_shell_and_echoes() {",
+    "standing": "NOTES \u00a70.10",
+    "windows": "Yes"
+  },
+  {
+    "id": "L-15",
+    "behaviour": "Reveal errors are testable without launching Explorer",
+    "owners": [
+      "src-tauri/src/fs.rs"
+    ],
+    "proof": "src-tauri/src/fs.rs:5207",
+    "excerpt": "pub fn reveal_path(path: String) -> Result<(), String> {",
+    "test": "src-tauri/src/fs.rs:7673",
+    "test_excerpt": "fn reveal_path_rejects_missing_path() {",
+    "standing": "No new product call; Done explorer spec and a8e43b8",
+    "windows": "Yes"
+  },
+  {
+    "id": "L-16",
+    "behaviour": "Import existing CLI conversations with resume or replay",
+    "owners": [
+      "src-tauri/src/lib.rs",
+      "src-tauri/src/session_import.rs",
+      "src-tauri/src/session_import/tests.rs",
+      "src-tauri/src/test_fixtures/session_import/fake-home/.claude/projects/E--Fake-Project-One/corrupt.jsonl",
+      "src-tauri/src/test_fixtures/session_import/fake-home/.claude/projects/E--Fake-Project-One/sess-aaa.jsonl",
+      "src-tauri/src/test_fixtures/session_import/fake-home/.claude/projects/E--Fake-Project-Two/sess-bbb.jsonl",
+      "src-tauri/src/test_fixtures/session_import/fake-home/.codex/sessions/2026/08/20/rollout-test.jsonl",
+      "src/integrations/harness/core/sessionImport.ts"
+    ],
+    "proof": "src/integrations/harness/core/sessionImport.ts:16",
+    "excerpt": "export type ExternalSource =",
+    "test": "src/integrations/harness/core/sessionImport.test.ts:142",
+    "test_excerpt": "it(\"creates a bound claude session with a tab-sized title\", () => {",
+    "standing": "Not decided against new upstream; Done SESSION-MIGRATION-PLAN",
+    "windows": "No"
+  },
+  {
+    "id": "L-17",
+    "behaviour": "Skills settings can choose discovered skills without a command runner",
+    "owners": [
+      "Cargo.lock",
+      "public/monocode.png",
+      "src-tauri/capabilities/default.json",
+      "src-tauri/icons/icon.ico",
+      "src-tauri/src/harness.rs",
+      "src-tauri/src/skills.rs",
+      "src/features/skills/model/skills.ts"
+    ],
+    "proof": "src/features/skills/model/skills.ts:26",
+    "excerpt": "export const SKILLS_CHANGE_EVENT = \"monocode:skills-change\";",
+    "test": "src-tauri/src/skills.rs:646",
+    "test_excerpt": "let skills = list_skills_from(&project.0, Some(&home.0), None);",
+    "standing": "Not decided against new upstream; 7af1091",
+    "windows": "No"
+  },
+  {
+    "id": "L-18",
+    "behaviour": "Provider discovery shows failures and retry/update notices",
+    "owners": [
+      "src/integrations/harness/core/availability.ts"
+    ],
+    "proof": "src/integrations/harness/core/availability.ts:118",
+    "excerpt": "error?: string,",
+    "test": "src/features/settings/ui/UpdateToasts.test.ts:33",
+    "test_excerpt": "it(\"renders nothing when no CLI is outdated\", () => {",
+    "standing": "Not decided against upstream; d5ca807; archive 2026-09-24 additions",
+    "windows": "No"
+  },
+  {
+    "id": "L-19",
+    "behaviour": "Local helper-model preference has validated primary and fallback",
+    "owners": [
+      "src-tauri/src/antigravity_acp.rs",
+      "src-tauri/src/lib.rs",
+      "src/app/App.tsx",
+      "src/features/settings/model/settings.test.ts",
+      "src/features/settings/model/settings.ts",
+      "src/features/settings/ui/SettingsView.test.ts",
+      "src/features/settings/ui/SettingsView.tsx",
+      "src/features/source-control/model/gitText.test.ts",
+      "src/features/source-control/model/gitText.ts",
+      "src/features/source-control/ui/GitChangesPanel.test.ts",
+      "src/features/source-control/ui/GitChangesPanel.tsx",
+      "src/features/source-control/ui/PrDetailsDialog.test.ts",
+      "src/features/source-control/ui/PrDetailsDialog.tsx",
+      "src/features/source-control/ui/SwitchBranchDialog.test.ts",
+      "src/features/source-control/ui/SwitchBranchDialog.tsx",
+      "src/integrations/harness/core/antigravityAdapter.ts",
+      "src/integrations/harness/core/antigravityHelper.test.ts",
+      "src/integrations/harness/core/antigravityHelper.ts",
+      "src/integrations/harness/core/helperIsolation.ts",
+      "src/integrations/harness/core/helperPipeline.test.ts",
+      "src/integrations/harness/core/helperPipeline.ts",
+      "src/integrations/harness/core/helperSchemas.ts",
+      "src/integrations/harness/core/helperText.test.ts",
+      "src/integrations/harness/core/helperText.ts",
+      "src/integrations/harness/core/registry.ts",
+      "src/integrations/harness/index.ts",
+      "src/integrations/harness/providers/claude/claudeAdapter.ts",
+      "src/integrations/harness/providers/claude/claudeGit.ts",
+      "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+      "src/integrations/harness/providers/claude/claudeProtocol.ts",
+      "src/integrations/harness/providers/claude/claudeText.test.ts",
+      "src/integrations/harness/providers/claude/claudeText.ts",
+      "src/integrations/harness/providers/codex/codexAdapter.ts",
+      "src/integrations/harness/providers/codex/codexGit.ts",
+      "src/integrations/harness/providers/codex/codexProtocol.test.ts",
+      "src/integrations/harness/providers/codex/codexProtocol.ts",
+      "src/integrations/harness/providers/codex/codexText.test.ts",
+      "src/integrations/harness/providers/codex/codexText.ts",
+      "src/integrations/harness/providers/opencode/opencodeAdapter.ts",
+      "src/integrations/harness/providers/opencode/opencodeGit.ts",
+      "src/integrations/harness/providers/opencode/opencodeText.test.ts",
+      "src/integrations/harness/providers/opencode/opencodeText.ts"
+    ],
+    "proof": "src/features/settings/model/settings.ts:794",
+    "excerpt": "export function parseAiHelperSettings(raw: unknown): AiHelperSettings {",
+    "test": "src/integrations/harness/core/helperPipeline.test.ts:65",
+    "test_excerpt": "it(\"returns a valid first reply with the output schema\", async () => {",
+    "standing": "Not decided against upstream; Done ai-helper-model-settings",
+    "windows": "No"
+  },
+  {
+    "id": "L-20",
+    "behaviour": "Claude and Codex offer session-scoped tool approvals",
+    "owners": [
+      "src/app/App.tsx",
+      "src/features/notifications/model/approvalToast.ts",
+      "src/features/sessions/data/sessionStore.test.ts",
+      "src/features/sessions/data/sessionStore.ts",
+      "src/features/sessions/model/session.ts",
+      "src/features/sessions/ui/AgentTranscript.test.ts",
+      "src/features/sessions/ui/AgentTranscript.tsx",
+      "src/features/sessions/ui/ApprovalToasts.test.ts",
+      "src/features/sessions/ui/ApprovalToasts.tsx",
+      "src/features/sessions/ui/SessionPane.tsx",
+      "src/features/workspace/ui/PaneTree.tsx",
+      "src/integrations/harness/core/apply.test.ts",
+      "src/integrations/harness/core/apply.ts",
+      "src/integrations/harness/core/registry.test.ts",
+      "src/integrations/harness/core/registry.ts",
+      "src/integrations/harness/core/types.ts",
+      "src/integrations/harness/index.ts",
+      "src/integrations/harness/providers/claude/claude.ts",
+      "src/integrations/harness/providers/claude/claudeLive.test.ts",
+      "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+      "src/integrations/harness/providers/claude/claudeProtocol.ts",
+      "src/integrations/harness/providers/codex/codex.ts",
+      "src/integrations/harness/providers/codex/codexElicitation.test.ts",
+      "src/integrations/harness/providers/codex/codexElicitation.ts",
+      "src/integrations/harness/providers/codex/codexLive.test.ts",
+      "src/integrations/harness/providers/codex/codexProtocol.test.ts",
+      "src/integrations/harness/providers/codex/codexProtocol.ts"
+    ],
+    "proof": "src/integrations/harness/providers/codex/codex.ts:1221",
+    "excerpt": "const sessionGrant =",
+    "test": "src/integrations/harness/providers/codex/codexElicitation.test.ts:74",
+    "test_excerpt": "it(\"keeps empty confirmations compatible\", () => {",
+    "standing": "Not decided against upstream; Done session-approval-scopes and follow-ups",
+    "windows": "No"
+  },
+  {
+    "id": "L-21",
+    "behaviour": "Session grants never auto-answer Plan or stopped/replaced chats",
+    "owners": [
+      "src/integrations/harness/providers/claude/claude.ts",
+      "src/integrations/harness/providers/claude/claudeLive.test.ts",
+      "src/integrations/harness/providers/codex/codex.ts",
+      "src/integrations/harness/providers/codex/codexLive.test.ts"
+    ],
+    "proof": "src/integrations/harness/providers/codex/codex.ts:1229",
+    "excerpt": "sessionGrant && liveByThread.get(live.sessionId) === live && !live.cancelled",
+    "test": "src/integrations/harness/providers/codex/codexLive.test.ts:1279",
+    "test_excerpt": "it(\"does not reuse a stored MCP grant during a Plan turn\", async () => {",
+    "standing": "Not decided against upstream; Done provider-batch-followup-fixes",
+    "windows": "No"
+  },
+  {
+    "id": "L-22",
+    "behaviour": "Claude model and permission changes update the live runtime",
+    "owners": [
+      "src/integrations/harness/providers/claude/claude.ts",
+      "src/integrations/harness/providers/claude/claudeControl.test.ts",
+      "src/integrations/harness/providers/claude/claudeLive.test.ts",
+      "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+      "src/integrations/harness/providers/claude/claudeProtocol.ts"
+    ],
+    "proof": "src/integrations/harness/providers/claude/claude.ts:466",
+    "excerpt": "await sendControl(existing, buildSetModelRequest(step.model));",
+    "test": "src/integrations/harness/providers/claude/claudeLive.test.ts:296",
+    "test_excerpt": "it(\"waits for the matching model response before sending the next user message\", async () => {",
+    "standing": "Not decided against upstream; Done claude-live-controls",
+    "windows": "No"
+  },
+  {
+    "id": "L-23",
+    "behaviour": "Codex renders typed MCP forms and validation",
+    "owners": [
+      "src/app/App.tsx",
+      "src/features/sessions/data/sessionStore.test.ts",
+      "src/features/sessions/model/mcpForm.test.ts",
+      "src/features/sessions/model/mcpForm.ts",
+      "src/features/sessions/model/session.ts",
+      "src/features/sessions/ui/Composer.test.ts",
+      "src/features/sessions/ui/Composer.tsx",
+      "src/features/sessions/ui/McpForm.test.ts",
+      "src/features/sessions/ui/McpForm.tsx",
+      "src/features/sessions/ui/SessionPane.tsx",
+      "src/features/workspace/ui/PaneTree.tsx",
+      "src/integrations/harness/core/apply.test.ts",
+      "src/integrations/harness/core/apply.ts",
+      "src/integrations/harness/core/registry.ts",
+      "src/integrations/harness/core/types.ts",
+      "src/integrations/harness/index.ts",
+      "src/integrations/harness/providers/codex/codex.ts",
+      "src/integrations/harness/providers/codex/codexAdapter.ts",
+      "src/integrations/harness/providers/codex/codexElicitation.test.ts",
+      "src/integrations/harness/providers/codex/codexElicitation.ts",
+      "src/integrations/harness/providers/codex/codexLive.test.ts"
+    ],
+    "proof": "src/features/sessions/ui/McpForm.tsx:17",
+    "excerpt": "export function McpForm({ prompt, onReply }: Props) {",
+    "test": "src/features/sessions/model/mcpForm.test.ts:9",
+    "test_excerpt": "it(\"initializes defaults for every field kind\", () => {",
+    "standing": "Not decided against upstream; Done codex-mcp-forms (real server untried)",
+    "windows": "No"
+  },
+  {
+    "id": "L-24",
+    "behaviour": "Claude/Codex native context totals distinguish estimates",
+    "owners": [
+      "src/features/sessions/model/contextBreakdown.test.ts",
+      "src/features/sessions/model/contextBreakdown.ts",
+      "src/features/sessions/model/contextUsage.test.ts",
+      "src/features/sessions/model/contextUsage.ts",
+      "src/features/sessions/model/systemBreakdown.test.ts",
+      "src/features/sessions/model/systemBreakdown.ts",
+      "src/features/sessions/model/tokenCosting.test.ts",
+      "src/features/sessions/model/tokenCosting.ts",
+      "src/features/sessions/ui/Composer.tsx",
+      "src/features/sessions/ui/ContextMeter.tsx",
+      "src/features/sessions/ui/contextMeterNative.test.ts",
+      "src/integrations/harness/core/apply.test.ts",
+      "src/integrations/harness/core/apply.ts",
+      "src/integrations/harness/core/registry.ts",
+      "src/integrations/harness/core/types.ts",
+      "src/integrations/harness/providers/claude/claude.ts",
+      "src/integrations/harness/providers/claude/claudeAdapter.ts",
+      "src/integrations/harness/providers/claude/claudeLive.test.ts",
+      "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+      "src/integrations/harness/providers/claude/claudeProtocol.ts",
+      "src/integrations/harness/providers/codex/codexLive.test.ts",
+      "src/integrations/harness/providers/codex/codexProtocol.ts"
+    ],
+    "proof": "src/features/sessions/model/contextBreakdown.ts:33",
+    "excerpt": "export function nativeSegments(",
+    "test": "src/features/sessions/model/contextBreakdown.test.ts:8",
+    "test_excerpt": "it(\"preserves provider ordering, uses reported sources and excludes deferred categories\", () => {",
+    "standing": "Not decided against upstream; Done context-accuracy",
+    "windows": "No"
+  },
+  {
+    "id": "L-25",
+    "behaviour": "Branch uses provider-native forks with honest summary fallback",
+    "owners": [
+      "src/app/App.tsx",
+      "src/features/sessions/data/sessionStore.test.ts",
+      "src/features/sessions/data/sessionStore.ts",
+      "src/features/sessions/model/branchFlow.ts",
+      "src/features/sessions/model/branchPlan.test.ts",
+      "src/features/sessions/model/branchPlan.ts",
+      "src/features/sessions/model/fork.test.ts",
+      "src/features/sessions/model/fork.ts",
+      "src/features/sessions/model/session.ts",
+      "src/features/sessions/model/transcriptActivity.ts",
+      "src/features/sessions/ui/AgentTranscript.test.ts",
+      "src/features/sessions/ui/AgentTranscript.tsx",
+      "src/features/sessions/ui/branchFlow.test.ts",
+      "src/integrations/harness/core/apply.ts",
+      "src/integrations/harness/core/types.ts",
+      "src/integrations/harness/index.ts",
+      "src/integrations/harness/providers/claude/claude.ts",
+      "src/integrations/harness/providers/claude/claudeLive.test.ts",
+      "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+      "src/integrations/harness/providers/claude/claudeProtocol.ts",
+      "src/integrations/harness/providers/codex/codex.ts",
+      "src/integrations/harness/providers/codex/codexLive.test.ts",
+      "src/integrations/harness/providers/codex/codexProtocol.test.ts",
+      "src/integrations/harness/providers/codex/codexProtocol.ts",
+      "src/integrations/harness/providers/opencode/opencode.ts",
+      "src/integrations/harness/providers/opencode/opencodeClient.test.ts",
+      "src/integrations/harness/providers/opencode/opencodeClient.ts",
+      "src/integrations/harness/providers/opencode/opencodeLive.test.ts"
+    ],
+    "proof": "src/features/sessions/model/branchPlan.ts:68",
+    "excerpt": "mode: reason ? \"summary\" : \"native\", status: reason ? \"done\" : \"pending\",",
+    "test": "src/features/sessions/model/branchPlan.test.ts:47",
+    "test_excerpt": "it(\"records the account and working copy on a whole-conversation fork\", () => {",
+    "standing": "Not decided against upstream; Done native-branch/followups",
+    "windows": "No"
+  },
+  {
+    "id": "L-26",
+    "behaviour": "Sidechat and review-fix controls remain in a session",
+    "owners": [
+      "src/features/sessions/ui/SessionPane.tsx"
+    ],
+    "proof": "src/features/sessions/ui/SessionPane.tsx:758",
+    "excerpt": "onSidechat={onSidechat ? askSidechat : undefined}",
+    "test": "src/features/sessions/ui/ChatPanel.test.ts:62",
+    "test_excerpt": "it(\"does not render its own SharedHoverHighlight (relies on Sidebar marker)\", () => {",
+    "standing": "archive 2026-09-23 weaves; 2026-09-24 SessionPane delta",
+    "windows": "No"
+  },
+  {
+    "id": "L-27",
+    "behaviour": "Editor and Git staging preserve CRLF text",
+    "owners": [
+      "src-tauri/src/fs.rs",
+      "src/features/files/editor/editorDoc.ts"
+    ],
+    "proof": "src/features/files/editor/editorDoc.ts:8",
+    "excerpt": "} from \"../../sessions/model/lineEndings\";",
+    "test": "src/features/files/editor/editorDoc.test.ts:11",
+    "test_excerpt": "it(\"returns no changes when the documents match\", () => {",
+    "standing": "Not decided against upstream; 0b9122a",
+    "windows": "No"
+  },
+  {
+    "id": "L-28",
+    "behaviour": "Human-origin Claude turns are distinguished from managed turns",
+    "owners": [
+      "AGENTS.md",
+      "src/app/App.tsx",
+      "src/features/sessions/model/systemBreakdown.test.ts",
+      "src/features/sessions/model/systemBreakdown.ts",
+      "src/integrations/harness/core/antigravityAcpLive.test.ts",
+      "src/integrations/harness/core/types.ts",
+      "src/integrations/harness/providers/claude/claude.ts",
+      "src/integrations/harness/providers/claude/claudeProtocol.test.ts",
+      "src/integrations/harness/providers/claude/claudeProtocol.ts"
+    ],
+    "proof": "src/app/App.tsx:6652",
+    "excerpt": "humanAuthored: !options?.managed,",
+    "test": "src/integrations/harness/providers/claude/claudeProtocol.test.ts:80",
+    "test_excerpt": "it(\"sends permission mode before the model when both can change live\", () => {",
+    "standing": "Not decided against upstream; parking record retained code",
+    "windows": "No"
+  }
+]

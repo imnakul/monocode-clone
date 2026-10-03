@@ -1,0 +1,1561 @@
+diff --git a/src/integrations/harness/providers/claude/claude.ts b/src/integrations/harness/providers/claude/claude.ts
+index 7d7605c..f7d2c9f 100644
+--- a/src/integrations/harness/providers/claude/claude.ts
++++ b/src/integrations/harness/providers/claude/claude.ts
+@@ -30,6 +30,9 @@ import {
+   buildClaudeUserMessage,
+   buildControlRequest,
+   buildControlResponse,
++  buildSetModelRequest,
++  buildSetPermissionModeRequest,
++  claudeLiveKey,
+   claudeSessionRules,
+   claudeSettingsKey,
+   extractAskUserQuestionTitle,
+@@ -43,6 +46,7 @@ import {
+   normalizeClaudeCliEffort,
+   parseBackgroundAgentTasks,
+   parseControlCancelId,
++  parseControlResponse,
+   parseControlRequest,
+   parseJsonLine,
+   parseTaskNotification,
+@@ -54,6 +58,7 @@ import {
+   previewFromTool,
+   resolveClaudeApiModelId,
+   runtimeModeToPermission,
++  planClaudeLiveSwitch,
+   sessionIdFromMessage,
+   statusTextFromSystem,
+   streamDeltaFromEvent,
+@@ -67,6 +72,7 @@ import {
+   tryParseJsonRecord,
+   turnStatusFromResult,
+   type ClaudeCliSettings,
++  type ClaudeLiveKey,
+   type ClaudeControlRequest,
+   type ClaudeSessionGrant,
+   type ClaudeSessionRule,
+@@ -104,6 +110,13 @@ type PendingApproval = {
+   resolve: (decision: ApprovalOutcome) => void;
+ };
+ 
++type PendingControl = {
++  resolve: (payload: Record<string, unknown>) => void;
++  reject: (error: ClaudeControlError) => void;
++  timer: ReturnType<typeof setTimeout>;
++  cleanup: () => void;
++};
++
+ type PendingQuestion = {
+   requestId: string;
+   event: Extract<HarnessEvent, { type: "question.asked" }>;
+@@ -126,18 +139,22 @@ type LiveAgentTask = {
+ };
+ 
+ type Live = {
++  sessionId: string;
+   cwd: string;
+   claudeSessionId: string;
+   providerAccountId?: string;
+   runtimeMode: RuntimeMode;
+   planning: boolean;
+   settingsKey: string;
++  liveKey: ClaudeLiveKey;
++  pendingControls: Map<string, PendingControl>;
++  generation: number;
++  expectModel?: string;
+   onEvent: (event: HarnessEvent) => void;
+   approvals: Map<number, PendingApproval>;
+   questions: Map<number, PendingQuestion>;
+   visibleQuestionId: number | null;
+   nextApprovalUiId: number;
+-  nextControlId: number;
+   toolsByIndex: Map<number, InFlightTool>;
+   toolsById: Map<string, InFlightTool>;
+   agentTasks: Map<string, LiveAgentTask>;
+@@ -167,6 +184,25 @@ type Resume = {
+ };
+ 
+ const INIT_TIMEOUT_MS = 8_000;
++const CONTROL_TIMEOUT_MS = 5_000;
++
++export type ClaudeControlFailure =
++  | "error"
++  | "timeout"
++  | "cancelled"
++  | "stopped"
++  | "write-failed"
++  | "unavailable";
++
++export class ClaudeControlError extends Error {
++  constructor(
++    readonly reason: ClaudeControlFailure,
++    message: string,
++  ) {
++    super(message);
++    this.name = "ClaudeControlError";
++  }
++}
+ 
+ const liveByThread = new Map<string, Live>();
+ const resumeByThread = new Map<string, Resume>();
+@@ -179,6 +215,10 @@ const sessionGrantsByThread = new Map<
+   }
+ >();
+ const cancelledThreads = new Set<string>();
++let nextClaudeGeneration = 0;
++// Keep control IDs unique across child generations so late lines cannot match
++// a request issued after Claude has respawned.
++let nextClaudeControlId = 0;
+ 
+ let resolveClaudeBinaryImpl: () => Promise<{ path: string }> =
+   resolveClaudeBinary;
+@@ -310,7 +350,7 @@ export async function cancelClaudeTurn(sessionId: string): Promise<void> {
+   live.questions.clear();
+   await writeJson(
+     sessionId,
+-    buildControlRequest(nextControlId(live), { subtype: "interrupt" }),
++    buildControlRequest(nextControlId(), { subtype: "interrupt" }),
+   ).catch(() => undefined);
+   finishActiveTurn(live, [
+     { type: "message.completed" },
+@@ -324,6 +364,10 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
+   liveByThread.delete(sessionId);
+   if (live) {
+     live.muteUpdates = true;
++    rejectPendingControls(
++      live,
++      new ClaudeControlError("stopped", "Claude Code stopped"),
++    );
+     for (const [, pending] of live.approvals)
+       pending.resolve({ decision: "deny" });
+     live.approvals.clear();
+@@ -379,17 +423,52 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+     sessionGrantsByThread.delete(input.sessionId);
+   }
+   const settingsKey = settingsKeyFor(input);
++  const liveKey = claudeLiveKey(input, loadClaudeHooks());
+   const planning = input.intent === "plan";
+   const existing = liveByThread.get(input.sessionId);
++  const switchPlan = existing
++    ? existing.settingsKey === "stale"
++      ? { kind: "restart" as const, reason: "Claude model did not match" }
++      : planClaudeLiveSwitch(existing.liveKey, liveKey)
++    : null;
++  if (existing && existing.cwd === input.cwd && switchPlan?.kind === "reuse") {
++    existing.settingsKey = settingsKey;
++    existing.liveKey = liveKey;
++    existing.planning = planning;
++    existing.onEvent = input.onEvent;
++    existing.runtimeMode = input.runtimeMode;
++    return existing;
++  }
++  let liveSwitchFallback = false;
+   if (
+     existing &&
+     existing.cwd === input.cwd &&
+-    existing.settingsKey === settingsKey &&
+-    existing.planning === planning
++    switchPlan?.kind === "switch" &&
++    existing.initialized &&
++    !existing.activeTurn &&
++    !existing.turnEndPending &&
++    existing.approvals.size === 0 &&
++    existing.questions.size === 0 &&
++    !existing.manualCompaction
+   ) {
+-    existing.onEvent = input.onEvent;
+-    existing.runtimeMode = input.runtimeMode;
+-    return existing;
++    try {
++      for (const step of switchPlan.steps) {
++        if (step.type === "set_permission_mode") {
++          await sendControl(existing, buildSetPermissionModeRequest(step.mode));
++        } else {
++          await sendControl(existing, buildSetModelRequest(step.model));
++          existing.expectModel = step.model;
++        }
++      }
++      existing.settingsKey = settingsKey;
++      existing.liveKey = liveKey;
++      existing.planning = planning;
++      existing.onEvent = input.onEvent;
++      existing.runtimeMode = input.runtimeMode;
++      return existing;
++    } catch {
++      liveSwitchFallback = true;
++    }
+   }
+   if (existing) {
+     // Model and launch-setting changes require a fresh Claude process, but
+@@ -427,18 +506,21 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+   );
+ 
+   const live: Live = {
++    sessionId: input.sessionId,
+     cwd: input.cwd,
+     claudeSessionId,
+     providerAccountId: input.providerAccountId,
+     runtimeMode: input.runtimeMode,
+     planning,
+     settingsKey,
++    liveKey,
++    pendingControls: new Map(),
++    generation: ++nextClaudeGeneration,
+     onEvent: input.onEvent,
+     approvals: new Map(),
+     questions: new Map(),
+     visibleQuestionId: null,
+     nextApprovalUiId: 1,
+-    nextControlId: 1,
+     toolsByIndex: new Map(),
+     toolsById: new Map(),
+     agentTasks: new Map(),
+@@ -470,8 +552,16 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+       handleLine(input.sessionId, current, line);
+     },
+     (code) => {
+-      liveByThread.delete(input.sessionId);
+       const current = liveRef.current;
++      if (current && liveByThread.get(input.sessionId) === current) {
++        liveByThread.delete(input.sessionId);
++      }
++      if (current) {
++        rejectPendingControls(
++          current,
++          new ClaudeControlError("stopped", "Claude Code stopped"),
++        );
++      }
+       if (!current?.muteUpdates) {
+         (current?.onEvent ?? input.onEvent)({ type: "session.ended", code });
+       }
+@@ -503,7 +593,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+   try {
+     await writeJson(
+       input.sessionId,
+-      buildControlRequest(nextControlId(live), { subtype: "initialize" }),
++      buildControlRequest(nextControlId(), { subtype: "initialize" }),
+     );
+     await waitForInit(live, INIT_TIMEOUT_MS);
+     live.onEvent({
+@@ -511,6 +601,12 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+       providerSessionId: live.claudeSessionId,
+     });
+     live.onEvent({ type: "session.started" });
++    if (liveSwitchFallback) {
++      live.onEvent({
++        type: "status",
++        text: "Claude couldn't switch live, so it restarted with the new settings.",
++      });
++    }
+     return live;
+   } catch (error) {
+     await stopClaudeSession(input.sessionId);
+@@ -629,6 +725,16 @@ function handleLine(sessionId: string, live: Live, line: string): void {
+   }
+ 
+   if (type === "control_response") {
++    const response = parseControlResponse(rec);
++    if (response?.ok) {
++      resolvePendingControl(live, response.requestId, response.payload ?? {});
++    } else if (response) {
++      rejectPendingControl(
++        live,
++        response.requestId,
++        new ClaudeControlError("error", response.error ?? "control request failed"),
++      );
++    }
+     markInitialized(live);
+     return;
+   }
+@@ -751,6 +857,19 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
+   }
+ 
+   const msg = asRecord(rec.message);
++  const expectedModel = live.expectModel;
++  if (expectedModel) {
++    live.expectModel = undefined;
++    const actualModel = stringField(msg, "model");
++    const requestedModel = expectedModel.replace(/\[1m\]$/, "");
++    if (actualModel && actualModel !== requestedModel) {
++      live.onEvent({
++        type: "status",
++        text: `Claude answered with ${actualModel} instead of ${expectedModel}. The next message restarts Claude with the selected model.`,
++      });
++      live.settingsKey = "stale";
++    }
++  }
+   const messageId = stringField(msg, "id");
+   const usageRec = asRecord(msg?.usage);
+   const reqUsage = parseClaudeUsage(usageRec);
+@@ -1470,9 +1589,9 @@ function waitForInit(live: Live, timeoutMs: number): Promise<void> {
+   });
+ }
+ 
+-function nextControlId(live: Live): string {
+-  live.nextControlId += 1;
+-  return `monocode_${live.nextControlId}`;
++function nextControlId(): string {
++  nextClaudeControlId += 1;
++  return `monocode_${nextClaudeControlId}`;
+ }
+ 
+ function writeJson(
+@@ -1482,6 +1601,167 @@ function writeJson(
+   return writeChild(sessionId, JSON.stringify(payload));
+ }
+ 
++function takePendingControl(
++  live: Live,
++  requestId: string,
++): PendingControl | undefined {
++  const pending = live.pendingControls.get(requestId);
++  if (!pending) return undefined;
++  live.pendingControls.delete(requestId);
++  clearTimeout(pending.timer);
++  pending.cleanup();
++  return pending;
++}
++
++function resolvePendingControl(
++  live: Live,
++  requestId: string,
++  payload: Record<string, unknown>,
++): void {
++  takePendingControl(live, requestId)?.resolve(payload);
++}
++
++function rejectPendingControl(
++  live: Live,
++  requestId: string,
++  error: ClaudeControlError,
++): void {
++  takePendingControl(live, requestId)?.reject(error);
++}
++
++function rejectPendingControls(live: Live, error: ClaudeControlError): void {
++  for (const requestId of live.pendingControls.keys()) {
++    rejectPendingControl(live, requestId, error);
++  }
++}
++
++function sendControl(
++  live: Live,
++  request: Record<string, unknown>,
++  opts?: { timeoutMs?: number; signal?: AbortSignal },
++): Promise<Record<string, unknown>> {
++  const signal = opts?.signal;
++  if (signal?.aborted) {
++    return Promise.reject(
++      new ClaudeControlError("cancelled", "Claude control request cancelled"),
++    );
++  }
++
++  const requestId = nextControlId();
++  return new Promise((resolve, reject) => {
++    let abortHandler: (() => void) | undefined;
++    const pending: PendingControl = {
++      resolve,
++      reject,
++      timer: setTimeout(
++        () =>
++          rejectPendingControl(
++            live,
++            requestId,
++            new ClaudeControlError(
++              "timeout",
++              "Claude Code control request timed out",
++            ),
++          ),
++        opts?.timeoutMs ?? CONTROL_TIMEOUT_MS,
++      ),
++      cleanup: () => {
++        if (signal && abortHandler) {
++          signal.removeEventListener("abort", abortHandler);
++        }
++      },
++    };
++    live.pendingControls.set(requestId, pending);
++
++    if (signal) {
++      abortHandler = () =>
++        rejectPendingControl(
++          live,
++          requestId,
++          new ClaudeControlError(
++            "cancelled",
++            "Claude control request cancelled",
++          ),
++        );
++      signal.addEventListener("abort", abortHandler, { once: true });
++      if (signal.aborted) {
++        abortHandler();
++        return;
++      }
++    }
++
++    try {
++      void writeJson(
++        live.sessionId,
++        buildControlRequest(requestId, request),
++      ).catch((error: unknown) => {
++        rejectPendingControl(
++          live,
++          requestId,
++          new ClaudeControlError(
++            "write-failed",
++            error instanceof Error ? error.message : String(error),
++          ),
++        );
++      });
++    } catch (error) {
++      rejectPendingControl(
++        live,
++        requestId,
++        new ClaudeControlError(
++          "write-failed",
++          error instanceof Error ? error.message : String(error),
++        ),
++      );
++    }
++  });
++}
++
++const READ_ONLY_CLAUDE_CONTROL_SUBTYPES = new Set([
++  "get_context_usage",
++  "get_settings",
++]);
++
++export function requestClaudeControl(
++  sessionId: string,
++  request: Record<string, unknown>,
++  opts?: {
++    timeoutMs?: number;
++    signal?: AbortSignal;
++    requireIdle?: boolean;
++  },
++): Promise<{ payload: Record<string, unknown>; generation: number }> {
++  const live = liveByThread.get(sessionId);
++  if (!live || !live.initialized) {
++    return Promise.reject(
++      new ClaudeControlError("unavailable", "Claude Code is not initialized"),
++    );
++  }
++  const subtype = stringField(request, "subtype");
++  if (!subtype || !READ_ONLY_CLAUDE_CONTROL_SUBTYPES.has(subtype)) {
++    return Promise.reject(
++      new ClaudeControlError("unavailable", "Unsupported Claude control request"),
++    );
++  }
++  if (
++    opts?.requireIdle &&
++    (live.activeTurn ||
++      live.turnEndPending ||
++      live.manualCompaction ||
++      live.approvals.size > 0 ||
++      live.questions.size > 0)
++  ) {
++    return Promise.reject(
++      new ClaudeControlError("unavailable", "Claude Code is busy"),
++    );
++  }
++  const generation = live.generation;
++  return sendControl(live, request, opts).then((payload) => ({
++    payload,
++    generation,
++  }));
++}
++
+ function settingsKeyFor(input: HarnessSessionInput): string {
+   return `${input.providerAccountId ?? "default"}:${claudeSettingsKey({
+     model: nativeModelId(input.model),
+@@ -1583,4 +1863,6 @@ export function __claudeTestReset(): void {
+   resumeByThread.clear();
+   sessionGrantsByThread.clear();
+   cancelledThreads.clear();
++  nextClaudeGeneration = 0;
++  nextClaudeControlId = 0;
+ }
+diff --git a/src/integrations/harness/providers/claude/claudeControl.test.ts b/src/integrations/harness/providers/claude/claudeControl.test.ts
+new file mode 100644
+index 0000000..60347bf
+--- /dev/null
++++ b/src/integrations/harness/providers/claude/claudeControl.test.ts
+@@ -0,0 +1,353 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++
++const sent: string[] = [];
++const spawned: string[][] = [];
++const children: Array<{
++  onLine: (line: string) => void;
++  onExit: (code?: number | null) => void;
++}> = [];
++const writeChild = vi.fn(async (_id: string, line: string) => {
++  sent.push(line);
++});
++
++vi.mock("../../core/child", () => ({
++  resolveClaudeBinary: async () => ({ path: "/fake/claude" }),
++  spawnChild: async (_id: string, _path: string, args: string[]) => {
++    spawned.push(args);
++  },
++  killChild: async () => undefined,
++  unwatchChild: () => undefined,
++  watchChild: (
++    _id: string,
++    onLine: (line: string) => void,
++    onExit: (code?: number | null) => void,
++  ) => {
++    children.push({ onLine, onExit });
++  },
++  writeChild,
++}));
++
++const {
++  ClaudeControlError,
++  requestClaudeControl,
++  respondClaudeApproval,
++  sendClaudeTurn,
++  stopClaudeSession,
++  __claudeTestReset,
++} = await import("./claude");
++import type { HarnessEvent } from "../../core/types";
++
++function parse(): Record<string, unknown>[] {
++  return sent.map((line) => JSON.parse(line) as Record<string, unknown>);
++}
++
++function emit(
++  childIndex: number,
++  record: Record<string, unknown>,
++): void {
++  children[childIndex]?.onLine(JSON.stringify(record));
++}
++
++const waitFor = async (predicate: () => boolean, label: string): Promise<void> => {
++  for (let attempt = 0; attempt < 200; attempt += 1) {
++    if (predicate()) return;
++    await new Promise((resolve) => setTimeout(resolve, 5));
++  }
++  throw new Error(`timed out waiting for ${label}; sent=${JSON.stringify(parse())}`);
++};
++
++async function startTurn(sessionId: string) {
++  const childIndex = children.length;
++  const userCount = parse().filter((message) => message.type === "user").length;
++  const events: HarnessEvent[] = [];
++  const turn = sendClaudeTurn({
++    sessionId,
++    cwd: "/repo",
++    model: "claude:claude-sonnet-4-6",
++    modelSettings: {},
++    runtimeMode: "supervised",
++    text: "explore the codebase",
++    attachments: [],
++    onEvent: (event) => events.push(event),
++  });
++  await waitFor(
++    () => parse().some((message) => {
++      const request = message.request as Record<string, unknown> | undefined;
++      return request?.subtype === "initialize";
++    }),
++    "Claude initialize request",
++  );
++  const initialize = parse().find((message) => {
++    const request = message.request as Record<string, unknown> | undefined;
++    return request?.subtype === "initialize";
++  });
++  emit(childIndex, { type: "system", subtype: "init", session_id: "sess_1" });
++  emit(childIndex, {
++    type: "control_response",
++    response: {
++      subtype: "success",
++      request_id: initialize?.request_id,
++      response: { pid: 1 },
++    },
++  });
++  await waitFor(
++    () => parse().filter((message) => message.type === "user").length > userCount,
++    "user prompt",
++  );
++  return { childIndex, events, turn };
++}
++
++async function finishTurn(turn: Promise<void>, childIndex = 0): Promise<void> {
++  emit(childIndex, { type: "result", subtype: "success", session_id: "sess_1" });
++  await turn;
++}
++
++function controlRequest(subtype: string): Record<string, unknown> | undefined {
++  return parse().filter((message) => {
++    const request = message.request as Record<string, unknown> | undefined;
++    return request?.subtype === subtype;
++  }).at(-1);
++}
++
++function respondControl(
++  childIndex: number,
++  requestId: unknown,
++  response: Record<string, unknown> = {},
++): void {
++  emit(childIndex, {
++    type: "control_response",
++    response: { subtype: "success", request_id: requestId, response },
++  });
++}
++
++beforeEach(() => {
++  sent.length = 0;
++  spawned.length = 0;
++  children.length = 0;
++  writeChild.mockReset();
++  writeChild.mockImplementation(async (_id: string, line: string) => {
++    sent.push(line);
++  });
++  __claudeTestReset();
++});
++
++afterEach(async () => {
++  vi.useRealTimers();
++  await stopClaudeSession("s1");
++  __claudeTestReset();
++});
++
++describe("Claude control transport", () => {
++  it("rejects unavailable sessions without spawning a child", async () => {
++    await expect(
++      requestClaudeControl("missing", { subtype: "get_settings" }),
++    ).rejects.toMatchObject({ reason: "unavailable" });
++    expect(spawned).toHaveLength(0);
++  });
++
++  it("requires an initialized child and honors the idle guard", async () => {
++    const turn = sendClaudeTurn({
++      sessionId: "s1",
++      cwd: "/repo",
++      model: "claude:claude-sonnet-4-6",
++      modelSettings: {},
++      runtimeMode: "supervised",
++      text: "hello",
++      attachments: [],
++      onEvent: () => undefined,
++    });
++    await waitFor(
++      () => controlRequest("initialize") !== undefined,
++      "initialize request",
++    );
++    await expect(
++      requestClaudeControl("s1", { subtype: "get_settings" }),
++    ).rejects.toMatchObject({ reason: "unavailable" });
++
++    const initialize = controlRequest("initialize");
++    emit(0, { type: "system", subtype: "init", session_id: "sess_1" });
++    respondControl(0, initialize?.request_id);
++    await waitFor(() => parse().some((message) => message.type === "user"), "prompt");
++    await expect(
++      requestClaudeControl(
++        "s1",
++        { subtype: "get_settings" },
++        { requireIdle: true },
++      ),
++    ).rejects.toMatchObject({ reason: "unavailable" });
++    expect(controlRequest("get_settings")).toBeUndefined();
++
++    await finishTurn(turn);
++    const pending = requestClaudeControl(
++      "s1",
++      { subtype: "get_settings" },
++      { requireIdle: true },
++    );
++    const request = controlRequest("get_settings");
++    expect(request).toBeDefined();
++    respondControl(0, request?.request_id, { model: "claude-sonnet-4-6" });
++    await expect(pending).resolves.toMatchObject({
++      payload: { model: "claude-sonnet-4-6" },
++      generation: expect.any(Number),
++    });
++  });
++
++  it("does not issue a read request while a Claude approval is pending", async () => {
++    const { events, turn } = await startTurn("s1");
++    emit(0, {
++      type: "control_request",
++      request_id: "pending_permission",
++      request: {
++        subtype: "can_use_tool",
++        tool_name: "Read",
++        input: { file_path: "/repo/README.md" },
++      },
++    });
++    await waitFor(
++      () => events.some((event) => event.type === "approval.requested"),
++      "permission approval",
++    );
++    const userFacingApproval = events.find(
++      (event) => event.type === "approval.requested",
++    );
++    if (userFacingApproval?.type !== "approval.requested") {
++      throw new Error("missing permission approval");
++    }
++
++    const requestCount = parse().length;
++    await expect(
++      requestClaudeControl(
++        "s1",
++        { subtype: "get_context_usage" },
++        { requireIdle: true },
++      ),
++    ).rejects.toMatchObject({ reason: "unavailable" });
++    expect(parse()).toHaveLength(requestCount);
++
++    respondClaudeApproval("s1", userFacingApproval.requestId, "allow");
++    await waitFor(
++      () =>
++        parse().some((message) => {
++          const response = message.response as Record<string, unknown> | undefined;
++          return response?.request_id === "pending_permission";
++        }),
++      "permission response",
++    );
++    await finishTurn(turn);
++  });
++
++  it("cancels without sending a cancel message and ignores late responses", async () => {
++    const { turn } = await startTurn("s1");
++    await finishTurn(turn);
++    const controller = new AbortController();
++    const before = sent.length;
++    const pending = requestClaudeControl(
++      "s1",
++      { subtype: "get_settings" },
++      { signal: controller.signal },
++    );
++    const request = controlRequest("get_settings");
++    expect(request).toBeDefined();
++    controller.abort();
++    await expect(pending).rejects.toMatchObject({
++      name: ClaudeControlError.name,
++      reason: "cancelled",
++    });
++    expect(sent).toHaveLength(before + 1);
++    respondControl(0, request?.request_id, { ignored: true });
++
++    const alreadyAborted = new AbortController();
++    alreadyAborted.abort();
++    const afterLateResponse = sent.length;
++    await expect(
++      requestClaudeControl(
++        "s1",
++        { subtype: "get_settings" },
++        { signal: alreadyAborted.signal },
++      ),
++    ).rejects.toMatchObject({ reason: "cancelled" });
++    expect(sent).toHaveLength(afterLateResponse);
++  });
++
++  it("clears timers after repeated success and a write failure", async () => {
++    const { turn } = await startTurn("s1");
++    await finishTurn(turn);
++    vi.useFakeTimers();
++
++    for (let attempt = 0; attempt < 3; attempt += 1) {
++      const pending = requestClaudeControl("s1", { subtype: "get_settings" });
++      const request = controlRequest("get_settings");
++      expect(request).toBeDefined();
++      respondControl(0, request?.request_id);
++      await expect(pending).resolves.toMatchObject({ generation: 1 });
++      expect(vi.getTimerCount()).toBe(0);
++    }
++
++    writeChild.mockRejectedValueOnce(new Error("stdin closed"));
++    await expect(
++      requestClaudeControl("s1", { subtype: "get_settings" }),
++    ).rejects.toMatchObject({ reason: "write-failed" });
++    expect(vi.getTimerCount()).toBe(0);
++  });
++
++  it("times out pending requests and rejects them when the child exits", async () => {
++    const { turn } = await startTurn("s1");
++    await finishTurn(turn);
++    vi.useFakeTimers();
++
++    const timeout = requestClaudeControl("s1", { subtype: "get_settings" });
++    const timeoutExpectation = expect(timeout).rejects.toMatchObject({
++      reason: "timeout",
++    });
++    await vi.advanceTimersByTimeAsync(5_000);
++    await timeoutExpectation;
++    expect(vi.getTimerCount()).toBe(0);
++
++    const stopped = requestClaudeControl("s1", {
++      subtype: "get_context_usage",
++    });
++    const request = controlRequest("get_context_usage");
++    children[0]?.onExit(1);
++    await expect(stopped).rejects.toMatchObject({ reason: "stopped" });
++    expect(request).toBeDefined();
++    expect(vi.getTimerCount()).toBe(0);
++  });
++
++  it("uses a newer generation after respawn and ignores an old response id", async () => {
++    const first = await startTurn("s1");
++    await finishTurn(first.turn, first.childIndex);
++    const firstRequest = requestClaudeControl("s1", {
++      subtype: "get_settings",
++    });
++    const requestA = controlRequest("get_settings");
++    respondControl(first.childIndex, requestA?.request_id, { model: "sonnet" });
++    const { generation: generationA } = await firstRequest;
++
++    const waiting = requestClaudeControl("s1", {
++      subtype: "get_context_usage",
++    });
++    const requestB = controlRequest("get_context_usage");
++    children[first.childIndex]?.onExit(1);
++    await expect(waiting).rejects.toMatchObject({ reason: "stopped" });
++
++    const second = await startTurn("s1");
++    const latestRequest = requestClaudeControl("s1", {
++      subtype: "get_settings",
++    });
++    const requestOnSecond = parse().filter((message) => {
++      const request = message.request as Record<string, unknown> | undefined;
++      return request?.subtype === "get_settings";
++    }).at(-1);
++    let settled = false;
++    void latestRequest.then(() => { settled = true; });
++    respondControl(second.childIndex, requestB?.request_id);
++    await Promise.resolve();
++    expect(settled).toBe(false);
++    respondControl(second.childIndex, requestOnSecond?.request_id, {
++      model: "sonnet",
++    });
++    const result = await latestRequest;
++    expect(result.generation).toBeGreaterThan(generationA);
++    await finishTurn(second.turn, second.childIndex);
++  });
++});
+diff --git a/src/integrations/harness/providers/claude/claudeLive.test.ts b/src/integrations/harness/providers/claude/claudeLive.test.ts
+index ca6c367..96e0b15 100644
+--- a/src/integrations/harness/providers/claude/claudeLive.test.ts
++++ b/src/integrations/harness/providers/claude/claudeLive.test.ts
+@@ -44,6 +44,34 @@ function parse() {
+   return sent.map((line) => JSON.parse(line) as Record<string, unknown>);
+ }
+ 
++function outgoingControlRequest(subtype: string) {
++  return parse().find((message) => {
++    const request = message.request as Record<string, unknown> | undefined;
++    return message.type === "control_request" && request?.subtype === subtype;
++  });
++}
++
++function respondToControl(
++  requestId: unknown,
++  response: Record<string, unknown> = {},
++): void {
++  emit({
++    type: "control_response",
++    response: { subtype: "success", request_id: requestId, response },
++  });
++}
++
++async function flushMicrotasksUntil(
++  predicate: () => boolean,
++  label: string,
++): Promise<void> {
++  for (let attempt = 0; attempt < 50; attempt += 1) {
++    await Promise.resolve();
++    if (predicate()) return;
++  }
++  throw new Error(`timed out waiting for ${label}; sent=${JSON.stringify(parse())}`);
++}
++
+ function emit(rec: Record<string, unknown>) {
+   onLine!(JSON.stringify(rec));
+ }
+@@ -65,18 +93,22 @@ async function startTurn(
+     intent?: TurnIntent;
+     providerAccountId?: string;
+     cwd?: string;
++    model?: string;
++    modelSettings?: Record<string, string>;
++    text?: string;
+   } = {},
+ ) {
+   const events: HarnessEvent[] = [];
++  const userCount = parse().filter((message) => message.type === "user").length;
+   const turn = sendClaudeTurn({
+     sessionId,
+     cwd: options.cwd ?? "/repo",
+-    model: "claude:claude-sonnet-5",
+-    modelSettings: {},
++    model: options.model ?? "claude:claude-sonnet-5",
++    modelSettings: options.modelSettings ?? {},
+     runtimeMode: options.runtimeMode ?? "supervised",
+     intent: options.intent,
+     providerAccountId: options.providerAccountId,
+-    text: "explore the codebase",
++    text: options.text ?? "explore the codebase",
+     attachments: [],
+     onEvent: (event) => events.push(event),
+   });
+@@ -89,12 +121,41 @@ async function startTurn(
+       }),
+     "initialize",
+   );
++  const initialize = outgoingControlRequest("initialize");
+   emit({ type: "system", subtype: "init", session_id: "sess_1" });
+-  emit({
+-    type: "control_response",
+-    response: { subtype: "success", request_id: "monocode_1" },
++  respondToControl(initialize?.request_id);
++  await waitFor(
++    () => parse().filter((message) => message.type === "user").length > userCount,
++    "user prompt",
++  );
++  return { events, turn };
++}
++
++function sendFollowup(
++  sessionId: string,
++  options: {
++    runtimeMode?: RuntimeMode;
++    intent?: TurnIntent;
++    providerAccountId?: string;
++    cwd?: string;
++    model?: string;
++    modelSettings?: Record<string, string>;
++    text?: string;
++  } = {},
++) {
++  const events: HarnessEvent[] = [];
++  const turn = sendClaudeTurn({
++    sessionId,
++    cwd: options.cwd ?? "/repo",
++    model: options.model ?? "claude:claude-sonnet-5",
++    modelSettings: options.modelSettings ?? {},
++    runtimeMode: options.runtimeMode ?? "supervised",
++    intent: options.intent,
++    providerAccountId: options.providerAccountId,
++    text: options.text ?? "continue the conversation",
++    attachments: [],
++    onEvent: (event) => events.push(event),
+   });
+-  await waitFor(() => parse().some((m) => m.type === "user"), "user prompt");
+   return { events, turn };
+ }
+ 
+@@ -108,14 +169,16 @@ beforeEach(() => {
+ });
+ 
+ afterEach(async () => {
++  vi.useRealTimers();
+   await stopClaudeSession("s1");
+   __claudeTestReset();
+ });
+ 
+ describe("claude model switching", () => {
+-  it("restarts a named account with the new model while resuming the provider conversation", async () => {
++  it("restarts for a non-live setting while resuming the provider conversation", async () => {
+     const first = await startTurn("s1", {
+       providerAccountId: "account-work",
++      modelSettings: { thinking: "true" },
+     });
+     emit({ type: "result", subtype: "success", session_id: "sess_1" });
+     await first.turn;
+@@ -155,6 +218,283 @@ describe("claude model switching", () => {
+     emit({ type: "result", subtype: "success", session_id: "sess_1" });
+     await second;
+   });
++
++  it("waits for the matching model response before sending the next user message", async () => {
++    const first = await startTurn("s1");
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await first.turn;
++    const userCount = parse().filter((message) => message.type === "user").length;
++
++    const second = sendFollowup("s1", { model: "claude:claude-opus-5" });
++    const requestMessage = outgoingControlRequest("set_model");
++    const request = requestMessage?.request as Record<string, unknown> | undefined;
++    expect(request).toEqual({ subtype: "set_model", model: "claude-opus-5" });
++    expect(requestMessage?.request_id).toMatch(/^monocode_\d+$/);
++    expect(spawned).toHaveLength(1);
++    expect(parse().filter((message) => message.type === "user")).toHaveLength(
++      userCount,
++    );
++
++    respondToControl("foreign_request", { ignored: true });
++    await Promise.resolve();
++    expect(parse().filter((message) => message.type === "user")).toHaveLength(
++      userCount,
++    );
++    respondToControl(requestMessage?.request_id, { model: "claude-opus-5" });
++    await waitFor(
++      () => parse().filter((message) => message.type === "user").length > userCount,
++      "user message after matching model response",
++    );
++    expect(spawned).toHaveLength(1);
++
++    emit({
++      type: "assistant",
++      session_id: "sess_1",
++      message: { model: "claude-opus-5", content: [{ type: "text", text: "ready" }] },
++    });
++    expect(second.events.some((event) => event.type === "status")).toBe(false);
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await second.turn;
++  });
++
++  it("applies runtime permission and plan-mode changes live", async () => {
++    const first = await startTurn("s1");
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await first.turn;
++
++    const autoEdits = sendFollowup("s1", { runtimeMode: "auto-accept-edits" });
++    const autoEditsRequest = outgoingControlRequest("set_permission_mode");
++    expect(autoEditsRequest?.request).toEqual({
++      subtype: "set_permission_mode",
++      mode: "acceptEdits",
++    });
++    respondToControl(autoEditsRequest?.request_id);
++    await waitFor(() => parse().filter((message) => message.type === "user").length === 2, "auto-edits message");
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await autoEdits.turn;
++
++    const plan = sendFollowup("s1", {
++      runtimeMode: "auto-accept-edits",
++      intent: "plan",
++    });
++    const planRequest = parse().filter((message) => {
++      const request = message.request as Record<string, unknown> | undefined;
++      return request?.subtype === "set_permission_mode";
++    }).at(-1);
++    expect(planRequest?.request).toEqual({
++      subtype: "set_permission_mode",
++      mode: "plan",
++    });
++    respondToControl(planRequest?.request_id);
++    await waitFor(() => parse().filter((message) => message.type === "user").length === 3, "plan-mode message");
++    expect(spawned).toHaveLength(1);
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await plan.turn;
++  });
++
++  it("reuses the child for ultrathink and keeps its prompt prefix", async () => {
++    const first = await startTurn("s1");
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await first.turn;
++
++    const second = sendFollowup("s1", { modelSettings: { effort: "ultrathink" } });
++    await waitFor(() => parse().filter((message) => message.type === "user").length === 2, "ultrathink message");
++    const userMessage = parse().filter((message) => message.type === "user").at(-1);
++    expect(JSON.stringify(userMessage)).toContain("Ultrathink:\\ncontinue the conversation");
++    expect(outgoingControlRequest("set_model")).toBeUndefined();
++    expect(outgoingControlRequest("set_permission_mode")).toBeUndefined();
++    expect(spawned).toHaveLength(1);
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await second.turn;
++  });
++
++  it("restarts when full access changes the required spawn flags", async () => {
++    const first = await startTurn("s1");
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await first.turn;
++
++    const second = sendFollowup("s1", { runtimeMode: "full-access" });
++    await waitFor(() => spawned.length === 2, "full-access replacement process");
++    expect(outgoingControlRequest("set_permission_mode")).toBeUndefined();
++    expect(spawned[1]).toContain("--allow-dangerously-skip-permissions");
++    const initialize = parse().filter((message) => {
++      const request = message.request as Record<string, unknown> | undefined;
++      return request?.subtype === "initialize";
++    }).at(-1);
++    emit({ type: "system", subtype: "init", session_id: "sess_1" });
++    respondToControl(initialize?.request_id);
++    await waitFor(() => parse().filter((message) => message.type === "user").length === 2, "full-access message");
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await second.turn;
++  });
++
++  it("restarts once when a live model control request returns an error", async () => {
++    const first = await startTurn("s1");
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await first.turn;
++    const userCount = parse().filter((message) => message.type === "user").length;
++    const second = sendFollowup("s1", { model: "claude:claude-opus-5" });
++    const request = outgoingControlRequest("set_model");
++    emit({
++      type: "control_response",
++      response: {
++        subtype: "error",
++        request_id: request?.request_id,
++        error: "unsupported model",
++      },
++    });
++    await waitFor(() => spawned.length === 2, "fallback Claude process");
++    const initialize = parse().filter((message) => {
++      const control = message.request as Record<string, unknown> | undefined;
++      return control?.subtype === "initialize";
++    }).at(-1);
++    emit({ type: "system", subtype: "init", session_id: "sess_1" });
++    respondToControl(initialize?.request_id);
++    await waitFor(
++      () => parse().filter((message) => message.type === "user").length === userCount + 1,
++      "single message after fallback",
++    );
++    expect(spawned).toHaveLength(2);
++    expect(second.events.filter((event) => event.type === "status")).toEqual([
++      {
++        type: "status",
++        text: "Claude couldn't switch live, so it restarted with the new settings.",
++      },
++    ]);
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await second.turn;
++  });
++
++  it("times out a live model switch and sends the user message once after restart", async () => {
++    const first = await startTurn("s1");
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await first.turn;
++    const userCount = parse().filter((message) => message.type === "user").length;
++    vi.useFakeTimers();
++    const second = sendFollowup("s1", { model: "claude:claude-opus-5" });
++    expect(outgoingControlRequest("set_model")).toBeDefined();
++    await vi.advanceTimersByTimeAsync(5_000);
++    await flushMicrotasksUntil(() => spawned.length === 2, "fallback spawn after timeout");
++    const initialize = parse().filter((message) => {
++      const control = message.request as Record<string, unknown> | undefined;
++      return control?.subtype === "initialize";
++    }).at(-1);
++    emit({ type: "system", subtype: "init", session_id: "sess_1" });
++    respondToControl(initialize?.request_id);
++    await flushMicrotasksUntil(
++      () => parse().filter((message) => message.type === "user").length === userCount + 1,
++      "single user message after timeout fallback",
++    );
++    expect(second.events.filter((event) => event.type === "status")).toEqual([
++      {
++        type: "status",
++        text: "Claude couldn't switch live, so it restarted with the new settings.",
++      },
++    ]);
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await second.turn;
++  });
++
++  it("restarts on a model mismatch and ignores the requested 1m suffix", async () => {
++    const first = await startTurn("s1", {
++      modelSettings: { context: "1m" },
++    });
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await first.turn;
++    const second = sendFollowup("s1", {
++      model: "claude:claude-opus-5",
++      modelSettings: { context: "1m" },
++    });
++    const request = outgoingControlRequest("set_model");
++    expect(request?.request).toEqual({
++      subtype: "set_model",
++      model: "claude-opus-5[1m]",
++    });
++    respondToControl(request?.request_id);
++    await waitFor(() => parse().filter((message) => message.type === "user").length === 2, "first live model message");
++    emit({
++      type: "assistant",
++      session_id: "sess_1",
++      message: { model: "claude-opus-5", content: [{ type: "text", text: "ok" }] },
++    });
++    expect(second.events.some((event) => event.type === "status")).toBe(false);
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await second.turn;
++
++    const mismatch = sendFollowup("s1", {
++      model: "claude:claude-opus-4-7",
++      modelSettings: { context: "1m" },
++    });
++    const mismatchRequest = parse().filter((message) => {
++      const control = message.request as Record<string, unknown> | undefined;
++      return control?.subtype === "set_model";
++    }).at(-1);
++    expect(mismatchRequest?.request).toEqual({
++      subtype: "set_model",
++      model: "claude-opus-4-7[1m]",
++    });
++    respondToControl(mismatchRequest?.request_id);
++    await waitFor(() => parse().filter((message) => message.type === "user").length === 3, "mismatch model message");
++    emit({
++      type: "assistant",
++      session_id: "sess_1",
++      message: { model: "claude-sonnet-5", content: [{ type: "text", text: "wrong" }] },
++    });
++    expect(mismatch.events).toContainEqual({
++      type: "status",
++      text: "Claude answered with claude-sonnet-5 instead of claude-opus-4-7[1m]. The next message restarts Claude with the selected model.",
++    });
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await mismatch.turn;
++
++    const setModelCount = parse().filter((message) => {
++      const control = message.request as Record<string, unknown> | undefined;
++      return control?.subtype === "set_model";
++    }).length;
++    const final = sendFollowup("s1", {
++      model: "claude:claude-opus-4-7",
++      modelSettings: { context: "1m" },
++    });
++    await waitFor(() => spawned.length === 2, "restart after model mismatch");
++    const initialize = parse().filter((message) => {
++      const control = message.request as Record<string, unknown> | undefined;
++      return control?.subtype === "initialize";
++    }).at(-1);
++    emit({ type: "system", subtype: "init", session_id: "sess_1" });
++    respondToControl(initialize?.request_id);
++    await waitFor(() => parse().filter((message) => message.type === "user").length === 4, "selected model after mismatch");
++    expect(parse().filter((message) => {
++      const control = message.request as Record<string, unknown> | undefined;
++      return control?.subtype === "set_model";
++    })).toHaveLength(setModelCount);
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await final.turn;
++  });
++
++  it("falls back immediately when the child exits during a live switch", async () => {
++    const first = await startTurn("s1");
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await first.turn;
++    const second = sendFollowup("s1", { model: "claude:claude-opus-5" });
++    expect(outgoingControlRequest("set_model")).toBeDefined();
++    onExit!(1);
++    await waitFor(() => spawned.length === 2, "fallback after child exit");
++    const initialize = parse().filter((message) => {
++      const control = message.request as Record<string, unknown> | undefined;
++      return control?.subtype === "initialize";
++    }).at(-1);
++    emit({ type: "system", subtype: "init", session_id: "sess_1" });
++    respondToControl(initialize?.request_id);
++    await waitFor(() => parse().filter((message) => message.type === "user").length === 2, "user message after child exit");
++    expect(second.events.filter((event) => event.type === "status")).toEqual([
++      {
++        type: "status",
++        text: "Claude couldn't switch live, so it restarted with the new settings.",
++      },
++    ]);
++    emit({ type: "result", subtype: "success", session_id: "sess_1" });
++    await second.turn;
++  });
+ });
+ 
+ describe("Claude session approvals", () => {
+diff --git a/src/integrations/harness/providers/claude/claudeProtocol.test.ts b/src/integrations/harness/providers/claude/claudeProtocol.test.ts
+index acd885e..504a114 100644
+--- a/src/integrations/harness/providers/claude/claudeProtocol.test.ts
++++ b/src/integrations/harness/providers/claude/claudeProtocol.test.ts
+@@ -1,4 +1,5 @@
+ import { describe, expect, it } from "vitest";
++import type { RuntimeMode } from "../../../../features/sessions/model/session";
+ import {
+   modelsForClaudeVersion,
+   modelsFromClaudeListModels,
+@@ -7,7 +8,10 @@ import {
+   applyClaudePromptEffortPrefix,
+   askUserQuestionAllowInput,
+   buildClaudeSpawnArgs,
++  buildSetModelRequest,
++  buildSetPermissionModeRequest,
+   buildClaudeUserMessage,
++  claudeLiveKey,
+   claudeSessionRules,
+   contextFromResult,
+   contextUsedFromAssistant,
+@@ -26,6 +30,7 @@ import {
+   parseTaskStarted,
+   parseTaskUpdated,
+   parseToolProgress,
++  planClaudeLiveSwitch,
+   taskListFromTodos,
+   resolveClaudeApiModelId,
+   runtimeModeToPermission,
+@@ -40,6 +45,110 @@ import {
+   turnMetricsFromResult,
+ } from "./claudeProtocol";
+ 
++function liveKey(options: {
++  model?: string;
++  effort?: string;
++  fast?: string;
++  thinking?: string;
++  context?: string;
++  runtimeMode?: RuntimeMode;
++  intent?: "chat" | "plan";
++  providerAccountId?: string;
++  hooks?: boolean;
++} = {}) {
++  return claudeLiveKey(
++    {
++      model: options.model ?? "claude:claude-sonnet-4-6",
++      modelSettings: {
++        ...(options.effort === undefined ? {} : { effort: options.effort }),
++        ...(options.fast === undefined ? {} : { fast: options.fast }),
++        ...(options.thinking === undefined
++          ? {}
++          : { thinking: options.thinking }),
++        ...(options.context === undefined ? {} : { context: options.context }),
++      },
++      runtimeMode: options.runtimeMode ?? "supervised",
++      intent: options.intent,
++      providerAccountId: options.providerAccountId,
++    },
++    options.hooks ?? true,
++  );
++}
++
++describe("planClaudeLiveSwitch", () => {
++  it("sends permission mode before the model when both can change live", () => {
++    expect(
++      planClaudeLiveSwitch(liveKey(), liveKey({
++        model: "claude:claude-opus-4-7",
++        runtimeMode: "auto-accept-edits",
++      })),
++    ).toEqual({
++      kind: "switch",
++      steps: [
++        { type: "set_permission_mode", mode: "acceptEdits" },
++        { type: "set_model", model: "claude-opus-4-7" },
++      ],
++    });
++  });
++
++  it("uses plan permission for plan intent and restarts around full access", () => {
++    expect(
++      planClaudeLiveSwitch(liveKey(), liveKey({ intent: "plan" })),
++    ).toEqual({
++      kind: "switch",
++      steps: [{ type: "set_permission_mode", mode: "plan" }],
++    });
++    expect(
++      planClaudeLiveSwitch(
++        liveKey(),
++        liveKey({ runtimeMode: "full-access" }),
++      ),
++    ).toMatchObject({ kind: "restart" });
++    expect(
++      planClaudeLiveSwitch(
++        liveKey({ runtimeMode: "full-access" }),
++        liveKey(),
++      ),
++    ).toMatchObject({ kind: "restart" });
++  });
++
++  it.each([
++    ["account", liveKey({ providerAccountId: "other-account" })],
++    ["hooks", liveKey({ hooks: false })],
++    ["context", liveKey({ context: "1m" })],
++    ["thinking", liveKey({ thinking: "true" })],
++    ["fast", liveKey({ fast: "true" })],
++    ["normalized effort", liveKey({ effort: "low" })],
++  ])("restarts when %s changes", (_label, next) => {
++    expect(planClaudeLiveSwitch(liveKey({ effort: "high" }), next)).toMatchObject({
++      kind: "restart",
++    });
++  });
++
++  it("reuses Claude when raw effort changes without changing its CLI flags", () => {
++    expect(
++      planClaudeLiveSwitch(
++        liveKey({ model: "claude:claude-sonnet-4-6", effort: "high" }),
++        liveKey({ model: "claude:claude-sonnet-4-6", effort: "max" }),
++      ),
++    ).toEqual({ kind: "reuse" });
++    expect(
++      planClaudeLiveSwitch(liveKey(), liveKey({ effort: "ultrathink" })),
++    ).toEqual({ kind: "reuse" });
++  });
++
++  it("builds only the requested read-safe live control bodies", () => {
++    expect(buildSetPermissionModeRequest("plan")).toEqual({
++      subtype: "set_permission_mode",
++      mode: "plan",
++    });
++    expect(buildSetModelRequest("claude-opus-4-7[1m]")).toEqual({
++      subtype: "set_model",
++      model: "claude-opus-4-7[1m]",
++    });
++  });
++});
++
+ describe("runtimeModeToPermission", () => {
+   it("maps runtime modes onto Claude permission flags", () => {
+     expect(runtimeModeToPermission("supervised")).toBe("default");
+diff --git a/src/integrations/harness/providers/claude/claudeProtocol.ts b/src/integrations/harness/providers/claude/claudeProtocol.ts
+index 00202b6..3a826d6 100644
+--- a/src/integrations/harness/providers/claude/claudeProtocol.ts
++++ b/src/integrations/harness/providers/claude/claudeProtocol.ts
+@@ -19,7 +19,12 @@ import {
+   titleFromToolInput,
+ } from "../../core/preview";
+ import { streamTextDelta } from "../../core/streamText";
+-import type { ApprovalDecision, HarnessEvent } from "../../core/types";
++import { nativeModelId } from "../../../../features/sessions/model/models";
++import type {
++  ApprovalDecision,
++  HarnessEvent,
++  HarnessSessionInput,
++} from "../../core/types";
+ 
+ /** Claude Code versions that first ship Opus 5.5 / Opus 5 / Sonnet 5 / Fable 5 / Opus 4.8 / 4.7. */
+ export const MINIMUM_CLAUDE_OPUS_5_5_VERSION = "2.1.280";
+@@ -41,6 +46,28 @@ export const SUPPORTED_CLAUDE_IMAGE_MIME_TYPES = new Set([
+ export type ClaudePermissionMode =
+   "default" | "plan" | "acceptEdits" | "auto" | "bypassPermissions";
+ 
++export type ClaudeLiveKey = {
++  account: string;
++  model: string;
++  cliEffort?: string;
++  ultracode: boolean;
++  fast?: string;
++  thinking?: string;
++  context?: string;
++  runtimeMode: RuntimeMode;
++  planning: boolean;
++  hooks: boolean;
++};
++
++export type ClaudeSwitchStep =
++  | { type: "set_model"; model: string }
++  | { type: "set_permission_mode"; mode: ClaudePermissionMode };
++
++export type ClaudeLiveSwitchPlan =
++  | { kind: "reuse" }
++  | { kind: "switch"; steps: ClaudeSwitchStep[] }
++  | { kind: "restart"; reason: string };
++
+ export type ClaudeControlRequest = {
+   requestId: string;
+   subtype: string;
+@@ -178,6 +205,105 @@ export function isClaudeUltracodeEffort(
+   return effort === "ultracode";
+ }
+ 
++export function claudeLiveKey(
++  input: Pick<
++    HarnessSessionInput,
++    "providerAccountId" | "model" | "modelSettings" | "runtimeMode" | "intent"
++  >,
++  hooks: boolean,
++): ClaudeLiveKey {
++  const model = nativeModelId(input.model);
++  const effort = input.modelSettings?.effort;
++  return {
++    account: input.providerAccountId ?? "default",
++    model,
++    cliEffort: normalizeClaudeCliEffort(effort, model),
++    ultracode: isClaudeUltracodeEffort(effort),
++    fast: input.modelSettings?.fast,
++    thinking: input.modelSettings?.thinking,
++    context: input.modelSettings?.context ?? undefined,
++    runtimeMode: input.runtimeMode,
++    planning: input.intent === "plan",
++    hooks,
++  };
++}
++
++function permissionModeForLiveKey(key: ClaudeLiveKey): ClaudePermissionMode {
++  return key.planning ? "plan" : runtimeModeToPermission(key.runtimeMode);
++}
++
++export function planClaudeLiveSwitch(
++  previous: ClaudeLiveKey,
++  next: ClaudeLiveKey,
++): ClaudeLiveSwitchPlan {
++  if (
++    previous.account === next.account &&
++    previous.model === next.model &&
++    previous.cliEffort === next.cliEffort &&
++    previous.ultracode === next.ultracode &&
++    previous.fast === next.fast &&
++    previous.thinking === next.thinking &&
++    previous.context === next.context &&
++    previous.runtimeMode === next.runtimeMode &&
++    previous.planning === next.planning &&
++    previous.hooks === next.hooks
++  ) {
++    return { kind: "reuse" };
++  }
++  if (previous.account !== next.account) {
++    return { kind: "restart", reason: "provider account changed" };
++  }
++  if (previous.hooks !== next.hooks) {
++    return { kind: "restart", reason: "Claude hooks setting changed" };
++  }
++  if (previous.context !== next.context) {
++    return { kind: "restart", reason: "Claude context setting changed" };
++  }
++  if (previous.thinking !== next.thinking) {
++    return { kind: "restart", reason: "Claude thinking setting changed" };
++  }
++  if (previous.fast !== next.fast) {
++    return { kind: "restart", reason: "Claude fast setting changed" };
++  }
++  if (
++    previous.cliEffort !== next.cliEffort ||
++    previous.ultracode !== next.ultracode
++  ) {
++    return { kind: "restart", reason: "Claude CLI effort changed" };
++  }
++  const previousPermission = permissionModeForLiveKey(previous);
++  const nextPermission = permissionModeForLiveKey(next);
++  if (
++    previousPermission !== nextPermission &&
++    (previousPermission === "bypassPermissions" ||
++      nextPermission === "bypassPermissions")
++  ) {
++    return { kind: "restart", reason: "full access requires a spawn flag" };
++  }
++  if (
++    previous.runtimeMode !== next.runtimeMode &&
++    (previous.runtimeMode === "full-access" ||
++      next.runtimeMode === "full-access")
++  ) {
++    return { kind: "restart", reason: "full access requires a spawn flag" };
++  }
++
++  const steps: ClaudeSwitchStep[] = [];
++  if (previousPermission !== nextPermission) {
++    steps.push({
++      type: "set_permission_mode",
++      mode: nextPermission,
++    });
++  }
++  if (previous.model !== next.model) {
++    steps.push({
++      type: "set_model",
++      model: resolveClaudeApiModelId(next.model, next.context),
++    });
++  }
++  return { kind: "switch", steps };
++}
++
+ export function applyClaudePromptEffortPrefix(
+   text: string,
+   effort: string | null | undefined,
+@@ -195,6 +321,16 @@ export function resolveClaudeApiModelId(
+   return model;
+ }
+ 
++export function buildSetModelRequest(model: string): Record<string, unknown> {
++  return { subtype: "set_model", model };
++}
++
++export function buildSetPermissionModeRequest(
++  mode: ClaudePermissionMode,
++): Record<string, unknown> {
++  return { subtype: "set_permission_mode", mode };
++}
++
+ export function parseJsonLine(line: string): Record<string, unknown> | null {
+   const trimmed = line.trim();
+   if (!trimmed.startsWith("{")) return null;

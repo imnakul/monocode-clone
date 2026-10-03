@@ -1,0 +1,432 @@
+[
+  {
+    "path": "Cargo.lock",
+    "hunks": [
+      {
+        "line": 2245,
+        "ours": "version = \"0.1.55-local5-provider-fixes\"\n",
+        "theirs": "version = \"0.1.56\"\n"
+      }
+    ]
+  },
+  {
+    "path": "Cargo.toml",
+    "hunks": [
+      {
+        "line": 7,
+        "ours": "version = \"0.1.55-local5-provider-fixes\"\n",
+        "theirs": "version = \"0.1.56\"\n"
+      }
+    ]
+  },
+  {
+    "path": "package-lock.json",
+    "hunks": [
+      {
+        "line": 3,
+        "ours": "  \"version\": \"0.1.55-local5-provider-fixes\",\n",
+        "theirs": "  \"version\": \"0.1.56\",\n"
+      },
+      {
+        "line": 13,
+        "ours": "      \"version\": \"0.1.55-local5-provider-fixes\",\n",
+        "theirs": "      \"version\": \"0.1.56\",\n"
+      }
+    ]
+  },
+  {
+    "path": "package.json",
+    "hunks": [
+      {
+        "line": 4,
+        "ours": "  \"version\": \"0.1.55-local5-provider-fixes\",\n",
+        "theirs": "  \"version\": \"0.1.56\",\n"
+      }
+    ]
+  },
+  {
+    "path": "src-tauri/src/window.rs",
+    "hunks": [
+      {
+        "line": 121,
+        "ours": "    #[cfg(target_os = \"windows\")]\n    prepare_windows_window(&window);\n\n    let _ = window.set_focus();\n    Ok(())\n",
+        "theirs": "    if reveal {\n        let _ = window.set_focus();\n    }\n    Ok(window)\n"
+      }
+    ]
+  },
+  {
+    "path": "src-tauri/tauri.conf.json",
+    "hunks": [
+      {
+        "line": 4,
+        "ours": "  \"version\": \"0.1.55-local5-provider-fixes\",\n",
+        "theirs": "  \"version\": \"0.1.56\",\n"
+      }
+    ]
+  },
+  {
+    "path": "src/app/App.tsx",
+    "hunks": [
+      {
+        "line": 3444,
+        "ours": "      optionsOrSession?: OpenDiffOptions | { sessionId: string; cwd: string },\n      changeKindParam?: GitFileDiffKind,\n",
+        "theirs": "      session?: { sessionId: string; cwd: string },\n      changeKind?: GitFileDiffKind,\n      pin = false,\n"
+      },
+      {
+        "line": 3522,
+        "ours": "    (\n      path: string,\n      options?:\n        | GitFileDiffKind\n        | { kind?: \"staged\" | \"unstaged\"; status?: string },\n    ) => {\n      const kind =\n        typeof options === \"string\"\n          ? options\n          : options && \"kind\" in options\n            ? options.kind\n            : undefined;\n      return onOpenDiff(path, undefined, kind);\n    },\n",
+        "theirs": "    (path: string, kind?: GitFileDiffKind, pin?: boolean) =>\n      onOpenDiff(path, undefined, kind, pin),\n"
+      }
+    ]
+  },
+  {
+    "path": "src/app/shell/ProjectRail.tsx",
+    "hunks": [
+      {
+        "line": 83,
+        "ours": "import { SharedHoverHighlight } from \"../../features/sessions/ui/SharedHoverHighlight\";\nimport { type AppMode } from \"../../features/settings/model/appearance\";\n\nconst REVEAL_LABEL = IS_MAC\n  ? \"Reveal in Finder\"\n  : IS_WIN\n    ? \"Reveal in File Explorer\"\n    : \"Open Containing Folder\";\n\nfunction projectMenuExtraItems(\n  pinned: boolean,\n  canRemove: boolean,\n  canConfigureNotifications: boolean,\n  notificationReady: boolean,\n  externalEditors: ExternalEditor[] | null,\n  projectGroups: ProjectGroup[],\n  currentProjectGroupId?: string,\n): TabGroupMenuExtraItem[] {\n  const groupSubmenu: ExplorerMenuItem[] = [\n    { kind: \"item\", id: \"project-group:new\", label: \"New group\u2026\" },\n    ...(projectGroups.length > 0 ? [{ kind: \"sep\" } as const] : []),\n    ...projectGroups.map((group) => ({\n      kind: \"item\" as const,\n      id: `project-group:${group.id}`,\n      label: group.name,\n      checked: group.id === currentProjectGroupId,\n    })),\n    ...(projectGroups.length > 0 ? [{ kind: \"sep\" } as const] : []),\n    {\n      kind: \"item\",\n      id: \"project-group:none\",\n      label: \"Ungrouped\",\n      checked: currentProjectGroupId == null,\n    },\n  ];\n  const items: TabGroupMenuExtraItem[] = [\n    {\n      id: \"background\",\n      label: \"Background image\",\n      icon: ImagePlus,\n    },\n    {\n      id: \"project-group\",\n      label: \"Move to group\",\n      icon: FolderTree,\n      submenu: groupSubmenu,\n    },\n    pinned\n      ? { id: \"unpin\", label: \"Unpin project\", icon: PinOff }\n      : { id: \"pin\", label: \"Pin project\", icon: Pin },\n    { id: \"reveal\", label: REVEAL_LABEL, icon: FolderOpen },\n    {\n      id: \"external-editor\",\n      label: \"Open in editor\",\n      icon: AppWindow,\n      disabled: externalEditors === null,\n      submenu:\n        externalEditors === null\n          ? [\n              {\n                kind: \"item\",\n                id: \"external-editor:loading\",\n                label: \"Looking for editors\u2026\",\n                disabled: true,\n              },\n            ]\n          : externalEditors.length > 0\n            ? externalEditors.map((editor) => ({\n                kind: \"item\" as const,\n                id: `external-editor:${editor.id}`,\n                label: editor.name,\n              }))\n            : [\n                {\n                  kind: \"item\",\n                  id: \"external-editor:none\",\n                  label: \"No supported editors found\",\n                  disabled: true,\n                },\n              ],\n    },\n    {\n      id: \"notifications-mute\",\n      label: \"Mute notifications\",\n      icon: BellOff,\n      sepBefore: true,\n      disabled: !notificationReady,\n      submenu: notificationMuteActions(),\n    },\n  ];\n  if (canConfigureNotifications) {\n    items.push({\n      id: \"notifications-settings\",\n      label: \"Notification settings\u2026\",\n      icon: Settings,\n    });\n  }\n  if (canRemove) {\n    items.push(\n      { id: \"archive\", label: \"Archive\", icon: Archive, sepBefore: true },\n      { id: \"delete\", label: \"Delete\", icon: Trash2, danger: true },\n    );\n  }\n  return items;\n}\n",
+        "theirs": "import { useProjectMenu } from \"./useProjectMenu\";\n"
+      }
+    ]
+  },
+  {
+    "path": "src/app/shell/Sidebar.tsx",
+    "hunks": [
+      {
+        "line": 32,
+        "ours": "",
+        "theirs": "  useId,\n  useLayoutEffect,\n"
+      },
+      {
+        "line": 252,
+        "ours": "  onOpenDiff?: (\n    path: string,\n    options?: GitFileDiffKind | { kind?: \"staged\" | \"unstaged\"; status?: string },\n  ) => void;\n",
+        "theirs": "  onOpenDiff?: (path: string, kind?: GitFileDiffKind, pin?: boolean) => void;\n"
+      },
+      {
+        "line": 629,
+        "ours": "  // Chat mode swaps the workspace for the chat list, so it skips the\n  // project gate but honors the same overlays (search, inbox, notes,\n  // settings) \u2014 otherwise chats linger over fullscreen views.\n  const chatVisible =\n    mode === \"chat\" &&\n    open &&\n    !searchActive &&\n    !inboxActive &&\n    !notesActive &&\n    !settingsOpen;\n  const gitStatuses = useGitFileStatuses(gitRoot, open && tab === \"files\");\n  const changeStats = useProjectDiffStats(gitRoot, open);\n",
+        "theirs": "  const sidebarVisible = open && sidebarAvailable;\n  // With the sidebar collapsed beside the compact rail, its tab shortcuts\n  // open the sidebar temporarily until the user clicks away.\n  const drawerMode = compactRailVisible && !open;\n  const [drawerOpen, setDrawerOpen] = useState(false);\n  const drawerRef = useRef<HTMLDivElement>(null);\n  const drawerVisible = drawerMode && drawerOpen && sidebarAvailable;\n  // A dismissed drawer stays mounted while it slides shut. Anything that takes\n  // its place (the pinned sidebar, another view) drops it at once.\n  const [drawerMounted, setDrawerMounted] = useState(false);\n  const drawerClosing =\n    drawerMounted && !drawerVisible && drawerMode && sidebarAvailable;\n  const drawerRendered = drawerVisible || drawerClosing;\n  const drawerAnimation = useRef<Animation | null>(null);\n  const panelOpen = open || drawerVisible;\n  const gitStatuses = useGitFileStatuses(gitRoot, panelOpen && tab === \"files\");\n  const changeStats = useProjectDiffStats(gitRoot, panelOpen);\n\n  useEffect(() => {\n    if (!drawerMode || !sidebarAvailable) setDrawerOpen(false);\n  }, [drawerMode, sidebarAvailable]);\n\n  useEffect(() => {\n    if (drawerVisible) setDrawerMounted(true);\n    else if (!drawerClosing) setDrawerMounted(false);\n  }, [drawerVisible, drawerClosing]);\n\n  // Grow the drawer's width so the workspace is pushed along with it. A\n  // reversal mid-slide starts from wherever the width currently is.\n  useLayoutEffect(() => {\n    const drawer = drawerRef.current;\n    if (!drawerRendered || !drawer) {\n      drawerAnimation.current = null;\n      return;\n    }\n    const full =\n      drawer.firstElementChild instanceof HTMLElement\n        ? drawer.firstElementChild.offsetWidth\n        : 0;\n    const from = drawerAnimation.current\n      ? drawer.getBoundingClientRect().width\n      : drawerClosing\n        ? full\n        : 0;\n    drawerAnimation.current?.cancel();\n    drawerAnimation.current = null;\n    const reduceMotion = window.matchMedia?.(\n      \"(prefers-reduced-motion: reduce)\",\n    ).matches;\n    if (typeof drawer.animate !== \"function\" || reduceMotion) {\n      if (drawerClosing) setDrawerMounted(false);\n      return;\n    }\n    const animation = drawer.animate(\n      [{ width: `${from}px` }, { width: `${drawerClosing ? 0 : full}px` }],\n      drawerClosing\n        ? {\n            duration: 160,\n            easing: \"cubic-bezier(0.4, 0, 1, 1)\",\n            fill: \"forwards\",\n          }\n        : { duration: 200, easing: \"cubic-bezier(0.22, 1, 0.36, 1)\" },\n    );\n    drawerAnimation.current = animation;\n    animation.onfinish = () => {\n      if (drawerAnimation.current !== animation) return;\n      drawerAnimation.current = null;\n      if (drawerClosing) setDrawerMounted(false);\n    };\n  }, [drawerRendered, drawerClosing]);\n\n  useEffect(() => {\n    if (!drawerVisible) return;\n    const onKeyDown = (event: KeyboardEvent) => {\n      if (event.key !== \"Escape\" || event.defaultPrevented) return;\n      setDrawerOpen(false);\n    };\n    // The rail's own shortcuts toggle the drawer, and menus opened from it\n    // stay usable; anything else dismisses it.\n    const onPointerDown = (event: PointerEvent) => {\n      const target = event.target;\n      const el = target instanceof Element ? target : null;\n      if (drawerRef.current?.contains(el)) return;\n      if (el?.closest(\"[data-compact-project-rail],[data-popover-side]\")) {\n        return;\n      }\n      setDrawerOpen(false);\n    };\n    window.addEventListener(\"keydown\", onKeyDown);\n    window.addEventListener(\"pointerdown\", onPointerDown);\n    return () => {\n      window.removeEventListener(\"keydown\", onKeyDown);\n      window.removeEventListener(\"pointerdown\", onPointerDown);\n    };\n  }, [drawerVisible]);\n"
+      },
+      {
+        "line": 2086,
+        "ours": "      {(mode === \"chat\" ? chatVisible : sidebarVisible)\n        ? sidebarContent\n        : null}\n",
+        "theirs": "      {sidebarVisible ? sidebarContent : null}\n      {drawerRendered ? (\n        // Pinned to the right edge, so the sidebar slides in as the width grows.\n        <div\n          ref={drawerRef}\n          data-sidebar-drawer={drawerClosing ? \"closing\" : \"open\"}\n          inert={drawerClosing || undefined}\n          className={`flex shrink-0 justify-end overflow-hidden ${\n            drawerClosing ? \"pointer-events-none\" : \"\"\n          }`}\n        >\n          {sidebarContent}\n        </div>\n      ) : null}\n"
+      }
+    ]
+  },
+  {
+    "path": "src/features/inbox/ui/InboxView.tsx",
+    "hunks": [
+      {
+        "line": 374,
+        "ours": "  onPullReview?: (item: InboxItem, report: CodeReviewReport) => void;\n",
+        "theirs": "  repairSessions?: CiRepairProps[\"repairSessions\"];\n  onRepairChecks?: CiRepairProps[\"onRepairChecks\"];\n"
+      },
+      {
+        "line": 399,
+        "ours": "  onPullReview,\n",
+        "theirs": "  repairSessions,\n  onRepairChecks,\n"
+      },
+      {
+        "line": 1401,
+        "ours": "  onPullReview,\n",
+        "theirs": "  repairSessions,\n  onRepairChecks,\n"
+      },
+      {
+        "line": 1417,
+        "ours": "  onPullReview?: (item: InboxItem, report: CodeReviewReport) => void;\n",
+        "theirs": "  repairSessions?: CiRepairProps[\"repairSessions\"];\n  onRepairChecks?: CiRepairProps[\"onRepairChecks\"];\n"
+      },
+      {
+        "line": 1444,
+        "ours": "      onPullReview={onPullReview}\n",
+        "theirs": "      repairSessions={repairSessions}\n      onRepairChecks={onRepairChecks}\n"
+      },
+      {
+        "line": 1996,
+        "ours": "  onPullReview,\n",
+        "theirs": "  repairSessions,\n  onRepairChecks,\n"
+      },
+      {
+        "line": 2014,
+        "ours": "  onPullReview?: (item: InboxItem, report: CodeReviewReport) => void;\n",
+        "theirs": "  repairSessions?: CiRepairProps[\"repairSessions\"];\n  onRepairChecks?: CiRepairProps[\"onRepairChecks\"];\n"
+      }
+    ]
+  },
+  {
+    "path": "src/features/sessions/data/sessionStore.ts",
+    "hunks": [
+      {
+        "line": 584,
+        "ours": "  const review = sanitizeReview(block.review);\n  if (review) next.review = review;\n",
+        "theirs": "  if (\n    block.role === \"user\" &&\n    typeof block.ciContext === \"string\" &&\n    block.ciContext\n  ) {\n    next.ciContext = block.ciContext;\n  }\n"
+      }
+    ]
+  },
+  {
+    "path": "src/features/sessions/model/session.ts",
+    "hunks": [
+      {
+        "line": 1,
+        "ours": "import type { ContextUsage } from \"./contextUsage\";\nimport type { ProcessedUsage } from \"./tokenAccounting\";\nimport { deriveLocalSessionTitle } from \"./sessionTitle\";\n",
+        "theirs": "import { dropContextWindow, type ContextUsage } from \"./contextUsage\";\n"
+      },
+      {
+        "line": 23,
+        "ours": "import { type CodeReviewReport } from \"../../inbox/model/githubTasks\";\n",
+        "theirs": "import { loadProjectProviderSettings } from \"./projectProviders\";\n"
+      },
+      {
+        "line": 311,
+        "ours": "  /** CodeRabbit review report with per-issue fix buttons. Survives reloads. */\n  review?: CodeReviewReport;\n",
+        "theirs": "  /** Exact CI repair instructions and evidence supplied with this user turn. */\n  ciContext?: string;\n"
+      },
+      {
+        "line": 406,
+        "ours": "  /** Persisted follow-ups waiting for the current turn. */\n",
+        "theirs": "  /**\n   * What the live turn is waiting on after the agent yielded with work still\n   * running in the background. In-memory only.\n   */\n  backgroundTasks?: string[];\n  /** Follow-ups waiting for current turn. In-memory only. */\n"
+      }
+    ]
+  },
+  {
+    "path": "src/features/sessions/ui/AgentTranscript.test.ts",
+    "hunks": [
+      {
+        "line": 49,
+        "ours": "  it(\"renders native, composer and prefix origins as separate accessible divider rows\", () => {\n    const source = { ...newSession(\"claude\", \"/repo\"), id: \"source\", title: \"Original\", providerSessionId: \"provider\", blocks: [\n      { id: \"u1\", role: \"user\" as const, text: \"hello\" }, { id: \"a1\", role: \"assistant\" as const, text: \"reply\" },\n    ] };\n    const native = planBranch({ source, turn: source.blocks, newSessionId: \"branch\" });\n    const copied = planBranch({ source: { ...source, providerSessionId: undefined }, turn: source.blocks, newSessionId: \"branch\" });\n    if (!native || !copied) throw new Error(\"missing plans\");\n    const prefix = convertToPrefixSummary({ ...source, id: \"branch\", blocks: native.blocks }, \"fork-failed\");\n    for (const blocks of [native.blocks, copied.blocks, prefix.blocks]) {\n      const divider = blocks[blocks.length - 1];\n      expect(groupTurns(blocks)).toEqual([blocks.slice(0, 2), [divider]]);\n      const markup = render(blocks);\n      const container = document.createElement(\"div\"); container.innerHTML = markup;\n      const separator = container.querySelector('[role=\"separator\"]');\n      expect(separator?.getAttribute(\"aria-label\")).toBe(divider.text); expect(separator?.textContent).toBe(divider.text);\n    }\n  });\n",
+        "theirs": "  it(\"offers the saved CI context in a collapsed disclosure beside the short request\", () => {\n    const markup = render([\n      {\n        id: \"ci-repair\",\n        role: \"user\",\n        text: \"Fix 1 failed CI check for acme/web PR #42.\",\n        ciContext:\n          \"Checked commit: abc123\\n\\nRun tests: expected <main>, received <script>\",\n      },\n    ]);\n    expect(markup).toContain(\"Fix 1 failed CI check for acme/web PR #42.\");\n    expect(markup).toMatch(/<details\\b[^>]*>/);\n    expect(markup).not.toMatch(/<details\\b[^>]*\\bopen[\\s=>]/);\n    expect(markup).toContain(\"CI context</span>\");\n    expect(markup).toContain(\n      \"Checked commit: abc123\\n\\nRun tests: expected &lt;main&gt;, received &lt;script&gt;\",\n    );\n  });\n\n"
+      }
+    ]
+  },
+  {
+    "path": "src/features/sessions/ui/AgentTranscript.tsx",
+    "hunks": [
+      {
+        "line": 164,
+        "ours": "  onApproval?: (\n    requestId: number,\n    decision: ApprovalDecision,\n    scope?: ApprovalScope,\n  ) => void;\n",
+        "theirs": "  /** Work the agent left running when it yielded; the turn waits on it. */\n  backgroundTasks?: string[];\n  onApproval?: (requestId: number, decision: ApprovalDecision) => void;\n"
+      }
+    ]
+  },
+  {
+    "path": "src/features/sessions/ui/ModelPicker.tsx",
+    "hunks": [
+      {
+        "line": 40,
+        "ours": "  hasHarnessEvidence,\n",
+        "theirs": "  isProviderHidden,\n  projectProvidersRevision,\n  subscribeProjectProviders,\n} from \"../model/projectProviders\";\nimport {\n"
+      },
+      {
+        "line": 316,
+        "ours": "    // Per-harness evidence (not the global probe flag): Antigravity is\n    // excluded from blanket probes, so it must stay listed until its own\n    // catalog discovery reports \u2014 never hidden as \"not installed\" merely\n    // because probing was deferred.\n    return HARNESSES.filter((id) =>\n      showProviderInModelPicker(\n        id,\n        isHarnessAvailable(id),\n        hasHarnessEvidence(id),\n      ),\n",
+        "theirs": "    void projectVersion;\n    return HARNESSES.filter(\n      (id) =>\n        !isProviderHidden(project, id) &&\n        showProviderInModelPicker(\n          id,\n          isHarnessAvailable(id),\n          hasProbedHarnessAvailability(),\n        ),\n"
+      }
+    ]
+  },
+  {
+    "path": "src/features/settings/ui/SettingsView.tsx",
+    "hunks": [
+      {
+        "line": 230,
+        "ours": "  hasLiveCatalog,\n  isPickerProviderVisible,\n",
+        "theirs": ""
+      },
+      {
+        "line": 348,
+        "ours": "  loadRemainingQuota,\n",
+        "theirs": "  loadQuickComposerEnabled,\n"
+      },
+      {
+        "line": 368,
+        "ours": "  saveRemainingQuota,\n",
+        "theirs": "  saveQuickComposerEnabled,\n"
+      },
+      {
+        "line": 1231,
+        "ours": "        title=\"AI helper\"\n        description=\"Which model writes chat titles, commit messages and pull request descriptions.\"\n      >\n        <Row\n          id=\"ai-helper\"\n          label=\"AI helper\"\n          description=\"Automatic uses the chat's provider for titles and the first installed provider for commits and PRs.\"\n        >\n          <Segmented\n            label=\"AI helper\"\n            value={aiHelper.mode}\n            options={[\n              { value: \"automatic\", label: \"Automatic\" },\n              { value: \"custom\", label: \"Choose a model\" },\n            ]}\n            onChange={onAiHelperMode}\n          />\n        </Row>\n        {aiHelper.mode === \"custom\" ? (\n          <>\n            <AiHelperTargetEditor\n              id=\"ai-helper-primary\"\n              label=\"Main model\"\n              target={aiHelper.primary}\n              onChange={(target) => onAiHelperTarget(\"primary\", target)}\n            />\n            {aiHelper.fallback ? (\n              <AiHelperTargetEditor\n                id=\"ai-helper-fallback\"\n                label=\"Backup model\"\n                target={aiHelper.fallback}\n                onChange={(target) => onAiHelperTarget(\"fallback\", target)}\n                action={\n                  <button\n                    type=\"button\"\n                    onClick={onRemoveAiHelperFallback}\n                    className=\"text-[12px] text-content/55 hover:text-content\"\n                  >\n                    Remove backup\n                  </button>\n                }\n              />\n            ) : (\n              <Row label=\"Backup model\">\n                <button\n                  type=\"button\"\n                  onClick={onAddAiHelperFallback}\n                  className=\"text-[12px] text-content/55 hover:text-content\"\n                >\n                  Add backup\n                </button>\n              </Row>\n            )}\n            <p className=\"px-4 py-3 text-[12px] leading-relaxed text-content/45\">\n              If the main model's reply is unusable, MonoCode asks it to fix the\n              reply once, then tries the backup once. Sign-in or permission\n              errors never switch to the backup. Helpers run without tools and\n              can't change your files.\n            </p>\n          </>\n        ) : null}\n",
+        "theirs": "        title=\"Editor\"\n        description=\"What happens when you save a file in the workspace editor.\"\n      >\n        <Row\n          id=\"format-on-save\"\n          label=\"Format on save\"\n          description=\"Run Prettier on supported files before writing. Off keeps the text you typed, including quote style.\"\n        >\n          <Toggle\n            label=\"Format on save\"\n            on={formatOnSave}\n            onChange={onFormatOnSave}\n          />\n        </Row>\n"
+      },
+      {
+        "line": 3231,
+        "ours": "/** Settings page that owns the initial provider discovery lifecycle. */\nexport function ProvidersPage(): ReactElement {\n",
+        "theirs": "const GLOBAL_PROVIDER_SCOPE = \"global\";\n\nfunction ProvidersPage({\n  cwd,\n  recents,\n}: {\n  cwd?: string;\n  recents?: RecentProject[];\n}) {\n"
+      },
+      {
+        "line": 3264,
+        "ours": "  const [updateNotices, setUpdateNotices] = useState<CliUpdateNotice[]>([]);\n  const notifiedRef = useRef<Set<HarnessId>>(new Set());\n  const runUpdateCheck = useCallback(async () => {\n    const notices = await checkCliUpdates({\n      claude: getCustomBinary(\"claude\") ?? \"claude\",\n      codex: getCustomBinary(\"codex\") ?? \"codex\",\n      pi: getCustomBinary(\"pi\") ?? \"pi\",\n      cline: getCustomBinary(\"cline\") ?? \"cline\",\n    });\n    setUpdateNotices((current) => {\n      const fresh = notices.filter(\n        (entry) => !notifiedRef.current.has(entry.harness),\n      );\n      for (const entry of fresh) notifiedRef.current.add(entry.harness);\n      return fresh.length > 0 ? [...current, ...fresh] : current;\n    });\n  }, []);\n",
+        "theirs": "  const [scope, setScope] = useState<string>(GLOBAL_PROVIDER_SCOPE);\n  const [hiddenGlobally, setHiddenGlobally] = useState(loadHiddenPickerProviders);\n\n  const scopeOptions = useMemo(() => {\n    const options: { value: string; label: string; icon?: ReactNode }[] = [\n      {\n        value: GLOBAL_PROVIDER_SCOPE,\n        label: \"Global\",\n        icon: (\n          <Globe\n            className=\"size-3.5 shrink-0 text-content/60\"\n            strokeWidth={1.75}\n          />\n        ),\n      },\n    ];\n    const seen = new Set<string>();\n    for (const path of [cwd, ...(recents ?? []).map((entry) => entry.path)]) {\n      if (!path || !looksLikeProject(path)) continue;\n      const key = pathKey(path);\n      if (seen.has(key)) continue;\n      seen.add(key);\n      options.push({\n        value: path,\n        label: projectName(path),\n        icon: <ProjectScopeIcon path={path} />,\n      });\n    }\n    return options;\n  }, [cwd, recents]);\n\n  const project = scope === GLOBAL_PROVIDER_SCOPE ? null : scope;\n  const projectSettings = project ? loadProjectProviderSettings(project) : {};\n  // A project without overrides inherits the global default provider, the same\n  // way `defaultSessionChoice` resolves it for new conversations.\n  const effectiveDefaultHarness = project\n    ? firstEnabledHarness(\n        project,\n        projectSettings.defaultHarness ?? choice?.harness ?? \"cursor\",\n      )\n    : (choice?.harness ?? null);\n"
+      },
+      {
+        "line": 3471,
+        "ours": "                : defaultModelId(harness))\n            }\n            isDefault={choice?.harness === harness}\n            initialLoading={initialLoading}\n            onDefault={onDefault}\n            onModelChange={onModelChange}\n            onCatalogRefreshed={runUpdateCheck}\n          />\n        ))}\n",
+        "theirs": "                : defaultModelId(harness)))\n            : (defaultModels[harness] ??\n              (choice?.harness === harness\n                ? choice.model\n                : defaultModelId(harness)));\n          const isDefault = project\n            ? effectiveDefaultHarness === harness\n            : choice?.harness === harness;\n          return (\n            <ProviderRow\n              key={harness}\n              harness={harness}\n              selectedModel={selectedModel}\n              isDefault={isDefault}\n              inPicker={inPicker}\n              pickerLocked={pickerLocked}\n              onDefault={onDefault}\n              onModelChange={onModelChange}\n              onPickerVisible={(visible) => onPickerVisible(harness, visible)}\n            />\n          );\n        })}\n"
+      },
+      {
+        "line": 3850,
+        "ours": "  initialLoading,\n  onDefault,\n  onModelChange,\n  onCatalogRefreshed,\n",
+        "theirs": "  inPicker,\n  pickerLocked = false,\n  onDefault,\n  onModelChange,\n  onPickerVisible,\n"
+      },
+      {
+        "line": 3866,
+        "ours": "  initialLoading?: boolean;\n  onDefault: (harness: HarnessId, model: string) => void;\n  onModelChange: (harness: HarnessId, model: string) => void;\n  onCatalogRefreshed?: () => void;\n}): ReactElement {\n",
+        "theirs": "  inPicker: boolean;\n  /** Globally hidden providers cannot be turned on per project. */\n  pickerLocked?: boolean;\n  onDefault: (harness: HarnessId, model: string) => void;\n  onModelChange: (harness: HarnessId, model: string) => void;\n  onPickerVisible: (visible: boolean) => void;\n}) {\n"
+      },
+      {
+        "line": 3886,
+        "ours": "  const [inPicker, setInPicker] = useState(() =>\n    isPickerProviderVisible(harness),\n  );\n  const [customBinaryPath, setCustomBinaryPath] = useState<string | null>(() =>\n    getCustomBinary(harness),\n  );\n  const [rechecking, setRechecking] = useState(false);\n  const initialDiscoveryFinished = useRef(false);\n",
+        "theirs": ""
+      },
+      {
+        "line": 3911,
+        "ours": "  const onPickerVisible = (visible: boolean) => {\n    savePickerProviderVisible(harness, visible);\n    setInPicker(visible);\n  };\n\n  const handlePickBinary = async () => {\n    const file = await pickFile(\n      `Choose ${HARNESS_TITLE[harness]} binary executable`,\n    );\n    if (file) {\n      setCustomBinary(harness, file);\n      setCustomBinaryPath(file);\n      void probeHarnessAvailability({ force: true });\n    }\n  };\n\n  const handleClearBinary = () => {\n    setCustomBinary(harness, null);\n    setCustomBinaryPath(null);\n    void probeHarnessAvailability({ force: true });\n  };\n\n  // Manual health check + model refresh for this row: re-probes every CLI\n  // (fast `--version` checks, no quota) and refreshes this harness's model\n  // catalog. Auto-refresh on visit stays as the no-click path. Antigravity\n  // must rerun real ACP discovery even when a previous catalog succeeded \u2014\n  // a stale \"ready\" would hide sign-in and runtime errors.\n  const handleRecheck = async () => {\n    if (initialLoading || rechecking) return;\n    setRechecking(true);\n    try {\n      await probeHarnessAvailability({ force: true });\n      if (harness === \"antigravity\") {\n        await recheckAntigravityCatalog();\n      } else {\n        await refreshHarnessCatalogs([harness], { force: true });\n      }\n      void onCatalogRefreshed?.();\n    } finally {\n      setRechecking(false);\n    }\n  };\n\n  const antigravitySetup =\n    harness === \"antigravity\" ? (\n      <AntigravityProviderSetup available={available} catalog={catalog} />\n    ) : null;\n\n",
+        "theirs": ""
+      },
+      {
+        "line": 4719,
+        "ours": "  options: {\n    value: string;\n    label: string;\n    disabled?: boolean;\n    title?: string;\n    description?: string;\n  }[];\n",
+        "theirs": "  options: { value: string; label: string; icon?: ReactNode }[];\n"
+      },
+      {
+        "line": 4902,
+        "ours": "                <span className=\"min-w-0 flex-1\">\n                  <span className=\"block truncate\">{option.label}</span>\n                  {option.description ? (\n                    <span className=\"mt-0.5 block text-[11px] leading-relaxed text-content/45\">\n                      {option.description}\n                    </span>\n                  ) : null}\n                </span>\n",
+        "theirs": "                {option.icon ? (\n                  <span className=\"grid size-4 shrink-0 place-items-center\">\n                    {option.icon}\n                  </span>\n                ) : null}\n                <span className=\"min-w-0 flex-1 truncate\">{option.label}</span>\n"
+      }
+    ]
+  },
+  {
+    "path": "src/features/source-control/ui/GitChangesPanel.tsx",
+    "hunks": [
+      {
+        "line": 116,
+        "ours": "  onOpenFile: (\n    path: string,\n    options?:\n      | GitFileDiffKind\n      | { kind?: \"staged\" | \"unstaged\"; status?: string },\n  ) => void;\n  onOpenAllChanges?: () => void;\n  onOpenCommit: (commit: GitHistoryCommit) => void;\n",
+        "theirs": "  onOpenFile: (path: string, kind: GitFileDiffKind, pin?: boolean) => void;\n  onOpenAllChanges: () => void;\n  onOpenCommit: (commit: GitHistoryCommit, pin?: boolean) => void;\n"
+      },
+      {
+        "line": 371,
+        "ours": "  onOpenFile: (\n    path: string,\n    options?:\n      | GitFileDiffKind\n      | { kind?: \"staged\" | \"unstaged\"; status?: string },\n  ) => void;\n  onOpenAllChanges?: () => void;\n",
+        "theirs": "  onOpenFile: (path: string, kind: GitFileDiffKind, pin?: boolean) => void;\n  onOpenAllChanges: () => void;\n"
+      },
+      {
+        "line": 1275,
+        "ours": "  onOpenFile: (\n    path: string,\n    options?:\n      | GitFileDiffKind\n      | { kind?: \"staged\" | \"unstaged\"; status?: string },\n  ) => void;\n",
+        "theirs": "  onOpenFile: (path: string, kind: GitFileDiffKind, pin?: boolean) => void;\n"
+      },
+      {
+        "line": 1487,
+        "ours": "  onOpenFile: (\n    path: string,\n    options?:\n      | GitFileDiffKind\n      | { kind?: \"staged\" | \"unstaged\"; status?: string },\n  ) => void;\n",
+        "theirs": "  onOpenFile: (path: string, kind: GitFileDiffKind, pin?: boolean) => void;\n"
+      },
+      {
+        "line": 1525,
+        "ours": "          className=\"flex h-full w-full min-w-0 items-center gap-1.5 px-2 text-left rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent\"\n",
+        "theirs": "          onDoubleClick={() => {\n            if (canOpen) onOpenFile(file.path, kind, true);\n          }}\n          className=\"flex min-w-0 flex-1 items-center gap-1.5 text-left\"\n"
+      }
+    ]
+  },
+  {
+    "path": "src/integrations/harness/core/apply.ts",
+    "hunks": [
+      {
+        "line": 496,
+        "ours": "    const settled = settlePendingApprovals(session);\n    let blocks = settled.blocks.map(stopBlockProgress);\n    if (session.liveTurnUsage) {\n      blocks = stampTurnUsage(blocks, session.liveTurnUsage);\n    }\n    blocks = stampTurnDuration(blocks);\n",
+        "theirs": "  const { backgroundTasks: _cleared, ...settled } =\n    settlePendingApprovals(session);\n"
+      }
+    ]
+  },
+  {
+    "path": "src/integrations/harness/core/availability.ts",
+    "hunks": [
+      {
+        "line": 61,
+        "ours": "let availability: HarnessAvailability = {\n  claude: false,\n  codex: false,\n  cursor: false,\n  grok: false,\n  opencode: false,\n  pi: false,\n  omp: false,\n  fx: false,\n  antigravity: false,\n  cline: false,\n  hermes: false,\n};\nlet version = 0;\nlet inflight: Promise<void> | null = null;\nlet probedAt = 0;\n/** Harnesses with backend-authoritative evidence (a probe or catalog run). */\nconst evidenced = new Set<HarnessId>();\nlet antigravityProbeError: string | null = null;\nconst listeners = new Set<() => void>();\n",
+        "theirs": "let inflight: Promise<void> | null = null;\n"
+      },
+      {
+        "line": 94,
+        "ours": "function emit() {\n  version += 1;\n  for (const listener of listeners) listener();\n}\n\nexport function subscribeHarnessAvailability(onStoreChange: () => void): () => void {\n  listeners.add(onStoreChange);\n  return () => {\n    listeners.delete(onStoreChange);\n  };\n}\n\nexport function getHarnessAvailabilitySnapshot(): number {\n  return version;\n}\n\nexport function hasProbedHarnessAvailability(): boolean {\n  return probedAt > 0;\n}\n\n/**\n * True once this harness has backend-authoritative evidence in this session\n * (a completed probe, or catalog discovery that proved the runtime answers).\n * Before that the UI must render \"not checked yet\" \u2014 never \"not installed\".\n */\nexport function hasHarnessEvidence(id: HarnessId): boolean {\n  return evidenced.has(id);\n}\n\nexport function isHarnessAvailable(id: HarnessId): boolean {\n  return availability[id];\n}\n\n/**\n * Record availability evidence without running a probe. Used when catalog\n * discovery already proved the runtime answers, so the expensive Antigravity\n * ACP handshake and the shared-runtime acquisition never run side by side.\n */\nexport function noteHarnessEvidence(\n  id: HarnessId,\n  ok: boolean,\n  error?: string,\n): void {\n  availability = { ...availability, [id]: ok };\n  evidenced.add(id);\n  if (id === \"antigravity\") {\n    antigravityProbeError = ok ? null : (error ?? antigravityProbeError);\n  }\n  emit();\n}\n\n",
+        "theirs": ""
+      },
+      {
+        "line": 289,
+        "ours": "      const next = { ...availability };\n      for (const entry of entries) {\n        if (!entry) continue;\n        const [id, ok] = entry;\n        next[id] = ok;\n        evidenced.add(id);\n      }\n      availability = next;\n      emit();\n",
+        "theirs": "      const next = {} as HarnessAvailability;\n      for (const [id, ok] of entries) next[id] = ok;\n      setHarnessAvailability(next);\n      emitHarnessAvailability();\n"
+      }
+    ]
+  },
+  {
+    "path": "src/integrations/harness/providers/claude/claude.ts",
+    "hunks": [
+      {
+        "line": 200,
+        "ours": "  requestsById: Map<string, ProcessedUsage>;\n  priorTurnsUsage?: ProcessedUsage;\n  turnUsage?: ProcessedUsage;\n",
+        "theirs": "  pendingAssistantBoundary: boolean;\n"
+      },
+      {
+        "line": 218,
+        "ours": "const CONTROL_TIMEOUT_MS = 5_000;\n\nexport type ClaudeControlFailure =\n  | \"error\"\n  | \"timeout\"\n  | \"cancelled\"\n  | \"stopped\"\n  | \"write-failed\"\n  | \"unavailable\";\n\nexport class ClaudeControlError extends Error {\n  constructor(\n    readonly reason: ClaudeControlFailure,\n    message: string,\n  ) {\n    super(message);\n    this.name = \"ClaudeControlError\";\n  }\n}\n",
+        "theirs": "/**\n * How long a finished background task may take to wake Claude before the turn\n * is let go anyway. The follow-up turn normally starts within a second or two.\n */\nconst RESUME_GRACE_MS = 15_000;\n"
+      },
+      {
+        "line": 602,
+        "ours": "    requestsById: new Map(),\n    priorTurnsUsage: undefined,\n    turnUsage: undefined,\n",
+        "theirs": "    pendingAssistantBoundary: false,\n"
+      }
+    ]
+  },
+  {
+    "path": "src/integrations/harness/providers/claude/claudeLive.test.ts",
+    "hunks": [
+      {
+        "line": 39,
+        "ours": "  inspectClaudeContext,\n",
+        "theirs": "  cancelClaudeTurn,\n"
+      }
+    ]
+  },
+  {
+    "path": "src/integrations/harness/providers/codex/codex.ts",
+    "hunks": [
+      {
+        "line": 44,
+        "ours": "import {\n  codexMcpApprovalKindKeys,\n  codexMcpConfirmation,\n  codexMcpForm,\n  isCodexComputerUseAccessConfirmation,\n  type CodexInProgressMcpTool,\n  type McpFormUnsupportedReason,\n} from \"./codexElicitation\";\nimport { joinStreamText, snapshotRemainder } from \"../../core/streamText\";\nimport { NativeForkError } from \"../../core/types\";\nimport { buildThreadForkParams } from \"./codexProtocol\";\n",
+        "theirs": "import { codexMcpConfirmation } from \"./codexElicitation\";\nimport { snapshotRemainder } from \"../../core/streamText\";\n"
+      },
+      {
+        "line": 130,
+        "ours": "  emittedAssistant: string;\n  emittedReasoning: string;\n  /** Cumulative thread usage baseline established before the active turn started. */\n  threadBaseline?: CodexRawUsageRecord;\n  /** Cumulative thread usage snapshot last seen from Codex. */\n  lastThreadTotal?: CodexRawUsageRecord;\n  /** Processed usage for the active turn. */\n  turnUsage?: ProcessedUsage;\n",
+        "theirs": "  /** Completed snapshots describe one item, not all text in the turn. */\n  emittedAssistantByItem: Map<string, string>;\n  emittedReasoningByItem: Map<string, string>;\n"
+      },
+      {
+        "line": 712,
+        "ours": "  live.emittedAssistant = \"\";\n  live.emittedReasoning = \"\";\n  live.inProgressMcpTools.clear();\n  live.threadBaseline = live.lastThreadTotal;\n  live.turnUsage = undefined;\n",
+        "theirs": "  live.emittedAssistantByItem.clear();\n  live.emittedReasoningByItem.clear();\n"
+      },
+      {
+        "line": 1088,
+        "ours": "  live.emittedAssistant = \"\";\n  live.emittedReasoning = \"\";\n  live.inProgressMcpTools.clear();\n",
+        "theirs": "  live.emittedAssistantByItem.clear();\n  live.emittedReasoningByItem.clear();\n"
+      },
+      {
+        "line": 1188,
+        "ours": "    const confirmation = codexMcpConfirmation(\n      params,\n      threadId === live.threadId ? [...live.inProgressMcpTools.values()] : [],\n    );\n    if (confirmation) {\n      logCodexElicitation(params);\n      if (\n        !live.planning &&\n        live.runtimeMode === \"full-access\" &&\n        isCodexComputerUseAccessConfirmation(params)\n      ) {\n        await live.rpc.respond(id, {\n          action: \"accept\",\n          content: confirmation.content,\n          _meta: null,\n        });\n        return;\n      }\n      const grantKey = confirmation.mcpToolGrant?.key;\n      if (\n        !live.planning &&\n        grantKey &&\n        mcpGrantsByThread.get(live.sessionId)?.has(grantKey)\n      ) {\n        await live.rpc.respond(id, {\n          action: \"accept\",\n          content: confirmation.content,\n          _meta: { persist: \"session\" },\n        });\n        return;\n      }\n      const uiId = live.nextApprovalUiId++;\n      const pending = waitApproval(\n        live,\n        uiId,\n        id,\n        \"permissions\",\n        threadId,\n        grantKey,\n      );\n      // Other MCP consent must carry the user's decision, including in Full Access.\n      live.onEvent({\n        type: \"approval.requested\",\n        requestId: uiId,\n        kind: \"other\",\n        title: confirmation.title,\n        ...(confirmation.mcpToolGrant\n          ? {\n              sessionScope: {\n                hint: \"Stop asking for this tool until the chat closes.\",\n              },\n            }\n          : {}),\n      });\n      const outcome = await pending;\n      const decision = outcome === \"cancelled\" ? \"cancelled\" : outcome.decision;\n      const scope = outcome === \"cancelled\" ? undefined : outcome.scope;\n      live.onEvent({\n        type: \"approval.resolved\",\n        requestId: uiId,\n        decision,\n        ...(scope ? { scope } : {}),\n      });\n      if (outcome === \"cancelled\") return;\n      const sessionGrant =\n        decision === \"allow\" && scope === \"session\" && grantKey !== undefined;\n",
+        "theirs": "    if (!live.planning && live.runtimeMode === \"full-access\") {\n"
+      },
+      {
+        "line": 1290,
+        "ours": "    const event: Extract<HarnessEvent, { type: \"form.requested\" }> = {\n      type: \"form.requested\",\n",
+        "theirs": "    const pending = waitApproval(live, uiId, id, \"permissions\", threadId);\n    // MCP consent requires an explicit decision outside non-plan Full Access turns.\n    live.onEvent({\n      type: \"approval.requested\",\n"
+      }
+    ]
+  },
+  {
+    "path": "src/integrations/harness/providers/codex/codexElicitation.test.ts",
+    "hunks": [
+      {
+        "line": 1,
+        "ours": "import { afterEach, describe, expect, it } from \"vitest\";\nimport {\n  codexMcpConfirmation,\n  codexMcpForm,\n  isCodexComputerUseAccessConfirmation,\n  isSecretField,\n  setCodexMcpApprovalKindKeysForTest,\n} from \"./codexElicitation\";\nimport type { CodexInProgressMcpTool } from \"./codexElicitation\";\nimport type { McpFormField } from \"../../../../features/sessions/model/mcpForm\";\n",
+        "theirs": "import { describe, expect, it } from \"vitest\";\nimport { codexMcpConfirmation } from \"./codexElicitation\";\n"
+      }
+    ]
+  }
+]

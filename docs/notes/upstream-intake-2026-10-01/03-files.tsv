@@ -1,0 +1,528 @@
+path	group	conflict_kind	upstream_action	upstream_ranges	local_action	u_ids	l_ids
+.gitattributes	N		A	v0.6.0	-	U-023	
+.github/workflows/ci.yml	E		M	v0.4.0,v0.5.0	-	U-023,U-067	
+.github/workflows/release.yml	E		M	v0.4.0,v0.5.0	-	U-023,U-067,U-068,U-077	
+CHANGELOG.md	E		M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.4.1,v0.4.2,v0.4.3,v0.5.0,v0.6.0	-	U-007,U-023,U-040,U-042,U-049,U-056,U-058,U-063,U-072,U-073,U-074,U-075,U-076,U-085,U-092,U-094	
+Cargo.lock	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.4.1,v0.4.2,v0.4.3,v0.5.0,v0.6.0	M	U-007,U-017,U-019,U-030,U-042,U-049,U-063,U-072,U-073,U-075,U-076,U-085,U-094	L-13,L-14,L-17
+Cargo.toml	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.4.1,v0.4.2,v0.4.3,v0.5.0,v0.6.0	M	U-042,U-049,U-063,U-072,U-073,U-075,U-076,U-085,U-094	
+README.md	E		M	v0.2.0,v0.4.0,v0.5.0	-	U-009,U-018,U-023,U-067	
+docs/remote-access.md	N		A	v0.5.0	-	U-023,U-085	
+host/attachments.test.ts	N		A	v0.5.0	-	U-023	
+host/attachments.ts	N		A	v0.5.0	-	U-023	
+host/bootstrap.test.ts	N		A	v0.5.0	-	U-023	
+host/browse.test.ts	N		A	v0.5.0	-	U-023	
+host/browse.ts	N		A	v0.5.0	-	U-023	
+host/build.mjs	N		A	v0.5.0	-	U-023	
+host/child-backend.test.ts	N		A	v0.5.0	-	U-023,U-078	
+host/child-backend.ts	N		A	v0.5.0	-	U-023	
+host/cli.test.ts	N		A	v0.5.0	-	U-023	
+host/cli.ts	N		A	v0.5.0	-	U-023	
+host/engine.test.ts	N		A	v0.5.0,v0.6.0	-	U-023,U-026	
+host/engine.ts	N		A	v0.5.0,v0.6.0	-	U-023	
+host/git-branches.test.ts	N		A	v0.5.0	-	U-023	
+host/git-branches.ts	N		A	v0.5.0	-	U-023	
+host/git-worktrees.test.ts	N		A	v0.5.0	-	U-023	
+host/git-worktrees.ts	N		A	v0.5.0	-	U-023	
+host/large-sync.test.ts	N		A	v0.5.0	-	U-023	
+host/opencode-transport.test.ts	N		A	v0.5.0	-	U-023	
+host/owner.test.ts	N		A	v0.5.0	-	U-023	
+host/owner.ts	N		A	v0.5.0	-	U-023	
+host/package.mjs	N		A	v0.5.0	-	U-023	
+host/process.test.ts	N		A	v0.5.0	-	U-023	
+host/process.ts	N		A	v0.5.0	-	U-023	
+host/provider-guard.mjs	N		A	v0.5.0	-	U-023	
+host/provider-transport.test.ts	N		A	v0.5.0	-	U-023	
+host/providers.test.ts	N		A	v0.5.0	-	U-023	
+host/providers.ts	N		A	v0.5.0	-	U-023	
+host/server.test.ts	N		A	v0.5.0,v0.6.0	-	U-023	
+host/server.ts	N		A	v0.5.0,v0.6.0	-	U-023	
+host/service.test.ts	N		A	v0.5.0	-	U-023	
+host/service.ts	N		A	v0.5.0	-	U-023	
+host/store.ts	N		A	v0.5.0,v0.6.0	-	U-023,U-026	
+host/sync-transfer.test.ts	N		A	v0.5.0	-	U-023	
+host/sync-transfer.ts	N		A	v0.5.0	-	U-023	
+host/tsconfig.json	N		A	v0.5.0	-	U-023	
+host/vitest.config.ts	N		A	v0.5.0	-	U-023,U-084	
+host/windows-acl.ps1	N		A	v0.5.0,v0.6.0	-	U-023	
+host/windows-bootstrap.test.ts	N		A	v0.5.0	-	U-023	
+host/windows.test.ts	N		A	v0.5.0,v0.6.0	-	U-023,U-084	
+host/windows.ts	N		A	v0.5.0,v0.6.0	-	U-023	
+host/workspace-commands.ts	N		A	v0.5.0	-	U-023	
+host/workspace.test.ts	N		A	v0.5.0	-	U-023	
+host/workspace.ts	N		A	v0.5.0	-	U-023	
+package-lock.json	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.4.1,v0.4.2,v0.4.3,v0.5.0,v0.6.0	M	U-023,U-042,U-049,U-063,U-072,U-073,U-075,U-076,U-085,U-094	
+package.json	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.4.1,v0.4.2,v0.4.3,v0.5.0,v0.6.0	M	U-023,U-042,U-049,U-063,U-067,U-072,U-073,U-075,U-076,U-085,U-094	
+quick-composer.html	N		A	v0.1.56	-	U-007	
+scripts/install-linux-deps-fedora.sh	N		A	v0.4.0	-	U-067	
+scripts/test-remote-ssh.py	N		A	v0.5.0	-	U-023	
+src-tauri/Cargo.toml	B		M	v0.1.56,v0.4.0,v0.4.2,v0.4.3,v0.6.0	M	U-007,U-017,U-019,U-030,U-064,U-075,U-076	L-03,L-13,L-14
+src-tauri/capabilities/default.json	B		M	v0.1.56	M	U-007	L-17
+src-tauri/src/account_identity.rs	N		A	v0.2.0	-	U-010	
+src-tauri/src/control.rs	B		M	v0.2.0,v0.6.0	M	U-009,U-030	
+src-tauri/src/control_cli.rs	E		M	v0.2.0,v0.4.0	-	U-009,U-018	
+src-tauri/src/fs.rs	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.4.2	M	U-006,U-008,U-017,U-020,U-050,U-054,U-058,U-064,U-066,U-074,U-075	L-09,L-13,L-15,L-27
+src-tauri/src/harness.rs	X	content	M	v0.3.0,v0.6.0	M	U-013,U-029,U-030,U-050,U-053	L-03,L-04,L-13,L-17
+src-tauri/src/harness_updates.rs	N		A	v0.6.0	-	U-029	
+src-tauri/src/lib.rs	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.4.2,v0.5.0,v0.6.0	M	U-006,U-007,U-009,U-010,U-012,U-013,U-017,U-019,U-020,U-023,U-028,U-029,U-030,U-045,U-050,U-064,U-066,U-074	L-03,L-04,L-09,L-13,L-14,L-16,L-19
+src-tauri/src/macos.rs	E		M	v0.6.0	-	U-031	
+src-tauri/src/macos_background.rs	N		A	v0.1.56	-	U-007	
+src-tauri/src/main.rs	X	content	M	v0.2.0,v0.5.0	M	U-009,U-023	L-03
+src-tauri/src/mcp.rs	N		A	v0.6.0	-	U-030	
+src-tauri/src/menu.rs	E		M	v0.1.56,v0.3.0,v0.4.1,v0.5.0,v0.6.0	-	U-007,U-012,U-024,U-028,U-073,U-088	
+src-tauri/src/pasteboard.rs	E		M	v0.4.0	-	U-017	
+src-tauri/src/pi_usage.rs	N		A	v0.4.0	-	U-019	
+src-tauri/src/pty.rs	B		M	post-v0.6.0	M	U-095	L-14
+src-tauri/src/quick_composer.rs	N		A	v0.1.56,v0.2.0,v0.6.0	-	U-007,U-032	
+src-tauri/src/quick_composer/delivery.rs	N		A	v0.1.56,v0.6.0	-	U-007,U-032	
+src-tauri/src/quick_composer/git_popup.rs	N		A	v0.1.56	-	U-007	
+src-tauri/src/quick_composer/screenshots.rs	N		A	v0.1.56	-	U-007	
+src-tauri/src/reminders.rs	E		M	v0.1.56	-	U-007	
+src-tauri/src/remote.rs	N		A	v0.5.0	-	U-023	
+src-tauri/src/remote_bootstrap.ps1	N		A	v0.5.0	-	U-023	
+src-tauri/src/remote_bootstrap.sh	N		A	v0.5.0	-	U-023	
+src-tauri/src/remote_ssh.rs	N		A	v0.5.0,v0.6.0	-	U-023	
+src-tauri/src/search.rs	X	content	M	v0.4.0	M	U-064	L-13
+src-tauri/src/session_store.rs	X	content	M	v0.4.0,v0.4.2,v0.4.3	M	U-020,U-064,U-074,U-075,U-076	L-05
+src-tauri/src/ssh_askpass.rs	N		A	v0.5.0	-	U-023	
+src-tauri/src/window.rs	X	content	M	v0.1.56,v0.6.0	M	U-007,U-031	L-13
+src-tauri/tauri.conf.json	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.4.1,v0.4.2,v0.4.3,v0.5.0,v0.6.0	M	U-042,U-049,U-063,U-067,U-072,U-073,U-075,U-076,U-085,U-094	L-09,L-13
+src-tauri/tauri.linux.conf.json	E		M	v0.6.0	-	U-031	
+src/app/App.tsx	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.5.0,v0.6.0,post-v0.6.0	M	U-004,U-005,U-006,U-007,U-008,U-009,U-011,U-012,U-015,U-016,U-018,U-019,U-020,U-022,U-023,U-028,U-029,U-030,U-036,U-038,U-046,U-055,U-062,U-083,U-093,U-096,U-097,U-098	L-02,L-03,L-07,L-19,L-20,L-23,L-25,L-28
+src/app/model/appLifecycle.test.ts	B		M	v0.1.56,v0.5.0	M	U-038,U-083	
+src/app/model/appLifecycle.ts	E		M	v0.1.56,v0.5.0,v0.6.0	-	U-038,U-083,U-093	
+src/app/model/bootWorkspace.test.ts	N		A	v0.5.0	-	U-083	
+src/app/model/harnessFlush.test.ts	N		A	v0.5.0	-	U-083	
+src/app/model/harnessFlush.ts	N		A	v0.5.0	-	U-083	
+src/app/model/managedSubmission.test.ts	N		A	v0.1.56	-	U-007	
+src/app/model/managedSubmission.ts	N		A	v0.1.56	-	U-007	
+src/app/model/preloadNavigation.test.ts	N		A	post-v0.6.0	-	U-096	
+src/app/model/preloadNavigation.ts	N		A	post-v0.6.0	-	U-096	
+src/app/model/quickLaunchSession.test.ts	N		A	v0.1.56,v0.2.0,v0.4.0,v0.6.0	-	U-007,U-009,U-018,U-032,U-046	
+src/app/model/quickLaunchSession.ts	N		A	v0.1.56,v0.2.0,v0.4.0,v0.6.0	-	U-007,U-009,U-018,U-032,U-046	
+src/app/model/submissionAcceptance.test.ts	N		A	v0.1.56	-	U-007	
+src/app/model/submissionAcceptance.ts	N		A	v0.1.56	-	U-007	
+src/app/shell/GlassBackdrop.tsx	E		M	v0.3.0	-	U-008	
+src/app/shell/MenuBar.tsx	X	content	M	v0.3.0,v0.6.0	M	U-012,U-028	
+src/app/shell/PiUsage.test.ts	N		A	v0.4.0	-	U-019	
+src/app/shell/PiUsage.tsx	N		A	v0.4.0	-	U-019	
+src/app/shell/ProjectRail.tsx	X	content	M	v0.1.56,v0.4.1,v0.4.2,v0.5.0	M	U-001,U-023,U-073,U-074	
+src/app/shell/SettingsRail.tsx	B		M	v0.5.0,v0.6.0	M	U-023,U-030	
+src/app/shell/Sidebar.tsx	X	content	M	v0.1.56,v0.3.0,v0.4.1,v0.5.0,v0.6.0,post-v0.6.0	M	U-001,U-005,U-023,U-026,U-055,U-073,U-098	L-09
+src/app/shell/SidebarRename.test.ts	B		M	v0.1.56,v0.2.0,v0.4.1,v0.6.0	M	U-001,U-026,U-044,U-073	L-09
+src/app/shell/TitleBar.tsx	B		M	v0.1.56,v0.3.0,v0.6.0	M	U-005,U-015,U-091	
+src/app/shell/TitleBarMenu.test.ts	N		A	v0.3.0	-	U-015	
+src/app/shell/UsageFooter.tsx	X	content	M	v0.4.0	M	U-010,U-019	
+src/app/shell/UsageFooterAuth.test.ts	E		M	v0.4.0	-	U-010	
+src/app/shell/UsageProviderChip.test.ts	E		M	v0.6.0	-	U-010,U-027	
+src/app/shell/UsageProviderChip.tsx	X	content	M	v0.2.0,v0.4.0,v0.6.0	M	U-010,U-019,U-027	
+src/app/shell/useProjectMenu.tsx	N		A	v0.1.56,v0.4.1	-	U-001,U-073	
+src/features/agent-app/model/agentApp.test.ts	N		A	v0.2.0,v0.4.0	-	U-009,U-018	
+src/features/agent-app/model/agentApp.ts	N		A	v0.2.0,v0.4.0	-	U-009,U-018	
+src/features/agent-app/model/sessionConversation.test.ts	N		A	v0.2.0	-	U-009	
+src/features/agent-app/model/sessionConversation.ts	N		A	v0.2.0	-	U-009	
+src/features/automations/model/automations.ts	E		M	post-v0.6.0	-	U-096	
+src/features/automations/ui/AutomationsView.test.ts	N		A	post-v0.6.0	-	U-096	
+src/features/automations/ui/AutomationsView.tsx	E		M	v0.1.56,v0.5.0,post-v0.6.0	-	U-004,U-079,U-096	
+src/features/connections/model/connections.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/protocol.test.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/protocol.ts	N		A	v0.5.0,v0.6.0	-	U-023,U-026	
+src/features/connections/model/remoteAttachmentPreviews.test.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/remoteAttachmentPreviews.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/remoteAttachments.test.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/remoteAttachments.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/remoteCommands.test.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/remoteCommands.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/remoteModels.test.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/remoteModels.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/remoteOutbox.test.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/remoteProjects.test.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/remoteProjects.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/remoteSessionActions.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/remoteSessionState.test.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/model/remoteSessionState.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/ui/AddRemoteProjectDialog.test.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/ui/AddRemoteProjectDialog.tsx	N		A	v0.5.0	-	U-023	
+src/features/connections/ui/ConnectionsSettings.test.ts	N		A	v0.5.0	-	U-023	
+src/features/connections/ui/ConnectionsSettings.tsx	N		A	v0.5.0	-	U-023	
+src/features/connections/ui/RemoteSession.test.ts	N		A	v0.5.0,v0.6.0	-	U-023	
+src/features/connections/ui/RemoteSession.tsx	N		A	v0.5.0,v0.6.0	-	U-023	
+src/features/files/editor/editorDoc.test.ts	X	content	M	v0.3.0	M	U-056	
+src/features/files/editor/editorDoc.ts	B		M	v0.3.0	M	U-056	L-27
+src/features/files/editor/editorGit.ts	B		M	post-v0.6.0	M	U-099	
+src/features/files/editor/editorLanguage.test.ts	E		M	v0.3.0	-	U-014	
+src/features/files/editor/editorLanguage.ts	E		M	v0.3.0	-	U-014	
+src/features/files/editor/editorSearch.test.ts	E		M	v0.4.0	-	U-064	
+src/features/files/editor/editorSearch.ts	E		M	v0.3.0,v0.4.0	-	U-012,U-064	
+src/features/files/editor/syntaxTokens.test.ts	E		M	v0.3.0	-	U-014	
+src/features/files/ui/FileEditor.tsx	X	content	M	v0.1.56,v0.3.0,v0.5.0,v0.6.0	M	U-003,U-023,U-028,U-056	
+src/features/files/ui/FileEditorCrlfGit.test.ts	N		A	v0.3.0	-	U-056	
+src/features/files/ui/FilePane.remote.test.ts	N		A	v0.5.0	-	U-023	
+src/features/files/ui/FilePane.tsx	X	content	M	v0.1.56,v0.5.0	M	U-005,U-023,U-083	
+src/features/files/ui/FilePaneLineEndings.test.ts	N		A	v0.3.0,v0.6.0	-	U-028,U-030,U-056	
+src/features/files/ui/FilePaneNavigation.test.ts	B		M	v0.3.0,v0.5.0,v0.6.0	M	U-023,U-030,U-056,U-083	
+src/features/files/ui/FilePicker.test.ts	E		M	v0.5.0	-	U-023	
+src/features/files/ui/FilePicker.tsx	E		M	v0.5.0	-	U-023	
+src/features/files/ui/FilePreviewSearch.test.ts	E		M	v0.3.0	-	U-012	
+src/features/files/ui/FilePreviewSearch.tsx	E		M	v0.3.0	-	U-012	
+src/features/files/ui/FileTree.test.ts	E		M	v0.4.0	-	U-021	
+src/features/files/ui/FileTree.tsx	B		M	v0.1.56,v0.3.0,v0.4.0,v0.5.0	M	U-005,U-021,U-023,U-055	
+src/features/inbox/hooks/useGithubPrChecks.test.ts	N		A	v0.1.56	-	U-006	
+src/features/inbox/hooks/useGithubPrChecks.ts	N		A	v0.1.56	-	U-006	
+src/features/inbox/model/ciRepair.test.ts	N		A	v0.1.56	-	U-006	
+src/features/inbox/model/ciRepair.ts	N		A	v0.1.56	-	U-006	
+src/features/inbox/model/ciRepairSessions.test.ts	N		A	v0.1.56	-	U-006	
+src/features/inbox/model/ciRepairSessions.ts	N		A	v0.1.56	-	U-006	
+src/features/inbox/model/ciRepairTracking.test.ts	N		A	v0.1.56	-	U-006	
+src/features/inbox/model/ciRepairTracking.ts	N		A	v0.1.56	-	U-006	
+src/features/inbox/model/githubPrChecks.test.ts	N		A	v0.1.56	-	U-006	
+src/features/inbox/model/githubPrChecks.ts	N		A	v0.1.56	-	U-006	
+src/features/inbox/model/githubTasks.ts	B		M	v0.3.0	M	U-054	
+src/features/inbox/ui/CheckEvidence.tsx	N		A	v0.1.56	-	U-006	
+src/features/inbox/ui/CheckRepairForm.tsx	N		A	v0.1.56	-	U-006	
+src/features/inbox/ui/CheckRepairProgress.tsx	N		A	v0.1.56	-	U-006	
+src/features/inbox/ui/InboxPrChecks.test.ts	N		A	v0.1.56	-	U-006	
+src/features/inbox/ui/InboxPrChecks.tsx	N		A	v0.1.56	-	U-006	
+src/features/inbox/ui/InboxPrChecksRepair.test.ts	N		A	v0.1.56	-	U-006	
+src/features/inbox/ui/InboxView.test.ts	X	content	M	v0.1.56,v0.3.0	M	U-006,U-054	
+src/features/inbox/ui/InboxView.tsx	X	content	M	v0.1.56,v0.3.0	M	U-006,U-054	
+src/features/notes/notes.ts	B		M	v0.4.0	M	U-009	
+src/features/notes/ui/NotesView.test.ts	E		M	v0.4.0,post-v0.6.0	-	U-009,U-096,U-102	
+src/features/notes/ui/NotesView.tsx	X	content	M	v0.4.0,post-v0.6.0	M	U-009,U-096,U-102	
+src/features/projects/model/projectData.test.ts	E		M	v0.2.0	-	U-046	
+src/features/projects/model/projectData.ts	E		M	v0.1.56,v0.2.0	-	U-004,U-046	
+src/features/projects/model/projectGroups.ts	E		M	v0.1.56	-	U-001	
+src/features/projects/model/projectLocation.ts	E		M	v0.5.0	-	U-023	
+src/features/projects/model/projectLocationError.ts	N		A	v0.1.56	-	U-007	
+src/features/projects/model/projectOpenRun.test.ts	N		A	v0.4.0	-	U-016	
+src/features/projects/model/projectOpenRun.ts	N		A	v0.4.0	-	U-016	
+src/features/projects/model/recents.ts	E		M	v0.1.56,v0.5.0	-	U-001,U-023	
+src/features/projects/ui/ProjectBackgroundDialog.test.ts	E		M	v0.1.56	-	U-002	
+src/features/projects/ui/ProjectBackgroundDialog.tsx	E		M	v0.1.56	-	U-002	
+src/features/projects/ui/ProjectGroups.test.ts	E		M	v0.1.56,v0.4.2	-	U-001,U-074	
+src/features/projects/ui/ProjectSearch.tsx	E		M	v0.1.56,v0.4.0,v0.5.0	-	U-005,U-023,U-064	
+src/features/projects/ui/SearchableProjectPicker.tsx	B		M	v0.1.56,v0.3.0,v0.4.0	M	U-001,U-071	L-09
+src/features/projects/ui/useProjectBackgroundEffect.ts	E		M	v0.1.56	-	U-002	
+src/features/providers/model/accountUsage.test.ts	N		A	v0.4.0	-	U-010	
+src/features/providers/model/accountUsage.ts	N		A	v0.4.0	-	U-010	
+src/features/providers/model/harnessUpdates.test.ts	N		A	v0.6.0	-	U-029	
+src/features/providers/model/harnessUpdates.ts	N		A	v0.6.0	-	U-029	
+src/features/providers/model/piUsage.test.ts	N		A	v0.4.0	-	U-019	
+src/features/providers/model/piUsage.ts	N		A	v0.4.0	-	U-019	
+src/features/providers/model/providerAccountIdentity.ts	N		A	v0.2.0,v0.6.0	-	U-010	
+src/features/providers/model/providerBinaryPaths.test.ts	N		A	v0.3.0	-	U-013	
+src/features/providers/model/providerBinaryPaths.ts	N		A	v0.3.0	-	U-013	
+src/features/providers/model/rateLimits.test.ts	X	content	M	v0.2.0,v0.4.0	M	U-010,U-011	
+src/features/providers/model/rateLimits.ts	B		M	v0.2.0,v0.4.0	M	U-010,U-011	L-12
+src/features/providers/model/rateLimitsCache.ts	N		A	v0.4.0	-	U-010	
+src/features/providers/model/rateLimitsFetch.test.ts	N		A	v0.4.0	-	U-010	
+src/features/providers/model/rateLimitsFetch.ts	E		M	v0.3.0,v0.4.0	-	U-010,U-013	
+src/features/providers/ui/HarnessUpdateNotice.test.ts	N		A	v0.6.0	-	U-029	
+src/features/providers/ui/HarnessUpdateNotice.tsx	N		A	v0.6.0	-	U-029	
+src/features/providers/ui/ProviderAccountSubtitle.tsx	N		A	v0.6.0	-	U-010	
+src/features/providers/ui/ProviderAccountUsage.tsx	N		A	v0.4.0,v0.6.0	-	U-010,U-027	
+src/features/quick-composer/hooks/useQuickComposerLaunches.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/main.tsx	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/model/launchDelivery.test.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/model/launchDelivery.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/model/prepareQuickComposer.test.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/model/prepareQuickComposer.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/model/quickAttachments.test.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/model/quickAttachments.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/model/quickComposer.test.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/model/quickComposer.ts	N		A	v0.1.56,v0.2.0,v0.6.0	-	U-007,U-009,U-032	
+src/features/quick-composer/model/quickComposerDefaults.test.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/model/quickComposerShortcut.test.ts	N		A	v0.2.0,v0.3.0	-	U-007,U-012	
+src/features/quick-composer/model/quickComposerShortcut.ts	N		A	v0.2.0,v0.3.0	-	U-007,U-012	
+src/features/quick-composer/model/quickGitPopup.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/model/quickWorkspace.test.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/model/quickWorkspace.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/ui/QuickComposer.attachments.test.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/ui/QuickComposer.commands.test.ts	N		A	v0.6.0	-	U-032	
+src/features/quick-composer/ui/QuickComposer.tsx	N		A	v0.1.56,v0.6.0	-	U-007,U-032	
+src/features/quick-composer/ui/QuickGitPopup.firstOpen.test.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/ui/QuickGitPopup.test.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/ui/QuickGitPopup.tsx	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/ui/QuickModelSelector.css	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/ui/QuickModelSelector.test.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/ui/QuickModelSelector.tsx	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/ui/QuickPermissions.test.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/ui/QuickPermissions.tsx	N		A	v0.1.56,v0.2.0	-	U-007,U-043	
+src/features/quick-composer/ui/QuickProjectIcon.test.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/ui/QuickProjectIcon.tsx	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/ui/QuickWorkspaceControls.test.ts	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/ui/QuickWorkspaceControls.tsx	N		A	v0.1.56	-	U-007	
+src/features/quick-composer/ui/useQuickAttachments.test.ts	N		A	v0.1.56,v0.4.0	-	U-007,U-017	
+src/features/quick-composer/ui/useQuickAttachments.ts	N		A	v0.1.56,v0.4.0	-	U-007,U-017	
+src/features/quick-composer/ui/useQuickPickerMotion.test.ts	N		A	v0.1.56,v0.6.0	-	U-007,U-032	
+src/features/quick-composer/ui/useQuickPickerMotion.ts	N		A	v0.1.56,v0.6.0	-	U-007,U-032	
+src/features/search/model/appSearch.ts	E		M	v0.4.0	-	U-020	
+src/features/search/model/search.test.ts	N		A	v0.4.0,v0.5.0	-	U-023,U-064	
+src/features/search/model/search.ts	E		M	v0.1.56,v0.4.0,v0.5.0	-	U-005,U-023,U-064	
+src/features/search/ui/SearchView.tsx	E		M	v0.4.0,v0.5.0	-	U-023,U-064	
+src/features/sessions/data/sessionStore.test.ts	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.5.0,v0.6.0,post-v0.6.0	M	U-006,U-008,U-009,U-020,U-023,U-050,U-089,U-101	L-20,L-23,L-25
+src/features/sessions/data/sessionStore.ts	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.5.0,v0.6.0,post-v0.6.0	M	U-006,U-008,U-009,U-020,U-022,U-023,U-050,U-064,U-089,U-093,U-101	L-20,L-25
+src/features/sessions/data/sessionStoreRestore.test.ts	N		A	post-v0.6.0	-	U-101	
+src/features/sessions/model/attachments.ts	B		M	v0.4.0	M	U-017	
+src/features/sessions/model/btw.test.ts	N		A	v0.2.0,v0.3.0,v0.4.0	-	U-008,U-020	
+src/features/sessions/model/btw.ts	N		A	v0.2.0,v0.3.0,v0.4.0	-	U-008,U-020	
+src/features/sessions/model/ciRepairContext.test.ts	N		A	v0.1.56	-	U-006	
+src/features/sessions/model/draftCache.test.ts	E		M	v0.6.0	-	U-030	
+src/features/sessions/model/draftCache.ts	E		M	v0.6.0	-	U-030	
+src/features/sessions/model/draftCommand.ts	N		A	v0.6.0	-	U-032	
+src/features/sessions/model/editLastTurn.test.ts	E		M	v0.1.56,v0.2.0	-	U-006,U-009	
+src/features/sessions/model/editLastTurn.ts	E		M	v0.1.56,v0.2.0	-	U-006,U-009	
+src/features/sessions/model/handoff.test.ts	E		M	v0.1.56	-	U-006	
+src/features/sessions/model/handoff.ts	E		M	v0.1.56	-	U-006	
+src/features/sessions/model/inFlight.ts	E		M	v0.1.56	-	U-038	
+src/features/sessions/model/mcpCommand.test.ts	N		A	v0.6.0	-	U-030	
+src/features/sessions/model/mcpCommand.ts	N		A	v0.6.0	-	U-030	
+src/features/sessions/model/mcpPicker.test.ts	N		A	v0.6.0	-	U-030	
+src/features/sessions/model/mcpPicker.ts	N		A	v0.6.0	-	U-030	
+src/features/sessions/model/messageQueue.test.ts	X	content	M	v0.2.0	M	U-011	
+src/features/sessions/model/messageQueue.ts	X	content	M	v0.2.0	M	U-011	L-06
+src/features/sessions/model/models.test.ts	E		M	v0.1.56,v0.2.0,v0.4.0	-	U-004,U-044,U-069,U-070	
+src/features/sessions/model/models.ts	B		M	v0.1.56,v0.2.0,v0.4.0	M	U-004,U-044,U-069,U-070	
+src/features/sessions/model/monocodeToolCall.test.ts	N		A	v0.2.0,v0.4.0	-	U-009	
+src/features/sessions/model/monocodeToolCall.ts	N		A	v0.2.0,v0.4.0	-	U-009	
+src/features/sessions/model/operatorCommand.test.ts	N		A	v0.2.0	-	U-009	
+src/features/sessions/model/operatorCommand.ts	N		A	v0.2.0	-	U-009	
+src/features/sessions/model/orchestratorCommand.ts	N		A	v0.6.0	-	U-032	
+src/features/sessions/model/plan.ts	E		M	v0.3.0	-	U-062	
+src/features/sessions/model/projectProviders.test.ts	N		A	v0.1.56	-	U-004	
+src/features/sessions/model/projectProviders.ts	N		A	v0.1.56	-	U-004	
+src/features/sessions/model/projectSessionDefaults.test.ts	N		A	v0.1.56	-	U-004	
+src/features/sessions/model/secondOpinion.ts	B		M	v0.1.56	M	U-006	
+src/features/sessions/model/session.ts	X	content	M	v0.1.56,v0.2.0,v0.4.0,v0.6.0	M	U-004,U-006,U-007,U-008,U-009,U-011,U-020,U-022,U-036,U-040,U-089,U-093	L-04,L-20,L-23,L-25
+src/features/sessions/model/sessionRemoval.test.ts	E		M	v0.1.56	-	U-005	
+src/features/sessions/model/sessionRemoval.ts	E		M	v0.4.0	-	U-020	
+src/features/sessions/model/sessionWorkspaceLifecycle.test.ts	E		M	v0.1.56	-	U-005	
+src/features/sessions/model/transcriptActivity.test.ts	E		M	v0.1.56,v0.2.0	-	U-009,U-039	
+src/features/sessions/model/transcriptActivity.ts	B		M	v0.1.56,v0.2.0,v0.6.0	M	U-009,U-036,U-039,U-089	L-25
+src/features/sessions/model/transcriptFind.ts	E		M	v0.4.0	-	U-020	
+src/features/sessions/model/transcriptHighlights.test.ts	E		M	v0.4.0	-	U-064	
+src/features/sessions/model/transcriptHighlights.ts	E		M	v0.4.0	-	U-064	
+src/features/sessions/model/usageLimit.test.ts	N		A	v0.2.0	-	U-011	
+src/features/sessions/model/usageLimit.ts	N		A	v0.2.0	-	U-011	
+src/features/sessions/ui/AccessPicker.tsx	B		M	v0.2.0	M	U-043	
+src/features/sessions/ui/AgentMarkdown.test.ts	E		M	v0.6.0	-	U-090	
+src/features/sessions/ui/AgentMarkdown.tsx	E		M	v0.3.0,v0.6.0,post-v0.6.0	-	U-052,U-086,U-090,U-102	
+src/features/sessions/ui/AgentTranscript.bubbleWidth.test.ts	N		A	post-v0.6.0	-	U-100	
+src/features/sessions/ui/AgentTranscript.copy.test.ts	E		M	post-v0.6.0	-	U-100	
+src/features/sessions/ui/AgentTranscript.test.ts	X	content	M	v0.1.56,v0.2.0,v0.5.0,v0.6.0	M	U-006,U-009,U-023,U-089	L-20,L-25
+src/features/sessions/ui/AgentTranscript.tsx	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.5.0,v0.6.0,post-v0.6.0	M	U-006,U-008,U-009,U-020,U-022,U-023,U-036,U-039,U-050,U-059,U-064,U-080,U-081,U-082,U-083,U-089,U-100	L-20,L-25
+src/features/sessions/ui/AgentTranscriptErrorDisclosure.test.ts	E		M	v0.2.0	-	U-009	
+src/features/sessions/ui/AgentTranscriptScroll.test.ts	E		M	v0.5.0	-	U-080,U-081	
+src/features/sessions/ui/AgentTranscriptSecondOpinion.test.ts	N		A	v0.3.0	-	U-059,U-060	
+src/features/sessions/ui/AttachmentChip.test.ts	E		M	v0.4.0	-	U-020	
+src/features/sessions/ui/AttachmentChip.tsx	B		M	v0.4.0	M	U-017	
+src/features/sessions/ui/BtwQuestionBurst.test.ts	N		A	v0.3.0	-	U-008	
+src/features/sessions/ui/BtwQuestionBurst.tsx	N		A	v0.3.0	-	U-008	
+src/features/sessions/ui/BtwSheet.test.ts	N		A	v0.3.0	-	U-008	
+src/features/sessions/ui/BtwSheet.tsx	N		A	v0.3.0	-	U-008	
+src/features/sessions/ui/Composer.pasteImage.test.ts	N		A	v0.4.0	-	U-017	
+src/features/sessions/ui/Composer.test.ts	X	content	M	v0.2.0,v0.3.0,v0.6.0	M	U-008,U-009,U-030,U-032	L-23
+src/features/sessions/ui/Composer.tsx	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.5.0,v0.6.0	M	U-004,U-008,U-009,U-011,U-017,U-023,U-030,U-032,U-043,U-083	L-01,L-23,L-24
+src/features/sessions/ui/ComposerRunner.test.ts	N		A	v0.4.2	-	U-074,U-075	
+src/features/sessions/ui/ComposerRunner.tsx	E		M	v0.4.2	-	U-074	
+src/features/sessions/ui/GeneratedImage.tsx	N		A	v0.4.0	-	U-020	
+src/features/sessions/ui/LiveAgentsPreview.tsx	E		M	v0.1.56	-	U-001	
+src/features/sessions/ui/MarkdownDocumentPreview.test.ts	E		M	post-v0.6.0	-	U-102	
+src/features/sessions/ui/MarkdownDocumentPreview.tsx	E		M	post-v0.6.0	-	U-102	
+src/features/sessions/ui/McpServerPicker.tsx	N		A	v0.6.0	-	U-030	
+src/features/sessions/ui/ModelPicker.css	N		A	post-v0.6.0	-	U-033	
+src/features/sessions/ui/ModelPicker.test.ts	B		M	post-v0.6.0	M	U-033	
+src/features/sessions/ui/ModelPicker.tsx	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.5.0,post-v0.6.0	M	U-004,U-008,U-012,U-023,U-033	
+src/features/sessions/ui/MonocodeSparkles.tsx	N		A	v0.2.0,v0.4.0	-	U-009,U-022	
+src/features/sessions/ui/OrchestratorConstellation.tsx	N		A	v0.4.0	-	U-022	
+src/features/sessions/ui/PlanStepsBurst.tsx	N		A	v0.4.0	-	U-022	
+src/features/sessions/ui/SecondOpinionButton.test.ts	E		M	v0.3.0	-	U-059,U-060	
+src/features/sessions/ui/SecondOpinionButton.tsx	B		M	v0.3.0	M	U-059,U-060	
+src/features/sessions/ui/SessionPane.tsx	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.5.0,v0.6.0	M	U-002,U-008,U-009,U-011,U-023,U-030,U-036	L-20,L-23,L-26
+src/features/sessions/ui/TranscriptFind.tsx	E		M	v0.3.0	-	U-012	
+src/features/sessions/ui/TranscriptPool.test.ts	E		M	v0.5.0	-	U-083	
+src/features/sessions/ui/TranscriptPool.tsx	E		M	v0.5.0	-	U-083	
+src/features/sessions/ui/UsageLimitNotice.tsx	N		A	v0.2.0	-	U-011	
+src/features/sessions/ui/agentMarkdownSpacing.test.ts	E		M	v0.6.0	-	U-086	
+src/features/sessions/ui/hardBreaks.test.ts	N		A	post-v0.6.0	-	U-102	
+src/features/sessions/ui/hardBreaks.ts	N		A	post-v0.6.0	-	U-102	
+src/features/sessions/ui/modeCommands.tsx	N		A	v0.6.0	-	U-032	
+src/features/sessions/ui/modelSource.ts	N		A	v0.5.0	-	U-023	
+src/features/sessions/ui/turnCelebration.test.ts	N		A	v0.4.0	-	U-022	
+src/features/sessions/ui/turnCelebration.ts	N		A	v0.4.0	-	U-022	
+src/features/sessions/ui/wordFade.test.ts	E		M	v0.3.0	-	U-052	
+src/features/settings/model/appShortcuts.test.ts	N		A	v0.3.0	-	U-012	
+src/features/settings/model/appShortcuts.ts	N		A	v0.3.0	-	U-012	
+src/features/settings/model/appearance.test.ts	B		M	v0.1.56	M	U-002	L-09
+src/features/settings/model/appearance.ts	X	content	M	v0.1.56,v0.6.0	M	U-002,U-031	L-09
+src/features/settings/model/mcp.test.ts	N		A	v0.6.0	-	U-030	
+src/features/settings/model/mcp.ts	N		A	v0.6.0	-	U-030	
+src/features/settings/model/mcpSettingsCache.test.ts	N		A	v0.6.0	-	U-030	
+src/features/settings/model/mcpSettingsCache.ts	N		A	v0.6.0	-	U-030	
+src/features/settings/model/nativeGlass.test.ts	N		A	v0.6.0	-	U-031	
+src/features/settings/model/newThreadBackgroundEffects.test.ts	B		M	v0.1.56	M	U-002	L-09
+src/features/settings/model/newThreadBackgroundEffects.ts	E		M	v0.1.56	-	U-002	
+src/features/settings/model/projectSidebarTab.test.ts	N		A	v0.2.0	-	U-046	
+src/features/settings/model/projectSidebarTab.ts	N		A	v0.2.0	-	U-046	
+src/features/settings/model/settings.flags.test.ts	E		M	v0.6.0	-	U-031	
+src/features/settings/model/settings.test.ts	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.5.0,v0.6.0	M	U-001,U-003,U-007,U-012,U-023,U-028,U-030,U-057	L-19
+src/features/settings/model/settings.ts	B		M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.5.0,v0.6.0	M	U-001,U-003,U-007,U-010,U-012,U-013,U-023,U-028,U-030	L-09,L-19
+src/features/settings/model/uiScale.test.ts	E		M	v0.6.0	-	U-092	
+src/features/settings/model/uiScale.ts	E		M	v0.6.0	-	U-092	
+src/features/settings/model/zoomKeybinding.test.ts	N		A	v0.3.0	-	U-012	
+src/features/settings/model/zoomKeybinding.ts	N		A	v0.3.0	-	U-012	
+src/features/settings/ui/GradientBlurBackground.tsx	N		A	v0.1.56	-	U-002	
+src/features/settings/ui/JiraSettings.test.ts	E		M	v0.6.0	-	U-010	
+src/features/settings/ui/JiraSettings.tsx	E		M	v0.6.0	-	U-010	
+src/features/settings/ui/McpSettings.test.ts	N		A	v0.6.0	-	U-030	
+src/features/settings/ui/McpSettings.tsx	N		A	v0.6.0	-	U-030	
+src/features/settings/ui/QuickComposerShortcutEditor.test.ts	N		A	v0.2.0,v0.3.0,v0.6.0	-	U-007,U-012,U-031	
+src/features/settings/ui/SettingsView.test.ts	B		M	v0.1.56,v0.3.0,v0.4.0,v0.5.0,v0.6.0	M	U-001,U-002,U-004,U-010,U-012,U-013,U-023,U-027,U-092	L-19
+src/features/settings/ui/SettingsView.tsx	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.5.0,v0.6.0	M	U-002,U-003,U-004,U-007,U-010,U-012,U-013,U-023,U-030,U-031,U-092	L-09,L-19
+src/features/skills/model/skills.ts	B		M	v0.5.0,v0.6.0	M	U-023,U-032	L-17
+src/features/skills/model/slashCommands.ts	N		A	v0.6.0	-	U-032	
+src/features/skills/ui/SkillPicker.tsx	B		M	v0.5.0	M	U-023	
+src/features/source-control/hooks/useProjectBranches.ts	E		M	v0.1.56	-	U-007	
+src/features/source-control/hooks/useProjectDiffStats.ts	E		M	v0.4.2	-	U-074	
+src/features/source-control/model/lineDiff.test.ts	N		A	post-v0.6.0	-	U-099	
+src/features/source-control/model/lineDiff.ts	N		A	post-v0.6.0	-	U-099	
+src/features/source-control/model/stableDiff.test.ts	N		A	v0.2.0	-	U-048	
+src/features/source-control/model/stableDiff.ts	N		A	v0.2.0	-	U-048	
+src/features/source-control/model/unifiedDiff.ts	X	content	M	post-v0.6.0	M	U-099	
+src/features/source-control/model/workingTreeDiff.test.ts	E		M	post-v0.6.0	-	U-098	
+src/features/source-control/model/workingTreeDiff.ts	E		M	post-v0.6.0	-	U-098	
+src/features/source-control/model/worktrees.ts	E		M	v0.5.0	-	U-023	
+src/features/source-control/ui/BranchPicker.tsx	E		M	v0.1.56,v0.2.0	-	U-007,U-043	
+src/features/source-control/ui/GitChangesPanel.test.ts	X	content	M	v0.5.0	M	U-023,U-025	L-19
+src/features/source-control/ui/GitChangesPanel.tsx	X	content	M	v0.1.56,v0.5.0,post-v0.6.0	M	U-005,U-023,U-025,U-098	L-19
+src/features/source-control/ui/GitHistoryGraph.tsx	E		M	v0.1.56	-	U-005	
+src/features/source-control/ui/GitPickerTrigger.tsx	E		M	v0.1.56,v0.2.0,v0.5.0	-	U-007,U-023,U-043	
+src/features/source-control/ui/SourceControl.tsx	X	content	M	post-v0.6.0	M	U-098	
+src/features/source-control/ui/SwitchBranchDialog.test.ts	X	add/add	A	v0.5.0	A	U-025	L-19
+src/features/source-control/ui/SwitchBranchDialog.tsx	X	content	M	v0.1.56,v0.5.0	M	U-007,U-025	L-19
+src/features/source-control/ui/WorkingTreeDiff.tsx	X	content	M	post-v0.6.0	M	U-098,U-099	
+src/features/source-control/ui/WorktreePicker.tsx	E		M	v0.2.0	-	U-043	
+src/features/terminal/model/terminalKeys.test.ts	N		A	v0.3.0,v0.4.0	-	U-051,U-065	
+src/features/terminal/model/terminalKeys.ts	N		A	v0.3.0,v0.4.0	-	U-051,U-065	
+src/features/terminal/ui/ProjectTerminalDock.tsx	E		M	v0.5.0	-	U-083	
+src/features/terminal/ui/TerminalView.tsx	B		M	v0.3.0,v0.4.0	M	U-051,U-065	L-08
+src/features/workspace/model/layout.test.ts	B		M	v0.1.56,v0.5.0,post-v0.6.0	M	U-005,U-023,U-098	
+src/features/workspace/model/layout.ts	X	content	M	v0.1.56,v0.5.0,post-v0.6.0	M	U-005,U-023,U-098	
+src/features/workspace/model/tabGroups.ts	E		M	v0.1.56	-	U-001	
+src/features/workspace/model/tabKeys.test.ts	E		M	v0.2.0,v0.3.0	-	U-012,U-047	
+src/features/workspace/model/tabKeys.ts	E		M	v0.2.0,v0.3.0	-	U-012,U-047	
+src/features/workspace/model/workspaceSnapshot.test.ts	X	content	M	v0.1.56,v0.2.0,v0.5.0	M	U-023,U-038,U-044	
+src/features/workspace/model/workspaceSnapshot.ts	X	content	M	v0.1.56,v0.2.0,v0.5.0	M	U-005,U-023,U-038,U-044	
+src/features/workspace/ui/PaneTree.tsx	X	content	M	v0.1.56,v0.2.0,v0.3.0	M	U-005,U-008,U-011	L-20,L-23
+src/features/workspace/ui/SurfaceTabs.tsx	B		M	v0.1.56,v0.5.0,post-v0.6.0	M	U-005,U-023,U-098	
+src/features/workspace/ui/WorkspacePicker.tsx	E		M	v0.1.56,v0.3.0,v0.5.0	-	U-007,U-012,U-023	
+src/integrations/harness/core/abortTextPrompt.test.ts	N		A	v0.2.0	-	U-008	
+src/integrations/harness/core/abortTextPrompt.ts	N		A	v0.2.0	-	U-008	
+src/integrations/harness/core/acpSubagents.test.ts	E		M	v0.6.0	-	U-089	
+src/integrations/harness/core/acpSubagents.ts	E		M	v0.6.0	-	U-089	
+src/integrations/harness/core/apply.test.ts	B		M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.6.0	M	U-011,U-020,U-036,U-037,U-050,U-062,U-089,U-093	L-20,L-23,L-24
+src/integrations/harness/core/apply.ts	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.5.0,v0.6.0	M	U-006,U-009,U-011,U-020,U-022,U-023,U-036,U-037,U-050,U-083,U-089,U-093	L-20,L-23,L-24,L-25
+src/integrations/harness/core/applyBatch.test.ts	N		A	v0.5.0	-	U-083	
+src/integrations/harness/core/auth.test.ts	E		M	v0.3.0	-	U-013	
+src/integrations/harness/core/auth.ts	E		M	v0.3.0	-	U-013	
+src/integrations/harness/core/availability.ts	X	content	M	v0.1.56	M	U-004	L-18
+src/integrations/harness/core/availabilityState.ts	N		A	v0.1.56	-	U-004	
+src/integrations/harness/core/child.test.ts	E		M	v0.3.0	-	U-013	
+src/integrations/harness/core/child.ts	X	content	M	v0.3.0,v0.5.0,v0.6.0	M	U-013,U-023,U-029	
+src/integrations/harness/core/fileAttachments.test.ts	E		M	v0.4.0	-	U-017	
+src/integrations/harness/core/preview.ts	E		M	v0.6.0	-	U-093	
+src/integrations/harness/core/registry.test.ts	X	content	M	v0.2.0,v0.6.0	M	U-008,U-093	L-20
+src/integrations/harness/core/registry.ts	X	content	M	v0.2.0,v0.5.0,v0.6.0	M	U-008,U-009,U-025,U-029,U-093	L-19,L-20,L-23,L-24
+src/integrations/harness/core/textHarness.ts	E		M	v0.5.0	-	U-025	
+src/integrations/harness/core/types.ts	B		M	v0.1.56,v0.2.0,v0.4.0,v0.6.0	M	U-009,U-011,U-020,U-036,U-089,U-093	L-03,L-20,L-23,L-24,L-25,L-28
+src/integrations/harness/index.ts	X	content	M	v0.2.0,v0.5.0	M	U-008,U-083	L-19,L-20,L-23,L-25
+src/integrations/harness/providers/antigravity/antigravity.ts	X	modify/delete	M	v0.3.0	D	U-013	
+src/integrations/harness/providers/antigravity/antigravityCatalog.ts	X	modify/delete	M	v0.3.0,v0.5.0	D	U-013,U-023	
+src/integrations/harness/providers/antigravity/antigravityLive.test.ts	X	modify/delete	M	v0.3.0,v0.5.0	D	U-013,U-023	
+src/integrations/harness/providers/antigravity/antigravityProtocol.test.ts	X	modify/delete	M	v0.4.0	D	U-017	
+src/integrations/harness/providers/claude/claude.ts	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.6.0	M	U-011,U-013,U-034,U-036,U-037,U-062,U-087,U-089,U-093	L-03,L-20,L-21,L-22,L-24,L-25,L-28
+src/integrations/harness/providers/claude/claudeAdapter.ts	X	content	M	v0.2.0,v0.6.0	M	U-008,U-093	L-19,L-24
+src/integrations/harness/providers/claude/claudeCatalog.ts	X	content	M	v0.3.0,v0.4.0,v0.5.0	M	U-013,U-023,U-069	
+src/integrations/harness/providers/claude/claudeGit.ts	B		M	v0.5.0	M	U-025	L-19
+src/integrations/harness/providers/claude/claudeLive.test.ts	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.6.0	M	U-009,U-034,U-036,U-037,U-062,U-087,U-089,U-093	L-20,L-21,L-22,L-24,L-25
+src/integrations/harness/providers/claude/claudeProtocol.test.ts	X	content	M	v0.1.56,v0.2.0,v0.4.0,v0.6.0	M	U-008,U-011,U-036,U-069,U-093	L-03,L-19,L-20,L-22,L-24,L-25,L-28
+src/integrations/harness/providers/claude/claudeProtocol.ts	B		M	v0.1.56,v0.2.0,v0.4.0,v0.6.0	M	U-011,U-017,U-036,U-093	L-03,L-19,L-20,L-22,L-24,L-25,L-28
+src/integrations/harness/providers/claude/claudeText.ts	X	content	M	v0.2.0,v0.3.0,v0.5.0	M	U-008,U-013,U-025	L-19
+src/integrations/harness/providers/codex/codex.ts	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0	M	U-009,U-011,U-013,U-020,U-035,U-040	L-20,L-21,L-23,L-25
+src/integrations/harness/providers/codex/codexAdapter.ts	X	content	M	v0.2.0	M	U-008	L-19,L-23
+src/integrations/harness/providers/codex/codexApprovalUi.test.ts	E		M	v0.2.0	-	U-008	
+src/integrations/harness/providers/codex/codexAttachments.test.ts	E		M	v0.4.0	-	U-017	
+src/integrations/harness/providers/codex/codexCatalog.ts	X	content	M	v0.3.0,v0.5.0	M	U-013,U-023	
+src/integrations/harness/providers/codex/codexElicitation.test.ts	X	content	M	v0.1.56	M	U-040	L-20,L-23
+src/integrations/harness/providers/codex/codexElicitation.ts	B		M	v0.1.56	M	U-040	L-20,L-23
+src/integrations/harness/providers/codex/codexGit.ts	B		M	v0.5.0	M	U-025	L-19
+src/integrations/harness/providers/codex/codexLive.test.ts	X	content	M	v0.1.56,v0.2.0,v0.4.0	M	U-009,U-020,U-035,U-037,U-040	L-20,L-21,L-23,L-24,L-25
+src/integrations/harness/providers/codex/codexProtocol.test.ts	B		M	v0.2.0,v0.4.0,v0.6.0,post-v0.6.0	M	U-011,U-020,U-089,U-101	L-19,L-20,L-25
+src/integrations/harness/providers/codex/codexProtocol.ts	X	content	M	v0.2.0,v0.4.0,v0.6.0,post-v0.6.0	M	U-009,U-011,U-017,U-020,U-089,U-101	L-19,L-20,L-24,L-25
+src/integrations/harness/providers/codex/codexText.ts	X	content	M	v0.2.0,v0.3.0,v0.5.0	M	U-008,U-013,U-025	L-19
+src/integrations/harness/providers/cursor/cursor.ts	E		M	v0.3.0,v0.6.0	-	U-013,U-089	
+src/integrations/harness/providers/cursor/cursorAdapter.ts	E		M	v0.2.0	-	U-008	
+src/integrations/harness/providers/cursor/cursorCatalog.ts	E		M	v0.3.0,v0.5.0	-	U-013,U-023	
+src/integrations/harness/providers/cursor/cursorGit.ts	E		M	v0.5.0	-	U-025	
+src/integrations/harness/providers/cursor/cursorLive.test.ts	E		M	v0.6.0	-	U-089	
+src/integrations/harness/providers/cursor/cursorStore.ts	E		M	v0.5.0	-	U-023	
+src/integrations/harness/providers/cursor/cursorSubagents.test.ts	E		M	v0.6.0	-	U-089	
+src/integrations/harness/providers/cursor/cursorSubagents.ts	E		M	v0.6.0	-	U-089	
+src/integrations/harness/providers/cursor/cursorText.test.ts	N		A	v0.3.0	-	U-008	
+src/integrations/harness/providers/cursor/cursorText.ts	E		M	v0.2.0,v0.3.0,v0.5.0	-	U-008,U-013,U-025	
+src/integrations/harness/providers/fx/fx.ts	E		M	v0.3.0	-	U-013	
+src/integrations/harness/providers/fx/fxCatalog.ts	E		M	v0.3.0,v0.5.0	-	U-013,U-023	
+src/integrations/harness/providers/grok/grok.ts	E		M	v0.3.0	-	U-013	
+src/integrations/harness/providers/grok/grokAdapter.ts	E		M	v0.2.0	-	U-008	
+src/integrations/harness/providers/grok/grokCatalog.ts	E		M	v0.3.0,v0.5.0	-	U-013,U-023	
+src/integrations/harness/providers/grok/grokGit.ts	E		M	v0.5.0	-	U-025	
+src/integrations/harness/providers/grok/grokText.test.ts	N		A	v0.3.0	-	U-008	
+src/integrations/harness/providers/grok/grokText.ts	E		M	v0.2.0,v0.3.0,v0.5.0	-	U-008,U-013,U-025	
+src/integrations/harness/providers/hermes/hermes.ts	E		M	v0.3.0,v0.5.0	-	U-013,U-023	
+src/integrations/harness/providers/hermes/hermesCatalog.ts	E		M	v0.3.0,v0.5.0	-	U-013,U-023	
+src/integrations/harness/providers/hermes/hermesLive.test.ts	E		M	v0.5.0	-	U-023	
+src/integrations/harness/providers/omp/ompAdapter.ts	E		M	v0.2.0	-	U-008	
+src/integrations/harness/providers/omp/ompLive.test.ts	E		M	v0.1.56,v0.3.0,v0.4.0	-	U-013,U-017,U-041	
+src/integrations/harness/providers/opencode/opencode.ts	B		M	v0.3.0,v0.6.0	M	U-013,U-089	L-25
+src/integrations/harness/providers/opencode/opencodeAdapter.ts	X	content	M	v0.2.0	M	U-008	L-19
+src/integrations/harness/providers/opencode/opencodeCatalog.ts	E		M	v0.3.0,v0.5.0	-	U-013,U-023	
+src/integrations/harness/providers/opencode/opencodeGit.ts	B		M	v0.5.0	M	U-025	L-19
+src/integrations/harness/providers/opencode/opencodeLive.test.ts	B		M	v0.6.0	M	U-089	L-25
+src/integrations/harness/providers/opencode/opencodeProtocol.ts	E		M	v0.4.0	-	U-017	
+src/integrations/harness/providers/opencode/opencodeText.test.ts	X	add/add	A	v0.3.0	A	U-008	L-19
+src/integrations/harness/providers/opencode/opencodeText.ts	X	content	M	v0.2.0,v0.3.0,v0.5.0	M	U-008,U-013,U-025	L-19
+src/integrations/harness/providers/pi/piAdapter.ts	E		M	v0.2.0	-	U-008	
+src/integrations/harness/providers/pi/piCatalog.test.ts	N		A	v0.5.0	-	U-023	
+src/integrations/harness/providers/pi/piCatalog.ts	E		M	v0.3.0,v0.5.0	-	U-013,U-023	
+src/integrations/harness/providers/pi/piFamily.ts	E		M	v0.1.56,v0.3.0,v0.4.0	-	U-013,U-019,U-041	
+src/integrations/harness/providers/pi/piLive.test.ts	E		M	v0.4.0	-	U-019	
+src/integrations/harness/providers/pi/piProtocol.ts	E		M	v0.4.0	-	U-017	
+src/integrations/harness/providers/pi/piSkills.test.ts	E		M	v0.3.0	-	U-013	
+src/integrations/harness/providers/pi/piSkills.ts	E		M	v0.3.0	-	U-013	
+src/integrations/harness/providers/pi/piSubagents.test.ts	E		M	v0.6.0	-	U-089	
+src/integrations/harness/providers/pi/piSubagents.ts	E		M	v0.6.0	-	U-089	
+src/integrations/harness/providers/pi/piText.test.ts	N		A	v0.3.0	-	U-008	
+src/integrations/harness/providers/pi/piText.ts	E		M	v0.2.0,v0.3.0	-	U-008,U-013	
+src/main.tsx	E		M	v0.1.56,v0.3.0,v0.5.0	-	U-013,U-023,U-039,U-083	
+src/platform/tauri/clipboard.test.ts	E		M	v0.4.0	-	U-017	
+src/platform/tauri/clipboard.ts	E		M	v0.4.0	-	U-017	
+src/platform/tauri/fs.test.ts	X	content	M	v0.4.0	M	U-016	L-09
+src/platform/tauri/fs.ts	B		M	v0.3.0,v0.4.0,v0.5.0	M	U-016,U-017,U-020,U-023,U-050	L-09
+src/platform/tauri/platform.ts	B		M	v0.6.0	M	U-031	
+src/platform/tauri/pty.test.ts	X	content	M	v0.3.0	M	U-061	
+src/platform/tauri/pty.ts	X	content	M	v0.3.0	M	U-061	
+src/shared/lib/colorUtils.test.ts	N		A	v0.6.0	-	U-031	
+src/shared/lib/colorUtils.ts	E		M	v0.6.0	-	U-031	
+src/shared/lib/draftRestore.test.ts	N		A	v0.4.0	-	U-017	
+src/shared/lib/draftRestore.ts	N		A	v0.4.0	-	U-017	
+src/shared/lib/paths.test.ts	E		M	v0.1.56,v0.5.0	-	U-023,U-039	
+src/shared/lib/paths.ts	B		M	v0.1.56,v0.5.0	M	U-023,U-039	
+src/shared/lib/remotePaths.ts	N		A	v0.5.0	-	U-023	
+src/shared/ui/Modal.tsx	E		M	v0.1.56	-	U-007	
+src/shared/ui/NativePopupHost.tsx	N		A	v0.1.56	-	U-007	
+src/shared/ui/Popover.tsx	B		M	v0.1.56	M	U-007	L-10
+src/shared/ui/PrivateEmail.tsx	N		A	v0.6.0	-	U-010	
+src/shared/ui/icons.tsx	E		M	v0.1.56,v0.2.0,v0.3.0,v0.5.0,v0.6.0	-	U-001,U-004,U-009,U-023,U-043,U-091	
+src/shared/ui/lazySurface.test.ts	N		A	post-v0.6.0	-	U-096	
+src/shared/ui/lazySurface.tsx	N		A	v0.5.0,post-v0.6.0	-	U-083,U-096	
+src/styles/index.css	X	content	M	v0.1.56,v0.2.0,v0.3.0,v0.4.0,v0.6.0	M	U-001,U-002,U-008,U-009,U-022,U-031,U-032,U-043,U-052,U-086,U-090	
+vite.config.ts	E		M	v0.1.56	-	U-007	
