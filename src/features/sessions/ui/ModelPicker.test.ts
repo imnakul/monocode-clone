@@ -208,6 +208,12 @@ describe("model picker", () => {
     expect(unselectedRow.lastElementChild?.getAttribute("aria-label")).toBe(
       "Add to favorites",
     );
+    // The whole row is the gliding hover item; pointer hover paints no
+    // second fill of its own (that is reserved for arrow-key navigation).
+    expect(unselectedRow.hasAttribute("data-shared-hover-item")).toBe(true);
+    hover(unselectedRow);
+    expect(unselectedRow.className).not.toContain("bg-selection");
+    expect(unselectedRow.className).not.toContain("hover:bg-content");
     expect(
       container.querySelector('input[aria-label="Search models"]'),
     ).not.toBeNull();

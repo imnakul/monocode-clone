@@ -199,8 +199,11 @@ function card(title: string) {
     (entry) => entry.textContent?.includes(title),
   )!;
 }
+// The open pane; a pane sliding out after close is aria-hidden and inert.
 const peek = () =>
-  container.querySelector<HTMLElement>('[aria-label="Task panel"]');
+  container.querySelector<HTMLElement>(
+    '[aria-label="Task panel"]:not([aria-hidden="true"])',
+  );
 async function pickOption(trigger: string, option: string) {
   await click(container.querySelector(`button[aria-label^="${trigger}:"]`));
   const choice = [

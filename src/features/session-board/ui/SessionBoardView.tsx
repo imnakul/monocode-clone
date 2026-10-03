@@ -28,6 +28,7 @@ import {
   type BoardLane,
 } from "../sessionBoard";
 import { BoardSessionCard } from "./BoardSessionCard";
+import { usePresence } from "../../../shared/hooks/usePresence";
 
 const COLUMN_MIN_WIDTH = 256;
 const COLUMN_RESIZE_MIN = 220;
@@ -95,6 +96,8 @@ export function SessionBoardView({
   const [project, setProject] = useState("");
   const [status, setStatus] = useState("");
   const [selected, setSelected] = useState(false);
+  // The session pane slides in and out; it stays mounted while leaving.
+  const pane = usePresence(selected);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [columnWidth, setColumnWidth] = useState(loadColumnWidth);
@@ -115,9 +118,9 @@ export function SessionBoardView({
   });
   const resizeCleanup = useRef<(() => void) | undefined>(undefined);
   useEffect(() => {
-    onPaneVisible(selected);
+    onPaneVisible(pane.mounted);
     return () => onPaneVisible(false);
-  }, [selected, onPaneVisible]);
+  }, [pane.mounted, onPaneVisible]);
   useEffect(() => {
     try {
       localStorage.setItem("monocode.boardWidth", String(width));
@@ -353,10 +356,10 @@ export function SessionBoardView({
           </button>
         </div>
       ) : null}
-      <div ref={body} className="flex min-h-0 min-w-0 flex-1">
+      <div ref={body} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <div
           className="flex min-h-0 min-w-0 flex-col"
-          style={{ width: selected ? `${width}%` : "100%" }}
+          style={{ width: pane.mounted ? `${width}%` : "100%" }}
         >
           {loading ? (
             <p className="px-4 pt-3 text-[12px] text-content/50">
@@ -369,7 +372,7 @@ export function SessionBoardView({
             </p>
           ) : null}
           <div className="min-h-0 flex-1">
-            <BoardColumns>
+            <BoardColumns wrapBelow={COLUMN_MIN_WIDTH}>
               {(Object.entries(BOARD_LANES) as [BoardLane, string][])
                 .filter(([key]) => !status || key === status)
                 .map(([key, label]) => {
@@ -462,7 +465,7 @@ export function SessionBoardView({
             </BoardColumns>
           </div>
         </div>
-        {selected ? (
+        {pane.mounted ? (
           <div
             role="separator"
             aria-label="Board and session divider"
@@ -488,8 +491,15 @@ export function SessionBoardView({
         ) : null}
         <div
           ref={onWorkspaceHost}
+          inert={pane.mounted && !selected ? true : undefined}
           className={
-            selected ? "flex min-h-0 min-w-0 flex-1 flex-col" : "hidden"
+            pane.mounted
+              ? `flex min-h-0 min-w-0 flex-1 flex-col transition-[transform,opacity] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] will-change-transform motion-reduce:transition-none ${
+                  pane.shown
+                    ? "translate-x-0 opacity-100"
+                    : "translate-x-full opacity-0"
+                }`
+              : "hidden"
           }
           aria-label="Board session workspace"
         />

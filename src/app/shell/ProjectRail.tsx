@@ -91,6 +91,11 @@ import {
 } from "../../features/connections/model/connections";
 import { remoteProjectFor } from "../../features/connections/model/remoteProjects";
 import { useProjectMenu } from "./useProjectMenu";
+import {
+  boardCountsLabel,
+  useBoardCounts,
+} from "../../features/session-board/useBoardCounts";
+import { BoardCountPills } from "../../features/session-board/ui/BoardCountPills";
 
 type Props = {
   visible?: boolean;
@@ -424,7 +429,7 @@ export function ProjectRail({
               active={automationsActive}
               ariaLabel="Automations"
             />
-            {onOpenKanban ? <RailAction label="Session Manager" icon={MessageMultiple} onClick={onOpenKanban} active={kanbanActive} ariaLabel="Session Manager" /> : null}
+            {onOpenKanban ? <SessionManagerRailAction onClick={onOpenKanban} active={kanbanActive} /> : null}
           </div>
 
           <div
@@ -1233,5 +1238,27 @@ function AddProjectButton({ onOpenFolder }: { onOpenFolder: () => void }) {
         </Popover>
       ) : null}
     </>
+  );
+}
+
+/** Session Manager entry with live In progress / Needs attention / Done counts. */
+function SessionManagerRailAction({
+  onClick,
+  active,
+}: {
+  onClick: () => void;
+  active: boolean;
+}) {
+  const counts = useBoardCounts();
+  const summary = boardCountsLabel(counts);
+  return (
+    <RailAction
+      label="Session Manager"
+      icon={MessageMultiple}
+      onClick={onClick}
+      active={active}
+      ariaLabel={summary ? `Session Manager, ${summary}` : "Session Manager"}
+      trailing={<BoardCountPills counts={counts} />}
+    />
   );
 }

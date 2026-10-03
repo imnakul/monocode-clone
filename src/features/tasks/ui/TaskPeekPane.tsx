@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { useDragResize } from "../../../shared/hooks/useDragResize";
 import { PanelRight, X } from "../../../shared/ui/icons";
 import {
@@ -17,11 +16,17 @@ const iconButton =
 /** Resizable right-hand pane that edits the selected task in any view. */
 export function TaskPeekPane({
   task,
+  shown = true,
+  closing = false,
   onClose,
   onOpenBeside,
   ...editor
 }: Omit<TaskEditorProps, "variant" | "onOpenBeside"> & {
   task: Task;
+  /** Slid in; false while entering or leaving (see usePresence). */
+  shown?: boolean;
+  /** Animating out after close: keep it visible but not interactive. */
+  closing?: boolean;
   onClose: () => void;
   onOpenBeside: (task: Task) => void;
 }) {
@@ -33,17 +38,14 @@ export function TaskPeekPane({
     initial: loadPeekWidth(),
     onCommit: savePeekWidth,
   });
-  const [entered, setEntered] = useState(false);
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => setEntered(true));
-    return () => cancelAnimationFrame(frame);
-  }, []);
   return (
     <aside
       ref={resize.setPaneRef}
       aria-label="Task panel"
-      className={`relative flex h-full min-h-0 shrink-0 flex-col border-l border-stroke transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none ${
-        entered ? "translate-x-0 opacity-100" : "translate-x-2 opacity-0"
+      aria-hidden={closing || undefined}
+      inert={closing || undefined}
+      className={`relative flex h-full min-h-0 shrink-0 flex-col border-l border-stroke transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] will-change-transform motion-reduce:transition-none ${
+        shown ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"
       }`}
     >
       <div

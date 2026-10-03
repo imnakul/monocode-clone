@@ -1326,6 +1326,9 @@ function ModelFlyout({
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeRef = useRef<HTMLButtonElement>(null);
   const groups = modelGroups(tab, models);
+  // The pointer is shown by the gliding hover highlight; the row fill is only
+  // for arrow-key navigation, so hovering never paints a second highlight.
+  const [keyboardActive, setKeyboardActive] = useState(false);
 
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: "nearest" });
@@ -1335,12 +1338,14 @@ function ModelFlyout({
     if (event.key === "ArrowDown") {
       event.preventDefault();
       event.stopPropagation();
+      setKeyboardActive(true);
       onActive(Math.min(models.length - 1, active + 1));
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
       event.stopPropagation();
+      setKeyboardActive(true);
       onActive(Math.max(0, active - 1));
       return;
     }
@@ -1380,6 +1385,7 @@ function ModelFlyout({
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault();
           const direction = event.key === "ArrowDown" ? 1 : -1;
+          setKeyboardActive(true);
           onActive(
             Math.min(models.length - 1, Math.max(0, active + direction)),
           );
@@ -1493,14 +1499,21 @@ function ModelFlyout({
                   return (
                     <div
                       key={item.id}
+                      // The whole row (name, favorite, check) is the hover
+                      // item, so the highlight spans it with its rounding.
+                      data-shared-hover-item
+                      data-shared-hover-disabled={disabled ? "" : undefined}
                       className={`group flex h-8 items-center rounded-lg px-1 ${
                         disabled
                           ? "text-content/30"
-                          : highlighted
+                          : highlighted && keyboardActive
                             ? "bg-selection text-content"
-                            : "text-content hover:bg-content/5"
+                            : "text-content"
                       }`}
-                      onMouseEnter={() => onActive(index)}
+                      onMouseEnter={() => {
+                        setKeyboardActive(false);
+                        onActive(index);
+                      }}
                     >
                       <button
                         ref={highlighted ? activeRef : undefined}

@@ -4,6 +4,8 @@
  * hover highlight pays one boolean check per move in normal use.
  */
 
+import { isPerfRecording, recordHoverEvent } from "./perfRecorder";
+
 const ENABLED_KEY = "monocode.perfOverlay";
 
 /** How the shared hover highlight reached its latest state. */
@@ -46,8 +48,9 @@ function emit(): void {
   for (const listener of listeners) listener();
 }
 
+/** True while the overlay is open or a log is recording. */
 export function isPerfDebugEnabled(): boolean {
-  return enabled;
+  return enabled || isPerfRecording();
 }
 
 export function setPerfDebugEnabled(next: boolean): void {
@@ -82,8 +85,10 @@ export function clearHoverDebugEvents(): void {
 
 /** Record a hover highlight transition. Call only when enabled. */
 export function reportHoverDebug(event: Omit<HoverDebugEvent, "at">): void {
-  if (!enabled) return;
-  hoverEvents.unshift({ ...event, at: performance.now() });
+  if (!isPerfDebugEnabled()) return;
+  const recorded = { ...event, at: performance.now() };
+  recordHoverEvent(recorded);
+  hoverEvents.unshift(recorded);
   if (hoverEvents.length > HOVER_EVENT_LIMIT)
     hoverEvents.length = HOVER_EVENT_LIMIT;
   emit();

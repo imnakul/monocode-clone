@@ -222,7 +222,18 @@ it("hides the session pane without removing its card and supports keyboard resiz
       .find((button) => button.textContent === "Hide session pane")!
       .click(),
   );
+  // The pane slides out first (still mounted, not interactive), then hides.
+  const host = container.querySelector<HTMLElement>(
+    '[aria-label="Board session workspace"]',
+  )!;
+  expect(host.hasAttribute("inert")).toBe(true);
+  expect(host.className).toContain("translate-x-full");
+  expect(props.onPaneVisible).toHaveBeenLastCalledWith(true);
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 260));
+  });
   expect(props.onPaneVisible).toHaveBeenLastCalledWith(false);
+  expect(host.className).toBe("hidden");
   expect(card("running")).toBeTruthy();
 });
 
@@ -496,4 +507,33 @@ it("shows the session list title and model name, not the stored prefix and raw i
   )!;
   expect(card("named").textContent).toBe("trying this out");
   expect(named.textContent).not.toContain("opencode:opencode/");
+});
+
+it("reflows four columns into an even 2×2 grid when the board is too narrow", () => {
+  const width = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "clientWidth",
+  );
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get() {
+      return 800;
+    },
+  });
+  try {
+    render();
+    const grid = container.querySelector<HTMLElement>("[data-board-wrapped]")!;
+    expect(grid.dataset.boardWrapped).toBe("2");
+    expect(grid.style.gridTemplateColumns).toBe("repeat(2, minmax(0, 1fr))");
+    // The grid sizes columns: no fixed widths or resize handles while wrapped.
+    expect(
+      container.querySelector<HTMLElement>('[aria-label="Done column"]')!.style
+        .minWidth,
+    ).toBe("");
+    expect(
+      container.querySelector('[aria-label="Resize Draft column"]'),
+    ).toBeNull();
+  } finally {
+    if (width) Object.defineProperty(HTMLElement.prototype, "clientWidth", width);
+  }
 });

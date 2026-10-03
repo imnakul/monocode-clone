@@ -10,6 +10,7 @@ import {
   PERF_OVERLAY_COMMAND,
 } from "../../features/settings/model/settings";
 import { ALT, MOD, SHIFT } from "../../platform/tauri/platform";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { X } from "../ui/icons";
 import {
   clearHoverDebugEvents,
@@ -20,6 +21,14 @@ import {
   togglePerfDebug,
   type HoverDebugEvent,
 } from "./perfDebug";
+import {
+  dismissRecorderResult,
+  isPerfRecording,
+  recorderState,
+  startPerfRecording,
+  stopPerfRecording,
+  subscribeRecorder,
+} from "./perfRecorder";
 
 /** Frames slower than this count as a visible stutter (about 3 dropped frames at 60 Hz). */
 const JANK_MS = 50;
@@ -110,13 +119,19 @@ function PerfOverlay(): ReactNode {
         </button>
         <button
           type="button"
-          onClick={() => setPerfDebugEnabled(false)}
+          onClick={() => {
+            // Closing mid-recording saves what was captured so far.
+            if (isPerfRecording()) void stopPerfRecording();
+            setPerfDebugEnabled(false);
+          }}
           aria-label="Close performance overlay"
           className="grid size-5 place-items-center rounded text-content/55 hover:bg-content/10 hover:text-content"
         >
           <X aria-hidden className="size-3" />
         </button>
       </div>
+
+      <RecorderControls />
 
       <Row label="FPS">
         <span className={fpsTone}>{stats.fps}</span>
@@ -288,4 +303,115 @@ function useFrameStats(): FrameStats {
     };
   }, []);
   return stats;
+}
+
+/** Start/stop a log, then show where it was saved with Reveal and Copy. */
+function RecorderControls(): ReactNode {
+  const state = useSyncExternalStore(
+    subscribeRecorder,
+    recorderState,
+    recorderState,
+  );
+  const [, setNow] = useState(0);
+  useEffect(() => {
+    if (state.status !== "recording") return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [state.status]);
+  const [copied, setCopied] = useState(false);
+  const button =
+    "rounded px-1.5 py-0.5 font-sans text-[11px] hover:bg-content/10 hover:text-content disabled:opacity-40";
+
+  return (
+    <div className="mb-2 rounded-md bg-content/5 p-1.5">
+      <div className="flex items-center gap-2">
+        {state.status === "recording" ? (
+          <>
+            <span
+              aria-hidden
+              className="size-2 animate-pulse rounded-full bg-red-500"
+            />
+            <span className="text-content" role="status">
+              Recording {formatElapsed(performance.now() - state.startedPerf)}
+            </span>
+            <button
+              type="button"
+              onClick={() => void stopPerfRecording()}
+              className={`${button} ml-auto bg-red-500/20 text-red-200`}
+            >
+              Stop &amp; save log
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="font-sans text-content/55">
+              {state.status === "saving"
+                ? "Saving log…"
+                : "Record FPS, location and glide while you move around"}
+            </span>
+            <button
+              type="button"
+              disabled={state.status === "saving"}
+              onClick={() => {
+                dismissRecorderResult();
+                startPerfRecording();
+              }}
+              className={`${button} ml-auto shrink-0 bg-content/10 text-content`}
+            >
+              Start log
+            </button>
+          </>
+        )}
+      </div>
+      {state.status === "saved" ? (
+        <div className="mt-1.5 border-t border-content/10 pt-1.5">
+          <p className="break-all text-emerald-300" role="status">
+            Saved: {state.path}
+          </p>
+          <div className="mt-1 flex gap-1">
+            <button
+              type="button"
+              className={button}
+              onClick={() => void revealItemInDir(state.path).catch(() => {})}
+            >
+              Show in folder
+            </button>
+            <button
+              type="button"
+              className={button}
+              onClick={() =>
+                void navigator.clipboard
+                  .writeText(state.path)
+                  .then(() => setCopied(true))
+                  .catch(() => {})
+              }
+            >
+              {copied ? "Copied" : "Copy path"}
+            </button>
+            <button
+              type="button"
+              className={`${button} ml-auto`}
+              onClick={() => {
+                setCopied(false);
+                dismissRecorderResult();
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {state.status === "error" ? (
+        <p className="mt-1.5 text-red-300" role="alert">
+          Could not save the log: {state.message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  return `${minutes}:${String(total % 60).padStart(2, "0")}`;
 }

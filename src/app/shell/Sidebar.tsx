@@ -1660,6 +1660,8 @@ function SidebarComponent({
   const sidebarContent = (
     <aside
       ref={resize.setPaneRef}
+      // Names this panel in Performance overlay logs ("Sessions", "Explorer").
+      data-debug-surface={mode === "chat" ? "Chats" : TAB_LABELS[tab]}
       className="body-glass relative flex h-full min-h-0 shrink-0 flex-col border-r border-stroke"
     >
       <SharedHoverHighlight />

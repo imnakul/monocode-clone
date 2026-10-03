@@ -64,6 +64,7 @@ import {
 import { TaskBoard } from "./TaskBoard";
 import { TaskList } from "./TaskList";
 import { TaskPeekPane } from "./TaskPeekPane";
+import { usePresence } from "../../../shared/hooks/usePresence";
 import { TaskTable } from "./TaskTable";
 import { hasActiveFilters, TasksToolbar } from "./TasksToolbar";
 import { ResultCount } from "../../../shared/ui/ResultCount";
@@ -171,6 +172,11 @@ export function TasksView({
   }, [selectedId, selected, loading]);
   const selectedRef = useRef(selectedId);
   selectedRef.current = selected ? selectedId : null;
+  // Keep the last task on screen while the peek pane slides out.
+  const lastSelected = useRef<Task | null>(selected);
+  if (selected) lastSelected.current = selected;
+  const peek = usePresence(Boolean(selected));
+  const peekTask = selected ?? lastSelected.current;
 
   const closePeek = useCallback(() => {
     const id = selectedRef.current;
@@ -555,11 +561,13 @@ export function TasksView({
           {actionError}
         </p>
       ) : null}
-      <div className="flex min-h-0 min-w-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">{body}</div>
-        {selected ? (
+        {peek.mounted && peekTask ? (
           <TaskPeekPane
-            task={selected}
+            task={peekTask}
+            shown={peek.shown}
+            closing={!selected}
             recents={recents}
             cwd={cwd}
             onClose={closePeek}
