@@ -1,32 +1,48 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { Modal } from "../../../shared/ui/Modal";
 import { QuickComposer } from "../../quick-composer/ui/QuickComposer";
 import type { QuickLaunch } from "../../quick-composer/model/quickComposer";
 
-const onShown = () => {};
-/** The same composer, with a save destination instead of a floating-panel launch. */
+const onShown = (): void => {};
+
+/**
+ * The shared composer in a modal, without the Task | Session switch. Used by
+ * Session Manager ("Add Draft to Sessions", "Edit Draft") and by Task Manager
+ * ("Work on…", prefilled from the task). Save to Draft keeps the session in
+ * Session Manager; Start (with `onStart`) starts it now.
+ */
 export function SessionTodoComposer({
   initialLaunch,
   editing,
+  title,
+  description = "Save to Draft keeps it in Session Manager to start later. Start begins the session now.",
   onSave,
+  onStart,
   onClose,
 }: {
   initialLaunch: QuickLaunch;
   editing?: boolean;
+  /** Modal title; defaults to the Session Manager wording. */
+  title?: string;
+  description?: string;
   onSave: (launch: QuickLaunch) => Promise<void>;
+  /** Start the session now; `reveal` also opens it (Ctrl+Enter). */
+  onStart?: (launch: QuickLaunch, reveal: boolean) => Promise<void>;
   onClose: () => void;
-}) {
+}): ReactNode {
   const saving = useRef(false);
   const [busy, setBusy] = useState(false);
   const close = useCallback(() => {
     if (!saving.current) onClose();
   }, [onClose]);
-  const submit = async (launch: QuickLaunch) => {
+  // One write at a time; the modal closes only after it succeeds, so a
+  // failure stays visible in the composer with the prompt intact.
+  const run = async (write: () => Promise<void>): Promise<void> => {
     if (saving.current) return;
     saving.current = true;
     setBusy(true);
     try {
-      await onSave(launch);
+      await write();
       onClose();
     } finally {
       saving.current = false;
@@ -35,21 +51,23 @@ export function SessionTodoComposer({
   };
   return (
     <Modal
-      title={editing ? "Edit Draft" : "Add Draft to Sessions"}
+      title={title ?? (editing ? "Edit Draft" : "Add Draft to Sessions")}
       onClose={close}
       fitViewport
     >
-      <p className="px-4 py-2 text-xs text-content/50">
-        Save a prepared session. It starts when you choose Start in Session
-        Manager.
-      </p>
+      <p className="px-4 py-2 text-[12px] text-content/50">{description}</p>
       <div className="p-3" aria-busy={busy}>
         <QuickComposer
           onShown={onShown}
           initialLaunch={initialLaunch}
-          onSubmitLaunch={submit}
+          onSubmitLaunch={(launch) => run(() => onSave(launch))}
+          onStartLaunch={
+            onStart
+              ? (launch, reveal) => run(() => onStart(launch, reveal))
+              : undefined
+          }
           onDismiss={close}
-          submitLabel={editing ? "Save changes" : "Save Draft"}
+          submitLabel={editing ? "Save changes" : "Save to Draft"}
         />
       </div>
     </Modal>

@@ -23,13 +23,29 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { prettyParent, projectName } from "../../../shared/lib/paths";
 import {
+  CheckCircle,
   ChevronDown,
   Search,
   Plus,
   X,
   ImagePlus,
   Maximize2,
+  MessageMultiple,
 } from "../../../shared/ui/icons";
+import {
+  SegmentedSwitch,
+  type SegmentedOption,
+} from "../../../shared/ui/SegmentedSwitch";
+import { createTask } from "../../tasks/tasks";
+import {
+  EMPTY_QUICK_TASK,
+  loadQuickComposerKind,
+  quickTaskInput,
+  saveQuickComposerKind,
+  type QuickComposerKind,
+  type QuickTaskFields as TaskFields,
+} from "../model/quickTask";
+import { QuickTaskFields } from "./QuickTaskFields";
 import {
   QuickProjectIcon,
   loadQuickProjectAppearance,
@@ -63,6 +79,7 @@ import { PLAN_COMMAND } from "../../sessions/model/plan";
 import { DRAFT_COMMAND } from "../../sessions/model/draftCommand";
 import {
   leadingModeCommand,
+  MODE_COMMAND_INDENT,
   MODE_COMMAND_STYLES,
   ModeCommandText,
 } from "../../sessions/ui/modeCommands";
@@ -99,8 +116,22 @@ const MODE_COMMANDS = [
 const MODE_NAMES: ReadonlySet<string> = new Set(
   MODE_COMMANDS.map((command) => command.name),
 );
-/** Sized for the 16px prompt, as the main composer's indent is for 14px. */
-const MODE_INDENT = "15px";
+
+const KIND_OPTIONS: readonly SegmentedOption<QuickComposerKind>[] = [
+  { id: "task", label: "Task", icon: CheckCircle },
+  { id: "session", label: "Session", icon: MessageMultiple },
+];
+
+/** Toolbar pickers (project, model): one height and icon size everywhere. */
+const CONTROL_CLASS =
+  "flex h-7 min-w-0 max-w-[40%] items-center gap-1.5 rounded-md px-2 text-[12px] disabled:opacity-50";
+const PRIMARY_BUTTON_CLASS =
+  "h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-white transition-opacity disabled:opacity-40";
+const SECONDARY_BUTTON_CLASS =
+  "h-7 rounded-md border border-content/12 px-3 text-[12px] font-medium text-content/80 hover:bg-selection-hover hover:text-content disabled:opacity-40";
+
+/** How a session prompt is submitted: kept as a draft, started, or started and opened. */
+type SessionAction = "draft" | "start" | "open";
 
 /** The mode a prompt starts with, and the prompt the session should get. */
 export function quickPromptMode(text: string): {
@@ -114,20 +145,41 @@ export function quickPromptMode(text: string): {
   return { prompt: text.slice(match![0].length), mode };
 }
 
+/**
+ * One composer for three places:
+ * - the floating window (global shortcut): a Task | Session switch; sessions
+ *   are started, or saved as Session Manager drafts;
+ * - Session Manager "Add Draft" (embedded, `onSubmitLaunch` saves the draft);
+ * - Task Manager "Work on…" (embedded and prefilled from the task).
+ * Embedded hosts that pass `onStartLaunch` also get Start / Start and open.
+ */
 export function QuickComposer({
   onShown,
   initialLaunch,
   onSubmitLaunch,
+  onStartLaunch,
   onDismiss,
-  submitLabel = "Save Draft",
+  submitLabel = "Save to Draft",
 }: {
   onShown: () => void;
   initialLaunch?: QuickLaunch;
+  /** Embedded: save the prompt as a Session Manager draft. */
   onSubmitLaunch?: (launch: QuickLaunch) => Promise<void>;
+  /** Embedded: start the session now; `reveal` also opens it. */
+  onStartLaunch?: (launch: QuickLaunch, reveal: boolean) => Promise<void>;
   onDismiss?: () => void;
+  /** Label of the save-as-draft button. */
   submitLabel?: string;
 }) {
   const embedded = !!onSubmitLaunch;
+  const canStart = !embedded || !!onStartLaunch;
+  // Only the floating composer makes Tasks; embedded hosts make sessions.
+  const [kindChoice, setKindChoice] = useState<QuickComposerKind>(() =>
+    embedded ? "session" : loadQuickComposerKind(),
+  );
+  const kind: QuickComposerKind = embedded ? "session" : kindChoice;
+  const taskMode = kind === "task";
+  const [taskFields, setTaskFields] = useState<TaskFields>(EMPTY_QUICK_TASK);
   const [projects, setProjects] = useState(() => [
     ...new Set([
       ...(initialLaunch?.cwd ? [initialLaunch.cwd] : []),
@@ -192,7 +244,7 @@ export function QuickComposer({
   const [busy, setBusy] = useState(false);
   const attachmentsSupported = harnessSupportsAttachments(choice.harness);
   const attachments = useQuickAttachments(
-    attachmentsSupported && !busy,
+    attachmentsSupported && !busy && !taskMode,
     setError,
     initialLaunch?.attachments,
     !embedded,
@@ -309,10 +361,14 @@ export function QuickComposer({
   }, []);
   useQuickPickerMotion(frameRef, pickerRef, picker, !embedded);
 
-  const projectOptions = useMemo(
-    () => filterQuickProjects(projects, picker === "project" ? query : ""),
-    [picker, projects, query],
-  );
+  // Task mode adds Personal ("") ahead of the projects.
+  const projectOptions = useMemo(() => {
+    const search = picker === "project" ? query : "";
+    const found = filterQuickProjects(projects, search);
+    return taskMode && "personal".includes(search.trim().toLowerCase())
+      ? ["", ...found]
+      : found;
+  }, [picker, projects, query, taskMode]);
   const commandOptions = useMemo(
     () => rankSkills(MODE_COMMANDS, slash?.query ?? ""),
     [slash?.query],
@@ -334,7 +390,11 @@ export function QuickComposer({
     setSlash(null);
     setPicker(kind);
     setQuery("");
-    setHighlight(Math.max(0, projects.indexOf(cwd ?? "")));
+    setHighlight(
+      taskMode
+        ? Math.max(0, projects.indexOf(taskFields.projectCwd ?? "") + 1)
+        : Math.max(0, projects.indexOf(cwd ?? "")),
+    );
     if (kind === "project")
       requestAnimationFrame(() =>
         queryRef.current?.focus({ preventScroll: true }),
@@ -371,9 +431,14 @@ export function QuickComposer({
     }
     if (picker === "project") {
       const path = projectOptions[index];
-      if (!path) return;
-      setCwd(path);
-      setWorkspaceChoice({ cwd: path, mode: "current" });
+      if (path === undefined) return;
+      if (taskMode) {
+        setTaskFields((fields) => ({ ...fields, projectCwd: path || null }));
+      } else {
+        if (!path) return;
+        setCwd(path);
+        setWorkspaceChoice({ cwd: path, mode: "current" });
+      }
     }
     closePicker();
   };
@@ -386,8 +451,8 @@ export function QuickComposer({
     // Operator activates only at the start of a prompt.
     const leading =
       token && !field.value.slice(0, token.start).trim() ? token : null;
-    setSlash(leading);
-    if (leading && !busy && !gitOpen) {
+    setSlash(taskMode ? null : leading);
+    if (leading && !taskMode && !busy && !gitOpen) {
       setPicker("commands");
       setHighlight(0);
     } else {
@@ -402,8 +467,44 @@ export function QuickComposer({
     }
   };
 
-  const submit = async (reveal: boolean) => {
+  const switchKind = (next: QuickComposerKind) => {
+    if (busy) return;
+    setKindChoice(next);
+    saveQuickComposerKind(next);
+    setPicker(null);
+    setSlash(null);
+    setError(null);
+    focusPrompt();
+  };
+
+  const taskInput = taskMode ? quickTaskInput(prompt, taskFields) : null;
+  const saveTask = async () => {
+    if (!taskInput || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await createTask(taskInput);
+      setPrompt("");
+      // Status and project stay for the next task; focus and tags are per task.
+      setTaskFields((fields) => ({ ...fields, focusDate: null, tags: "" }));
+      setPicker(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submit = async (requested: SessionAction) => {
+    if (taskMode) {
+      await saveTask();
+      return;
+    }
     const launchMode = quickPromptMode(prompt.trim());
+    // `/draft` keeps working as a shortcut for Save to Draft.
+    const action: SessionAction =
+      launchMode.mode === DRAFT_COMMAND.name || !canStart ? "draft" : requested;
+    const reveal = action === "open";
     const text = launchMode.prompt.trim();
     if (
       (!text && !attachments.files.length) ||
@@ -421,7 +522,7 @@ export function QuickComposer({
     try {
       const request: QuickLaunch = {
         prompt: text,
-        ...(launchMode.mode === DRAFT_COMMAND.name ? { draft: true } : {}),
+        ...(action === "draft" ? { draft: true } : {}),
         ...(launchMode.mode === PLAN_COMMAND.name
           ? { intent: "plan" as const }
           : launchMode.mode === ORCHESTRATOR_COMMAND.name
@@ -435,9 +536,14 @@ export function QuickComposer({
         ...(await quickWorkspaceLaunch(workspace)),
         reveal,
       };
-      if (onSubmitLaunch)
+      if (onSubmitLaunch && action === "draft")
         await onSubmitLaunch({ ...request, draft: true, reveal: false });
-      else await invoke("quick_composer_submit", { request });
+      else if (onStartLaunch)
+        await onStartLaunch({ ...request, reveal }, reveal);
+      else
+        await invoke("quick_composer_submit", {
+          request: action === "draft" ? { ...request, reveal: false } : request,
+        });
       rememberQuickProject(cwd);
       saveLastModelSettings(settings);
       saveRecentModelChoice(picked.harness, picked.model);
@@ -483,7 +589,7 @@ export function QuickComposer({
     }
     if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
       event.preventDefault();
-      void submit(IS_MAC ? event.metaKey : event.ctrlKey);
+      void submit((IS_MAC ? event.metaKey : event.ctrlKey) ? "open" : "start");
       return;
     }
     if (
@@ -494,7 +600,11 @@ export function QuickComposer({
       openPicker("project");
       return;
     }
-    if ((IS_MAC ? event.metaKey : event.ctrlKey) && event.key === ".") {
+    if (
+      !taskMode &&
+      (IS_MAC ? event.metaKey : event.ctrlKey) &&
+      event.key === "."
+    ) {
       event.preventDefault();
       openPicker("model");
     }
@@ -520,7 +630,7 @@ export function QuickComposer({
     }
   };
 
-  const canSubmit = Boolean(
+  const canSubmitSession = Boolean(
     (quickPromptMode(prompt.trim()).prompt.trim() ||
       attachments.files.length) &&
     cwd &&
@@ -530,6 +640,18 @@ export function QuickComposer({
     resolvedModel &&
     (attachmentsSupported || !attachments.files.length),
   );
+  const canSubmit = taskMode ? Boolean(taskInput) && !busy : canSubmitSession;
+
+  // Slash commands (/plan, /draft…) only exist for sessions.
+  const showMode = !taskMode && !!leadingMode;
+  const indent = showMode ? MODE_COMMAND_INDENT : undefined;
+  const draftCommand = showMode && leadingMode?.name === DRAFT_COMMAND.name;
+  const projectPath = taskMode ? taskFields.projectCwd : cwd;
+  const projectLabel = projectPath
+    ? projectName(projectPath)
+    : taskMode
+      ? "Personal"
+      : "No project";
 
   const optionClass = (index: number, stacked = false) =>
     `flex w-full ${stacked ? "flex-col items-start gap-0.5" : "items-center gap-2.5"} rounded-lg px-2 py-1.5 text-left text-[13px] ${
@@ -573,66 +695,80 @@ export function QuickComposer({
       >
         <span className="pointer-events-none h-0.5 w-6 rounded-full bg-content/15 transition-colors group-hover:bg-content/35" />
       </div>
-      <button
-        type="button"
-        aria-label="Close composer"
-        title="Close (Esc)"
-        onClick={dismiss}
-        className="absolute right-2 top-2 z-20 grid size-5 place-items-center rounded text-content/35 hover:bg-selection-hover hover:text-content"
-      >
-        <X className="size-3" />
-      </button>
-      {attachments.dragging ? (
+      {attachments.dragging && !taskMode ? (
         <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center rounded-[16px] border border-dashed border-accent/60 bg-background-base/90 text-sm text-accent">
           Drop to attach
         </div>
       ) : null}
-      <div className="flex shrink-0 items-center px-5 pt-3 pr-9">
-        {embedded ? (
-          <>
-            <WorkspacePicker
-              cwd={workspace.tree?.path ?? cwd ?? ""}
-              mode={workspace.mode}
-              base={workspace.base}
-              enabled={!!cwd && !busy}
-              onModeChange={(mode, base) =>
-                setWorkspaceChoice({ cwd, mode, base })
-              }
-              onBaseChange={(base) =>
-                setWorkspaceChoice({ ...workspace, base })
-              }
-              onSelectWorktree={async (tree) =>
-                setWorkspaceChoice({ cwd, mode: "current", tree })
-              }
-              onOpenChange={onGitOpenChange}
-              onClose={focusPrompt}
-            />
-            {workspace.mode === "current" ? (
-              <BranchPicker
+      <div className="flex min-h-10 shrink-0 items-center gap-2 pt-2.5 pr-2.5 pl-4">
+        <div className="flex min-w-0 flex-1 items-center">
+          {taskMode ? (
+            <span className="text-[12px] font-medium text-content/60">
+              New task
+            </span>
+          ) : embedded ? (
+            <>
+              <WorkspacePicker
                 cwd={workspace.tree?.path ?? cwd ?? ""}
+                mode={workspace.mode}
+                base={workspace.base}
                 enabled={!!cwd && !busy}
-                worktree={!!workspace.tree && !workspace.tree.isMain}
+                onModeChange={(mode, base) =>
+                  setWorkspaceChoice({ cwd, mode, base })
+                }
+                onBaseChange={(base) =>
+                  setWorkspaceChoice({ ...workspace, base })
+                }
+                onSelectWorktree={async (tree) =>
+                  setWorkspaceChoice({ cwd, mode: "current", tree })
+                }
                 onOpenChange={onGitOpenChange}
                 onClose={focusPrompt}
               />
-            ) : null}
-          </>
-        ) : (
-          <QuickWorkspaceControls
-            key={cwd}
-            value={workspace}
-            enabled={!busy && !picker}
-            onChange={setWorkspaceChoice}
-            onError={setError}
-            onOpenChange={onGitOpenChange}
-            onClose={focusPrompt}
+              {workspace.mode === "current" ? (
+                <BranchPicker
+                  cwd={workspace.tree?.path ?? cwd ?? ""}
+                  enabled={!!cwd && !busy}
+                  worktree={!!workspace.tree && !workspace.tree.isMain}
+                  onOpenChange={onGitOpenChange}
+                  onClose={focusPrompt}
+                />
+              ) : null}
+            </>
+          ) : (
+            <QuickWorkspaceControls
+              key={cwd}
+              value={workspace}
+              enabled={!busy && !picker}
+              onChange={setWorkspaceChoice}
+              onError={setError}
+              onOpenChange={onGitOpenChange}
+              onClose={focusPrompt}
+            />
+          )}
+        </div>
+        {!embedded ? (
+          <SegmentedSwitch
+            options={KIND_OPTIONS}
+            value={kind}
+            onChange={switchKind}
+            ariaLabel="Create"
           />
-        )}
+        ) : null}
+        <button
+          type="button"
+          aria-label="Close composer"
+          title="Close (Esc)"
+          onClick={dismiss}
+          className="grid size-7 shrink-0 place-items-center rounded-md text-content/40 hover:bg-selection-hover hover:text-content"
+        >
+          <X className="size-3.5" />
+        </button>
       </div>
-      {attachments.files.length ? (
+      {attachments.files.length && !taskMode ? (
         <div
           aria-label="Attachments"
-          className="flex max-h-28 shrink-0 flex-wrap gap-1.5 overflow-y-auto px-5 pt-4 pb-1"
+          className="flex max-h-28 shrink-0 flex-wrap gap-1.5 overflow-y-auto px-4 pt-2 pb-1"
         >
           {attachments.files.map((file) => (
             <AttachmentChip
@@ -647,16 +783,16 @@ export function QuickComposer({
         <div
           ref={highlightRef}
           aria-hidden
-          style={{ textIndent: leadingMode ? MODE_INDENT : undefined }}
-          className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap wrap-break-word pl-5 pr-9 pt-4 pb-2 text-[16px] leading-6 text-content"
+          style={{ textIndent: indent }}
+          className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap wrap-break-word px-4 pt-2 pb-2.5 text-[14px] leading-[22px] text-content"
         >
-          {leadingMode ? (
+          {showMode && leadingMode ? (
             <>
               <ModeCommandText
                 text={prompt}
                 mode={leadingMode}
-                indent={MODE_INDENT}
-                iconClassName="size-4"
+                indent={MODE_COMMAND_INDENT}
+                iconClassName="size-3.5"
               />
               {prompt.slice(leadingMode.end)}
             </>
@@ -669,7 +805,7 @@ export function QuickComposer({
           ref={promptRef}
           value={prompt}
           rows={2}
-          style={{ textIndent: leadingMode ? MODE_INDENT : undefined }}
+          style={{ textIndent: indent }}
           onScroll={(event) => {
             if (highlightRef.current)
               highlightRef.current.scrollTop = event.currentTarget.scrollTop;
@@ -685,115 +821,158 @@ export function QuickComposer({
               syncPromptCommand(event.currentTarget);
           }}
           placeholder={
-            cwd
-              ? `Start a ${HARNESS_TITLE[model.harness]} session in ${projectName(cwd)}…`
-              : "Open a project in MonoCode first"
+            taskMode
+              ? "Task title (Shift+Enter for a description)…"
+              : cwd
+                ? `Start a ${HARNESS_TITLE[model.harness]} session in ${projectName(cwd)}…`
+                : "Open a project in MonoCode first"
           }
-          disabled={!cwd}
-          aria-label="Prompt"
-          aria-autocomplete="list"
+          disabled={!taskMode && !cwd}
+          aria-label={taskMode ? "Task" : "Prompt"}
+          aria-autocomplete={taskMode ? undefined : "list"}
           aria-controls={
             picker === "commands" ? "quick-composer-commands" : undefined
           }
-          aria-expanded={picker === "commands"}
+          aria-expanded={taskMode ? undefined : picker === "commands"}
           aria-activedescendant={
             picker === "commands" && commandOptions[highlight]
               ? `quick-command-${commandOptions[highlight].invocation}`
               : undefined
           }
           spellCheck
-          className="composer-field scrollbar-none relative block w-full resize-none bg-transparent pl-5 pr-9 pt-4 pb-2 text-[16px] leading-6 outline-none select-text"
+          className="composer-field scrollbar-none relative block w-full resize-none bg-transparent px-4 pt-2 pb-2.5 text-[14px] leading-[22px] outline-none select-text"
         />
       </div>
+      {taskMode ? (
+        <QuickTaskFields
+          value={taskFields}
+          disabled={busy}
+          onChange={setTaskFields}
+        />
+      ) : null}
 
-      {attachments.files.length && !attachmentsSupported ? (
-        <p role="alert" className="px-5 pb-2 text-xs text-amber-400">
+      {attachments.files.length && !attachmentsSupported && !taskMode ? (
+        <p role="alert" className="px-4 pb-2 text-xs text-amber-400">
           Choose a provider that supports attachments, or remove the attached
           files.
         </p>
       ) : null}
-      <div className="flex shrink-0 items-center gap-1.5 border-t border-stroke px-3 py-2">
-        <button
-          type="button"
-          ref={plusRef}
-          aria-label="Add attachment"
-          aria-expanded={picker === "attachments"}
-          title={
-            attachmentsSupported
-              ? "Attach files or take a screenshot"
-              : "This provider does not support attachments"
-          }
-          disabled={!attachmentsSupported || attachments.loading || busy}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => openPicker("attachments")}
-          className={`grid size-6.5 shrink-0 place-items-center rounded-md disabled:opacity-40 ${picker === "attachments" ? "bg-selection-emphasis text-content" : "text-content/70 hover:bg-selection-hover hover:text-content"}`}
-        >
-          <Plus className="size-3.5" strokeWidth={1.5} />
-        </button>
+      <div className="flex shrink-0 items-center gap-1 border-t border-stroke px-2.5 py-2">
+        {!taskMode ? (
+          <button
+            type="button"
+            ref={plusRef}
+            aria-label="Add attachment"
+            aria-expanded={picker === "attachments"}
+            title={
+              attachmentsSupported
+                ? "Attach files or take a screenshot"
+                : "This provider does not support attachments"
+            }
+            disabled={!attachmentsSupported || attachments.loading || busy}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => openPicker("attachments")}
+            className={`grid size-7 shrink-0 place-items-center rounded-md disabled:opacity-40 ${picker === "attachments" ? "bg-selection-emphasis text-content" : "text-content/70 hover:bg-selection-hover hover:text-content"}`}
+          >
+            <Plus className="size-3.5" strokeWidth={1.5} />
+          </button>
+        ) : null}
         <button
           type="button"
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => openPicker("project")}
-          disabled={projects.length === 0}
+          disabled={!taskMode && projects.length === 0}
           title={`Project (${MOD}P)`}
           aria-expanded={picker === "project"}
-          className={`flex min-w-0 max-w-[40%] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] disabled:opacity-50 ${picker === "project" ? "bg-selection-emphasis text-content" : "text-content/70 hover:bg-selection-hover hover:text-content"}`}
+          className={`${CONTROL_CLASS} ${picker === "project" ? "bg-selection-emphasis text-content" : "text-content/70 hover:bg-selection-hover hover:text-content"}`}
         >
-          {cwd ? (
+          {projectPath ? (
             <QuickProjectIcon
-              projectPath={cwd}
+              projectPath={projectPath}
               appearance={projectAppearance}
-              className="size-3 shrink-0"
+              className="size-3.5 shrink-0"
             />
           ) : null}
-          <span className="truncate">
-            {cwd ? projectName(cwd) : "No project"}
-          </span>
-          <ChevronDown className="size-3 shrink-0 opacity-60" />
+          <span className="truncate">{projectLabel}</span>
+          <ChevronDown className="size-3.5 shrink-0 opacity-60" />
         </button>
-        <button
-          type="button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => openPicker("model")}
-          title={`Model (${MOD}.)`}
-          aria-expanded={picker === "model"}
-          className={`flex min-w-0 max-w-[40%] items-center gap-1.5 rounded-md px-2 py-1 text-[12px] ${picker === "model" ? "bg-selection-emphasis text-content" : "text-content/70 hover:bg-selection-hover hover:text-content"}`}
-        >
-          <HarnessIcon harness={model.harness} className="size-3.5 shrink-0" />
-          <span className="truncate">{model.name}</span>
-          <ChevronDown className="size-3 shrink-0 opacity-60" />
-        </button>
-        <span className="ml-auto flex shrink-0 items-center gap-3 text-[11px] text-content/45">
-          {attachments.loading ? (
+        {!taskMode ? (
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => openPicker("model")}
+            title={`Model (${MOD}.)`}
+            aria-expanded={picker === "model"}
+            className={`${CONTROL_CLASS} ${picker === "model" ? "bg-selection-emphasis text-content" : "text-content/70 hover:bg-selection-hover hover:text-content"}`}
+          >
+            <HarnessIcon
+              harness={model.harness}
+              className="size-3.5 shrink-0"
+            />
+            <span className="truncate">{model.name}</span>
+            <ChevronDown className="size-3.5 shrink-0 opacity-60" />
+          </button>
+        ) : null}
+        <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-2 text-[11px] text-content/45">
+          {attachments.loading && !taskMode ? (
             <span role="status">Adding attachment…</span>
           ) : error ? (
-            <span className="max-w-72 truncate text-red-400" title={error}>
+            <span
+              role="alert"
+              className="max-w-60 truncate text-red-400"
+              title={error}
+            >
               {error}
             </span>
           ) : (
+            <span className="mr-1 hidden items-center gap-1 sm:flex">
+              <Kbd>↵</Kbd>
+              {taskMode ? "save" : canStart ? "start" : "save"}
+              {!taskMode && canStart ? (
+                <>
+                  <Kbd>{`${MOD}↵`}</Kbd>
+                  start and open
+                </>
+              ) : null}
+            </span>
+          )}
+          {taskMode ? (
+            <button
+              type="button"
+              onClick={() => void saveTask()}
+              disabled={!canSubmit}
+              className={PRIMARY_BUTTON_CLASS}
+            >
+              Save task
+            </button>
+          ) : (
             <>
-              <span>
-                <Kbd>↵</Kbd> {embedded ? "save Todo" : "start"}
-              </span>
-              {!embedded ? (
-                <span>
-                  <Kbd>{`${MOD}↵`}</Kbd> start and open
-                </span>
+              <button
+                type="button"
+                onClick={() => void submit("draft")}
+                disabled={!canSubmit}
+                title="Keep it in Session Manager as a draft to start later"
+                className={
+                  canStart && !draftCommand
+                    ? SECONDARY_BUTTON_CLASS
+                    : PRIMARY_BUTTON_CLASS
+                }
+              >
+                {submitLabel}
+              </button>
+              {canStart && !draftCommand ? (
+                <button
+                  type="button"
+                  onClick={() => void submit("start")}
+                  disabled={!canSubmit}
+                  title={`Start (${MOD}↵ starts and opens it)`}
+                  className={PRIMARY_BUTTON_CLASS}
+                >
+                  Start
+                </button>
               ) : null}
             </>
           )}
-          <button
-            type="button"
-            onClick={() => void submit(false)}
-            disabled={!canSubmit}
-            className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-white disabled:opacity-40"
-          >
-            {embedded
-              ? submitLabel
-              : leadingMode?.name === DRAFT_COMMAND.name
-                ? "Save draft"
-                : "Start"}
-          </button>
         </span>
       </div>
 
@@ -934,7 +1113,7 @@ export function QuickComposer({
                 ) : (
                   projectOptions.map((path, index) => (
                     <button
-                      key={path}
+                      key={path || "personal"}
                       type="button"
                       role="option"
                       aria-selected={index === highlight}
@@ -944,15 +1123,27 @@ export function QuickComposer({
                       onClick={() => chooseAt(index)}
                       className={optionClass(index)}
                     >
-                      <QuickProjectIcon
-                        projectPath={path}
-                        appearance={projectAppearance}
-                        className="size-3 shrink-0"
-                      />
-                      <span className="truncate">{projectName(path)}</span>
-                      <span className="ml-auto truncate pl-3 text-[11px] text-content/40">
-                        {prettyParent(path)}
-                      </span>
+                      {path ? (
+                        <>
+                          <QuickProjectIcon
+                            projectPath={path}
+                            appearance={projectAppearance}
+                            className="size-3.5 shrink-0"
+                          />
+                          <span className="truncate">{projectName(path)}</span>
+                          <span className="ml-auto truncate pl-3 text-[11px] text-content/40">
+                            {prettyParent(path)}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="size-3.5 shrink-0 opacity-70" />
+                          <span className="truncate">Personal</span>
+                          <span className="ml-auto truncate pl-3 text-[11px] text-content/40">
+                            Not tied to a project
+                          </span>
+                        </>
+                      )}
                     </button>
                   ))
                 )}

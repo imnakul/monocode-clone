@@ -4,6 +4,18 @@ Newest first. One short entry per change (format in `docs/WORKING-AGREEMENT.md` 
 Entries dated 2026-10-02 to 2026-10-03 were backfilled from commits made in cloud sessions
 that did not have the docs; file lists name the main files only.
 
+## 2026-10-03 — One composer (Task | Session), Drafts group in Sessions list
+- What: The floating composer has a Task / Session switch; Task mode saves a task (status, focus day, tags, project); sessions get Save to Draft and Start, Enter starts and Ctrl+Enter starts and opens. Session Manager Add Draft and Task Manager Work on… reuse it without the switch; Work on moves the task to Progress on Start. Prompt is 14px, controls h-7, icons 3.5. Session Manager drafts gather in a Drafts group in the project Sessions list.
+- Files: `src/features/quick-composer/ui/QuickComposer.tsx`, `QuickTaskFields.tsx` (new), `model/quickTask.ts` (new); `src/features/session-board/ui/SessionTodoComposer.tsx` (`onStart`); `src/app/App.tsx` (`workOnTask`, composer Start); `src/features/sessions/model/sessionFolders.ts`, `src/app/shell/Sidebar.tsx`, `src/features/sessions/ui/ChatPanel.tsx` (drafts group); `src/shared/ui/icons.tsx` (`Tag`); tests `QuickComposer.modes.test.ts` (new), `sessionFolders.test.ts`
+- Verified: tsc ✅ tests ✅ (5,198) cargo 578 ✅ build ✅ npm run check:rust ✅ (fmt, clippy -D warnings, cargo test) | manual: checklist in `docs/specs/task-focus-composer-plan.md`
+- Commit: see git log for this entry
+
+## 2026-10-03 — Task Manager: Focus, Archive, task menu, board drag
+- What: Focus button with "N/total" and a carry-over chip; Show archived toggle (Deferred becomes archived, Draft becomes Todo, no migration; Completed keeps its name); right-click menu (Work on…, Focus today, Move to, Copy task, Archive, Delete); new tasks are Personal with the cursor in the title; peek header Focus / Copy / Delete; multi-select Status and Project filters; drag board columns and cards; celebrations. Operator uses the same names.
+- Files: `src-tauri/src/tasks.rs` (`focus_date`, `archived_at`, `sort_order`); `src-tauri/src/control_cli.rs`; `src/features/tasks/tasks.ts`, `taskViewState.ts`, `ui/TasksView.tsx`, `ui/TaskBoard.tsx`, `ui/taskContextMenu.ts` (new), `ui/TaskEditor.tsx`; `src/shared/ui/SearchableSelect.tsx`, `SegmentedSwitch.tsx` (new), `CelebrationBurst.tsx` (new); `src/features/agent-app/model/agentApp.ts`
+- Verified: tsc ✅ tests ✅ cargo test tasks:: ✅ | manual: checklist in `docs/specs/task-focus-composer-plan.md`
+- Commit: 346db9b
+
 ## 2026-10-03 — Working agreement: upstream-friendly first, branch wording
 - What: Upstream-friendly section moved to the top; storage-blocker section and the T3 reference-repo line removed; `nakul/windows-support` described as our main add-on branch with upstream-sync branches fast-forwarded into it; AGENTS.md states the LOCAL-FEATURES and changelog rule up front.
 - Files: `docs/WORKING-AGREEMENT.md` (sections reordered and trimmed); `AGENTS.md` (lines 9-11)

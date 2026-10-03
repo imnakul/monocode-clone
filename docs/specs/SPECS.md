@@ -24,6 +24,7 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
+| 2026-10-03 | [Review — Task Manager focus/archive, one composer, Drafts group](task-focus-composer-plan.md) | Implemented on `nakul/windows-support-upstream-0.7.0`; manual desktop checks listed in the spec. |
 | 2026-10-02 21:06 | [Review — Windows 0.6.0 build](windows-060-build-plan.md) | Unsigned installer built and archived; exact version requested by Nakul. Three existing test failures documented; desktop verification remains. |
 | 2026-09-30 07:30:13 | [Blocked — Orchestration desktop computer-use test — spec](orchestration-desktop-computer-use-test.md) | Four-feature source is archived on `park-other-orchestration-mode-changes-30sept`; T1 remains inconclusive and the desktop cases are untested. |
 | 2026-09-25 17:37:20 | [Blocked — Local handoff files and lead control — implementation spec](orchestration-local-artifacts-lead-control.md) | Unfinished implementation is preserved on `park-other-orchestration-mode-changes-30sept`; desktop verification remains. Checkout chooser reverted. |

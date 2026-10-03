@@ -209,7 +209,12 @@ fn validate_task_upsert(task: &TaskUpsert) -> Result<(), String> {
         return Err("Task is too large".into());
     }
     validate_optional_id(task.source_session_id.as_deref(), "session")?;
-    if let Some(day) = task.focus_date.as_deref().map(str::trim).filter(|day| !day.is_empty()) {
+    if let Some(day) = task
+        .focus_date
+        .as_deref()
+        .map(str::trim)
+        .filter(|day| !day.is_empty())
+    {
         if !is_calendar_day(day) {
             return Err("Invalid task focus date".into());
         }
@@ -239,7 +244,9 @@ fn is_calendar_day(value: &str) -> bool {
     }
     let digits = |range: std::ops::Range<usize>| -> Option<u32> {
         let part = &value[range];
-        part.bytes().all(|b| b.is_ascii_digit()).then(|| part.parse().ok())?
+        part.bytes()
+            .all(|b| b.is_ascii_digit())
+            .then(|| part.parse().ok())?
     };
     matches!(
         (digits(0..4), digits(5..7), digits(8..10)),
@@ -832,7 +839,11 @@ mod tests {
         assert_eq!(archived.focus_date.as_deref(), Some("2026-10-03"));
         assert!(archived.archived_at.is_some());
         assert_eq!(archived.sort_order, Some(1.5));
-        assert_eq!(archived.status, TaskStatus::Todo, "archive keeps the status");
+        assert_eq!(
+            archived.status,
+            TaskStatus::Todo,
+            "archive keeps the status"
+        );
 
         // Saving again while archived keeps the original archive time.
         let again = upsert_task(&conn, &task).unwrap();

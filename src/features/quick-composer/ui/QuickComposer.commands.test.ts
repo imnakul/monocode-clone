@@ -231,7 +231,7 @@ it("lists every mode command and launches each in its mode", async () => {
   });
 
   input("/draft remember this");
-  expect(container.textContent).toContain("Save draft");
+  expect(container.textContent).toContain("Save to Draft");
   await key("Enter");
   expect(invoke).toHaveBeenLastCalledWith("quick_composer_submit", {
     request: expect.objectContaining({ prompt: "remember this", draft: true }),

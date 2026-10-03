@@ -1,0 +1,230 @@
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { invoke } from "@tauri-apps/api/core";
+import { QuickComposer } from "./QuickComposer";
+
+vi.mock("../../../platform/tauri/platform", () => ({
+  IS_MAC: false,
+  IS_WIN: true,
+  IS_LINUX: false,
+  MOD: "Ctrl+",
+  ALT: "Alt+",
+  SHIFT: "Shift+",
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("../../workspace/ui/WorkspacePicker", () => ({
+  WorkspacePicker: () => null,
+}));
+vi.mock("../../source-control/ui/BranchPicker", () => ({
+  BranchPicker: () => null,
+}));
+vi.mock("@tauri-apps/api/event", () => ({
+  emit: vi.fn().mockResolvedValue(undefined),
+  listen: vi.fn(async () => () => {}),
+}));
+vi.mock("./useQuickPickerMotion", () => ({ useQuickPickerMotion: () => {} }));
+vi.mock("./QuickWorkspaceControls", () => ({
+  QuickWorkspaceControls: () => null,
+}));
+vi.mock("./QuickProjectIcon", () => ({
+  QuickProjectIcon: () => null,
+  loadQuickProjectAppearance: () => ({}),
+}));
+vi.mock("./QuickModelSelector", () => ({ QuickModelSelector: () => null }));
+vi.mock("./useQuickAttachments", () => ({
+  useQuickAttachments: () => ({ files: [], clear: () => {} }),
+}));
+vi.mock("../model/quickComposer", async (actual) => ({
+  ...(await actual<object>()),
+  loadQuickProjects: () => ["/tmp/project"],
+  initialQuickChoice: () => ({ harness: "codex", model: "test" }),
+  resolveQuickModel: () => ({
+    harness: "codex",
+    id: "test",
+    name: "Test model",
+  }),
+}));
+
+let root: Root;
+let container: HTMLDivElement;
+let prompt: HTMLTextAreaElement;
+
+function input(text: string) {
+  act(() => {
+    Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )!.set!.call(prompt, text);
+    prompt.setSelectionRange(text.length, text.length);
+    prompt.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+async function key(key: string, options: KeyboardEventInit = {}) {
+  await act(async () => {
+    prompt.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+        ...options,
+      }),
+    );
+  });
+}
+
+function button(label: string): HTMLButtonElement {
+  const found = [...container.querySelectorAll("button")].find(
+    (element) =>
+      element.textContent?.trim() === label ||
+      element.getAttribute("aria-label") === label,
+  );
+  if (!found) throw new Error(`No button ${label}`);
+  return found;
+}
+
+async function click(element: HTMLElement) {
+  await act(async () => {
+    element.click();
+  });
+}
+
+async function render(props: Record<string, unknown> = {}) {
+  await act(async () =>
+    root.render(createElement(QuickComposer, { onShown: () => {}, ...props })),
+  );
+  prompt = container.querySelector("textarea")!;
+}
+
+let stored: Map<string, string>;
+beforeEach(async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("requestAnimationFrame", (callback: () => void) => {
+    callback();
+    return 0;
+  });
+  stored = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => stored.set(key, value),
+  });
+  vi.mocked(invoke)
+    .mockReset()
+    .mockImplementation(async (command, args) =>
+      command === "tasks_upsert"
+        ? {
+            ...(args as { task: object }).task,
+            createdAt: 1,
+            updatedAt: 1,
+          }
+        : undefined,
+    );
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  await render();
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+  vi.clearAllMocks();
+  vi.unstubAllGlobals();
+});
+
+it("saves a session as a Session Manager draft without opening it", async () => {
+  input("Prepare the release notes");
+  await click(button("Save to Draft"));
+  expect(invoke).toHaveBeenCalledWith("quick_composer_submit", {
+    request: expect.objectContaining({
+      prompt: "Prepare the release notes",
+      draft: true,
+      reveal: false,
+    }),
+  });
+});
+
+it("switches to Task mode, remembers it, and saves a Personal task with its fields", async () => {
+  await click(button("Task"));
+  expect(stored.get("monocode.quickComposer.kind")).toBe("task");
+  // Task mode has no model or attachment controls.
+  expect(container.querySelector('[title^="Model"]')).toBeNull();
+  expect(container.querySelector('[aria-label="Add attachment"]')).toBeNull();
+  expect(container.textContent).toContain("Personal");
+  input("Fix installer\nIt fails on Windows 11");
+  await click(button("Blocked"));
+  await click(button("Focus"));
+  const tags = container.querySelector<HTMLInputElement>(
+    'input[aria-label^="Tags"]',
+  )!;
+  act(() => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(tags, "#windows, bug");
+    tags.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await key("Enter");
+  expect(invoke).toHaveBeenCalledWith("tasks_upsert", {
+    task: expect.objectContaining({
+      title: "Fix installer",
+      body: "It fails on Windows 11",
+      status: "blocked",
+      tags: ["windows", "bug"],
+      focusDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    }),
+  });
+  const saved = vi
+    .mocked(invoke)
+    .mock.calls.find(([command]) => command === "tasks_upsert")?.[1] as {
+    task: { projectCwd?: string };
+  };
+  expect(saved.task.projectCwd).toBeUndefined();
+  expect(invoke).not.toHaveBeenCalledWith(
+    "quick_composer_submit",
+    expect.anything(),
+  );
+  // Cleared for the next task; status stays.
+  expect(prompt.value).toBe("");
+  expect(button("Blocked").getAttribute("aria-checked")).toBe("true");
+});
+
+it("reopens in the last kind chosen", async () => {
+  stored.set("monocode.quickComposer.kind", "task");
+  await render({ key: "again" });
+  expect(prompt.getAttribute("aria-label")).toBe("Task");
+});
+
+it("embedded hosts with a start handler get Save to Draft and Start, Ctrl+Enter opens", async () => {
+  const save = vi.fn(async () => {});
+  const start = vi.fn(async () => {});
+  await render({
+    key: "embedded",
+    initialLaunch: {
+      prompt: "Work on: Fix installer",
+      cwd: "/tmp/project",
+      harness: "codex",
+      model: "test",
+      reveal: false,
+    },
+    onSubmitLaunch: save,
+    onStartLaunch: start,
+    onDismiss: () => {},
+  });
+  // No Task | Session switch inside Session Manager or Task Manager.
+  expect(container.querySelector('[role="tablist"]')).toBeNull();
+  await key("Enter", { ctrlKey: true });
+  expect(start).toHaveBeenCalledWith(
+    expect.objectContaining({ prompt: "Work on: Fix installer", reveal: true }),
+    true,
+  );
+  expect(save).not.toHaveBeenCalled();
+  input("Again");
+  await click(button("Save to Draft"));
+  expect(save).toHaveBeenCalledWith(
+    expect.objectContaining({ prompt: "Again", draft: true, reveal: false }),
+  );
+});

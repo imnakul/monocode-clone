@@ -4,6 +4,7 @@ import {
   upsertTask,
   updateTask,
   deleteTask,
+  taskWorkPrompt,
   type Task,
 } from "../features/tasks";
 import { TaskTabActionsContext } from "../features/tasks/ui/TaskTabActionsContext";
@@ -1128,7 +1129,8 @@ function Workspace({
   const openingInboxSessions = useRef(new Map<string, Promise<string>>());
   const [recordsViewOpen, setRecordsViewOpen] = useState(false);
   const [recordKind, setRecordKind] = useState<"notes" | "tasks" | "kanban">("notes");
-  const [todoComposer, setTodoComposer] = useState<{ id: string; launch: QuickLaunch; editing?: boolean; revision?: string } | null>(null);
+  /** The shared session composer in a modal: Session Manager drafts, or Task Manager "Work on…" (`task`). */
+  const [todoComposer, setTodoComposer] = useState<{ id: string; launch: QuickLaunch; editing?: boolean; revision?: string; task?: Task } | null>(null);
   const boardOpen = recordsViewOpen && recordKind === "kanban";
   const [boardWorkspaceHost, setBoardWorkspaceHost] = useState<HTMLElement | null>(null);
   const [boardPaneVisible, setBoardPaneVisible] = useState(false);
@@ -8109,6 +8111,19 @@ function Workspace({
         reveal: false,
       },
     });
+  /** Task Manager "Work on…": the session composer, prefilled from the task. */
+  const workOnTask = (task: Task) =>
+    setTodoComposer({
+      id: crypto.randomUUID(),
+      task,
+      launch: {
+        prompt: taskWorkPrompt(task),
+        cwd: task.projectCwd ?? projectCwd,
+        ...initialQuickChoice(),
+        runtimeMode: "supervised",
+        reveal: false,
+      },
+    });
   const editSessionTodo = async (id: string) => {
     const {
       id: _id,
@@ -12164,6 +12179,7 @@ function Workspace({
                   onToggleSidebar={onToggleSidebar}
                   onOpenSource={onOpenTaskSource}
                   onOpenBeside={onOpenTaskBeside}
+                  onWorkOn={workOnTask}
                 />
               ) : null}
               {boardOpen ? (
@@ -12205,8 +12221,30 @@ function Workspace({
                   onOpenSession={onOpenAutomationSession}
                 />
               ) : null}
-              {todoComposer ? <SessionTodoComposer key={todoComposer.id} initialLaunch={todoComposer.launch} editing={todoComposer.editing}
-                onClose={() => setTodoComposer(null)} onSave={async (launch) => { await todoManager.write(todoComposer.id, launch, { edit: todoComposer.editing, expectedRevision: todoComposer.revision }); }} /> : null}
+              {todoComposer ? (
+                <SessionTodoComposer
+                  key={todoComposer.id}
+                  initialLaunch={todoComposer.launch}
+                  editing={todoComposer.editing}
+                  title={todoComposer.task ? `Work on “${todoComposer.task.title}”` : undefined}
+                  onClose={() => setTodoComposer(null)}
+                  onSave={async (launch) => {
+                    await todoManager.write(todoComposer.id, launch, { edit: todoComposer.editing, expectedRevision: todoComposer.revision });
+                  }}
+                  onStart={async (launch, reveal) => {
+                    const { id, editing, revision, task } = todoComposer;
+                    // Saved as a draft first, so a failed start keeps it in Session Manager.
+                    await todoManager.write(id, { ...launch, draft: true, reveal: false }, { edit: editing, expectedRevision: revision });
+                    await todoManager.start(id);
+                    // Working on a task moves it to Progress (never backwards from Review/Completed).
+                    if (task && (task.status === "todo" || task.status === "blocked"))
+                      void updateTask(task.id, { status: "in_progress" }).catch((error: unknown) =>
+                        console.warn("Could not move the task to Progress:", error),
+                      );
+                    if (reveal && (await ensureOpenSession(id))) await onSelectHistorySession(id);
+                  }}
+                />
+              ) : null}
               {settingsOpen ? (
                 <SettingsView
                   section={settingsSection}
