@@ -4,6 +4,12 @@ Newest first. One short entry per change (format in `docs/WORKING-AGREEMENT.md` 
 Entries dated 2026-10-02 to 2026-10-03 were backfilled from commits made in cloud sessions
 that did not have the docs; file lists name the main files only.
 
+## 2026-10-03 — Seven upstream main commits after 0.7.0
+- What: Integrated upstream through `00d68d3` on the new dated branch from `6705686`, after user approval of all eight conflict combinations. Added title/sidebar/pane/panel animations, separate composer permissions, detailed live usage captions and PR/issue activity/overview. Preserved Task/Session and Drafts, hover, active-model metadata, pane actions, Windows support and MCP controls. Compact quota setting/default/used-left wording stays independent. Four newer commits on the original base branch are excluded pending the separate inclusion choice.
+- Files: App/Sidebar/UsageProviderChip; Inbox models/views and new overview/timeline tests; QuickComposer/model/permissions/motion; session history; PaneTree and entry tests; ParticleText/styles; preservation register, spec/index and conflict record.
+- Verified: full `npm run check` ✅ (5,286 web tests / 483 files, tsc, fmt/Clippy, 596 Rust passed / 2 ignored) production build ✅ diff check ✅ | manual: desktop checklist in `docs/specs/upstream-main-after-070-plan.md`; no installer built.
+- Commit: uncommitted tested merge; commit/push next.
+
 ## 2026-10-03 — MCP switches and server approval for the current chat
 - What: Settings → MCP now reuses the existing switch for configured Claude Code, Codex and OpenCode servers. Native flags preserve config, comments, credentials and CRLF; confirmed discovery controls the displayed state. A separate Allow server for session action covers verified tools from one server in a local chat, alongside existing once/tool-session/deny actions. Other chats/servers and typed forms keep their approval flow; Plan, cancellation, account/folder and native-session boundaries stay guarded. Scope/reload hints and unavailable-provider explanations are shown.
 - Files: `src-tauri/src/mcp/controls.rs` (`mcp_set_enabled`, safe config edits); `src-tauri/src/mcp.rs` (`discover`); `src/features/settings/ui/McpSettings.tsx` (switch, errors/cache refresh); `src/shared/ui/Toggle.tsx` (existing switch extracted); `src/integrations/harness/providers/{claude,codex,opencode}/` (verified server grants); approval types/reducer, session storage, transcript and toasts; specs index, L-20/L-59, Windows CRLF learning and behavioral tests.

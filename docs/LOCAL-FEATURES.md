@@ -10,6 +10,14 @@ commits after `c2c8bf6`. No earlier row was found adopted upstream.
 
 ## Index (read this, then search for the ID, e.g. `grep -n "| L-43 |"`)
 
+2026-10-03 source preservation audit for the seven main commits through
+`00d68d3`: L-01–L-59 remain active on the new dated integration branch from
+`6705686`. The compact quota preference/wording is kept independently of live
+usage meters; the unified Task/Session composer keeps its actions and adds
+Session-only permissions; Drafts/hover and local pane actions remain wired.
+Full validation and manual follow-up are recorded in
+[`upstream-main-after-070-plan.md`](specs/upstream-main-after-070-plan.md).
+
 | ID | Feature | Area | Windows only |
 |---|---|---|---|
 | L-01 | Stop stays visible while busy; send becomes Queue/Steer | composer | No |

@@ -5,6 +5,7 @@ These files preserve old plans, research, merge decisions, and cleanup audits. P
 - [hari-orchestrator-plan.md](hari-orchestrator-plan.md)
 - [tab-arrows-cleanup-plan.md](tab-arrows-cleanup-plan.md)
 - [ultracontext-integration-plan.md](ultracontext-integration-plan.md)
+- [upstream-merge-2026-10-03-after-070.md](upstream-merge-2026-10-03-after-070.md) — seven-commit intake verified; native desktop checks and four-newer-local-commits choice remain.
 - [upstream-merge-2026-09-05.md](upstream-merge-2026-09-05.md)
 - [upstream-merge-2026-09-12.md](upstream-merge-2026-09-12.md)
 - [upstream-merge-2026-09-23.md](upstream-merge-2026-09-23.md)

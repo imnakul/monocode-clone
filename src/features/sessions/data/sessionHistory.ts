@@ -200,23 +200,29 @@ export function historyWithLiveSessions(
       const draft = !!sessionDraftBlock(session);
       const automationId = session.automationId || stored.automationId;
       const activeTurnModel = activeTurnModelFor(session);
+      // Live title and work item land before the next persist, e.g. mid-turn.
+      const linkedWorkItem = session.linkedWorkItem ?? stored.linkedWorkItem;
       if (
         !!stored.draft !== draft ||
         stored.automationId !== automationId ||
         stored.model !== session.model ||
         stored.harness !== session.harness ||
         JSON.stringify(stored.activeTurnModel) !==
-          JSON.stringify(activeTurnModel)
+          JSON.stringify(activeTurnModel) ||
+        stored.title !== session.title ||
+        stored.linkedWorkItem?.url !== linkedWorkItem?.url
       ) {
         rows[storedIndex] = {
           ...stored,
           model: session.model,
           harness: session.harness,
+          title: session.title,
           draft: draft || undefined,
           ...(activeTurnModel
             ? { activeTurnModel }
             : { activeTurnModel: undefined }),
           ...(automationId ? { automationId } : {}),
+          ...(linkedWorkItem ? { linkedWorkItem } : {}),
         };
       }
       continue;
