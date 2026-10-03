@@ -57,7 +57,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: Checked the second agent's nine-stage analysis against Git and source, and rated it on the eleven aspects from the trial spec: 45 of 55. Its facts are exact (all 527 files classified correctly, every count right). Its judgement work is usable but generic: the decision brief and the round-1 spec need Claude's edit before Nakul answers or a worker starts. The trial spec now holds the scores, the mistakes with the spec gap behind each, and the list of what can be delegated to that agent.
 - Why: Nakul asked how the agent did per aspect, to decide which of Claude's analysis work it can take over.
-- Files: [trial spec — Handoff retro](../specs/upstream-intake-analyst-trial.md), [specs index](../specs/SPECS.md)
+- Files: [trial spec — Handoff retro](../specs/archive/upstream-intake-analyst-trial.md), [specs index](../specs/SPECS.md)
 - Commit: uncommitted (docs are local only)
 - Verified: no source change, no code checks needed. Git recomputation done read-only; hunk counts recounted inside the retained scratch clone. Main checkout unchanged (HEAD `c2c8bf6`, cached upstream `43aac9d`, clean status).
 - Note: C: has about 7 GB free (not the 21 GB written in the trial spec). Upstream moved one commit past the pin (`1e97594`). The scratch clone is still on E: and is removed only with Nakul's OK.
@@ -66,7 +66,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: Saved the nine ordered analyst stages: preservation list, complete upstream ledger, exact file/conflict manifest, hidden risks, owner decision brief, release-round strategy, a Draft round-1 worker spec and self-review. Coverage gaps and open decisions are explicitly labelled; the Draft is not executable until reviewer/tooling prerequisites are closed.
 - Why: Give Nakul a reviewable intake picture without changing the app, and let Claude rate each analyst stage.
-- Files: [final report](../notes/upstream-intake-2026-10-01/08-final-report.md), [run log](../notes/upstream-intake-2026-10-01/run-log.md), [round-1 Draft](../specs/upstream-intake-round-1.md), [specs index](../specs/SPECS.md)
+- Files: [final report](../notes/upstream-intake-2026-10-01/08-final-report.md), [run log](../notes/upstream-intake-2026-10-01/run-log.md), [round-1 Draft](../specs/archive/upstream-intake-round-1.md), [specs index](../specs/SPECS.md)
 - Commit: uncommitted (docs are local only)
 - Verified: read-only Git/source checks and scratch-only merge-tree simulations;128-commit ledger,527-path manifest and80 conflicts reconcile. Final tracked checkout/HEAD/cache/branch/stash/worktree names unchanged. No code checks were run because no code changed. Public tagger identity output breach and incomplete source audits are disclosed in the report. Scratch retained; nothing deleted.
 
@@ -74,7 +74,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: Wrote a Draft spec that hands the whole upstream-intake analysis to a second agent in nine separate stages: orientation, the list of local features that must survive, the upstream feature list per release, a classification of every changed file (new, upstream-only edit, both changed but clean, real conflict), conflict and hidden-risk analysis, a plain-language decision brief for Nakul, the strategy and round plan, a draft worker spec for round 1, and a self-review. Each stage writes its own file and has its own "judged on" list, so the agent can be rated per kind of work. The agent changes no code and runs no merge; simulations happen in a scratch clone outside the checkout.
 - Why: Nakul wants to see which parts of Claude's analysis, planning and spec-writing work another agent can take over. Upstream is 128 commits ahead (v0.1.56 to v0.6.0 plus 9 later commits).
-- Files: [trial spec](../specs/upstream-intake-analyst-trial.md), [specs index](../specs/SPECS.md)
+- Files: [trial spec](../specs/archive/upstream-intake-analyst-trial.md), [specs index](../specs/SPECS.md)
 - Commit: uncommitted (docs are local only)
 - Verified: no source change. The scratch-clone recipe in the spec was run once in a temp folder and reproduced both pinned commits; the temp clone was removed and `git status` stayed clean. Claude's expected findings for the rating are kept outside the repo.
 
@@ -92,7 +92,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: chore
 - What: Built an unsigned Windows installer that contains the follow-up fixes and the narrow approval buttons, so they can be checked in the installed app. Before the build, one test line was added: branches copied for other reasons keep the original provider's icon. The manual checklist now starts with the four checks this build changes.
 - Why: The fixes weren't in any installed build. "Allow for session" on Codex failed on local4 and has to be checked again before the upstream sync.
-- Files: [branchPlan.test.ts (line 45)](../../src/features/sessions/model/branchPlan.test.ts:45), [manual checklist](../notes/local4-manual-checks.md), [follow-up spec — Handoff retro](../specs/provider-batch-followup-fixes.md). The version was bumped by hand in package.json, package-lock.json, Cargo.toml, Cargo.lock and src-tauri/tauri.conf.json.
+- Files: [branchPlan.test.ts (line 45)](../../src/features/sessions/model/branchPlan.test.ts:45), [manual checklist](../notes/local4-manual-checks.md), [follow-up spec — Handoff retro](../specs/archive/provider-batch-followup-fixes.md). The version was bumped by hand in package.json, package-lock.json, Cargo.toml, Cargo.lock and src-tauri/tauri.conf.json.
 - Installer: E:\Developing\Installable versions\MonoCode_0.1.55-local5-provider-fixes_x64-setup.exe, 10,591,804 bytes, SHA-256 363B255A40640B03426E7518DF0B8018081F5C2EA3552FAB399801338F0ADB77.
 - Commit: `d691035` (test line), `c2c8bf6` (version)
 - Verified: typecheck ✅ branch planner tests ✅ (26; the new line fails when the icon is wrong) build:windows --no-sign ✅ (usual CSS highlight and chunk-size warnings). Full suite not rerun since the worker's run (342 files, 3,944 tests); only one test line changed after it. check:rust not run; no Rust changes since local3. Manual checks pending.
@@ -101,7 +101,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: Claude reviewed the four follow-up commits against the spec. Every acceptance criterion and invariant holds and nothing needs rework. Removing each fix by hand made its test fail in 8 of 9 tries, so the tests are real. The spec stays in Review until Nakul's manual checks on an installed build. Its row in the specs index was moved to the right section, and the handoff retro is filled in.
 - Why: A worker's report is checked before a spec is trusted.
-- Files: [follow-up spec — Handoff retro](../specs/provider-batch-followup-fixes.md), [specs index](../specs/SPECS.md)
+- Files: [follow-up spec — Handoff retro](../specs/archive/provider-batch-followup-fixes.md), [specs index](../specs/SPECS.md)
 - Commit: none (docs are local only; no source change)
 - Verified: typecheck ✅ focused tests ✅ (5 files, 217 tests) full suite — (the worker ran it: 342 files, 3,944 tests) build —
 - Follow-up: two small test gaps noted in the retro (other branch reasons keep the source icon; the bound event is sent exactly once). A new build is needed before the manual checks.
@@ -110,7 +110,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: fix
 - What: Added Codex's session approval option when its request omits a tool name, prevented session grants from crossing Plan mode or stopped sessions, and kept Claude branches attached to Claude's reported fork id. The branched-from icon now matches the source provider. Stabilized the Composer attachment ownership test.
 - Why: Resolve the reviewed provider-batch findings and make the intermittent Composer test deterministic.
-- Files: [Codex approval handling](../../src/integrations/harness/providers/codex/codex.ts), [Claude fork handling](../../src/integrations/harness/providers/claude/claude.ts), [branch metadata](../../src/features/sessions/model/branchPlan.ts), [follow-up spec](../specs/provider-batch-followup-fixes.md)
+- Files: [Codex approval handling](../../src/integrations/harness/providers/codex/codex.ts), [Claude fork handling](../../src/integrations/harness/providers/claude/claude.ts), [branch metadata](../../src/features/sessions/model/branchPlan.ts), [follow-up spec](../specs/archive/provider-batch-followup-fixes.md)
 - Commit: `b905b8c`, `0a27328`, `4423fd8`, `35b1f2b`
 - Verified: TypeScript and focused tests passed before each commit; `npm test` ✅ (342 files, 3,944 tests). Lint, build, installed-app, and desktop checks not run per spec.
 - Follow-up: Nakul to perform the Manual checks in the spec; Claude's `--session-id` behavior with `--fork-session` remains unverified until then.
@@ -119,7 +119,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: The six small fixes for the provider batch are now one spec with status Todo, ready for a worker. It replaces the fix list in notes and the fix prompt. The prompts file is frozen: a handoff is now a spec plus a short handover prompt given in chat. The session approvals spec is back in Review and points to the new spec.
 - Why: Nakul asked for a spec and a handover prompt instead of a maintained prompts file.
-- Files: [provider-batch-followup-fixes.md](../specs/provider-batch-followup-fixes.md), [SPECS.md](../specs/SPECS.md), [session approvals spec](../specs/session-approval-scopes.md), [fix notes](../notes/provider-batch-fixes.md), [prompts (frozen)](../notes/provider-batch-prompt.md)
+- Files: [provider-batch-followup-fixes.md](../specs/archive/provider-batch-followup-fixes.md), [SPECS.md](../specs/SPECS.md), [session approvals spec](../specs/archive/session-approval-scopes.md), [fix notes](../notes/provider-batch-fixes.md), [prompts (frozen)](../notes/provider-batch-prompt.md)
 - Commit: uncommitted (docs only)
 - Verified: every file and line reference in the spec was read at `b937b11`. No source change.
 
@@ -127,7 +127,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: fix
 - What: In a chat, the Allow and Deny buttons under a tool request are as wide as their text again. They no longer stretch across the card. The pop-up approval card is unchanged, because its buttons were full-width before too. The version number of the local4 build is now committed. The session approvals spec is back in Todo with a short rework list for the fix agent.
 - Why: Nakul asked to undo the wider buttons before the fix agent starts.
-- Files: [AgentTranscript.tsx (lines 3484–3510)](../../src/features/sessions/ui/AgentTranscript.tsx:3484), [session approvals spec](../specs/session-approval-scopes.md), [SPECS.md](../specs/SPECS.md), [fix prompt](../notes/provider-batch-prompt.md)
+- Files: [AgentTranscript.tsx (lines 3484–3510)](../../src/features/sessions/ui/AgentTranscript.tsx:3484), [session approvals spec](../specs/archive/session-approval-scopes.md), [SPECS.md](../specs/SPECS.md), [fix prompt](../notes/provider-batch-prompt.md)
 - Commit: `3f5834b` (buttons), `b937b11` (version)
 - Verified: typecheck ✅ lint — (no ESLint config) tests ✅ (sessions folder, 1152 passed) build — (not rebuilt)
 - Note: the 13:22 entry below first carried the time 07:52. Git Bash on this PC prints UTC for `TZ=Asia/Kolkata date`. Use `Get-Date` in PowerShell instead.
@@ -145,7 +145,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: fix (diagnosis only, no source change yet)
 - What: In the local4 build, a SocratiCode approval in a Codex chat showed only Allow and Deny. Claude recorded Codex's real approval request from one small Codex turn and declined the tool. Codex doesn't include the tool name where MonoCode looks for it, so MonoCode never offers the session option. The tool name is available from the running tool call, which Codex reports just before the approval request.
 - Why: Manual check SA-1 failed.
-- Files: [session approvals spec — Facts](../specs/session-approval-scopes.md), [fix list, section 5](../notes/provider-batch-fixes.md), [fix prompt](../notes/provider-batch-prompt.md) (fix 5 added). The probe script is outside the repo, at `%TEMP%\codex-elicitation-probe.mjs`.
+- Files: [session approvals spec — Facts](../specs/archive/session-approval-scopes.md), [fix list, section 5](../notes/provider-batch-fixes.md), [fix prompt](../notes/provider-batch-prompt.md) (fix 5 added). The probe script is outside the repo, at `%TEMP%\codex-elicitation-probe.mjs`.
 - Commit: uncommitted (docs only)
 - Verified: root cause confirmed against the real payload. The fix hasn't been written yet.
 
@@ -164,7 +164,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: feature
 - What: Branching a Claude, Codex or OpenCode chat now continues the provider's own copy of the conversation, rather than pasting a summary into the message box. Sol 6.1 Low built it in a trial worktree. Claude reviewed it (8.5/10) and it was fast-forwarded onto the main branch. The trial worktree and branch were removed. Luna was not run on this feature.
 - Why: The side-by-side trial was dropped, because Sol's version already met every rule in the spec. Running Luna would have cost time and quota for little gain.
-- Files: [native-branch spec](../specs/native-branch.md), [SPECS index](../specs/SPECS.md), [fix list](../notes/provider-batch-fixes.md) (fixes 3–4 added), [prompts](../notes/provider-batch-prompt.md) (fix prompt added); source files listed in the commit.
+- Files: [native-branch spec](../specs/archive/native-branch.md), [SPECS index](../specs/SPECS.md), [fix list](../notes/provider-batch-fixes.md) (fixes 3–4 added), [prompts](../notes/provider-batch-prompt.md) (fix prompt added); source files listed in the commit.
 - Commit: f1a4712
 - Verified: Sol reported typecheck ✅ and full suite 3,927/3,927 ✅. Claude reran the branch and core tests (338/338 ✅). Build —. Manual checks remain.
 
@@ -183,7 +183,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: feature
 - What: Applied Luna's two saved patches after Claude reviewed them. Claude live controls scored 8/10 and Codex MCP forms 8.5/10. Each was committed as its own feature. Context Accuracy and Native Branch are unblocked and set to Todo.
 - Why: The only blocker was the flaky Composer attachment test, which passes alone and on a rerun. It isn't related to either feature.
-- Files: [claude-live-controls spec](../specs/claude-live-controls.md), [codex-mcp-forms spec](../specs/codex-mcp-forms.md), [context-accuracy spec](../specs/context-accuracy.md), [native-branch spec](../specs/native-branch.md), [SPECS index](../specs/SPECS.md), [fix list](../notes/provider-batch-fixes.md).
+- Files: [claude-live-controls spec](../specs/archive/claude-live-controls.md), [codex-mcp-forms spec](../specs/archive/codex-mcp-forms.md), [context-accuracy spec](../specs/archive/context-accuracy.md), [native-branch spec](../specs/archive/native-branch.md), [SPECS index](../specs/SPECS.md), [fix list](../notes/provider-batch-fixes.md).
 - Commit: 9dfeaa0 (Claude live controls), 3a47202 (Codex MCP forms)
 - Verified: typecheck ✅; Claude provider tests 98/98 ✅; Codex, core and sessions tests 1,594/1,594 on rerun ✅ (the first run had one flaky failure); full suite not rerun; build —
 
@@ -192,7 +192,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: feature
 - What: Committed the AI helper model settings as `84fbe89`. Claude live controls and Codex MCP forms remain preserved as partial patches after the full test suite failed on the same unchanged Composer attachment-ownership test; Context Accuracy and Native Branch were skipped because they depend on the blocked Claude slice.
 - Why: Complete the provider batch under the required sequential full-suite gate.
-- Files: [AI helper model settings spec](../specs/ai-helper-model-settings.md), [Claude live controls partial patch](../notes/claude-live-controls-partial.patch), [Codex MCP forms partial patch](../notes/codex-mcp-forms-partial.patch), [SPECS index](../specs/SPECS.md).
+- Files: [AI helper model settings spec](../specs/archive/ai-helper-model-settings.md), [Claude live controls partial patch](../notes/claude-live-controls-partial.patch), [Codex MCP forms partial patch](../notes/codex-mcp-forms-partial.patch), [SPECS index](../specs/SPECS.md).
 - Commit: 84fbe89 (AI helper settings); blocked slices uncommitted.
 - Verified: focused checks for AI helpers ✅ (43 files, 793 tests); focused checks for Codex forms ✅ (12 files, 347 tests); TypeScript ✅; Rust ✅ (416 passed, 4 ignored); full `npm test` ❌ (3,806/3,807 passed; one unchanged Composer test fails only in the full suite).
 - Follow-up: Re-run the full suite after resolving the existing Composer test-order failure; Nakul to perform each spec's Manual checks.
@@ -231,7 +231,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: feature
 - What: Users can allow supported Claude and Codex requests for the current chat, and that choice stays limited to that chat without changing provider settings.
 - Why: Reduce repeated approvals while keeping grants session-scoped and unavailable for unrecognized Codex MCP requests.
-- Files: [session-approval-scopes.md](../specs/session-approval-scopes.md:1), [types.ts](../../src/integrations/harness/core/types.ts:72), [claude.ts](../../src/integrations/harness/providers/claude/claude.ts:979), [codex.ts](../../src/integrations/harness/providers/codex/codex.ts:1059), [AgentTranscript.tsx](../../src/features/sessions/ui/AgentTranscript.tsx:3471), [ApprovalToasts.tsx](../../src/features/sessions/ui/ApprovalToasts.tsx:123)
+- Files: [session-approval-scopes.md](../specs/archive/session-approval-scopes.md:1), [types.ts](../../src/integrations/harness/core/types.ts:72), [claude.ts](../../src/integrations/harness/providers/claude/claude.ts:979), [codex.ts](../../src/integrations/harness/providers/codex/codex.ts:1059), [AgentTranscript.tsx](../../src/features/sessions/ui/AgentTranscript.tsx:3471), [ApprovalToasts.tsx](../../src/features/sessions/ui/ApprovalToasts.tsx:123)
 - Commit: uncommitted
 - Verified: typecheck ✅; focused tests 348/348 ✅; `npm test` 3692/3692 ✅; `git diff --check` ✅; lint unavailable (no ESLint config); build —.
 - Follow-up: SocratiCode repetition: unverified until manual check 1. Nakul's manual checks remain.
@@ -241,7 +241,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: chore
 - What: With Nakul's approval, the staged windows-support fixes were committed as the checkpoint for the provider batch. The session-approvals spec moved from Blocked to Todo, with its starting commit filled in. The same checkpoint was filled into the other five provider specs, which stay Draft.
 - Why: The first slice 1 worker correctly stopped because the handoff still had placeholder SHAs and the checkpoint wasn't committed yet.
-- Files: [session-approval-scopes.md (lines 1–14, 244–260)](../specs/session-approval-scopes.md:1), [SPECS.md (Todo section)](../specs/SPECS.md:37), [provider-daily-work-improvements-plan.md (line 62)](../specs/provider-daily-work-improvements-plan.md:62), the `<CHECKPOINT_SHA>` fill in the other five provider specs.
+- Files: [session-approval-scopes.md (lines 1–14, 244–260)](../specs/archive/session-approval-scopes.md:1), [SPECS.md (Todo section)](../specs/SPECS.md:37), [provider-daily-work-improvements-plan.md (line 62)](../specs/archive/provider-daily-work-improvements-plan.md:62), the `<CHECKPOINT_SHA>` fill in the other five provider specs.
 - Commit: a65bd4e (checkpoint; docs remain local and uncommitted)
 - Verified: typecheck ✅ tests ✅ (3 changed files, 78 tests; full suite not run) lint — (no config) build — . Slice 1 baseline checks pass.
 - Follow-up: drive C: has about 2.6 GB free and holds TEMP and the npm cache, so the worker's storage check may stop the task.
@@ -251,7 +251,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: Marked the session-approval spec Blocked because the handoff omitted the baseline and checkpoint SHAs, and the retained umbrella checkpoint remains staged rather than committed.
 - Why: The spec requires verified commit ancestry and says not to choose a baseline; the current `nakul/windows-support` HEAD is still `9397898c923491a9ee1e9cd77c4bcc917634c888`.
-- Files: [session-approval-scopes.md](../specs/session-approval-scopes.md), [SPECS.md](../specs/SPECS.md).
+- Files: [session-approval-scopes.md](../specs/archive/session-approval-scopes.md), [SPECS.md](../specs/SPECS.md).
 - Commit: uncommitted
 - Verified: Git HEAD/status inspected. Baseline ancestry commands could not run without the required SHAs. No worktree, install, source edit or verification suite was run.
 - Follow-up: Provide both SHAs after the checkpoint is committed; rerun the baseline checks, then perform the storage check before creating the authorized worktree.
@@ -261,7 +261,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: Corrected the six Draft provider specs using the handoff review. AI helpers keep Antigravity in the provider list but gated behind a stated missing capability, run every helper with tools off plus a stop-on-tool-attempt watchdog, and no longer create a PR with a stand-in description when a chosen helper fails. The context popover labels Claude's numbers "Reported by Claude Code" and never spreads unexplained tokens over MCP servers. Slice 2 is now the only owner of the Claude control transport, and slice 4 depends on it. Approval metadata fails closed and the SocratiCode repeat is not claimed fixed. Native Branch gets a not-confirmed state that never resends automatically. MCP forms get persistence and fingerprint tests and narrower secret detection. Every spec now has a baseline, dependencies and worktree section and a ready handoff prompt.
 - Why: Nakul's ten-point revision request after the 13:08 handoff review.
-- Files: [session-approval-scopes.md](../specs/session-approval-scopes.md), [claude-live-controls.md](../specs/claude-live-controls.md), [context-accuracy.md](../specs/context-accuracy.md), [native-branch.md](../specs/native-branch.md), [ai-helper-model-settings.md](../specs/ai-helper-model-settings.md), [codex-mcp-forms.md](../specs/codex-mcp-forms.md), [SPECS.md (Draft rows)](../specs/SPECS.md)
+- Files: [session-approval-scopes.md](../specs/archive/session-approval-scopes.md), [claude-live-controls.md](../specs/archive/claude-live-controls.md), [context-accuracy.md](../specs/archive/context-accuracy.md), [native-branch.md](../specs/archive/native-branch.md), [ai-helper-model-settings.md](../specs/archive/ai-helper-model-settings.md), [codex-mcp-forms.md](../specs/archive/codex-mcp-forms.md), [SPECS.md (Draft rows)](../specs/SPECS.md)
 - Commit: uncommitted
 - Verified: typecheck — lint — tests — build — (docs only; targeted source reads for `sendHarnessTurn`, `persistFingerprint` callers, Codex item types and Antigravity mode handling).
 
@@ -279,7 +279,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: Recorded scope/contract gaps and a safe implementation order; kept child drafts unapproved. Checked the SocratiCode reporting contradiction without assuming tool history.
 - Why: Nakul asked whether the new handoffs are ready and can run in parallel.
-- Files: [Handoff review](../notes/provider-spec-handoff-review-30sept.md), [umbrella plan](../specs/provider-daily-work-improvements-plan.md).
+- Files: [Handoff review](../notes/provider-spec-handoff-review-30sept.md), [umbrella plan](../specs/archive/provider-daily-work-improvements-plan.md).
 - Commit: uncommitted
 - Verified: Current specs, targeted source, Git baseline and SocratiCode status/search. No source or staged changes; tests/build not run.
 
@@ -288,7 +288,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: Wrote Draft specs for the six selected provider improvements: session approvals, Claude live controls, context accuracy, AI helper model settings and Codex MCP forms. Rewrote the Native Branch spec so Claude, Codex and OpenCode branch natively while other providers keep today's flow. Every spec contains the storage-full hard blocker, a test matrix, separate manual desktop checks, a per-slice feature worktree rule and its unresolved facts.
 - Why: Nakul asked for implementation-ready handoffs for the umbrella plan's selected slices before any source changes.
-- Files: [session-approval-scopes.md](../specs/session-approval-scopes.md), [claude-live-controls.md](../specs/claude-live-controls.md), [native-branch.md](../specs/native-branch.md), [context-accuracy.md](../specs/context-accuracy.md), [ai-helper-model-settings.md](../specs/ai-helper-model-settings.md), [codex-mcp-forms.md](../specs/codex-mcp-forms.md), [SPECS.md (lines 18–26)](../specs/SPECS.md:18).
+- Files: [session-approval-scopes.md](../specs/archive/session-approval-scopes.md), [claude-live-controls.md](../specs/archive/claude-live-controls.md), [native-branch.md](../specs/archive/native-branch.md), [context-accuracy.md](../specs/archive/context-accuracy.md), [ai-helper-model-settings.md](../specs/archive/ai-helper-model-settings.md), [codex-mcp-forms.md](../specs/archive/codex-mcp-forms.md), [SPECS.md (lines 18–26)](../specs/SPECS.md:18).
 - Commit: uncommitted
 - Verified: Docs only. Facts were checked against source at 9397898 and against the installed CLIs (Claude 2.1.283, codex-cli 0.159.0, OpenCode 1.18.30). Typecheck, lint, tests and build were not run. No branches, worktrees, commits or pushes.
 
@@ -315,7 +315,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: Explicitly deferred Prepare for a break, cold-resume warnings and other unselected features; retained the context-inspector accuracy findings in the six-item provider plan.
 - Why: Nakul confirmed that existing specs should inform the selected work without adding their separate features.
-- Files: [Provider improvements plan](../specs/provider-daily-work-improvements-plan.md).
+- Files: [Provider improvements plan](../specs/archive/provider-daily-work-improvements-plan.md).
 - Commit: uncommitted
 - Verified: Scope clarification inspected. No application code changes; tests/build not run.
 
@@ -324,7 +324,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: Verified current remote parking tips, remaining worktrees/branches/stashes and retained diffs; added existing-spec reuse and post-parking baseline requirements to the provider plan.
 - Why: Review the agent's completion report and prevent duplicate or stale implementation handoffs before new work.
-- Files: [Provider improvement plan](../specs/provider-daily-work-improvements-plan.md).
+- Files: [Provider improvement plan](../specs/archive/provider-daily-work-improvements-plan.md).
 - Commit: uncommitted
 - Verified: Git inventory, ls-remote, source diffs, parking evidence and existing Native Branch/cold-resume/context/break specs. Prior checks are reported as agent results, not rerun. No source change, commit or cleanup. Full-web-test and lint limitations remain.
 
@@ -342,7 +342,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: chore
 - What: Separated the unfinished Hari and four-feature orchestration layers into two independently verified fork archives, removed only the four-feature source from windows-support, and retained its unrelated context/provider fixes.
 - Why: Preserve unfinished work independently while keeping the active Windows-support fixes available for the next provider improvements, version/build decision, and selected upstream intake.
-- Files: [parking record](../notes/orchestration-parking-30sept.md), [parking spec](../specs/park-orchestration-hari-upstream-handoff.md).
+- Files: [parking record](../notes/orchestration-parking-30sept.md), [parking spec](../specs/archive/park-orchestration-hari-upstream-handoff.md).
 - Commit: uncommitted
 - Verified: 78/78 focused retained tests, TypeScript, Rust fmt/check/Clippy, 415 Rust tests (4 ignored), external-output production web build, and git diff --check passed. Full web tests: 3,658/3,659 passed; one unchanged Composer borrowed-attachment test failed. The first cargo test attempt hit disk-full error 112; after clean worktree removal freed space, the retry passed. ESLint has no repository config.
 - Limitation: No native desktop smoke test, installer, version change, or upstream intake. The four disposable worktrees and two exact local archive branches were deleted after final remote-tip verification; both remote branches remain.
@@ -352,7 +352,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: Recorded the selected daily-work improvements, native Branch from here for three providers, combined context accuracy work, shared AI helper model/fallback selection and Codex MCP approval/form requirements.
 - Why: Nakul selected items 1–6 and clarified the desired branching, context and helper behavior.
-- Files: [Provider improvements plan](../specs/provider-daily-work-improvements-plan.md), [spec index](../specs/SPECS.md).
+- Files: [Provider improvements plan](../specs/archive/provider-daily-work-improvements-plan.md), [spec index](../specs/SPECS.md).
 - Commit: uncommitted
 - Verified: Existing branch/helper/approval source, SocratiCode search and official Codex/OpenCode documentation. Typecheck/lint/tests/build not run: documentation only. No source/Git mutations.
 
@@ -370,7 +370,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: Created the Git-excluded local profile with Desktop app, upstream open-source contribution/fork, tests, changelog/decisions, local docs and SocratiCode enabled. General auto-commit remains off; both parking branches retain their explicit commit/push/verified-local-delete authorization.
 - Why: The implementing agent correctly stopped at the missing-profile repo-setup prerequisite; Nakul approved the proposed settings.
-- Files: Local .agents/PROFILE.local.md, local .git/info/exclude, [parking handoff](../specs/park-orchestration-hari-upstream-handoff.md).
+- Files: Local .agents/PROFILE.local.md, local .git/info/exclude, [parking handoff](../specs/archive/park-orchestration-hari-upstream-handoff.md).
 - Commit: uncommitted
 - Verified: Locked stack versions and actual scripts inspected; profile exclusion and existing source Git status checked. No source, branch, stash, commit, push or build change. Existing docs layout retained rather than regenerating templates.
 - Limitation: No lint script/config exists. Profile and docs must be read from the main checkout or copied/excluded locally in newly created worktrees.
@@ -380,7 +380,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: Revised the handoff to preserve Hari on hari-orchestration-changes-30sept and the four current features on park-other-orchestration-mode-changes-30sept. Each starts from the same base, is pushed/verified independently, and has its own remote-retention note.
 - Why: Nakul proposed separate branches to avoid merging overlapping work during parking and complete preservation more quickly.
-- Files: [parking spec](../specs/park-orchestration-hari-upstream-handoff.md), [SPECS.md](../specs/SPECS.md).
+- Files: [parking spec](../specs/archive/park-orchestration-hari-upstream-handoff.md), [SPECS.md](../specs/SPECS.md).
 - Commit: uncommitted
 - Verified: Reviewed branch ownership, two-ref push/recovery checks, partial-push failure handling and local-only cleanup ordering. No source, stash or branch changes; no commit/push/build.
 - Decision: Use two archives from the start. Both remote copies must verify before source removal or local branch deletion; combining conflicts are deferred to future resumption.
@@ -390,7 +390,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - Type: docs
 - What: Wrote a complex Draft handoff to combine the pinned Hari stash and four uncertain features on orchestration-changes-parking-30sept, push only that branch to Nakul's fork, verify remote recovery before source separation, and delete only the verified local branch.
 - Why: Nakul wants to retain this unfinished work safely while using manual orchestration and preparing for minor changes, version/build and selected upstream features.
-- Files: [parking spec](../specs/park-orchestration-hari-upstream-handoff.md), [SPECS.md](../specs/SPECS.md).
+- Files: [parking spec](../specs/archive/park-orchestration-hari-upstream-handoff.md), [SPECS.md](../specs/SPECS.md).
 - Commit: uncommitted
 - Verified: Current HEAD/status, pinned stash parents and 9 tracked plus 7 new Hari files, fork remote, shared App caller and release-script constraints inspected; spec indexed. No branch/worktree created, source changed, stash applied, commit, push, version bump or build performed.
 - Decision: Preserve original stashes and local docs; use external byte backups plus verified remote archive; stop for overlap conflicts. Later minor/version/upstream specifics remain a separate user handoff.
@@ -519,7 +519,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 
 - What / why: Replace the Halftone-only wallpaper switch with the same None, Dither, ASCII, Halftone, and Scanlines choices available for chat backgrounds.
 - Implementation: Reuse the existing worker and segmented control. Persist wallpaper effect separately from chat, read the old Halftone boolean when no new selection exists, and preserve effect/render revision, original-image fallback, and object-URL ownership. Settings search and Restore defaults now use the wallpaper effect choice. No dependency or worker algorithm was added.
-- Files: `src/features/settings/model/appearance.ts`, `appearance.test.ts`, `appearance.wallpaper.test.ts`, `settings.ts`, `src/features/settings/ui/SettingsView.tsx`, `SettingsView.wallpaper.test.ts`, and local `docs/specs/wallpaper-effects-plan.md`. The pending `connect-src blob:` fix and its test remain in the same working tree for the next version.
+- Files: `src/features/settings/model/appearance.ts`, `appearance.test.ts`, `appearance.wallpaper.test.ts`, `settings.ts`, `src/features/settings/ui/SettingsView.tsx`, `SettingsView.wallpaper.test.ts`, and local `docs/specs/archive/wallpaper-effects-plan.md`. The pending `connect-src blob:` fix and its test remain in the same working tree for the next version.
 - Verification: Focused worker/wallpaper/Settings tests passed (54). `npm run check:web` passed (326 files / 3,650 tests and TypeScript). `CARGO_BUILD_JOBS=1 npm run check:rust` passed fmt, Clippy, 415 tests / 4 ignored. `npm run build` passed with existing CSS highlight, mixed-import, and chunk warnings. `git diff --check` passed. Changed-file ESLint cannot run because no flat config exists.
 - Manual/release: The user reports the CSP-corrected Halftone works in dev mode. Dither, ASCII, Scanlines, rapid switching, theme/restart persistence, and chat independence still need a Tauri visual pass. No new installer, commit, or push yet; local3 remains a failed installed candidate.
 
@@ -550,7 +550,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - **What / why:** Fixed a race where opening another wallpaper picker could invalidate the Settings save for a still-successful image render, leaving wallpaper display and restart state out of sync.
 - **Invariant:** The displayed image, saved path, Settings state, retained managed file, and live object URL describe one successfully committed choice. Canceling does not revoke pending work; a failed newer choice leaves the last successful choice intact; a successful newer choice or Remove fences older work.
 - **Implementation:** Assign choice ownership only after a picker returns a path; stage each managed image under a unique file; save the path and Settings state at the render/CSS commit; retain the active managed file only after overlapping choices settle. Keep the previous wallpaper and URL alive on failed persistence, image read, or required Halftone render. Surface failures while earlier work is still pending.
-- **Files touched:** `docs/specs/compact-rail-wallpaper-halftone.md`, `docs/specs/compact-rail-wallpaper-halftone-plan.md`, `src/features/settings/model/appearance.ts`, `src/features/settings/ui/SettingsView.tsx`, `src/platform/tauri/fs.ts`, `src/platform/tauri/fs.test.ts`, `src-tauri/src/fs.rs`, `src-tauri/src/lib.rs`, and `src/features/settings/ui/SettingsView.wallpaper.test.ts`.
+- **Files touched:** `docs/specs/archive/compact-rail-wallpaper-halftone.md`, `docs/specs/archive/compact-rail-wallpaper-halftone-plan.md`, `src/features/settings/model/appearance.ts`, `src/features/settings/ui/SettingsView.tsx`, `src/platform/tauri/fs.ts`, `src/platform/tauri/fs.test.ts`, `src-tauri/src/fs.rs`, `src-tauri/src/lib.rs`, and `src/features/settings/ui/SettingsView.wallpaper.test.ts`.
 - **Verification:** Focused wallpaper/settings/filesystem tests passed (31). Full `npm run check:web` was flaky in unrelated Composer tests: one run passed (326 files / 3,643 tests), the first run failed two Composer cases, and the final repeat failed one (`Composer.test.ts`, attachment ownership). Standalone `npx tsc --noEmit` passed after the final source change. `npm run check:rust` passed formatting, Clippy, and 415 tests (4 ignored) with `CARGO_BUILD_JOBS=1`; the default parallel attempt hit LLVM out-of-memory / `STATUS_STACK_BUFFER_OVERRUN`. `npm run build` passed with the existing CSS highlight pseudo-element, mixed-import, and large-chunk warnings. Final `git diff --check` passed.
 - **ESLint:** Changed-file ESLint is blocked because the repository has no `eslint.config.*`; ESLint 10 reports it cannot find a flat config.
 - **Follow-up:** Manual Tauri checks remain; no browser/Tauri UI or installer was used. Preserve existing `src-tauri/Cargo.toml` and both `systemBreakdown` working-tree changes.
@@ -580,7 +580,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 - **Implementation:** Initial development used separate worktrees cut from `60cb05d`: `feature/compact-rail-hover` and `feature/wallpaper-halftone`. Both changes are now directly integrated in the main checkout. The rail has one marker and targets for all compact actions plus the compact project picker; active/open items preserve their own fill. Wallpaper Halftone persists independently, reuses the existing worker, refreshes with wallpaper/theme changes, falls back to the original on errors, ignores stale renders, and releases replaced object URLs. Chat background state is untouched.
 - **Files touched:** Compact rail: `src/app/shell/Sidebar.tsx`, `src/app/shell/SidebarRename.test.ts`, `src/features/projects/ui/SearchableProjectPicker.tsx`. Wallpaper: `src/features/settings/model/appearance.ts`, `appearance.test.ts`, new `appearance.wallpaper.test.ts`, `settings.ts`, and `src/features/settings/ui/SettingsView.tsx`.
 - **Verification:** Compact rail: `npm run check:web` passed (324 files / 3,624 tests, TypeScript clean), `npm run check:rust` passed (413 passed / 4 ignored), and `npm run build` passed. Wallpaper: `npm run check:web` passed (325 files / 3,628 tests, TypeScript clean), `npm run check:rust` passed (413 passed / 4 ignored), and `npm run build` passed. Focused rail (45 tests) and wallpaper/settings (56 tests) suites passed. ESLint remains unavailable because the repo has no `eslint.config.*`.
-- **Caveats:** No installer or manual Tauri UI verification was performed. The required manual checks are in `docs/specs/compact-rail-wallpaper-halftone.md`; perform them from the main checkout.
+- **Caveats:** No installer or manual Tauri UI verification was performed. The required manual checks are in `docs/specs/archive/compact-rail-wallpaper-halftone.md`; perform them from the main checkout.
 - **Advantages / tradeoffs:** The two wallpaper effects share the proven worker algorithm but keep separate preference, rendered URL ownership, and CSS variables. The combined feature changes remain uncommitted on `nakul/windows-support` for review.
 - **Learnings:** A stale worker result also needs a stale result at the settings boundary; otherwise its CSS write is ignored but an older image choice can still update UI state.
 
@@ -866,7 +866,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
 
 - What / why (1–2 lines): Unified context window and costing inspector popover for Claude Code and Codex harness sessions, detailing token occupancy (system & tools, memory files, skills, messages, autocompact buffer, free space) and live turn / session financial costs.
 - Implementation: Upgraded `ContextMeter.tsx` into a rich inspection popover featuring a segmented horizontal bar chart, itemized breakdown categories, expandable Memory Files (`CLAUDE.md`, `MEMORY.md`, `AGENTS.md`) and Skills (`.claude/skills`, `.codex/skills`, `.agents/skills`) with per-item token measurements, plan rate limits (5-hour and weekly reset countdowns via `fetchClaudeRateLimits` / `fetchCodexRateLimits`), and a costing engine in `src/lib/tokenCosting.ts` with model rates (input, cache read/write, output) calculating per-turn spend, cache savings, and cumulative session costs.
-- Files touched: `src/lib/tokenCosting.ts`, `src/lib/tokenCosting.test.ts`, `src/chrome/ContextMeter.tsx`, `src/chrome/ContextMeter.test.ts`, `src/chrome/Composer.tsx`, `src/surfaces/SessionPane.tsx`, `docs/specs/context-dialog-plan.md`, `docs/changelog/LOCAL-CHANGELOG.md`.
+- Files touched: `src/lib/tokenCosting.ts`, `src/lib/tokenCosting.test.ts`, `src/chrome/ContextMeter.tsx`, `src/chrome/ContextMeter.test.ts`, `src/chrome/Composer.tsx`, `src/surfaces/SessionPane.tsx`, `docs/specs/archive/context-dialog-plan.md`, `docs/changelog/LOCAL-CHANGELOG.md`.
 - Verification (commands + results): `npx tsc --noEmit` clean (0 errors); `npx vitest run` 104 passed (1,098 tests passed).
 - Caveats / known issues: Third-party CLIs without token telemetry or prompt breakdown (Cursor, Pi, OpenCode) rely on client-side estimation; full telemetry is enabled for Claude and Codex.
 - Advantages / tradeoffs: Provides transparent insight into context usage, prompt caching efficiency, and dollar spend without modifying external CLI binaries.
@@ -932,7 +932,7 @@ Read [the changelog index](CHANGELOG.md) to find the current file.
   `src/lib/hariBoard.ts` (new), `src/lib/hariBoard.test.ts` (new),
   `src/chrome/ModeSwitcher.tsx` (new), `src/chrome/ProjectRail.tsx`,
   `src/chrome/Sidebar.tsx`, `src/surfaces/HariView.tsx` (new),
-  `src/App.tsx`, `docs/specs/hari-mode-plan.md` (new), `docs/PLANNED.md`,
+  `src/App.tsx`, `docs/specs/archive/hari-mode-plan.md` (new), `docs/PLANNED.md`,
   + 5 version files (manual bump; `bump-version.mjs` rejects suffixes).
 - Verification (commands + results): `npx tsc --noEmit` clean; full
   `npx vitest run` 131 files / 1401 tests green (17 new: 13 board, 4 mode);

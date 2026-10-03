@@ -4,6 +4,12 @@ Newest first. One short entry per change (format in `docs/WORKING-AGREEMENT.md` 
 Entries dated 2026-10-02 to 2026-10-03 were backfilled from commits made in cloud sessions
 that did not have the docs; file lists name the main files only.
 
+## 2026-10-03 — Docs tidy: spec archive, features index, lighter repo
+- What: Done specs moved to `docs/specs/archive/` (25 files, all links updated); two stale Drafts and an unindexed Todo spec marked Done (superseded by the 0.6.0/0.7.0 merges); LOCAL-FEATURES got a one-line-per-feature Index; generated intake JSON (2.9 MB) and a 3.9 MB screenshot removed from the branch with restore notes (`docs/` 9.1 MB → 2.6 MB); PLANNED.md opens with the current state.
+- Files: `docs/specs/SPECS.md` (archive links, rows); `docs/specs/archive/*` (moved); `docs/LOCAL-FEATURES.md` (Index); `docs/notes/upstream-intake-2026-10-01/scripts/README.md` (new, restore command); `docs/notes/README.md`; `docs/PLANNED.md` (lines 6-14, old handoff moved to the end); `AGENTS.md` (docs map rows)
+- Verified: docs only; relative-link check shows no new broken links (22 pre-existing: uncommitted build logs and repo-root-style paths in the intake notes)
+- Commit: see git log for this entry
+
 ## 2026-10-03 — Lighter docs process, docs map and local-features catch-up
 - What: Rules rewritten for task tiers (Small/Medium/Large), test tiers, one record per change and no worktree or installer per feature; the long pre-read list was replaced by a docs map in AGENTS.md. Windows log got an index; changelog rolled over to this file; 15 local features registered.
 - Files: `AGENTS.md` (docs map); `docs/WORKING-AGREEMENT.md` (rewritten, all rules kept); `docs/WINDOWS-CHANGES.md` (index at top); `docs/changelog/CHANGELOG.md` (index, 40 KB rollover); `docs/LOCAL-FEATURES.md` (L-02 updated, L-41–L-55 added); `docs/specs/SPECS.md` (Tasks views row, ordering rule).
@@ -67,7 +73,7 @@ that did not have the docs; file lists name the main files only.
 ## 2026-10-02 — Task Manager views (List / Table / Board) and task tabs
 - What: Tasks rebuilt as List (default), Table and Board with a peek pane; open a task beside the session as a workspace tab; group by project; resizable columns; counts in headers, filters and menus; toolbar row with New task first and the view switch on the right.
 - Files: `src/features/tasks/ui/*` (TasksView, TaskList, TaskTable, TaskBoard, TaskPeekPane…); `src/features/tasks/taskViewState.ts`, `taskFacets.ts`; `src/shared/ui/board/BoardColumns.tsx`, `ResizeHandle.tsx`, `ResultCount.tsx`; `src/features/workspace/model/layout.ts`, `workspaceSnapshot.ts`; `src/app/App.tsx`
-- Verified: tsc ✅ tests ✅ build ✅ | spec: `docs/specs/tasks-views-redesign.md`
+- Verified: tsc ✅ tests ✅ build ✅ | spec: `docs/specs/archive/tasks-views-redesign.md`
 - Commit: e6cd476, 246641f, b5bec1a, ad90d9f, c772e75, aa521d1, d82ecdc, fbb6fcc, 9ebb676, 11c5464, 2990ad0
 
 ## 2026-10-02 — Session Manager drafts runnable, Operator control (other agent)

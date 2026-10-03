@@ -4,7 +4,7 @@ Written by Claude. This file records Nakul's answers and the questions still ope
 [stage 5 brief](05-decision-brief.md) as the place to look for decisions; that file stays as evidence.
 
 The worker's instructions are in the spec:
-[Upstream intake in one merge](../../specs/upstream-intake-one-merge.md). This file is the record behind it.
+[Upstream intake in one merge](../../specs/archive/upstream-intake-one-merge.md). This file is the record behind it.
 
 ## Answered
 

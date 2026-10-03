@@ -2,11 +2,11 @@
 
 - Workflow status: Done — set 2026-10-01 18:20 IST by Claude at close-out. Nakul reported build 0.1.55-local5-provider-fixes fine; per-check results weren't itemized, so the Manual checks section and its caveats stay as written. Pushed to the fork at `c2c8bf6`. Earlier status: Review — updated 2026-09-30 21:35 IST by Claude; see SPECS.md.
 - Tier: complex · Snapshot: `9397898` on `nakul/windows-support` plus the retained uncommitted changes listed in the umbrella plan, 2026-09-30.
-- Umbrella: [provider-daily-work-improvements-plan.md](provider-daily-work-improvements-plan.md), slice 2. Research: [claude-cold-resume-warning.md](claude-cold-resume-warning.md) (restart causes; no quota promise).
+- Umbrella: [provider-daily-work-improvements-plan.md](provider-daily-work-improvements-plan.md), slice 2. Research: [claude-cold-resume-warning.md](../claude-cold-resume-warning.md) (restart causes; no quota promise).
 - Provider version verified: Claude Code 2.1.283 (native binary, embedded control schema).
 
 ## Baseline, dependencies and worktree
-- Revised 2026-09-30 after the handoff review ([provider-spec-handoff-review-30sept.md](../notes/provider-spec-handoff-review-30sept.md)). Approved by Nakul 2026-09-30 (Todo); implemented through the combined batch prompt.
+- Revised 2026-09-30 after the handoff review ([provider-spec-handoff-review-30sept.md](../../notes/provider-spec-handoff-review-30sept.md)). Approved by Nakul 2026-09-30 (Todo); implemented through the combined batch prompt.
 - Position in the batch: second of six (umbrella slice 2). Order: slice 1 approvals → slice 2 Claude live controls → slice 4 context → slice 3 native branch → slice 5 AI helpers → slice 6 forms. Implement and integrate one slice at a time: each slice is merged into `nakul/windows-support` and verified before the next worktree is cut.
 - Prerequisite baseline: the `nakul/windows-support` commit that contains the umbrella baseline checkpoint and slice 1 (session-approval-scopes) integrated and verified. Nakul gives its SHA in the handoff prompt as `<BASELINE_SHA>`, and the checkpoint SHA recorded in the umbrella plan as `a65bd4e4b0c2742cd0fc54a4087358471efc3888`.
 - Dependencies: Slice 1: keep its `--allowedTools` replay working on the restart fallback. This slice is the only owner of the shared Claude control transport (`sendControl`, `pendingControls`, `requestClaudeControl`, `ClaudeControlError`, `Live.generation`); slice 4 depends on it after review and integration.

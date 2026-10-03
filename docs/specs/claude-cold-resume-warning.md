@@ -4,7 +4,7 @@
 
 - Tier: complex · Snapshot: `9397898` + uncommitted orchestration WIP, 2026-09-26 18:49 IST · Status: draft
 - Branch/worktree: directly in `E:\Developing\OpenSource\mono-clone` on `nakul/windows-support`, no worktree (Nakul's instruction of 26 Sept 2026 overrides the working agreement's worktree step).
-- Depends on: `docs/specs/native-branch.md` (implement that first). This spec uses its `onBranch(sessionId, turn, { forceSummary: true })`.
+- Depends on: `docs/specs/archive/native-branch.md` (implement that first). This spec uses its `onBranch(sessionId, turn, { forceSummary: true })`.
 
 ## Goal and user story
 As a MonoCode user on a Claude subscription, when I return to a large Claude chat after its prompt cache has expired, I want to be warned before my next message and offered cheaper options, so that one message does not silently consume a large share of my 5-hour limit.

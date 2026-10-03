@@ -1,6 +1,6 @@
 # Stage 7 — Spec notes
 
-Created 2026-10-01 19:43 IST (PowerShell). Draft: [round-1 spec](../../specs/upstream-intake-round-1.md). Only one Draft index row added; existing index bytes retained.
+Created 2026-10-01 19:43 IST (PowerShell). Draft: [round-1 spec](../../specs/archive/upstream-intake-round-1.md). Only one Draft index row added; existing index bytes retained.
 
 ## Worker reading and fixed guesses
 

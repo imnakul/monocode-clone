@@ -2,7 +2,7 @@
 
 > Frozen on 2026-10-01. This file is history only; no new prompts are added here.
 > A handoff is now a spec in `docs/specs/` plus the short handover prompt given in chat.
-> The fix prompt that was here is replaced by [provider-batch-followup-fixes.md](../specs/provider-batch-followup-fixes.md).
+> The fix prompt that was here is replaced by [provider-batch-followup-fixes.md](../specs/archive/provider-batch-followup-fixes.md).
 
 All work happens in the main checkout on `nakul/windows-support`. No worktrees.
 Slice 1 (session approvals) is committed as `bf41013`, on top of checkpoint `a65bd4e`.

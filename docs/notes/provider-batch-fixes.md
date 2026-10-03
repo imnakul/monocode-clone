@@ -1,6 +1,6 @@
 # Provider batch — fixes to apply together
 
-> Superseded on 2026-10-01 by the spec [provider-batch-followup-fixes.md](../specs/provider-batch-followup-fixes.md).
+> Superseded on 2026-10-01 by the spec [provider-batch-followup-fixes.md](../specs/archive/provider-batch-followup-fixes.md).
 > This file keeps the review history. The spec is the only source of instructions; where they differ, the spec wins.
 
 These fixes come from verified review findings. They are applied in one pass after all features are reviewed. The full reasoning is in [provider-batch-review.md](provider-batch-review.md).

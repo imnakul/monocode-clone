@@ -1,10 +1,10 @@
-# Todo — Upstream intake in one merge: v0.1.56 through v0.6.0 and nine later commits — spec
+# Done — Upstream intake in one merge: v0.1.56 through v0.6.0 and nine later commits — spec
 
 - Tier: complex · Snapshot: `cde05ca`, 2026-10-01 · Branch: `nakul/windows-support` (work happens here, no worktree)
 - Upstream target: `43aac9d216c323a7e04c9037eb0b251dd840cc7a` (upstream `main`, `package.json` says `0.6.0`)
 - Merge base: `3344bea70341d8ea4d6dea414aa15c13683372e9` (tag `v0.1.55`). Ours is 99 commits ahead, upstream 128.
 - Replaces the Draft [round-1 spec](upstream-intake-round-1.md). Three stages, one worker, one file.
-- Record of Nakul's answers: [owner decisions](../notes/upstream-intake-2026-10-01/09-owner-decisions.md).
+- Record of Nakul's answers: [owner decisions](../../notes/upstream-intake-2026-10-01/09-owner-decisions.md).
 
 ## In plain words
 

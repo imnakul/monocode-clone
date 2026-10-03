@@ -1,7 +1,7 @@
-# Draft — Upstream intake round 1: v0.1.56 — spec
+# Done — Upstream intake round 1: v0.1.56 — spec
 
 - Tier: complex · Snapshot: local `c2c8bf6c2127521b55f3a16e4a1ae58e25014eb6`, target `611e05bcde80c096433ef65f3b085693a1be18c5`.
-- Workflow status: Draft (2026-10-01 19:43 IST). Analysis only so far; owner answers and reviewer clearance required before implementation.
+- Workflow status: Done — superseded 2026-10-03: upstream 0.6.0 and 0.7.0 were merged instead (Changelog 02). Kept as the record of the round-1 analysis.
 - Worktree path: `E:\Developing\OpenSource\mono-clone`; branch `nakul/windows-support`; base/current start `c2c8bf6`. No extra worktree proposed.
 
 ## In plain words

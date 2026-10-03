@@ -13,4 +13,5 @@ Supporting reference documents and implementation records. These are not active 
 
 Historical or uncertain plans and audits: [archive index](archive/README.md).
 
-Reference image: [screenshot.jpg](assets/screenshot.jpg).
+Reference image `assets/screenshot.jpg` (3.9 MB) was removed from the branch on 2026-10-03; restore it with
+`git show 12535f7:docs/notes/assets/screenshot.jpg > screenshot.jpg`.

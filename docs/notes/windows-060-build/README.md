@@ -47,4 +47,4 @@ before the archive copy. No cache/output deletion or storage redirection.
 2. Check Tasks board/Quick Composer and wallpaper/glass settings.
 3. Start Claude/Codex/Cline/Antigravity as applicable; check approvals and terminal lifecycle.
 
-Full intake checklist, if needed: [upstream intake manual checks](../../specs/upstream-intake-one-merge.md#manual-checks--separate-follow-up-not-for-the-worker).
+Full intake checklist, if needed: [upstream intake manual checks](../../specs/archive/upstream-intake-one-merge.md#manual-checks--separate-follow-up-not-for-the-worker).

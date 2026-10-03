@@ -20,7 +20,7 @@ All nine stages produced files in order. Partial means the stated coverage/rule-
 | 7 | Partial | [07-spec-notes.md](docs/notes/upstream-intake-2026-10-01/07-spec-notes.md) | 11 min | 23 instructions in Draft spec; exact Cargo suffix/lock tooling and reviewer clearance missing. |
 | 8 | Done | [08-final-report.md](docs/notes/upstream-intake-2026-10-01/08-final-report.md) | 14 min | Self-review complete; no code checks by design. |
 
-Stage 3 also has [03-files.tsv](docs/notes/upstream-intake-2026-10-01/03-files.tsv). Stage 7 created [upstream-intake-round-1.md](docs/specs/upstream-intake-round-1.md) and exactly one Draft index row.
+Stage 3 also has [03-files.tsv](docs/notes/upstream-intake-2026-10-01/03-files.tsv). Stage 7 created [upstream-intake-round-1.md](docs/specs/archive/upstream-intake-round-1.md) and exactly one Draft index row.
 
 ## Ten findings that matter most
 

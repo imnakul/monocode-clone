@@ -7,7 +7,7 @@
 - Provider versions verified: Claude Code 2.1.283, codex-cli 0.159.0.
 
 ## Baseline, dependencies and worktree
-- Revised 2026-09-30 after the handoff review ([provider-spec-handoff-review-30sept.md](../notes/provider-spec-handoff-review-30sept.md)). Approved by Nakul 2026-09-30 (Todo).
+- Revised 2026-09-30 after the handoff review ([provider-spec-handoff-review-30sept.md](../../notes/provider-spec-handoff-review-30sept.md)). Approved by Nakul 2026-09-30 (Todo).
 - Position in the batch: first of six (umbrella slice 1). Order: slice 1 approvals → slice 2 Claude live controls → slice 4 context → slice 3 native branch → slice 5 AI helpers → slice 6 forms. Implement and integrate one slice at a time: each slice is merged into `nakul/windows-support` and verified before the next worktree is cut.
 - Prerequisite baseline: the `nakul/windows-support` commit that contains the umbrella baseline checkpoint (the retained changes reviewed and committed). No other slice is required. For this slice the baseline is the checkpoint commit itself: baseline = checkpoint = `a65bd4e4b0c2742cd0fc54a4087358471efc3888` (recorded in the umbrella plan).
 - Dependencies: None. Later slices build on this one: slice 2 and slice 5 extend `buildClaudeSpawnArgs` after its `allowedTools` change, and slice 6 adds the form path after this slice's `codexMcpConfirmation` grant logic.

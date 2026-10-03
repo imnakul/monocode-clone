@@ -3,7 +3,7 @@
 - Workflow status: Done — set 2026-10-01 18:20 IST by Claude at close-out. Nakul reported build 0.1.55-local5-provider-fixes fine; per-check results weren't itemized, so the Manual checks section and its caveats stay as written. Pushed to the fork at `c2c8bf6`. Earlier status: Review. Approved by Nakul 2026-09-30; use the specified defaults: Antigravity helpers remain gated off and Codex helpers remain eligible.
 - Tier: complex · Snapshot: `9397898` on `nakul/windows-support` plus the retained uncommitted changes listed in the umbrella plan, 2026-09-30.
 - Umbrella: [provider-daily-work-improvements-plan.md](provider-daily-work-improvements-plan.md), slice 5.
-- Revised: 2026-09-30 after the [handoff review](../notes/provider-spec-handoff-review-30sept.md): Antigravity helper path, explicit tool isolation, and a visible PR failure in custom mode.
+- Revised: 2026-09-30 after the [handoff review](../../notes/provider-spec-handoff-review-30sept.md): Antigravity helper path, explicit tool isolation, and a visible PR failure in custom mode.
 - Provider versions verified: Claude Code 2.1.283, codex-cli 0.159.0, OpenCode 1.18.30. Antigravity is installed at `C:\Users\gclna\AppData\Local\Programs\Antigravity\Antigravity.exe`; `--version` produced no version text (2026-09-30).
 
 ## Baseline, dependencies and worktree

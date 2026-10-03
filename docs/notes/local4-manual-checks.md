@@ -13,7 +13,7 @@ ticked one by one, so they stay as a reference for later debugging.
 
 Local5 is local4 plus the follow-up fixes (`3f5834b` → `d691035`). Use it for every check in this file.
 Do these four first; they are the ones local5 changes
-([spec](../specs/provider-batch-followup-fixes.md#manual-checks)):
+([spec](../specs/archive/provider-batch-followup-fixes.md#manual-checks)):
 
 - [ ] F-1 Codex, Supervised, SocratiCode on: ask for two codebase searches. The card shows Allow,
       Allow for session and Deny, all at text width. Click "Allow for session". The second search doesn't ask.

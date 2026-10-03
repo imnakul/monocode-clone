@@ -6,7 +6,7 @@
 - Provider version verified: codex-cli 0.159.0, using the generated app-server schema `McpServerElicitationRequestParams.json`.
 
 ## Baseline, dependencies and worktree
-- Revised 2026-09-30 after the handoff review ([provider-spec-handoff-review-30sept.md](../notes/provider-spec-handoff-review-30sept.md)). Approved by Nakul 2026-09-30 (Todo); implemented through the combined batch prompt.
+- Revised 2026-09-30 after the handoff review ([provider-spec-handoff-review-30sept.md](../../notes/provider-spec-handoff-review-30sept.md)). Approved by Nakul 2026-09-30 (Todo); implemented through the combined batch prompt.
 - Position in the batch: sixth of six (umbrella slice 6). Order: slice 1 approvals → slice 2 Claude live controls → slice 4 context → slice 3 native branch → slice 5 AI helpers → slice 6 forms. Implement and integrate one slice at a time: each slice is merged into `nakul/windows-support` and verified before the next worktree is cut.
 - Prerequisite baseline: the `nakul/windows-support` commit that contains the umbrella baseline checkpoint and slices 1, 2, 4, 3 and 5 integrated and verified. Nakul gives its SHA in the handoff prompt as `<BASELINE_SHA>`, and the checkpoint SHA recorded in the umbrella plan as `a65bd4e4b0c2742cd0fc54a4087358471efc3888`.
 - Dependencies: Hard dependency on slice 1: the confirmation path, `mcpToolGrant`, the `sessionScope` hint and its fail-closed one-time approval must run first and stay unchanged (AC-15).

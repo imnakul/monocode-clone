@@ -8,6 +8,66 @@ L-39 updated for the 0.6.0 build at `18ab934` (version changes uncommitted).
 (0.7.0; our branch contains all of it plus 161 fork commits). L-02 updated; L-41 to L-55 added from the 31 fork-only
 commits after `c2c8bf6`. No earlier row was found adopted upstream.
 
+## Index (read this, then search for the ID, e.g. `grep -n "| L-43 |"`)
+
+| ID | Feature | Area | Windows only |
+|---|---|---|---|
+| L-01 | Stop stays visible while busy; send becomes Queue/Steer | composer | No |
+| L-02 | Menu bar visible by default; Alt+O toggles it | shell | No |
+| L-03 | Antigravity via Google's shared ACP runtime | providers | No |
+| L-04 | Cline provider | providers | No |
+| L-05 | Queued messages survive restart | queue | No |
+| L-06 | Held/paused/steering queue never auto-sends | queue | No |
+| L-07 | Removing a chat drops its queue and terminals | sessions, terminal | No |
+| L-08 | Terminals start lazily | terminal, startup | No |
+| L-09 | Wallpaper with effects; Wallpaper & menus settings | appearance | Yes |
+| L-10 | Sliding hover highlight in menus and lists | hover | No |
+| L-11 | One shared token/cost calculation | usage | No |
+| L-12 | Usage footer can show % left | usage | No |
+| L-13 | No console flash; child processes tied to the app (Windows) | windows, process | Yes |
+| L-14 | ConPTY terminal with stalled-output replay (Windows) | windows, terminal | Yes |
+| L-15 | Reveal in Explorer without false error or console | windows, files | Yes |
+| L-16 | Import and resume provider CLI conversations | sessions, import | No |
+| L-17 | Settings → Skills page | skills | No |
+| L-18 | Honest provider errors and CLI update notice | providers | No |
+| L-19 | Model choice for commit and PR text | git, AI helper | No |
+| L-20 | Allow for session on approval prompts | approvals | No |
+| L-21 | Session grants never auto-answer in Plan mode or after stop | approvals | No |
+| L-22 | Live model/permission switch for running Claude chats | providers, Claude | No |
+| L-23 | Typed forms for Codex MCP input | providers, MCP | No |
+| L-24 | Context meter uses provider numbers | usage, context | No |
+| L-25 | Branch uses provider's native fork | sessions | No |
+| L-26 | Sidechat | sessions | No |
+| L-27 | CRLF kept in editor and partial staging | windows, editor, git | No |
+| L-28 | Human-typed messages marked for Claude | providers, Claude | No |
+| L-29 | Busy-chat keyboard: Enter / Ctrl+Enter / Shift+Enter | composer | No |
+| L-30 | Settings → Experimentation page | settings | No |
+| L-31 | Source Control full-row diff, deleted files open | git | No |
+| L-32 | Providers page shows Checking providers… | providers | No |
+| L-33 | Model lists keep the newest model | providers, models | No |
+| L-34 | Repair legacy e%3A project paths | windows, projects | Yes |
+| L-35 | Tab strip edge fade | shell, tabs | No |
+| L-36 | Compact rail uses the sliding highlight | hover, shell | No |
+| L-37 | Acrylic window glass strength and font choices | windows, appearance | Glass: |
+| L-38 | .cmd/.bat provider launchers found and started | windows, providers | Yes |
+| L-39 | NSIS installer build and local versioning | windows, build | Yes |
+| L-40 | Antigravity temp files under ~/.monocode; Downloads lookup | windows, providers | Yes |
+| L-41 | Task Manager (tasks, filters, Operator tasks.*, Copy Markdown) | tasks | No |
+| L-42 | Task Manager views: List/Table/Board, peek pane, task tabs | tasks | No |
+| L-43 | Session Manager: 4 columns, tags, 2×2, sidebar counts | session manager | No |
+| L-44 | Session Manager drafts and Operator session_manager.* | session manager | No |
+| L-45 | File/session tab-opening preferences | settings, tabs | No |
+| L-46 | Quick Composer on Windows, global shortcut, glass | windows, composer | Yes |
+| L-47 | Markdown table icon actions | transcript | No |
+| L-48 | Wallpaper Haze effect | appearance | No |
+| L-49 | Compact model labels experiment | sessions | No |
+| L-50 | Queue holds independent of quota notice | queue | No |
+| L-51 | Reply header/footer layout | transcript | No |
+| L-52 | Gliding hover in Notes, Automations, managers, project Sessions | hover | No |
+| L-53 | Performance overlay and log recording | debug | No |
+| L-54 | Speed pill beside Effort | composer, models | No |
+| L-55 | Model picker full-row hover and selected fill | models, hover | No |
+
 ## For agents — read this first
 
 **What this file is for.** It lists every behaviour this fork adds or changes compared with upstream MonoCode.
@@ -24,7 +84,7 @@ review a change (it must not remove one of these by accident).
   `docs/NOTES.md`; those are decided and are not reopened.
 
 **How to update this file.** Do this in the same task that adds, changes or removes a local feature.
-1. **New feature:** append one row at the end of the table with the next free ID. Use the same seven columns
+1. **New feature:** append one row at the end of the register table with the next free ID, and a one-line row in the Index above. Use the same seven columns
    in the same order. Do not insert a row in the middle and do not renumber.
 2. **Changed feature:** edit only that row's cells. Keep its ID.
 3. **Removed feature, or one that upstream now ships:** keep the row. Change only its *Status* cell, for
@@ -81,7 +141,7 @@ review a change (it must not remove one of these by accident).
 | L-39 | Windows installer build: `npm run build:windows` makes an NSIS installer; archiving is a separate step in the current script. Local builds normally use `<base>-localN-<feature>`. Nakul explicitly selected plain `0.6.0` on 2 Oct 2026; npm and Cargo regenerate version metadata in their lockfiles | `package.json` → script `build:windows`; `scripts/archive-installer.mjs`; version in `package.json`, `package-lock.json`, `Cargo.toml`, `Cargo.lock`, `src-tauri/tauri.conf.json` | No locking test exists | `docs/WORKING-AGREEMENT.md` (version scheme); `docs/specs/windows-060-build-plan.md` (explicit exception); commits `f06b6be`, `9c4bba5`, `7d68db4` | Yes | Active |
 | L-40 | The Antigravity runtime's large temporary files go to `~/.monocode/providers/antigravity/tmp` instead of the system temp folder, and a runtime unpacked in Downloads is found | `src-tauri/src/antigravity_acp.rs` (sets `TMP` and `TEMP` for the runtime); `src-tauri/src/harness.rs` (Downloads lookup inside the Antigravity resolver) | `src-tauri/src/antigravity_acp.rs` has a test that reads the `TMP` value. Downloads lookup: not checked | `docs/notes/antigravity-acp-implementation-notes.md` | Yes | Active |
 | L-41 | Task Manager: persistent Personal and project tasks with seven statuses, tags and combined filters; chat text can be captured as a task (Add Task); Operator can list, read, write and delete tasks; Copy Markdown beside Preview/Source in Notes, Tasks, Markdown files, plans and skills | `src/features/tasks/tasks.ts` → `loadTasks`, `filterTasks`; `src-tauri/src/tasks.rs` → `ensure_tasks_table`, `tasks_upsert`; `src/features/agent-app/model/agentApp.ts` (`tasks.*` actions); `src/features/sessions/ui/MarkdownCopyButton.tsx` → `MarkdownCopyButton` | `src/features/tasks/tasks.test.ts` → "combines statuses, all tags, Windows project identity and search with AND"; `src/features/agent-app/model/agentApp.tasks.test.ts` | commits `f4aa072`, `91b12ca` (old Tasks tables are upgraded in place) | No | Active |
-| L-42 | Task Manager views: full-width List (default), Table and Board with no sidebar; group by status or project in every view; faceted counts in the header and filters; resizable board columns that shrink to fit; a peek pane that slides in and out; open a task beside the session as a workspace tab | `src/features/tasks/ui/TasksView.tsx` → `TasksView`; `src/features/tasks/taskViewState.ts` → `groupTasks`; `src/shared/ui/board/BoardColumns.tsx` → `BoardColumn`; `src/features/tasks/ui/TaskPeekPane.tsx`; `src/features/workspace/model/layout.ts` → `newTaskTab` | `src/features/tasks/ui/TasksView.test.ts` → "defaults to a full-width List with no sidebar, newest first"; `src/features/workspace/model/workspaceSnapshot.test.ts` (task tabs) | spec `docs/specs/tasks-views-redesign.md`; commits `b5bec1a`–`11c5464`, `cbe08b2` | No | Active |
+| L-42 | Task Manager views: full-width List (default), Table and Board with no sidebar; group by status or project in every view; faceted counts in the header and filters; resizable board columns that shrink to fit; a peek pane that slides in and out; open a task beside the session as a workspace tab | `src/features/tasks/ui/TasksView.tsx` → `TasksView`; `src/features/tasks/taskViewState.ts` → `groupTasks`; `src/shared/ui/board/BoardColumns.tsx` → `BoardColumn`; `src/features/tasks/ui/TaskPeekPane.tsx`; `src/features/workspace/model/layout.ts` → `newTaskTab` | `src/features/tasks/ui/TasksView.test.ts` → "defaults to a full-width List with no sidebar, newest first"; `src/features/workspace/model/workspaceSnapshot.test.ts` (task tabs) | spec `docs/specs/archive/tasks-views-redesign.md`; commits `b5bec1a`–`11c5464`, `cbe08b2` | No | Active |
 | L-43 | Session Manager: run cards persist across restarts in four columns (Draft, In progress, Needs attention, Done) with a reason tag (Permission, Question, Usage limit, Failed, Interrupted, Stopped); compact 3-line cards; the board turns into a 2×2 grid when narrow; a session opens beside the board with a slide; the sidebar entry shows In progress / Needs attention / Done counts | `src/features/session-board/sessionBoard.ts` → `projectBoardCard`, `boardLane`, `boardCardTag`; `src/features/session-board/ui/SessionBoardView.tsx`; `src/features/session-board/ui/BoardSessionCard.tsx`; `src/app/shell/ProjectRail.tsx` → `SessionManagerRailAction` | `src/features/session-board/sessionBoard.test.ts` → "folds six stored statuses into four columns"; `src/features/session-board/ui/SessionBoardView.test.ts` → "reflows four columns into an even 2×2 grid when the board is too narrow" | commits `a0b440c`, `983d195`, `b6ad68b`, `e192f2d`, `cbe08b2`; stored statuses are unchanged so Operator keeps working | No | Active |
 | L-44 | Session Manager drafts: prepare an unsent session (model, settings, permissions, prompt, attachments, workspace) with the Quick Composer, edit it, and start it later from the board or through Operator (`session_manager.*`) | `src/features/session-board/sessionTodos.ts` → `sessionTodoManager`; `src/features/session-board/ui/SessionTodoComposer.tsx`; `src-tauri/src/control_cli.rs` (`session_manager.*` help) | `src/features/session-board/sessionTodos.test.ts` → "persists an unsent Todo including exact Markdown, images/files, project, permissions and deferred workspace" | commit `a87a5f7` | No | Active |
 | L-45 | Settings → General chooses separately how files and sessions open (reuse the current tab or a new one); Alt-click opens a new tab; dirty files, drafts and running work are never replaced | `src/features/settings/model/openingBehavior.ts` → `loadFileOpeningBehavior`, `loadSessionOpeningBehavior` | `src/features/settings/model/openingBehavior.test.ts` → "uses independent defaults and safely ignores malformed stored values" | commit `a0b440c` | No | Active |

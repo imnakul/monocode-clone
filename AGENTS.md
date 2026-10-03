@@ -11,15 +11,16 @@ keyword (`grep -n`) and open the matching section.
 | Open this | When | Notes |
 |---|---|---|
 | `docs/WORKING-AGREEMENT.md` | Always, once per session | Rules, tiers, test gates, record templates |
-| `docs/LOCAL-FEATURES.md` | Before changing or merging anything that could remove fork behaviour; after adding one | Register of what this fork has that upstream does not (L-01…). Search by area or symbol |
+| `docs/LOCAL-FEATURES.md` | Before changing or merging anything that could remove fork behaviour; after adding one | What this fork has that upstream does not. Read the Index at the top, then search for one ID (`grep -n "L-43" docs/LOCAL-FEATURES.md`) |
 | `docs/changelog/CHANGELOG.md` | To add an entry (every change), or to look up history | Index; open only the file marked Current, and search it by keyword or date |
-| `docs/specs/SPECS.md` | Medium or Large tasks, or when resuming planned work | Index with status; then open the one spec you need |
+| `docs/specs/SPECS.md` | Medium or Large tasks, or when resuming planned work | Index with status; open the one spec you need. Done specs are in `docs/specs/archive/`: open only when a task needs that history |
 | `docs/WINDOWS-CHANGES.md` | Windows-specific work, builds, installers, CRLF/console/PTY issues | Read the index table at the top, then jump to one section |
 | `docs/NOTES.md` | Taking upstream changes in (intake runbook); product calls (§0) are decided and not reopened | |
 | `docs/notes/archive/upstream-merge-*.md` | During an upstream merge, for past conflict decisions | |
 | `docs/PLANNED.md` | Roadmap or "what next" questions | |
 | `docs/FEATURES.md` | Comparing with the T3 reference app | |
 | `docs/notes/…` | Only when a spec or changelog entry links to a file there | Large research records and logs; never browse |
+| `docs/remote-access.md` | Remote host questions | Upstream's own file: never edit, so merges stay clean |
 
 ## Desktop UI verification from MonoCode
 

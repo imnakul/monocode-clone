@@ -4,7 +4,7 @@
 
 - Tier: complex · Snapshot: `9397898` + uncommitted orchestration WIP, 2026-09-27 · Status: draft
 - Branch/worktree: directly in `E:\Developing\OpenSource\mono-clone` on `nakul/windows-support`, no worktree (Nakul's instruction, 26 Sept 2026).
-- Depends on, in order: `docs/specs/native-branch.md` (native fork, divider block, `fork` on `HarnessSessionInput`) and `docs/specs/claude-cold-resume-warning.md` (`ColdResumeNotice`, `coldResume.ts`, the warning setting). Implement those first.
+- Depends on, in order: `docs/specs/archive/native-branch.md` (native fork, divider block, `fork` on `HarnessSessionInput`) and `docs/specs/claude-cold-resume-warning.md` (`ColdResumeNotice`, `coldResume.ts`, the warning setting). Implement those first.
 
 ## Goal and user story
 As a MonoCode user about to step away from a large chat, I want one button that makes a compacted copy of the chat while the provider's prompt cache is still warm, so that when I come back I can continue cheaply from the compacted copy or keep the full history, and see whether the full history is still warm.

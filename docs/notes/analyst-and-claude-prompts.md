@@ -1,7 +1,7 @@
 # Two-agent research flow — instructions for the analyst (Codex) and for Claude
 
 Written by Claude on 2026-10-01 after the analyst trial
-([spec and retro](../specs/upstream-intake-analyst-trial.md)). Local only. Changed the same day from two
+([spec and retro](../specs/archive/upstream-intake-analyst-trial.md)). Local only. Changed the same day from two
 paste-in prompts to one file that each agent reads.
 
 The aim is to cut Claude's token use. The analyst (GPT-6 based Codex) does the finding-out. Claude checks a
@@ -190,7 +190,7 @@ to cut your token use, so do not repeat its work.
 ### Who you are working with
 
 The analyst was trialled on 2026-10-01 and scored 45 of 55 (retro in
-docs/specs/upstream-intake-analyst-trial.md). Its facts were exact: 527 of 527 files classified correctly and
+docs/specs/archive/upstream-intake-analyst-trial.md). Its facts were exact: 527 of 527 files classified correctly and
 no wrong claim marked Verified. Its judgement was usable but generic. It knows our fork less well than you
 do. Its track record is at the bottom of this file; read that table, because the trust levels below change if
 a later run went badly.

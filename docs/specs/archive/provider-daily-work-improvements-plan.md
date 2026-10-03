@@ -1,6 +1,6 @@
-# Draft — Provider improvements for daily work
+# Done — Provider improvements for daily work
 
-- Workflow status: Draft — scope selected; detailed implementation contracts and handoffs still need preparation. Do not implement this umbrella plan directly.
+- Workflow status: Done — the six child specs were built and closed on 2026-10-01 (build 0.1.55-local5-provider-fixes). Kept as the record of the selected scope.
 - Recorded: 2026-09-30 10:56 IST.
 - Base snapshot: nakul/windows-support at 9397898; re-inventory after parking finishes before cutting implementation branches.
 - Branch/worktrees: separate feature worktrees per module, following WORKING-AGREEMENT; no branches/worktrees created for this planning task. Native Branch's historical direct-checkout exception must be reviewed against concurrent parking before implementation.
@@ -33,7 +33,7 @@ in slice 4 for both Claude and Codex.
 ### Handoff review gate — 30 September 13:08 IST
 
 The six new child drafts require corrections before implementation approval.
-See [handoff review](../notes/provider-spec-handoff-review-30sept.md): preserve
+See [handoff review](../../notes/provider-spec-handoff-review-30sept.md): preserve
 Antigravity helper scope, settle tool isolation and PR failure behavior, label
 native context estimates honestly, give shared control transport one owner,
 verify approval metadata rather than guessing, and reconcile probes/fallbacks.
@@ -141,7 +141,7 @@ Scope recorded only. Implementation and runtime verification remain.
 ## Handoff for detailed specification (not implementation)
 
 Read this umbrella plan, the local project profile, repo AGENTS.md, required
-project docs and docs/specs/native-branch.md. Use spec-writing to prepare
+project docs and docs/specs/archive/native-branch.md. Use spec-writing to prepare
 implementation-ready specs for the six selected slices. Verify current source
 and installed provider capabilities, resolve ordering/persistence/failure
 contracts, and include mapped tests and a separate manual desktop checklist.

@@ -53,7 +53,7 @@ to MonoCode's structured harness channels (never PTY scraping) and SQLite-first 
 
 - `docs/WORKING-AGREEMENT.md`, `docs/WINDOWS-CHANGES.md`, `docs/changelog/LOCAL-CHANGELOG.md`,
   `docs/PLANNED.md` (ladder #9 Hari; queue/steer durability local5 done = supervision prerequisite).
-- `docs/specs/hari-mode-plan.md`: phase-0 board not in tree (`AppMode` still `projects|chat`,
+- `docs/specs/archive/hari-mode-plan.md`: phase-0 board not in tree (`AppMode` still `projects|chat`,
   Hari disabled in `ProjectRail.tsx:146,166,180,185`). Revival, not migration.
 - MonoCode primitives (reuse): `src/lib/session.ts:247-310` Session shape,
   `sessionStore.ts` + `session_store.rs` SQLite, `messageQueue.ts` queue/steer + 15s grace,

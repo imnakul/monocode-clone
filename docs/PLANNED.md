@@ -3,18 +3,13 @@
 Working roadmap for the personal fork. The north star first, the ladder to reach it second,
 current state third, and suggestions/quick wins on top at the end.
 
-## Latest build handoff — 2026-10-02 21:21 IST
+## Where things stand — 2026-10-03
 
-Reached: unsigned 0.6.0 NSIS installer built from `nakul/windows-support` at `18ab934`, archived and
-checksum-verified. Five version files remain uncommitted; no merge or push. Nakul explicitly chose
-0.6.0; upstream 0.7.0 has 17 commits absent here and is outside this build task.
-
-Left: manual installed-app checks. Full test gate remains red: two existing Mac shortcut expectations
-on Windows and one MCP fixture-ancestor test failure. Other checks and host tests pass; ESLint remains
-unavailable. No runtime/test fixes made as part of this version-only task.
-
-Open questions: none for building; Nakul can decide a separate test-fixture cleanup and future 0.7.0
-intake. [Build spec](specs/windows-060-build-plan.md) · [artifact and logs](notes/windows-060-build/README.md).
+Integration branch `nakul/windows-support-upstream-0.7.0` contains upstream MonoCode 0.7.0 plus the
+fork's work: Task Manager, Session Manager, Windows Quick Composer, gliding hover everywhere and the
+performance overlay. What changed is in [Changelog 02](changelog/CHANGELOG-02.md); what the fork adds
+over upstream is in [LOCAL-FEATURES.md](LOCAL-FEATURES.md). Open items: the Task Manager list FPS drop
+seen once (needs a fresh performance log), and fast-forwarding `nakul/windows-support` to the 0.7.0 line.
 
 ---
 
@@ -59,7 +54,7 @@ independent; Hari is a manager over them, not a bottleneck relay.
 
 ---
 
-## Current state (2026-09-06)
+## State on 2026-09-06 (historical)
 
 - **Antigravity ACP**: working end-to-end on `feature/antigravity-acp` — official runtime,
   Google sign-in, shared long-lived runtime (one process for all chats), catalog, resume,
@@ -250,7 +245,7 @@ UI, git, file explorer, notes, multi-provider in one window.
 
 - Completed the approved parking operation. Hari is preserved on `hari-orchestration-changes-30sept`; the four newer orchestration changes are preserved separately on `park-other-orchestration-mode-changes-30sept`. Both fork tips were fetched and reconstructed before source removal. See [the parking record](notes/orchestration-parking-30sept.md).
 - The active `nakul/windows-support` checkout retains only the independent Codex context-count fix, Claude human-origin change, and Antigravity ACP regression tests from this source snapshot. No source commit or push was made.
-- Next, confirm that the selected minor scope in `specs/provider-daily-work-improvements-plan.md` is complete, then re-inventory after parking. Collect the target version/build kind and selected upstream features/commits before implementation. Do not start those stages until the details are supplied and reviewed.
+- Next, confirm that the selected minor scope in `specs/archive/provider-daily-work-improvements-plan.md` is complete, then re-inventory after parking. Collect the target version/build kind and selected upstream features/commits before implementation. Do not start those stages until the details are supplied and reviewed.
 - The orchestration follow-up below describes the archived four-feature work. Resume it from its verified fork branch in a clean worktree; do not apply it over a future dirty checkout.
 
 ## Next orchestration work — 2026-09-25
@@ -311,3 +306,16 @@ feature when requested.
    queued ideas in a clear order; do not silently release them one by one.
    Design that start action and its relationship to manual reordering as a
    separate feature after the current orchestration work.
+
+## Build handoff — 2026-10-02 21:21 IST (historical, 0.6.0)
+
+Reached: unsigned 0.6.0 NSIS installer built from `nakul/windows-support` at `18ab934`, archived and
+checksum-verified. Five version files remain uncommitted; no merge or push. Nakul explicitly chose
+0.6.0; upstream 0.7.0 has 17 commits absent here and is outside this build task.
+
+Left: manual installed-app checks. Full test gate remains red: two existing Mac shortcut expectations
+on Windows and one MCP fixture-ancestor test failure. Other checks and host tests pass; ESLint remains
+unavailable. No runtime/test fixes made as part of this version-only task.
+
+Open questions: none for building; Nakul can decide a separate test-fixture cleanup and future 0.7.0
+intake. [Build spec](specs/windows-060-build-plan.md) · [artifact and logs](notes/windows-060-build/README.md).

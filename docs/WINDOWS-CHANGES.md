@@ -221,7 +221,7 @@ feedback, and chat background remains unchanged.
 settings restore correctly.
 
 The installer was built and archived. No browser or Tauri UI was opened by this agent. Full checklist:
-`docs/specs/compact-rail-wallpaper-halftone.md`.
+`docs/specs/archive/compact-rail-wallpaper-halftone.md`.
 
 ## 24 Sept 2026 22:58 IST -- 0.1.55-local3-rail-wallpaper release
 
@@ -237,7 +237,7 @@ The user reports the requested dev-mode pointers and earlier manual checks passe
 
 ## 23 Sept 2026 — Providers initial discovery indicator (unreleased)
 
-Opening Providers still starts its existing availability scan and eligible model catalog requests, but now shows "Checking providers…" in the header and disables every Recheck until both paths settle. A top-level request failure becomes a visible retry hint. No startup work or manual Recheck scope changed. Focused tests, TypeScript, production build, Rust checks, and the rest of the web suite pass; three unrelated `ContextMeter` tests assume Western number grouping on this `en-IN` machine. Manual UI verification remains for Nakul. Plan: `docs/specs/providers-loading-plan.md`; spec: `docs/specs/providers-initial-loading.md`.
+Opening Providers still starts its existing availability scan and eligible model catalog requests, but now shows "Checking providers…" in the header and disables every Recheck until both paths settle. A top-level request failure becomes a visible retry hint. No startup work or manual Recheck scope changed. Focused tests, TypeScript, production build, Rust checks, and the rest of the web suite pass; three unrelated `ContextMeter` tests assume Western number grouping on this `en-IN` machine. Manual UI verification remains for Nakul. Plan: `docs/specs/archive/providers-loading-plan.md`; spec: `docs/specs/providers-initial-loading.md`.
 
 **Live process sample, 16:54:26 IST:** dev `monocode.exe` PID 30212 had 20 direct/nested descendants using 1,609.1 MB working set: 1 app (68.0 MB), 1 OpenCode (842.9 MB), 6 Node (568.3 MB), 7 cmd (80.6 MB), 4 conhost (37.2 MB), 1 tabularis (12.1 MB). No PowerShell/pwsh in that tree. The dev root started at 16:48:00; OpenCode and its cmd/Node children began at 16:50:03–16:50:15, over two minutes later. Installed MonoCode PID 31344 had 13 descendants / 3,768.6 MB, of which 8 WebView2 processes accounted for 3,557.3 MB; its Antigravity stack remained present. This is process-tree working set, not unique physical RAM. WebView2 may reuse a browser parent across instances, so its parentage is insufficient for a clean dev-vs-installed UI memory comparison. No processes were terminated.
 
@@ -335,7 +335,7 @@ keeps a running `sleep`/dev server alive and output intact on return;
 (4) close/kill still confirms on running processes; (5) Providers page shows
 "Not checked yet" then honest status after visit/Recheck, saved Antigravity
 model preserved; (6) quit leaves no stray `pwsh`/ACP processes. Plan:
-`docs/specs/lazy-terminal-harness-plan.md`.
+`docs/specs/archive/lazy-terminal-harness-plan.md`.
 
 ## 12 Sept 2026 — 0.1.35-local5-queue-durability: Queue durability, SQLite migration 12, non-native steer cancellation, and lifecycle holds
 
@@ -482,7 +482,7 @@ text retains that index so selected ignored mentions remain recognized. Switchin
 `npx eslint . --fix` exits 1 before linting because the repository has no `eslint.config.*`
 (tooling blocker; no eslint configs created). Runtime behavior is ready for Nakul's dev-mode review.
 
-Plan: `docs/specs/gitignored-file-mentions-plan.md`.
+Plan: `docs/specs/archive/gitignored-file-mentions-plan.md`.
 
 ## 8 Sept 2026 — local3-reveal-tabs: Explorer false-error fix + tab fade
 
@@ -520,7 +520,7 @@ sent — fork only, no upstream contact. Before sending: run full
 tree, including the other session's unfinished Chat WIP — not a clean
 D+E-only build. A/B/C worktrees (cut from clean `437cd34`) lack D+E;
 merge this line into them after landing. Plans:
-`docs/specs/explorer-reveal-fix-plan.md`, `docs/notes/archive/tab-arrows-cleanup-plan.md`.
+`docs/specs/archive/explorer-reveal-fix-plan.md`, `docs/notes/archive/tab-arrows-cleanup-plan.md`.
 
 ## 7 Sept 2026 — Antigravity ACP: architecture, installed-build fix, and recovery runbook
 

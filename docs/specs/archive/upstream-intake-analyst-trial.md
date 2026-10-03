@@ -71,7 +71,7 @@ stage 0. Order of authority: this spec → `AGENTS.md` and `docs/WORKING-AGREEME
    (`log`, `diff`, `show`, `ls-tree`, `grep`, `rev-parse`, `merge-base`, `status`, `blame`) are fine.
 2. **Files you may write** (all inside the git-ignored `docs/` folder):
    - new files in `docs/notes/upstream-intake-2026-10-01/` (create the folder);
-   - one new file `docs/specs/upstream-intake-round-1.md` (stage 7);
+   - one new file `docs/specs/archive/upstream-intake-round-1.md` (stage 7);
    - one new row in `docs/specs/SPECS.md` under Draft (stage 7);
    - one new entry at the top of `docs/changelog/CHANGELOG-01.md` (stage 8).
    Edit nothing else. In particular do not edit `docs/NOTES.md`, the working agreement, older specs or records;
@@ -380,7 +380,7 @@ recommendation; rounds that a worker could finish; honest effort estimates; fit 
 
 **Steps.**
 1. Use the format of an existing spec in this repo, for example
-   `docs/specs/provider-batch-followup-fixes.md`: tier and snapshot line, In plain words, goal, scope, out of
+   `docs/specs/archive/provider-batch-followup-fixes.md`: tier and snapshot line, In plain words, goal, scope, out of
    scope, current behaviour with `file:line` facts, proposed behaviour and invariants, acceptance criteria as
    Given / When / Then, implementation plan, test matrix, verification, manual checks, facts / decisions /
    assumptions, open questions, implementer report format, and an empty Handoff retro for the spec writer.
@@ -395,12 +395,12 @@ recommendation; rounds that a worker could finish; honest effort estimates; fit 
    product decision; say so in the spec.
 4. Acceptance criteria must be testable without judgement. No phrases such as "handle conflicts correctly".
 5. Desktop checks are a separate follow-up list, not a worker task.
-6. Save it as `docs/specs/upstream-intake-round-1.md` with status Draft. Add its row at the top of the Draft
+6. Save it as `docs/specs/archive/upstream-intake-round-1.md` with status Draft. Add its row at the top of the Draft
    table in `docs/specs/SPECS.md` (creation time from `Get-Date`). Change nothing else in that file.
 7. Read your spec once more as the worker: list every place where the worker would have to guess, then fix
    those places.
 
-**Deliverable: `docs/specs/upstream-intake-round-1.md`** and the `SPECS.md` row. In the output folder add
+**Deliverable: `docs/specs/archive/upstream-intake-round-1.md`** and the `SPECS.md` row. In the output folder add
 `07-spec-notes.md`: the guesses you found and fixed in step 7, and what you could not specify and why.
 
 **Judged on:** a literal worker could execute it without asking; every conflict in the round has an
