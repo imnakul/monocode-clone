@@ -136,7 +136,7 @@ Implementation is complete; status **Review** until manual desktop/provider
 checks below are completed. Source and docs are on the requested branch, on top
 of `fa4118b`; the Task Manager/composer stack and defaults were preserved.
 
-Implementation commit: uncommitted (filled after the verified patch is saved).
+Implementation commit: `647cf0919e77cbbb30c714aa0797525a79ef90ae`.
 
 Verified on Linux in the managed workspace:
 - `npm run check:web`: 479 files, 5,263 tests; TypeScript clean.
