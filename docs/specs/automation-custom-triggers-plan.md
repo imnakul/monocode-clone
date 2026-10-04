@@ -80,7 +80,7 @@ Reuse existing automation rows, inputs, selects, switches and scheduler.
 - [x] Settle Operator preference; implement switch and persistent indicator.
 - [x] Finish plugin research and feasibility/edge-case note.
 - [x] Run complete checks/build and update records.
-- [ ] Commit/push and verify the remote checkpoint.
+- [x] Commit/push and verify the remote checkpoint.
 - [x] Provide manual dev-mode checklist (execution pending).
 
 ## Issues and fixes
@@ -115,7 +115,14 @@ was not a safe bound for all valid numeric cron expressions.
 
 ## Done
 
-Implementation and final gates are complete; publication and manual review remain.
+Implementation, final gates and publication are complete; manual review remains.
+Source commit: `c71ef9c24a49c92052d4629196cd75345da5ca6e`, pushed to
+`origin/nakul/windows-support-upstream-0.7.0` and verified with `ls-remote`.
+Both previous complete lines (`fa566bc` upstream intake and `ff70130` provider
+work) remain ancestors; each has zero commits absent from the published HEAD.
+Only the two pre-existing untracked UPSTREAM-0.7.0 documents remain in the
+worktree, untouched. This documentation-only publication checkpoint follows
+the source commit; validated source is unchanged.
 No plugin runtime/scope setting, installer/version bump or actual scheduled
 task/ClickUp operation was created. Existing local features L-01–L-64 remain
 on this branch; new behavior is registered as L-65–L-66.
