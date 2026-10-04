@@ -2,6 +2,7 @@ import {
   ArrowUp,
   AiIdea,
   Check,
+  Cloud,
   CircleDashed,
   CornerDownRight,
   CursorMagicSelection,
@@ -2707,6 +2708,7 @@ export function Composer({
                         setPlusOpen(false);
                         ref.current?.focus();
                       }}
+                      data-shared-hover-item
                       className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
                     >
                       <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
@@ -2746,6 +2748,7 @@ export function Composer({
                         setPlusOpen(false);
                         ref.current?.focus();
                       }}
+                      data-shared-hover-item
                       className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
                     >
                       <CursorMagicSelection className="mt-0.5 size-4 shrink-0 text-sky-300/80" />
@@ -2778,6 +2781,7 @@ export function Composer({
                         setPlusOpen(false);
                         ref.current?.focus();
                       }}
+                      data-shared-hover-item
                       className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
                     >
                       <Share className="mt-0.5 size-4 shrink-0 text-fuchsia-300/65" />
@@ -2811,6 +2815,7 @@ export function Composer({
                         setPlusOpen(false);
                         ref.current?.focus();
                       }}
+                      data-shared-hover-item
                       className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
                     >
                       <CircleDashed className="mt-0.5 size-4 shrink-0 text-content/60" />
@@ -2821,6 +2826,31 @@ export function Composer({
                         </span>
                       </span>
                       {draftActive ? (
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
+                      ) : null}
+                    </button>
+                  ) : null}
+                {cloudLaunch ? (
+                    <button
+                      type="button"
+                      aria-pressed={cloudLaunch.active}
+                      data-shared-hover-item
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        cloudLaunch.setActive(!cloudLaunch.active);
+                        setPlusOpen(false);
+                        ref.current?.focus();
+                      }}
+                      className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
+                    >
+                      <Cloud className="mt-0.5 size-4 shrink-0 text-sky-300/80" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px]">Cloud session</span>
+                        <span className="block truncate whitespace-nowrap text-[11px] leading-4 text-content/45">
+                          Run this session in the provider's cloud
+                        </span>
+                      </span>
+                      {cloudLaunch.active ? (
                         <Check className="mt-0.5 size-3.5 shrink-0 text-accent" />
                       ) : null}
                     </button>
@@ -2926,7 +2956,6 @@ export function Composer({
                     onClose={() => ref.current?.focus()}
                   />
                 ) : null}
-                {cloudLaunch?.control}
               </div>
             </div>
 

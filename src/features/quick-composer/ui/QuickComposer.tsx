@@ -29,6 +29,8 @@ import {
   Plus,
   X,
   ImagePlus,
+  Cloud,
+  Check,
   Maximize2,
   MessageMultiple,
 } from "../../../shared/ui/icons";
@@ -844,7 +846,6 @@ export function QuickComposer({
             ariaLabel="Create"
           />
         ) : null}
-        {!taskMode && cloudLaunch ? cloudLaunch.control : null}
         <button
           type="button"
           aria-label="Close composer"
@@ -1009,14 +1010,20 @@ export function QuickComposer({
           <button
             type="button"
             ref={plusRef}
-            aria-label="Add attachment"
+            aria-label="Add files or choose a mode"
             aria-expanded={picker === "attachments"}
             title={
               attachmentsSupported
-                ? "Attach files or take a screenshot"
-                : "This provider does not support attachments"
+                ? "Attach files, take a screenshot or start a cloud session"
+                : cloudLaunch
+                  ? "Start a cloud session"
+                  : "This provider does not support attachments"
             }
-            disabled={!attachmentsSupported || attachments.loading || busy}
+            disabled={
+              (!attachmentsSupported && !cloudLaunch) ||
+              attachments.loading ||
+              busy
+            }
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => openPicker("attachments")}
             className={`grid size-7 shrink-0 place-items-center rounded-md disabled:opacity-40 ${picker === "attachments" ? "bg-selection-emphasis text-content" : "text-content/70 hover:bg-selection-hover hover:text-content"}`}
@@ -1184,6 +1191,7 @@ export function QuickComposer({
               setPicker(null);
               void attachments.chooseFiles().then(focusPrompt);
             }}
+            data-shared-hover-item
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-selection-hover disabled:opacity-40"
           >
             <ImagePlus className="size-3.5" />
@@ -1198,11 +1206,31 @@ export function QuickComposer({
               setPicker(null);
               void attachments.takeScreenshot().then(focusPrompt);
             }}
+            data-shared-hover-item
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-selection-hover disabled:opacity-40"
           >
             <Maximize2 className="size-3.5" />
             Take screenshot…
           </button>
+          {cloudLaunch ? (
+            <button
+              type="button"
+              aria-pressed={cloudLaunch.active}
+              data-shared-hover-item
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                cloudLaunch.setActive(!cloudLaunch.active);
+                closePicker();
+              }}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-selection-hover disabled:opacity-40"
+            >
+              <Cloud className="size-3.5" />
+              <span className="flex-1">Cloud session</span>
+              {cloudLaunch.active ? (
+                <Check className="size-3.5 text-accent" />
+              ) : null}
+            </button>
+          ) : null}
         </Popover>
       ) : null}
       {promptMenu.open && !picker && !taskMode ? (

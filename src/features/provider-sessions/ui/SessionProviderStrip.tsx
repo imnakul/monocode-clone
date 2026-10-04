@@ -3,19 +3,10 @@ import {
   ExplorerMenu,
   type ExplorerMenuItem,
 } from "../../files/ui/ExplorerMenu";
-import {
-  Check,
-  CircleAlert,
-  Copy,
-  Loader,
-  RemoteControl,
-  RefreshCw,
-} from "../../../shared/ui/icons";
+import { Computer, Copy, RefreshCw } from "../../../shared/ui/icons";
+import { REMOTE_CONTROL_ICON_CLASS } from "./RemoteControlIndicator";
 import { copyText } from "../../../platform/tauri/clipboard";
-import {
-  remoteControlView,
-  type RemoteControlView,
-} from "../model/remoteControlView";
+import { remoteControlView } from "../model/remoteControlView";
 import type { RemoteControlStatus } from "../../../integrations/harness/core/types";
 
 export type SessionProviderStripProps = {
@@ -36,28 +27,6 @@ export type SessionProviderStripProps = {
     onChange: (enabled: boolean) => void;
   };
 };
-
-const TONE_CLASS: Record<RemoteControlView["tone"], string> = {
-  neutral: "text-content/55",
-  busy: "text-accent",
-  ok: "text-emerald-400",
-  warn: "text-amber-400",
-  error: "text-red-400",
-};
-
-function ToneIcon({ view }: { view: RemoteControlView }): ReactElement {
-  if (view.tone === "busy")
-    return (
-      <Loader
-        aria-hidden
-        className="size-3 animate-spin motion-reduce:animate-none"
-      />
-    );
-  if (view.tone === "ok") return <Check aria-hidden className="size-3" />;
-  if (view.tone === "error" || view.tone === "warn")
-    return <CircleAlert aria-hidden className="size-3" />;
-  return <RemoteControl aria-hidden className="size-3" />;
-}
 
 /**
  * Slim strip above a session's transcript: the "older messages are not shown"
@@ -178,13 +147,12 @@ export function SessionProviderStrip({
             aria-haspopup="menu"
             aria-expanded={anchor !== null}
             onClick={(event) => setAnchor(event.currentTarget)}
-            className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-content/10 px-2 transition-colors duration-100 hover:bg-content/10 ${TONE_CLASS[view.tone]} ${
+            className={`grid size-6 shrink-0 place-items-center rounded-md transition-colors duration-100 hover:bg-content/10 ${REMOTE_CONTROL_ICON_CLASS[view.label]} ${
               anchor ? "bg-selection" : ""
             }`}
           >
-            <ToneIcon view={view} />
-            <span>Remote Control</span>
-            <span className="text-content/80">{view.label}</span>
+            {/* The PC icon alone; its colour carries the state (accent = on). */}
+            <Computer aria-hidden className="size-3.5" strokeWidth={1.75} />
           </button>
           <span className="sr-only" role="status" aria-live="polite">
             {`Remote Control ${view.label}`}

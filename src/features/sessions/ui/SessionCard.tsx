@@ -62,6 +62,7 @@ export function SessionCard({
   onRename,
   onDelete,
   statusDetail,
+  badge,
 }: {
   session: SessionSummary;
   isActive: boolean;
@@ -84,6 +85,8 @@ export function SessionCard({
   onDelete?: () => void;
   /** Optional status supplied by a provider conversation list. */
   statusDetail?: ReactNode;
+  /** Small marker after the model name (e.g. the Remote Control PC icon). */
+  badge?: ReactNode;
 }) {
   const skipClickUntil = useRef(0);
   const [dragging, setDragging] = useState(false);
@@ -289,6 +292,7 @@ export function SessionCard({
             <span className="min-w-0 truncate text-[11px] text-content/50">
               {model}
             </span>
+            {badge}
           </span>
           {statusDetail ?? status}
         </span>

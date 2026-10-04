@@ -219,13 +219,15 @@ it("hides the session pane without removing its card and supports keyboard resiz
   expect(localStorage.getItem("monocode.boardWidth")).toBe("43");
   act(() =>
     [...container.querySelectorAll("button")]
-      .find((button) => button.textContent === "Hide session pane")!
+      .find((button) => button.getAttribute("aria-label") === "Close session")!
       .click(),
   );
+  // One close icon for the pane; no "Hide session pane" text in the toolbar.
+  expect(container.textContent).not.toContain("Hide session pane");
   // The pane slides out first (still mounted, not interactive), then hides.
   const host = container.querySelector<HTMLElement>(
     '[aria-label="Board session workspace"]',
-  )!;
+  )!.parentElement!;
   expect(host.hasAttribute("inert")).toBe(true);
   expect(host.className).toContain("translate-x-full");
   expect(props.onPaneVisible).toHaveBeenLastCalledWith(true);

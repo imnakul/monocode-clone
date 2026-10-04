@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { OverlayNav } from "../../../app/shell/TitleBar";
 import { WindowControls } from "../../../app/shell/WindowControls";
 import { IS_MAC } from "../../../platform/tauri/platform";
-import { MessageMultiple, Plus, Search } from "../../../shared/ui/icons";
+import { MessageMultiple, Plus, Search, X } from "../../../shared/ui/icons";
+import { isHarnessId } from "../../sessions/model/models";
+import { sessionDisplayTitle } from "../../sessions/model/session";
 import {
   BoardColumn,
   BoardColumns,
@@ -73,6 +75,7 @@ export function SessionBoardView({
   onEditTodo,
   onStartTodo,
   onDeleteTodo,
+  remoteControlSessionIds,
 }: {
   cards: readonly BoardCard[];
   cwd?: string;
@@ -91,6 +94,8 @@ export function SessionBoardView({
   onEditTodo?: (id: string) => Promise<void>;
   onStartTodo?: (id: string) => Promise<void>;
   onDeleteTodo?: (id: string) => Promise<void>;
+  /** Chats with Remote Control turned on; their cards show a PC icon. */
+  remoteControlSessionIds?: ReadonlySet<string>;
 }) {
   const [query, setQuery] = useState("");
   const [project, setProject] = useState("");
@@ -148,6 +153,12 @@ export function SessionBoardView({
     return [...paths.values()];
   }, [cards, recents, cwd]);
   const boardCards = visibleBoardCards(cards);
+  const paneCard = cards.find((card) => card.sessionId === activeSessionId);
+  const paneTitle = paneCard
+    ? isHarnessId(paneCard.harness)
+      ? sessionDisplayTitle(paneCard.title, paneCard.harness)
+      : paneCard.title
+    : "Session";
   const needle = query.trim().toLowerCase();
   const matchesProject = (card: BoardCard) =>
     !project || pathKey(project) === pathKey(card.cwd);
@@ -335,15 +346,6 @@ export function SessionBoardView({
             Reset
           </button>
         ) : null}
-        {selected ? (
-          <button
-            type="button"
-            className="ml-auto h-7 shrink-0 rounded-md px-2.5 text-[12px] text-content/70 hover:bg-content/10 hover:text-content"
-            onClick={() => setSelected(false)}
-          >
-            Hide session pane
-          </button>
-        ) : null}
       </div>
       {error || actionError ? (
         <div role="alert" className="p-2 text-xs text-red-400">
@@ -421,6 +423,10 @@ export function SessionBoardView({
                             key={card.sessionId}
                             card={card}
                             lane={key}
+                            remoteControl={
+                              remoteControlSessionIds?.has(card.sessionId) ??
+                              false
+                            }
                             now={now}
                             busy={busy}
                             preserveHover={
@@ -490,7 +496,6 @@ export function SessionBoardView({
           />
         ) : null}
         <div
-          ref={onWorkspaceHost}
           inert={pane.mounted && !selected ? true : undefined}
           className={
             pane.mounted
@@ -501,8 +506,29 @@ export function SessionBoardView({
                 }`
               : "hidden"
           }
-          aria-label="Board session workspace"
-        />
+        >
+          {/* The pane shows one session: no tab strip or window buttons here,
+              just its title and a single close (the board stays open). */}
+          <div className="flex h-9 shrink-0 items-center gap-2 border-b border-stroke pl-3 pr-1.5">
+            <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-content/80">
+              {paneTitle}
+            </span>
+            <button
+              type="button"
+              aria-label="Close session"
+              title="Close session"
+              onClick={() => setSelected(false)}
+              className="grid size-7 shrink-0 place-items-center rounded-md text-content/55 transition-colors duration-100 hover:bg-content/10 hover:text-content"
+            >
+              <X aria-hidden className="size-3.5" strokeWidth={1.75} />
+            </button>
+          </div>
+          <div
+            ref={onWorkspaceHost}
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
+            aria-label="Board session workspace"
+          />
+        </div>
       </div>
     </div>
   );

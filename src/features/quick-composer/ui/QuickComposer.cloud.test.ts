@@ -136,15 +136,21 @@ async function render(props: Record<string, unknown> = {}): Promise<void> {
   prompt = container.querySelector("textarea")!;
 }
 
+/** Cloud is chosen from the + menu ("Cloud session"), not a switch. */
+function cloudItem(): HTMLButtonElement | undefined {
+  return [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+    (element) => element.textContent?.trim() === "Cloud session",
+  );
+}
+
 async function selectCloud(): Promise<void> {
-  const control = container.querySelector(
-    '[role="tablist"][aria-label="Where this session runs"]',
+  const plus = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Add files or choose a mode"]',
   );
-  if (!control) throw new Error("Missing Local | Cloud control");
-  const cloud = [...control.querySelectorAll("button")].find(
-    (element) => element.textContent?.trim() === "Cloud",
-  );
-  if (!cloud) throw new Error("Missing Cloud option");
+  if (!plus) throw new Error("Missing + menu");
+  await click(plus);
+  const cloud = cloudItem();
+  if (!cloud) throw new Error("Missing Cloud session option");
   await click(cloud);
 }
 
@@ -262,12 +268,13 @@ it("keeps Save to Draft local and resets execution to Local", async () => {
       reveal: false,
     }),
   });
-  const control = container.querySelector(
-    '[role="tablist"][aria-label="Where this session runs"]',
+  // Back to Local: the + menu's Cloud session is no longer checked.
+  await click(
+    container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add files or choose a mode"]',
+    )!,
   );
-  expect(
-    control?.querySelector('[role="tab"][aria-selected="true"]')?.textContent,
-  ).toBe("Local");
+  expect(cloudItem()?.getAttribute("aria-pressed")).toBe("false");
 });
 
 it("keeps a failed cloud prompt and shows the returned error without local send", async () => {

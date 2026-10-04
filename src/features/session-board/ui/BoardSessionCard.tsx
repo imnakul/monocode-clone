@@ -8,7 +8,9 @@ import {
   Play,
   Square,
   X,
+  Zap,
 } from "../../../shared/ui/icons";
+import { RemoteControlIndicator } from "../../provider-sessions/ui/RemoteControlIndicator";
 import { isHarnessId, resolveModel } from "../../sessions/model/models";
 import {
   sessionDisplayTitle,
@@ -57,6 +59,7 @@ export function BoardSessionCard({
   onEdit,
   onDelete,
   onRemove,
+  remoteControl = false,
 }: {
   card: BoardCard;
   lane: BoardLane;
@@ -69,6 +72,8 @@ export function BoardSessionCard({
   onEdit?: () => void;
   onDelete?: () => void;
   onRemove: () => void;
+  /** Remote Control is turned on for this chat. */
+  remoteControl?: boolean;
 }): ReactNode {
   const harness = isHarnessId(card.harness) ? card.harness : null;
   // Same labels as the session list: no "Provider · " title prefix, and the
@@ -224,6 +229,17 @@ export function BoardSessionCard({
             </span>
           </span>
         )}
+        {card.automation && lane === "in_progress" ? (
+          <span
+            role="img"
+            aria-label="Automation run"
+            title="Automation run"
+            className="inline-flex shrink-0 text-accent"
+          >
+            <Zap aria-hidden className="size-3" strokeWidth={1.75} />
+          </span>
+        ) : null}
+        {remoteControl && !finished ? <RemoteControlIndicator /> : null}
         <BoardCardTag
           label={tag.label}
           tone={tag.tone}

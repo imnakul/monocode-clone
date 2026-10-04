@@ -567,6 +567,16 @@ describe("sidebar session rename", () => {
     expect(card().className).not.toContain("hover:bg-content/5");
   });
 
+  it("shows the accent PC icon only on chats with Remote Control turned on", () => {
+    act(() => render());
+    expect(card().querySelector("[data-remote-control-indicator]")).toBeNull();
+    props.remoteControlSessionIds = new Set(["session-1"]);
+    act(() => render());
+    const icon = card().querySelector("[data-remote-control-indicator]");
+    expect(icon?.getAttribute("aria-label")).toBe("Remote Control: On");
+    expect(icon?.className).toContain("text-accent");
+  });
+
   it("prefetches after a deliberate hover and immediately on press", () => {
     vi.useFakeTimers();
     props.onPrefetchSession = vi.fn();

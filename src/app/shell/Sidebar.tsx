@@ -1,3 +1,4 @@
+import { RemoteControlIndicator } from "../../features/provider-sessions/ui/RemoteControlIndicator";
 import { NO_BRANCH_LABEL } from "../../features/source-control/model/worktrees";
 import {
   type WorktreeFocus,
@@ -277,6 +278,8 @@ type Props = {
     item: LinkedWorkItem | undefined,
   ) => void;
   reminders?: readonly SessionReminder[];
+  /** Chats with Remote Control turned on (saved choice); they show a PC icon. */
+  remoteControlSessionIds?: ReadonlySet<string>;
   onSetReminders?: (sessionIds: readonly string[], dueAt: number) => void;
   onCancelReminders?: (sessionIds: readonly string[]) => void;
   onDeleteSession?: (sessionId: string) => void;
@@ -392,6 +395,7 @@ function SidebarComponent({
   onPinSessions: onPinLocalSessions,
   onSetSessionLinkedWorkItem: onSetLocalSessionLinkedWorkItem,
   reminders = [],
+  remoteControlSessionIds,
   onSetReminders,
   onCancelReminders,
   onDeleteSession: onDeleteLocalSession,
@@ -1595,6 +1599,7 @@ function SidebarComponent({
         onArchive={onArchiveSession ? cardActions.archive : undefined}
         onRename={onRenameSession ? cardActions.rename : undefined}
         onDelete={onDeleteSession ? cardActions.delete : undefined}
+        remoteControl={remoteControlSessionIds?.has(session.id) ?? false}
       />
     );
 
@@ -3224,6 +3229,7 @@ const SessionCard = memo(function SessionCard({
   onArchive,
   onRename,
   onDelete,
+  remoteControl = false,
 }: {
   session: SessionSummary;
   isActive: boolean;
@@ -3251,6 +3257,8 @@ const SessionCard = memo(function SessionCard({
   onArchive?: (sessionId: string, archived: boolean) => void;
   onRename?: (sessionId: string) => void;
   onDelete?: (sessionId: string) => void;
+  /** Remote Control is turned on for this chat: show the accent PC icon. */
+  remoteControl?: boolean;
 }) {
   const skipClickUntil = useRef(0);
   const prefetchTimer = useRef<number | null>(null);
@@ -3607,6 +3615,7 @@ const SessionCard = memo(function SessionCard({
                 <span className="min-w-0 truncate text-[11px] text-content/50">
                   {model}
                 </span>
+                {remoteControl ? <RemoteControlIndicator /> : null}
               </span>
               <span className="flex shrink-0 items-center gap-1.5">
                 {linkedUpdateDot}
