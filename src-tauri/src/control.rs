@@ -441,6 +441,39 @@ pub fn control_authorize_turn(
 }
 
 #[tauri::command]
+pub fn control_revoke_app_access(
+    window: WebviewWindow,
+    host: State<'_, ControlHost>,
+    session_id: String,
+) -> Result<(), String> {
+    let mut inner = host
+        .inner
+        .lock()
+        .map_err(|_| "Control service unavailable")?;
+    revoke_app_access(&mut inner, &session_id, window.label())
+}
+
+fn revoke_app_access(inner: &mut Inner, session_id: &str, window: &str) -> Result<(), String> {
+    if inner
+        .app_grants
+        .get(session_id)
+        .is_some_and(|grant| grant.window != window)
+        || inner
+            .active
+            .get(session_id)
+            .is_some_and(|turn| turn.window != window)
+    {
+        return Err("This session belongs to another window".into());
+    }
+    if let Some(turn) = inner.active.get_mut(session_id) {
+        turn.app_allowed = false;
+    }
+    // Keep the credential identity for an existing provider process. The active
+    // opt-in gate rejects it now; a future explicit Operator turn can re-enable it.
+    Ok(())
+}
+
+#[tauri::command]
 pub fn control_turn_finished(host: State<'_, ControlHost>, session_id: String) {
     if let Ok(mut inner) = host.inner.lock() {
         inner.active.remove(&session_id);
@@ -648,7 +681,9 @@ mod tests {
         );
         assert!(request_grant(&inner, "app", "app-token").is_ok());
         assert!(request_grant(&inner, "control", "app-token").is_err());
-        inner.active.get_mut("ordinary").unwrap().app_allowed = false;
+        assert!(revoke_app_access(&mut inner, "ordinary", "another-window").is_err());
+        assert!(request_grant(&inner, "app", "app-token").is_ok());
+        revoke_app_access(&mut inner, "ordinary", "main").unwrap();
         assert!(request_grant(&inner, "app", "app-token").is_err());
         inner.active.remove("ordinary");
         assert!(request_grant(&inner, "app", "app-token").is_err());

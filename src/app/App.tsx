@@ -1323,6 +1323,7 @@ function Workspace({
 
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
+  const operatorRevocations = useRef(new Set<string>());
   const linkedSessionUpdatesRef = useRef<
     ReadonlyMap<string, LinkedSessionUpdate>
   >(new Map());
@@ -1717,15 +1718,16 @@ function Workspace({
   );
 
   /**
-   * Remote Control events are not part of a turn: they arrive after a turn
-   * ends, on enable/retry and on process exit. They reach the session through
-   * this per-session route (never a turn-generation-gated callback) and only
-   * touch Remote Control fields, never busy or turn state.
+   * Remote Control and phone transcript events outlive a local turn callback.
+   * Route them per session, outside the submit-generation gate. Phone envelopes
+   * update their own transcript boundary and never settle a local submission.
    */
   const routeRemoteControlEvent = useCallback(
     (sessionId: string, event: HarnessEvent) => {
-      persistClaudeRemoteControlEvent(sessionId, event);
-      setRemoteControlDesired(loadRemoteControlSessions());
+      if (event.type === "remoteControl.changed") {
+        persistClaudeRemoteControlEvent(sessionId, event);
+        setRemoteControlDesired(loadRemoteControlSessions());
+      }
       enqueueHarnessEvent(sessionId, event);
     },
     [enqueueHarnessEvent],
@@ -5490,7 +5492,7 @@ function Workspace({
           enabled,
           name: session.title,
           onEvent: (event) => {
-            if (event.type === "remoteControl.changed")
+            if (event.type === "remoteControl.changed" || event.type.startsWith("externalTurn."))
               routeRemoteControlEvent(sessionId, event);
           },
         });
@@ -5518,6 +5520,30 @@ function Workspace({
     },
     [flushHarnessEvents, routeRemoteControlEvent],
   );
+
+  const onDisableOperator = useCallback((sessionId: string): void => {
+    const current = sessionsRef.current.find((session) => session.id === sessionId);
+    if (!current || current.busy || current.externalTurnId || operatorRevocations.current.has(sessionId)) return;
+    operatorRevocations.current.add(sessionId);
+    void (async () => {
+      try {
+        await invoke("control_revoke_app_access", { sessionId });
+        const block: Block = { id: crypto.randomUUID(), role: "system",
+          text: "Operator access disabled. Later messages use normal chat access.", operatorAccess: false };
+        const update = (sessions: Session[]): Session[] => sessions.map((session) =>
+          session.id === sessionId && !session.blocks.some((saved) => saved.id === block.id)
+            ? { ...session, blocks: [...session.blocks, block] } : session);
+        // A send arriving before React's next render must already see Off.
+        sessionsRef.current = update(sessionsRef.current);
+        setSessions(update);
+      } catch (error) {
+        enqueueHarnessEvent(sessionId, { type: "status", text: `Could not disable Operator: ${String(error)}` });
+        flushHarnessEvents();
+      } finally {
+        operatorRevocations.current.delete(sessionId);
+      }
+    })();
+  }, [enqueueHarnessEvent, flushHarnessEvents]);
 
   const onSelectProvider = useCallback((provider: NativeProvider) => {
     setSearchViewOpen(false);
@@ -5654,6 +5680,8 @@ function Workspace({
       openingKey={providerOpeningKey}
       actionError={providerActionError}
       activeSessionId={active?.id}
+      sessions={sessions}
+      remoteControlDesired={remoteControlDesired}
       onShowArchivedChange={providerConversations.setShowArchived}
       onRefresh={() => refreshProviderConversations(selectedProvider)}
       onLoadMore={() => providerConversations.loadMore(selectedProvider)}
@@ -6896,6 +6924,7 @@ function Workspace({
       if (
         removingSessionIds.current.has(sessionId) ||
         switchingWorktrees.current.has(sessionId) ||
+        operatorRevocations.current.has(sessionId) ||
         workspaceNavigation.isSwitching(sessionId)
       )
         return false;
@@ -7834,7 +7863,7 @@ function Workspace({
               ...(editedResend ? { onAccepted: acceptEditedResend } : {}),
               humanAuthored: !options?.managed,
               onEvent: event => {
-                if (event.type === "remoteControl.changed") {
+                if (event.type === "remoteControl.changed" || event.type.startsWith("externalTurn.")) {
                   routeRemoteControlEvent(sessionId, event);
                   return;
                 }
@@ -7910,7 +7939,7 @@ function Workspace({
           );
           if (operatorCommand.matched) {
             const cli = `${shellPath(await invoke<string>("app_cli_path"))} app`;
-            sendText += `\n\n<monocode_app>\nThe user's Operator command enables app access in this thread, including later turns without the command. You can start session tabs or split session panes right or down, list and create project worktrees, choose a new session's checkout, read and continue other project sessions, save unsent drafts, organize session folders, and read or write saved notes and tasks through its local CLI. Session Manager supports prepared Todos with session_manager.list/read/write/delete/start, plus run-scoped remove/clear of done and stopped cards (both shown in the Done column). Saving a Todo does not launch an agent; start it explicitly. Todos preserve project, provider/model/settings/effort, permissions, prompt, files/images, and workspace/base. Operator can manage Todos across local projects via projectCwd. Task Manager uses the existing tasks.* actions. Tasks support status, tags, Personal/project association, source links, completion and deletion; tasks.list filters by status/statuses, tags (all or any), projectCwd and query with pagination. Run \`${cli} --help\` for exact commands and JSON fields, then use it as needed for the user's request. When reading another session, start with its latest two or three user/assistant exchanges. Request older exchanges with nextBefore or a larger excerpt only if needed. The CLI uses a session credential already in your environment; never print it. New sessions inherit this session's permission mode unless runtimeMode is set explicitly. For a new session with a draft, call sessions.start with its prompt and draft:true; do not submit a seed prompt. The returned ID can be used as besideSessionId to split its pane again or moved into a folder immediately. A normal sessions.start submits its prompt but returns after acceptance, so do not wait for that agent to finish before organizing it.\n</monocode_app>`;
+            sendText += `\n\n<monocode_app>\nThe user's Operator command enables app access in this thread, including later turns without the command. You can start session tabs or split session panes right or down, list and create project worktrees, choose a new session's checkout, read and continue other project sessions, save unsent drafts, organize session folders, and read or write saved notes and tasks through its local CLI. Use the supported CLI/API to create, submit and track sessions. Never insert or edit MonoCode internal SQLite database rows: that bypasses live agents, request receipts and the Session Manager run ledger, and stored assistant text is not proof a worker ran. Session Manager supports prepared Todos with session_manager.list/read/write/delete/start, plus run-scoped remove/clear of done and stopped cards (both shown in the Done column). Saving a Todo does not launch an agent; start it explicitly. Todos preserve project, provider/model/settings/effort, permissions, prompt, files/images, and workspace/base. Operator can manage Todos across local projects via projectCwd. Task Manager uses the existing tasks.* actions. Tasks support status, tags, Personal/project association, source links, completion and deletion; tasks.list filters by status/statuses, tags (all or any), projectCwd and query with pagination. Run \`${cli} --help\` for exact commands and JSON fields, then use it as needed for the user's request. When reading another session, start with its latest two or three user/assistant exchanges. Request older exchanges with nextBefore or a larger excerpt only if needed. The CLI uses a session credential already in your environment; never print it. New sessions inherit this session's permission mode unless runtimeMode is set explicitly. For a new session with a draft, call sessions.start with its prompt and draft:true; do not submit a seed prompt. The returned ID can be used as besideSessionId to split its pane again or moved into a folder immediately. A normal sessions.start submits its prompt but returns after acceptance, so do not wait for that agent to finish before organizing it.\n</monocode_app>`;
           }
           await sendTurn(sendText);
           acceptEditedResend();
@@ -8120,7 +8149,7 @@ function Workspace({
   const onSubmit = useCallback(
     (...args: Parameters<Submit>): boolean => {
       // Reject before async preparation can make the composer clear its draft.
-      if (workspaceNavigation.isSwitching(args[0])) return false;
+      if (workspaceNavigation.isSwitching(args[0]) || operatorRevocations.current.has(args[0])) return false;
       const result = submitSession(...args);
       if (typeof result === "boolean") return result;
       // Deferred errors have already been displayed by submitAfterProjectSync.
@@ -9773,7 +9802,7 @@ function Workspace({
                 : undefined,
               runtimeMode: current.runtimeMode,
               onEvent: (event) => {
-                if (event.type === "remoteControl.changed") {
+                if (event.type === "remoteControl.changed" || event.type.startsWith("externalTurn.")) {
                   routeRemoteControlEvent(sessionId, event);
                   return;
                 }
@@ -10503,6 +10532,7 @@ function Workspace({
         );
         if (
           !source ||
+          !operatorEnabledInThread(source.blocks) ||
           source.inboxAsk ||
           source.orchestrationLeadId ||
           orchestrator.run(source.id)
@@ -12085,6 +12115,7 @@ function Workspace({
     onNewTerminal: onNewTerminalInSession,
     remoteControlDesired,
     onRemoteControlChange: onChangeRemoteControl,
+    onOperatorDisable: onDisableOperator,
     onCloudLaunchOutcome,
     onReviewFix,
     onBranch,
@@ -12251,7 +12282,6 @@ function Workspace({
               providerEntries={providerRailEntries}
               selectedProvider={selectedProvider}
               onSelectProvider={onSelectProvider}
-              onRefreshProvider={refreshProviderConversations}
               providerPanel={providerPanel}
               onNew={onNew}
               openSessions={openProjectSessions}

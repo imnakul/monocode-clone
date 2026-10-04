@@ -45,7 +45,7 @@ export function listProviderConversations(
     provider,
     accountId: options.accountId ?? "default",
     includeArchived: options.includeArchived ?? false,
-    limit: options.limit ?? 100,
+    limit: options.limit ?? 10,
     offset: options.offset ?? 0,
   });
 }

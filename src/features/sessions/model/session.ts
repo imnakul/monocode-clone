@@ -328,6 +328,12 @@ export type Block = {
   draft?: boolean;
   /** This user turn activated MonoCode app access for its thread. */
   monocode?: boolean;
+  /** Ordered system marker overriding historical Operator activation. */
+  operatorAccess?: boolean;
+  /** Native phone-turn identity, also kept on its assistant/tool blocks. */
+  externalTurnId?: string;
+  /** Claude message UUID used to avoid replaying a saved phone prompt as history. */
+  providerMessageId?: string;
   /** The Plan or Orchestrator mode this user turn was sent in. */
   intent?: Extract<TurnIntent, "plan" | "orchestrate">;
   /** Stable CLI request that submitted this turn, for safe retries. */
@@ -483,6 +489,8 @@ export type Session = {
   remoteControlStatus?: RemoteControlStatus;
   remoteControlUrl?: string;
   remoteControlMessage?: string;
+  /** An independently running phone turn; never settles the local submit. */
+  externalTurnId?: string;
   /** Named local credential profile used by Claude or Codex. */
   providerAccountId?: string;
   /** Context-window level reported by the harness. Absent until it reports. */

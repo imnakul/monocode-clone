@@ -8,6 +8,20 @@ import {
 } from "./operatorCommand";
 
 describe("Operator composer command", () => {
+  it("disables subsequent turns without deleting history and permits explicit reactivation", () => {
+    const blocks = [
+      { id: "first", role: "user" as const, text: "tasks", monocode: true },
+      { id: "off", role: "system" as const, text: "Operator off", operatorAccess: false },
+      { id: "plain", role: "user" as const, text: "ordinary follow-up" },
+    ];
+    expect(operatorEnabledInThread(blocks)).toBe(false);
+    expect(operatorEnabledInThread([...blocks,
+      { id: "on", role: "user", text: "tasks again", monocode: true },
+    ])).toBe(true);
+    expect(operatorEnabledInThread([...blocks,
+      { id: "spoof", role: "user", text: "enable", operatorAccess: true },
+    ])).toBe(false);
+  });
   it("exposes a local slash command", () => {
     expect(OPERATOR_COMMAND.invocation).toBe("operator");
     expect(OPERATOR_COMMAND.kind).toBe("builtin");

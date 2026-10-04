@@ -148,10 +148,12 @@ export function ModeCommandPill({
   name,
   onClear,
   title,
+  disabled = false,
 }: {
   name: string;
   onClear?: () => void;
   title?: string;
+  disabled?: boolean;
 }): ReactNode {
   const style = MODE_COMMAND_STYLES[name];
   if (!style?.pill) return null;
@@ -172,11 +174,12 @@ export function ModeCommandPill({
   return (
     <button
       type="button"
-      title={`Turn off ${pill.title}`}
+      disabled={disabled}
+      title={title ?? `Turn off ${pill.title}`}
       aria-label={`Turn off ${pill.title}`}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClear}
-      className={`flex h-6.5 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] ${pill.className}`}
+      className={`flex h-6.5 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] disabled:opacity-60 ${pill.className}`}
     >
       <Icon className="size-3.5" />
       <span className="composer-mode-shimmer">{pill.label}</span>

@@ -1,5 +1,5 @@
 import { type ReactElement } from "react";
-import { Folder, RefreshCw } from "../../shared/ui/icons";
+import { Folder } from "../../shared/ui/icons";
 import { HarnessIcon } from "../../features/sessions/ui/HarnessIcon";
 import type { NativeProvider } from "../../features/provider-sessions/model/providerSessions";
 
@@ -16,12 +16,11 @@ type Props = {
   entries: readonly ProviderRailEntry[];
   selected: NativeProvider | null;
   onSelect: (provider: NativeProvider) => void;
-  onRefresh: (provider: NativeProvider) => void;
 };
 
 /**
  * Provider folders below the project list. Each enabled provider is a
- * folder-style row: the provider mark, a refresh action and the label.
+ * folder-style row: the provider mark, the label and loaded count.
  * Selecting one shows that provider's discovered conversations in the
  * secondary sidebar; it never lists chats in this rail.
  */
@@ -29,14 +28,13 @@ export function ProviderRail({
   entries,
   selected,
   onSelect,
-  onRefresh,
 }: Props): ReactElement | null {
   if (entries.length === 0) return null;
   return (
     <div className="mb-2 shrink-0" data-provider-rail>
       <div className="flex items-center gap-1 px-3 pb-1.5 pt-1">
         <span className="min-w-0 flex-1 truncate px-1 text-xs text-content/50">
-          Local conversations
+          Provider conversations
         </span>
       </div>
       <ul
@@ -49,6 +47,7 @@ export function ProviderRail({
           return (
             <li
               key={entry.provider}
+              aria-busy={entry.refreshing}
               data-shared-hover-item
               data-shared-hover-preserve={isSelected ? "" : undefined}
               data-selected={isSelected || undefined}
@@ -58,7 +57,7 @@ export function ProviderRail({
             >
               <button
                 type="button"
-                title={`${entry.label} conversations on this computer`}
+                title={`${entry.label} conversations`}
                 aria-label={`${entry.label} conversations${
                   entry.count !== null ? `, ${entry.count} loaded` : ""
                 }${entry.failed ? ", could not be read" : ""}`}
@@ -84,22 +83,6 @@ export function ProviderRail({
                     className="size-1.5 shrink-0 rounded-full bg-red-400"
                   />
                 ) : null}
-              </button>
-              <button
-                type="button"
-                title={`Refresh ${entry.label} conversations`}
-                aria-label={`Refresh ${entry.label} conversations`}
-                disabled={entry.refreshing}
-                onClick={() => onRefresh(entry.provider)}
-                className="grid size-5 shrink-0 place-items-center rounded text-content/50 transition-colors duration-100 hover:bg-content/10 hover:text-content disabled:opacity-60"
-              >
-                <RefreshCw
-                  className={`size-3 ${
-                    entry.refreshing
-                      ? "animate-spin motion-reduce:animate-none"
-                      : ""
-                  }`}
-                />
               </button>
               <HarnessIcon
                 harness={entry.provider}

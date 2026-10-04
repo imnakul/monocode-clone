@@ -4,7 +4,6 @@ import {
   historyBlocks,
   nativeHistoryStore,
   trimHistoryBefore,
-  visibleHistoryItems,
   type NativeHistoryState,
 } from "../model/history";
 
@@ -28,8 +27,9 @@ export function useNativeHistory(input: {
   enabled: boolean;
   /** Epoch ms of the chat's first MonoCode turn; earlier provider items only. */
   cutoffMs?: number;
+  representedNativeIds?: ReadonlySet<string>;
 }): NativeHistoryView {
-  const { sessionId, harness, providerAccountId, enabled, cutoffMs } = input;
+  const { sessionId, harness, providerAccountId, enabled, cutoffMs, representedNativeIds } = input;
   const accountId = providerAccountId ?? "default";
   useSyncExternalStore(
     nativeHistoryStore.subscribe,
@@ -42,13 +42,14 @@ export function useNativeHistory(input: {
   }, [enabled, sessionId, harness, accountId]);
   const blocks = useMemo(() => {
     if (state.status !== "ready") return [];
-    const items = trimHistoryBefore(visibleHistoryItems(state), cutoffMs);
+    const earlier = trimHistoryBefore(state.items, cutoffMs, representedNativeIds);
+    const items = earlier.slice(-state.visible);
     if (items.length === 0) return [];
     return historyBlocks(items, state.provider, {
       hasEarlier: state.hasEarlier,
-      hiddenCount: state.items.length - state.visible,
+      hiddenCount: Math.max(0, earlier.length - state.visible),
     });
-  }, [state, cutoffMs]);
+  }, [state, cutoffMs, representedNativeIds]);
   return useMemo(
     () => ({
       blocks,

@@ -225,6 +225,9 @@ type Live = {
   activeTurn: boolean;
   stopped: boolean;
   externalTurn: boolean;
+  externalLive?: Live;
+  externalTurnId?: string;
+  externalSeen?: Set<string>;
   externalTurnWait: Promise<void> | null;
   externalTurnDone: (() => void) | null;
   pendingExternalWaitCancel: (() => void) | null;
@@ -970,7 +973,7 @@ async function ensureLiveUncoalesced(
     remoteControlDesired.has(input.sessionId) &&
     !remoteControlConnectingEmitted
   ) {
-    live.onEvent({ type: "remoteControl.changed", status: "connecting" });
+    emitClaudeEvent(live, { type: "remoteControl.changed", status: "connecting" });
   }
 
   watchChild(
@@ -1071,13 +1074,13 @@ async function ensureLiveUncoalesced(
       );
     }
     if (!live.forkPending)
-      live.onEvent({
+      emitClaudeEvent(live, {
         type: "session.providerBound",
         providerSessionId: live.claudeSessionId,
       });
-    live.onEvent({ type: "session.started" });
+    emitClaudeEvent(live, { type: "session.started" });
     if (liveSwitchFallback) {
-      live.onEvent({
+      emitClaudeEvent(live, {
         type: "status",
         text: "Claude couldn't switch live, so it restarted with the new settings.",
       });
@@ -1140,7 +1143,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     await turnPromise;
   } catch (error) {
     if (live.cancelled) return;
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "session.error",
       message: error instanceof Error ? error.message : String(error),
     });
@@ -1206,15 +1209,10 @@ function handleLine(sessionId: string, live: Live, line: string): void {
         if (live.turnFailed) {
           live.turnFailed(failure);
         } else {
-          live.onEvent({ type: "session.error", message: failure.message });
+          emitClaudeEvent(live, { type: "session.error", message: failure.message });
         }
       },
     );
-    return;
-  }
-
-  if (type === "result" && live.externalTurn) {
-    finishExternalClaudeTurn(live);
     return;
   }
 
@@ -1252,7 +1250,7 @@ function handleLine(sessionId: string, live: Live, line: string): void {
       providerAccountId: live.providerAccountId,
     });
     if (!live.forkPending) {
-      live.onEvent({
+      emitClaudeEvent(live, {
         type: "session.providerBound",
         providerSessionId: sessionIdFromLine,
       });
@@ -1296,14 +1294,18 @@ function handleLine(sessionId: string, live: Live, line: string): void {
     return;
   }
 
-  if (live.externalTurn) return;
+  if (live.externalTurn) {
+    handleExternalClaudeLine(live, rec);
+    return;
+  }
   if (
     !live.activeTurn &&
     live.remoteControl.status === "on" &&
-    isExternalClaudeTurnActivity(type)
+    isExternalClaudeTurnActivity(type) && !isSubagentMessage(rec) &&
+    (type !== "user" || externalUserText(rec) !== undefined)
   ) {
-    beginExternalClaudeTurn(live);
-    if (type === "result") finishExternalClaudeTurn(live);
+    beginExternalClaudeTurn(live, rec);
+    handleExternalClaudeLine(live, rec);
     return;
   }
 
@@ -1343,51 +1345,107 @@ function handleLine(sessionId: string, live: Live, line: string): void {
     if (text) {
       if ((stringField(rec, "subtype") ?? "").startsWith("compact")) {
         live.compactionConfirmed = true;
-        live.onEvent({ type: "context.stale" });
+        emitClaudeEvent(live, { type: "context.stale" });
       }
-      live.onEvent({ type: "status", text });
+      emitClaudeEvent(live, { type: "status", text });
     }
   }
 }
 
-function isExternalClaudeTurnActivity(
-  type: string | undefined,
-): boolean {
-  return (
-    type === "assistant" ||
-    type === "stream_event" ||
-    type === "user" ||
-    type === "result" ||
-    type === "tool_progress" ||
-    type === "rate_limit_event" ||
-    type === "task_notification"
-  );
+function isExternalClaudeTurnActivity(type: string | undefined): boolean {
+  // A delayed result/progress/quota event cannot start a new phone conversation.
+  return type === "assistant" || type === "stream_event" || type === "user";
 }
 
-function beginExternalClaudeTurn(live: Live): void {
+function externalUserText(rec: Record<string, unknown>): string | undefined {
+  if (rec.type !== "user" || isSubagentMessage(rec) || rec.tool_use_id) return undefined;
+  const message = asRecord(rec.message);
+  const content = message?.content;
+  if (typeof content === "string") return content || undefined;
+  if (!Array.isArray(content)) return undefined;
+  const text = content.flatMap((part: unknown) => {
+    const item = asRecord(part);
+    return item?.type === "text" && typeof item.text === "string" ? [item.text] : [];
+  }).join("\n");
+  return text || undefined;
+}
+
+function beginExternalClaudeTurn(live: Live, rec: Record<string, unknown>): void {
   if (live.externalTurn) return;
   live.externalTurn = true;
-  live.externalTurnWait = new Promise<void>((resolve) => {
-    live.externalTurnDone = resolve;
-  });
-  live.onEvent({
-    type: "status",
-    text: "Claude is answering a message sent from another device.",
-  });
+  const turnId = stringField(rec, "uuid") ?? crypto.randomUUID();
+  live.externalTurnId = turnId;
+  live.externalTurnWait = new Promise<void>((resolve) => { live.externalTurnDone = resolve; });
+  live.externalSeen = new Set();
+  const state: Live = {
+    ...live, externalTurn: false, externalLive: undefined, externalTurnWait: null,
+    externalTurnDone: null, externalTurnId: undefined, externalSeen: undefined,
+    activeTurn: true, cancelled: false, muteUpdates: false, manualCompaction: false,
+    forkPending: false, expectModel: undefined, emittedAssistant: "", emittedReasoning: "",
+    lastAssistantUuid: undefined, pendingAssistantBoundary: false,
+    toolsByIndex: new Map(), toolsById: new Map(), agentTasks: new Map(),
+    backgroundTasks: new Map(), backgroundRows: new Map(), awaitingResume: null,
+    backgroundKey: "", taskNotes: [], claudeTasks: new Map(live.claudeTasks),
+    requestsById: new Map(), turnUsage: undefined, usageLimit: null,
+    turnResultSeen: false, turnEndPending: false,
+    turnDone: () => finishExternalClaudeTurn(live),
+    turnFailed: () => resolveExternalClaudeTurn(live),
+    onEvent: (event) => live.onEvent({ type: "externalTurn.event", turnId, event }),
+  };
+  live.externalLive = state;
+  live.onEvent({ type: "externalTurn.started", turnId, text: externalUserText(rec), nativeId: stringField(rec, "uuid") });
+}
+
+function handleExternalClaudeLine(live: Live, rec: Record<string, unknown>): void {
+  const state = live.externalLive;
+  const turnId = live.externalTurnId;
+  if (!state || !turnId) return;
+  const uuid = stringField(rec, "uuid");
+  if (uuid && live.externalSeen?.has(uuid)) return;
+  if (uuid) live.externalSeen?.add(uuid);
+  const text = externalUserText(rec);
+  if (text) live.onEvent({ type: "externalTurn.user", turnId, text, nativeId: uuid });
+  if (handleAgentLifecycle(state, rec)) return;
+  switch (rec.type) {
+    case "stream_event": handleStreamEvent(state, rec); break;
+    case "assistant": handleAssistant(state, rec); break;
+    case "user": handleUser(state, rec); break;
+    case "tool_progress": handleToolProgress(state, rec); break;
+    case "rate_limit_event": state.usageLimit = usageLimitFromRateLimitEvent(rec); break;
+    case "result": handleResult(state, rec); break;
+  }
+}
+
+/** Control requests use the real connection; their UI belongs to the phone turn. */
+function emitClaudeEvent(live: Live, event: HarnessEvent): void {
+  if (live.externalTurnId && !event.type.startsWith("externalTurn.") &&
+      event.type !== "remoteControl.changed" && event.type !== "session.providerBound") {
+    live.onEvent({ type: "externalTurn.event", turnId: live.externalTurnId, event });
+  } else live.onEvent(event);
 }
 
 function finishExternalClaudeTurn(live: Live): void {
   if (!live.externalTurn) return;
-  resolveExternalClaudeTurn(live);
-  live.onEvent({
-    type: "status",
-    text: "The other device's turn finished; live transcript sync is not available yet.",
-  });
+  if (live.externalLive) {
+    live.priorTurnsUsage = live.externalLive.priorTurnsUsage;
+    live.claudeTasks = live.externalLive.claudeTasks;
+  }
+  resolveExternalClaudeTurn(live, true);
 }
 
-function resolveExternalClaudeTurn(live: Live): void {
+function resolveExternalClaudeTurn(live: Live, completed = false): void {
   if (!live.externalTurn) return;
+  if (live.externalLive) clearAwaitingResume(live.externalLive);
+  const turnId = live.externalTurnId;
+  if (turnId) {
+    if (!completed) live.onEvent({ type: "externalTurn.event", turnId,
+      event: { type: "session.error", message: "The other device's turn was interrupted when the connection closed." } });
+    live.onEvent({ type: "externalTurn.finished", turnId });
+  }
   live.externalTurn = false;
+  live.externalLive = undefined;
+  live.externalTurnId = undefined;
+  live.externalSeen = undefined;
   const done = live.externalTurnDone;
   live.externalTurnDone = null;
   live.externalTurnWait = null;
@@ -1412,10 +1470,10 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
     if (delta.kind === "assistant") {
       closePendingAssistantMessage(live);
       live.emittedAssistant = joinStreamText(live.emittedAssistant, delta.text);
-      live.onEvent({ type: "message.delta", text: delta.text });
+      emitClaudeEvent(live, { type: "message.delta", text: delta.text });
     } else {
       live.emittedReasoning = joinStreamText(live.emittedReasoning, delta.text);
-      live.onEvent({ type: "reasoning.delta", text: delta.text });
+      emitClaudeEvent(live, { type: "reasoning.delta", text: delta.text });
     }
     return;
   }
@@ -1435,7 +1493,7 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
     };
     if (started.index >= 0) live.toolsByIndex.set(started.index, tool);
     live.toolsById.set(started.id, tool);
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "tool.started",
       callId: tool.id,
       title: tool.title,
@@ -1460,7 +1518,7 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
     if (!parsed) return;
     tool.input = parsed;
     tool.title = toolTitle(tool.name, parsed);
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "tool.updated",
       callId: tool.id,
       title: tool.title,
@@ -1495,7 +1553,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
     const actualModel = stringField(msg, "model");
     const requestedModel = expectedModel.replace(/\[1m\]$/, "");
     if (actualModel && actualModel !== requestedModel) {
-      live.onEvent({
+      emitClaudeEvent(live, {
         type: "status",
         text: `Claude answered with ${actualModel} instead of ${expectedModel}. The next message restarts Claude with the selected model.`,
       });
@@ -1510,7 +1568,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
     const turnUsage = sumProcessedUsage(Array.from(live.requestsById.values()));
     live.turnUsage = turnUsage;
     const sessionUsage = addProcessedUsage(live.priorTurnsUsage, turnUsage);
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "usage",
       turn: turnUsage,
       session: sessionUsage,
@@ -1518,14 +1576,14 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
   }
 
   const used = contextUsedFromAssistant(rec);
-  if (used !== undefined) live.onEvent({ type: "context", used });
+  if (used !== undefined) emitClaudeEvent(live, { type: "context", used });
 
   const snapshot = assistantTextBlocks(rec).join("");
   if (snapshot) closePendingAssistantMessage(live);
   const extra = snapshotRemainder(live.emittedAssistant, snapshot);
   if (extra) {
     live.emittedAssistant = joinStreamText(live.emittedAssistant, extra);
-    live.onEvent({ type: "message.delta", text: extra });
+    emitClaudeEvent(live, { type: "message.delta", text: extra });
   }
 
   for (const use of assistantToolUses(rec)) {
@@ -1537,7 +1595,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
       if (JSON.stringify(streamed.input) !== JSON.stringify(use.input)) {
         streamed.input = use.input;
         streamed.title = toolTitle(use.name, use.input);
-        live.onEvent({
+        emitClaudeEvent(live, {
           type: "tool.updated",
           callId: streamed.id,
           title: streamed.title,
@@ -1552,7 +1610,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
       }
       if (use.name === "ExitPlanMode") {
         const plan = extractExitPlanModePlan(use.input);
-        if (plan) live.onEvent({ type: "plan", text: plan });
+        if (plan) emitClaudeEvent(live, { type: "plan", text: plan });
       }
       continue;
     }
@@ -1564,7 +1622,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
       title: toolTitle(use.name, use.input),
     };
     live.toolsById.set(use.id, tool);
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "tool.started",
       callId: tool.id,
       title: tool.title,
@@ -1577,7 +1635,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
     });
     if (use.name === "ExitPlanMode") {
       const plan = extractExitPlanModePlan(use.input);
-      if (plan) live.onEvent({ type: "plan", text: plan });
+      if (plan) emitClaudeEvent(live, { type: "plan", text: plan });
     }
     emitTaskListIfNeeded(live, tool.name, tool.input);
   }
@@ -1592,7 +1650,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
 function closePendingAssistantMessage(live: Live): void {
   if (!live.pendingAssistantBoundary) return;
   live.pendingAssistantBoundary = false;
-  live.onEvent({ type: "message.completed" });
+  emitClaudeEvent(live, { type: "message.completed" });
 }
 
 function handleUser(live: Live, rec: Record<string, unknown>): void {
@@ -1606,7 +1664,7 @@ function handleUser(live: Live, rec: Record<string, unknown>): void {
     if (isAgentToolName(tool.name) && isBackgroundedAgentTool(live, tool.id)) {
       continue;
     }
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "tool.updated",
       callId: tool.id,
       title: tool.title,
@@ -1619,7 +1677,7 @@ function handleUser(live: Live, rec: Record<string, unknown>): void {
       !result.isError &&
       applyClaudeTaskTool(live.claudeTasks, tool.name, tool.input, result.text)
     ) {
-      live.onEvent({
+      emitClaudeEvent(live, {
         type: "tasks.updated",
         key: CLAUDE_TASKS_KEY,
         // The map is the source of truth, so a TaskUpdate subject is a rename.
@@ -1631,7 +1689,7 @@ function handleUser(live: Live, rec: Record<string, unknown>): void {
     // What a subagent hands back is the last thing it said, so it closes out
     // that agent's own trail rather than sitting on the parent row as detail.
     if (isAgentToolName(tool.name) && result.text.trim() && !result.isError) {
-      live.onEvent({
+      emitClaudeEvent(live, {
         type: "agent.step",
         callId: tool.id,
         stepId: `${tool.id}:report`,
@@ -1666,13 +1724,13 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
   if (isSubagentMessage(rec)) return;
   if (live.forkPending) {
     live.forkPending = false;
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "session.providerBound",
       providerSessionId: live.claudeSessionId,
     });
   }
   if (!live.manualCompaction && live.lastAssistantUuid) {
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "turn.forkPoint",
       providerForkPoint: live.lastAssistantUuid,
     });
@@ -1681,7 +1739,7 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
   // conversation level. The next real turn will provide the fresh reading.
   if (!live.manualCompaction) {
     const context = contextFromResult(rec);
-    if (context) live.onEvent({ type: "context", ...context });
+    if (context) emitClaudeEvent(live, { type: "context", ...context });
 
     const usageRec = asRecord(rec.usage);
     const resultUsage = parseClaudeUsage(usageRec);
@@ -1693,7 +1751,7 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
         finalTurnUsage,
       );
       live.requestsById.clear();
-      live.onEvent({
+      emitClaudeEvent(live, {
         type: "usage",
         turn: finalTurnUsage,
         session: live.priorTurnsUsage,
@@ -1701,11 +1759,11 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
     }
   }
   const metrics = turnMetricsFromResult(rec);
-  if (metrics) live.onEvent({ type: "turn.metrics", ...metrics });
+  if (metrics) emitClaudeEvent(live, { type: "turn.metrics", ...metrics });
 
   const result = turnStatusFromResult(rec);
   if (result.status === "failed" && result.error && !live.cancelled) {
-    live.onEvent({ type: "session.error", message: result.error });
+    emitClaudeEvent(live, { type: "session.error", message: result.error });
   }
   // A refused window can still fall back to another model, so only a turn
   // that ended in error was stopped by it.
@@ -1713,7 +1771,7 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
   const usageLimit = live.usageLimit ?? (isUsageLimitResult(rec) ? {} : null);
   live.usageLimit = null;
   if (usageLimit && turnErrored && !live.cancelled) {
-    live.onEvent({ type: "usage.limited", ...usageLimit });
+    emitClaudeEvent(live, { type: "usage.limited", ...usageLimit });
   }
   live.turnResultSeen = true;
   maybeFinishTurn(live);
@@ -1764,7 +1822,7 @@ async function handleControlRequest(
         : outcome.kind === "answered"
           ? "answered"
           : "skipped";
-    live.onEvent({ type: "question.resolved", requestId: uiId, decision });
+    emitClaudeEvent(live, { type: "question.resolved", requestId: uiId, decision });
     showNextQuestion(live);
     if (outcome === "cancelled") return;
     const response =
@@ -1786,7 +1844,7 @@ async function handleControlRequest(
 
   if (toolName === "ExitPlanMode") {
     const plan = extractExitPlanModePlan(input);
-    if (plan) live.onEvent({ type: "plan", text: plan });
+    if (plan) emitClaudeEvent(live, { type: "plan", text: plan });
     await writeJson(
       sessionId,
       buildControlResponse(control.requestId, {
@@ -1865,7 +1923,7 @@ async function handleControlRequest(
     grant ?? undefined,
     qualifiedServer?.grant,
   );
-  live.onEvent({
+  emitClaudeEvent(live, {
     type: "approval.requested",
     requestId: uiId,
     title: toolTitle(toolName, input),
@@ -1895,7 +1953,7 @@ async function handleControlRequest(
           qualifiedServer
         ? "server"
         : undefined;
-  live.onEvent({
+  emitClaudeEvent(live, {
     type: "approval.resolved",
     requestId: uiId,
     decision,
@@ -1941,7 +1999,7 @@ function applyKnownToolInput(
     existing.input = input;
     existing.title = toolTitle(toolName, input);
   }
-  live.onEvent({
+  emitClaudeEvent(live, {
     type: "tool.updated",
     callId,
     title: toolTitle(toolName, input),
@@ -1994,7 +2052,7 @@ function showNextQuestion(live: Live): void {
     return;
   const next = live.questions.entries().next().value;
   live.visibleQuestionId = next?.[0] ?? null;
-  if (next) live.onEvent(next[1].event);
+  if (next) emitClaudeEvent(live, next[1].event);
 }
 
 function emitTaskListIfNeeded(
@@ -2004,7 +2062,7 @@ function emitTaskListIfNeeded(
 ): void {
   if (!isTodoTool(toolName)) return;
   const items = taskListFromTodos(input);
-  if (items) live.onEvent({ type: "tasks.updated", items });
+  if (items) emitClaudeEvent(live, { type: "tasks.updated", items });
 }
 
 function handleAgentLifecycle(
@@ -2143,7 +2201,7 @@ function handleToolProgress(live: Live, rec: Record<string, unknown>): void {
       ? live.toolsById.get(progress.parentToolUseId)
       : undefined);
   if (!tool || !isAgentToolName(tool.name)) return;
-  live.onEvent({
+  emitClaudeEvent(live, {
     type: "tool.updated",
     callId: tool.id,
     title: tool.title,
@@ -2153,7 +2211,7 @@ function handleToolProgress(live: Live, rec: Record<string, unknown>): void {
   // Progress names the call in flight. That is a step in the run, not the
   // result of it, so it goes to the panel rather than onto the Agent row.
   if (progress.toolName) {
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "agent.step",
       callId: tool.id,
       stepId: progress.toolUseId,
@@ -2198,7 +2256,7 @@ function noteSubagentTool(
   // No detail: the Agent row's detail is the report the run hands back, and
   // writing the call of the moment there would leave whatever the subagent
   // happened to do last standing in as its result.
-  live.onEvent({
+  emitClaudeEvent(live, {
     type: "tool.updated",
     callId: parent.id,
     title: parent.title,
@@ -2207,7 +2265,7 @@ function noteSubagentTool(
   });
   if (!id) return;
   const preview = previewFromTool(name, input);
-  live.onEvent({
+  emitClaudeEvent(live, {
     type: "agent.step",
     callId: parent.id,
     stepId: id,
@@ -2229,7 +2287,7 @@ function noteSubagentNarration(live: Live, rec: Record<string, unknown>): void {
   if (!parent) return;
   const model = stringField(asRecord(rec.message), "model");
   if (model)
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "tool.updated",
       callId: parent.id,
       kind: "agent",
@@ -2238,7 +2296,7 @@ function noteSubagentNarration(live: Live, rec: Record<string, unknown>): void {
   const messageId = assistantMessageId(rec) ?? crypto.randomUUID();
   const thinking = assistantThinkingBlocks(rec).join("").trim();
   if (thinking) {
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "agent.step",
       callId: parent.id,
       stepId: `${messageId}:thinking`,
@@ -2248,7 +2306,7 @@ function noteSubagentNarration(live: Live, rec: Record<string, unknown>): void {
   }
   const text = assistantTextBlocks(rec).join("").trim();
   if (text) {
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "agent.step",
       callId: parent.id,
       stepId: `${messageId}:text`,
@@ -2263,7 +2321,7 @@ function noteSubagentResults(live: Live, rec: Record<string, unknown>): void {
   const parent = subagentParent(live, rec);
   if (!parent) return;
   for (const result of toolResultsFromUserMessage(rec)) {
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "agent.step",
       callId: parent.id,
       stepId: result.toolUseId,
@@ -2315,7 +2373,7 @@ function upsertAgentTool(
       partialJson: "",
       title,
     });
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "tool.started",
       callId: id,
       title,
@@ -2327,7 +2385,7 @@ function upsertAgentTool(
       status !== "pending" &&
       status !== "running"
     ) {
-      live.onEvent({
+      emitClaudeEvent(live, {
         type: "tool.updated",
         callId: id,
         title,
@@ -2339,7 +2397,7 @@ function upsertAgentTool(
     return;
   }
   if (title) existing.title = title;
-  live.onEvent({
+  emitClaudeEvent(live, {
     type: "tool.updated",
     callId: id,
     title: existing.title,
@@ -2404,9 +2462,9 @@ function noteClaudeTurnStarted(live: Live): void {
   // the fold puts the earlier one away, the same as prose between tool calls.
   // A background command's row already sits between the two; a subagent's
   // report is noted in the trail to do the same.
-  live.onEvent({ type: "message.completed" });
-  live.onEvent({ type: "reasoning.completed" });
-  for (const text of live.taskNotes) live.onEvent({ type: "status", text });
+  emitClaudeEvent(live, { type: "message.completed" });
+  emitClaudeEvent(live, { type: "reasoning.completed" });
+  for (const text of live.taskNotes) emitClaudeEvent(live, { type: "status", text });
   live.taskNotes = [];
   clearAwaitingResume(live);
   syncBackgroundWait(live);
@@ -2428,7 +2486,7 @@ function showBackgroundRows(live: Live): void {
     if (source && isAgentToolName(source.name)) continue;
     const callId = `background:${taskId}`;
     live.backgroundRows.set(taskId, callId);
-    live.onEvent({
+    emitClaudeEvent(live, {
       type: "tool.started",
       callId,
       title: source ? toolTitle(source.name, source.input) : task.description,
@@ -2450,7 +2508,7 @@ function settleBackgroundRow(
 ): void {
   const callId = live.backgroundRows.get(taskId);
   if (!callId || live.muteUpdates) return;
-  live.onEvent({
+  emitClaudeEvent(live, {
     type: "tool.updated",
     callId,
     status: status === "completed" ? "completed" : "failed",
@@ -2502,7 +2560,7 @@ function syncBackgroundWait(live: Live): void {
   if (key === live.backgroundKey) return;
   live.backgroundKey = key;
   if (live.muteUpdates) return;
-  live.onEvent({ type: "background.updated", tasks: waiting });
+  emitClaudeEvent(live, { type: "background.updated", tasks: waiting });
 }
 
 function maybeFinishTurn(live: Live): void {
@@ -2528,7 +2586,7 @@ function finishActiveTurn(live: Live, extraEvents: HarnessEvent[] = []): void {
     live.turnUsage = undefined;
     live.requestsById.clear();
   }
-  for (const event of extraEvents) live.onEvent(event);
+  for (const event of extraEvents) emitClaudeEvent(live, event);
   const done = live.turnDone;
   const failed = live.turnFailed;
   live.turnDone = null;
@@ -2722,7 +2780,7 @@ function emitRemoteControl(
     ...(details.url ? { url: details.url } : {}),
     ...(details.message ? { message: details.message } : {}),
   };
-  live.onEvent({
+  emitClaudeEvent(live, {
     type: "remoteControl.changed",
     status,
     ...(details.url ? { url: details.url } : {}),

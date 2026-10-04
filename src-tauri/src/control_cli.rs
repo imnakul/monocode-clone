@@ -110,6 +110,10 @@ const APP_ACTIONS: [&str; 24] = [
 ];
 const APP_USAGE: &str = r#"MonoCode app access — use in a thread enabled by /operator.
 
+Create/submit sessions through these actions. Never edit MonoCode internal SQLite
+rows: that bypasses live agents and the Session Manager run ledger. Saving
+assistant text into a session is not evidence a provider actually ran.
+
 Usage: {exe} app ACTION [--json JSON | --input FILE|-] [--request-id ID]
 
 Actions:

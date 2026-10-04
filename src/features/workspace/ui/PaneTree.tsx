@@ -61,7 +61,7 @@ import { type ReviewIssue } from "../../inbox/model/githubTasks";
 
 type Shared = Pick<
   ComponentProps<typeof SessionPane>,
-  "remoteControlDesired" | "onRemoteControlChange" | "onCloudLaunchOutcome"
+  "remoteControlDesired" | "onRemoteControlChange" | "onCloudLaunchOutcome" | "onOperatorDisable"
 > & {
   workspaceSwitchingSessionId?: string;
   visible: boolean;
@@ -296,6 +296,7 @@ function PaneTreeComponent({
   onNewTerminal,
   remoteControlDesired,
   onRemoteControlChange,
+  onOperatorDisable,
   onCloudLaunchOutcome,
   onTerminalMetaChange,
   transcriptPool,
@@ -591,6 +592,7 @@ function PaneTreeComponent({
                   onNewTerminal={onNewTerminal}
                   remoteControlDesired={remoteControlDesired}
                   onRemoteControlChange={onRemoteControlChange}
+                  onOperatorDisable={onOperatorDisable}
                   onCloudLaunchOutcome={onCloudLaunchOutcome}
                   onPaneDragStart={onPaneDragStart}
                   transcriptPool={transcriptPool}

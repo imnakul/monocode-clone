@@ -36,6 +36,17 @@ export function applyHarnessEvents(
   let next = session;
   for (let index = 0; index < events.length; index++) {
     const event = events[index];
+    if (event.type === "externalTurn.event") {
+      const phoneEvents = [event.event];
+      while (index + 1 < events.length) {
+        const following = events[index + 1];
+        if (following.type !== "externalTurn.event" || following.turnId !== event.turnId) break;
+        phoneEvents.push(following.event);
+        index++;
+      }
+      next = applyExternalTranscriptEvents(next, event.turnId, phoneEvents);
+      continue;
+    }
     if (event.type !== "message.delta" && event.type !== "reasoning.delta") {
       next = applyHarnessEvent(next, event);
       continue;
@@ -62,6 +73,11 @@ export function applyHarnessEvent(
   event: HarnessEvent,
 ): Session {
   switch (event.type) {
+    case "externalTurn.started":
+    case "externalTurn.user":
+    case "externalTurn.event":
+    case "externalTurn.finished":
+      return applyExternalTurnEvent(session, event);
     case "message.delta":
       return patchStreaming(session, "assistant", event.text, true);
     case "message.completed":
@@ -279,6 +295,58 @@ export function applyHarnessEvent(
     default:
       return session;
   }
+}
+
+/** Phone blocks have their own boundary even if a local prompt is already queued. */
+function applyExternalTurnEvent(
+  session: Session,
+  event: Extract<HarnessEvent, { type: `externalTurn.${string}` }>,
+): Session {
+  if (event.type === "externalTurn.started") {
+    if (session.externalTurnId || session.blocks.some((block) => block.externalTurnId === event.turnId))
+      return session;
+    return {
+      ...session,
+      externalTurnId: event.turnId,
+      blocks: [...session.blocks, {
+        id: crypto.randomUUID(), externalTurnId: event.turnId,
+        providerMessageId: event.nativeId,
+        role: event.text ? "user" : "system",
+        text: event.text ?? "Claude is answering a message sent from another device.",
+        startedAt: Date.now(),
+      }],
+    };
+  }
+  if (session.externalTurnId !== event.turnId) return session;
+  if (event.type === "externalTurn.user") {
+    const boundary = session.blocks.find((block) => block.externalTurnId === event.turnId)?.id;
+    return { ...session, blocks: session.blocks.map((block) =>
+      block.id === boundary && (block.role === "user" || block.role === "system")
+        ? { ...block, role: "user", text: event.text, providerMessageId: event.nativeId ?? block.providerMessageId } : block,
+    ) };
+  }
+  if (event.type === "externalTurn.finished") {
+    return { ...session, externalTurnId: undefined, blocks: session.blocks.map((block) =>
+      block.externalTurnId === event.turnId ? { ...block, streaming: false } : block,
+    ) };
+  }
+  return applyExternalTranscriptEvents(session, event.turnId, [event.event]);
+}
+
+function applyExternalTranscriptEvents(session: Session, turnId: string, events: readonly HarnessEvent[]): Session {
+  if (session.externalTurnId !== turnId) return session;
+  const first = session.blocks.findIndex((block) => block.externalTurnId === turnId);
+  if (first < 0) return session;
+  const phoneBlocks = session.blocks.filter((block) => block.externalTurnId === turnId);
+  const projected = applyHarnessEvents({ ...session, blocks: phoneBlocks }, events.filter((event) => !event.type.startsWith("externalTurn.")));
+  const others = session.blocks.filter((block) => block.externalTurnId !== turnId);
+  others.splice(first, 0, ...projected.blocks.map((block) => ({ ...block, externalTurnId: turnId })));
+  return {
+    ...session, blocks: others,
+    context: projected.context,
+    pendingQuestion: projected.pendingQuestion,
+    pendingForm: projected.pendingForm,
+  };
 }
 
 function mergeTurnMetrics(

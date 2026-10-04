@@ -17,6 +17,8 @@ import {
   type SessionInsertMotion,
 } from "../../sessions/ui/SessionListItem";
 import { Cloud, ListFilter, RefreshCw } from "../../../shared/ui/icons";
+import type { Session } from "../../sessions/model/session";
+import { conversationRemoteControl } from "../model/conversationRemoteControl";
 import type { CloudSession } from "../model/cloudSessions";
 import type { ProviderListState } from "../model/conversationStore";
 import {
@@ -41,6 +43,8 @@ type Props = {
   cloudError?: string | null;
   cloudRefreshing?: boolean;
   activeSessionId?: string;
+  sessions?: readonly Session[];
+  remoteControlDesired?: ReadonlySet<string>;
   onShowArchivedChange: (value: boolean) => void;
   onRefresh: () => void;
   onLoadMore: () => void;
@@ -80,6 +84,8 @@ export function ProviderConversationList({
   cloudError = null,
   cloudRefreshing = false,
   activeSessionId,
+  sessions = [],
+  remoteControlDesired = new Set(),
   onShowArchivedChange,
   onRefresh,
   onLoadMore,
@@ -318,7 +324,9 @@ export function ProviderConversationList({
           </p>
         ) : state.rows.length > 0 ? (
           <ul data-session-list data-shared-hover-continuity className="flex flex-col gap-0.5">
-            {summaries.map(({ row, summary }) => (
+            {summaries.map(({ row, summary }) => {
+              const rc = conversationRemoteControl(row, sessions, remoteControlDesired);
+              return (
               <SessionListItem
                 key={row.key}
                 session={summary}
@@ -334,12 +342,16 @@ export function ProviderConversationList({
                   done={false}
                   needsApproval={false}
                   now={now}
+                  statusDetail={rc ? (
+                    <span title={rc.detail} aria-label={`Remote Control: ${rc.label}`} className="shrink-0 text-[10px] text-content/55">RC {rc.label}</span>
+                  ) : undefined}
                   onSelect={() => onOpen(row)}
                   onArchive={() => onArchive(row, !row.archived)}
                   onContextMenu={(event) => onRowContextMenu(row.key, event)}
                 />
               </SessionListItem>
-            ))}
+              );
+            })}
           </ul>
         ) : null}
         {state.hasMore ? (

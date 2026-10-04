@@ -360,7 +360,6 @@ type Props = {
   providerEntries?: readonly ProviderRailEntry[];
   selectedProvider?: NativeProvider | null;
   onSelectProvider?: (provider: NativeProvider) => void;
-  onRefreshProvider?: (provider: NativeProvider) => void;
   providerPanel?: ReactNode;
 };
 
@@ -469,7 +468,6 @@ function SidebarComponent({
   providerEntries,
   selectedProvider = null,
   onSelectProvider,
-  onRefreshProvider,
   providerPanel,
 }: Props) {
   const remoteProject = isRemoteProjectPath(cwd);
@@ -2436,7 +2434,6 @@ function SidebarComponent({
           providerEntries={providerEntries}
           selectedProvider={selectedProvider}
           onSelectProvider={onSelectProvider}
-          onRefreshProvider={onRefreshProvider}
         />
       ) : null}
       {providerPanelVisible || (mode === "chat" ? chatVisible : sidebarVisible)

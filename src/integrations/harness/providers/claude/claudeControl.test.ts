@@ -764,7 +764,7 @@ describe("Claude Remote Control", () => {
     await finishTurn(turn, childIndex);
   });
 
-  it("isolates phone turns, allows approval cancellation, and waits before MonoCode sends", async () => {
+  it("streams isolated phone turns, cancels approvals, and waits before MonoCode sends", async () => {
     setClaudeRemoteControlDesired("s1", true, "Phone-safe chat");
     const events: HarnessEvent[] = [];
     const first = sendClaudeTurn({
@@ -792,19 +792,26 @@ describe("Claude Remote Control", () => {
     await first;
 
     const eventOffset = events.length;
+    // Late idle results/tool results must not fabricate a new phone turn.
+    emit(0, { type: "result", subtype: "success", session_id: "sess_1" });
+    emit(0, { type: "user", message: { content: [{ type: "tool_result", content: "old result" }] } });
+    expect(events.slice(eventOffset).some((event) => event.type === "externalTurn.started")).toBe(false);
     emit(0, {
       type: "user",
       session_id: "sess_1",
+      uuid: "phone-user-id",
       message: { role: "user", content: "phone message" },
     });
-    emit(0, {
-      type: "assistant",
-      session_id: "sess_1",
-      message: {
-        content: [{ type: "text", text: "phone reply" }],
-        usage: { input_tokens: 9, output_tokens: 4 },
-      },
+    for (const text of ["phone ", "reply"]) emit(0, {
+      type: "stream_event", session_id: "sess_1",
+      event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } },
     });
+    const phoneAssistant = {
+      type: "assistant", uuid: "phone-assistant-id", session_id: "sess_1",
+      message: { content: [{ type: "text", text: "phone reply" }], usage: { input_tokens: 9, output_tokens: 4 } },
+    };
+    emit(0, phoneAssistant);
+    emit(0, phoneAssistant);
     emit(0, {
       type: "tool_progress",
       session_id: "sess_1",
@@ -821,8 +828,11 @@ describe("Claude Remote Control", () => {
         input: { file_path: "/repo/file" },
       },
     });
+    const phoneEvents = (): HarnessEvent[] => events.flatMap((event) =>
+      event.type === "externalTurn.event" ? [event.event] : [],
+    );
     await waitFor(
-      () => events.some((event) => event.type === "approval.requested"),
+      () => phoneEvents().some((event) => event.type === "approval.requested"),
       "phone permission approval",
     );
     emit(0, {
@@ -831,7 +841,7 @@ describe("Claude Remote Control", () => {
     });
     await waitFor(
       () =>
-        events.some(
+        phoneEvents().some(
           (event) =>
             event.type === "approval.resolved" &&
             event.decision === "cancelled",
@@ -850,8 +860,10 @@ describe("Claude Remote Control", () => {
     );
     const externalEvents = events.slice(eventOffset);
     expect(externalEvents).toContainEqual({
-      type: "status",
-      text: "Claude is answering a message sent from another device.",
+      type: "externalTurn.started",
+      turnId: "phone-user-id",
+      text: "phone message",
+      nativeId: "phone-user-id",
     });
     expect(
       externalEvents.some(
@@ -864,14 +876,17 @@ describe("Claude Remote Control", () => {
       ),
     ).toBe(false);
 
+    expect(phoneEvents().filter((event) => event.type === "message.delta")).toEqual([
+      { type: "message.delta", text: "phone " }, { type: "message.delta", text: "reply" },
+    ]);
     emit(0, { type: "result", subtype: "success", session_id: "sess_1" });
     await waitFor(
       () => parse().filter((message) => message.type === "user").length === 2,
       "MonoCode follow-up after the phone result",
     );
     expect(events.slice(eventOffset)).toContainEqual({
-      type: "status",
-      text: "The other device's turn finished; live transcript sync is not available yet.",
+      type: "externalTurn.finished",
+      turnId: "phone-user-id",
     });
     emit(0, { type: "result", subtype: "success", session_id: "sess_1" });
     await next;

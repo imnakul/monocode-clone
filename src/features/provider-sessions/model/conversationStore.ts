@@ -36,7 +36,8 @@ export type ProviderConversationStoreDeps = {
   accountLabel?: (provider: NativeProvider, accountId: string) => string;
 };
 
-const PAGE_SIZE = 100;
+export const PROVIDER_PAGE_SIZE = 10;
+const PAGE_SIZE = PROVIDER_PAGE_SIZE;
 const PROVIDERS: readonly NativeProvider[] = ["claude", "codex"];
 
 export const emptyProviderListState: ProviderListState = {
@@ -90,6 +91,8 @@ export class ProviderConversationStore {
     claude: new Map(),
     codex: new Map(),
   };
+  private loadedRows: Record<NativeProvider, ProviderConversation[]> = { claude: [], codex: [] };
+  private visibleLimit: Record<NativeProvider, number> = { claude: PAGE_SIZE, codex: PAGE_SIZE };
   private enabled = new Set<NativeProvider>();
   private includeArchived = false;
 
@@ -125,6 +128,8 @@ export class ProviderConversationStore {
       if (was && !now) {
         this.generation[provider] += 1;
         this.cursors[provider] = new Map();
+        this.loadedRows[provider] = [];
+        this.visibleLimit[provider] = PAGE_SIZE;
         this.emit(provider, emptyProviderListState);
       }
     }
@@ -138,8 +143,10 @@ export class ProviderConversationStore {
   setIncludeArchived(value: boolean): void {
     if (this.includeArchived === value) return;
     this.includeArchived = value;
-    for (const provider of this.enabled)
+    for (const provider of this.enabled) {
+      this.visibleLimit[provider] = PAGE_SIZE;
       void this.refresh(provider, { quiet: true });
+    }
   }
 
   getIncludeArchived(): boolean {
@@ -168,10 +175,10 @@ export class ProviderConversationStore {
     const includeArchived = this.includeArchived;
     const results = await Promise.allSettled(
       accounts.map((accountId) =>
-        this.deps.list(provider, {
+        this.listExpandedPage(provider, {
           accountId,
           includeArchived,
-          limit: PAGE_SIZE,
+          limit: this.visibleLimit[provider],
           offset: 0,
         }),
       ),
@@ -195,7 +202,6 @@ export class ProviderConversationStore {
         cursors.set(accountId, null);
       }
     });
-    this.cursors[provider] = cursors;
     const allFailed = failures.length === accounts.length;
     if (allFailed) {
       // Keep whatever was already shown; the error sits above it.
@@ -206,12 +212,14 @@ export class ProviderConversationStore {
       });
       return;
     }
+    this.cursors[provider] = cursors;
+    this.loadedRows[provider] = mergeConversationRows(...rows);
     this.emit(provider, {
       status: "ready",
-      rows: mergeConversationRows(...rows),
+      rows: this.loadedRows[provider].slice(0, this.visibleLimit[provider]),
       diagnostics: [...new Set([...diagnostics, ...failures])],
       error: null,
-      hasMore: [...cursors.values()].some((offset) => offset !== null),
+      hasMore: this.loadedRows[provider].length > this.visibleLimit[provider] || [...cursors.values()].some((offset) => offset !== null),
       loadingMore: false,
       refreshing: false,
     });
@@ -222,10 +230,10 @@ export class ProviderConversationStore {
     if (!this.enabled.has(provider) || state.loadingMore || !state.hasMore)
       return;
     const generation = this.generation[provider];
+    const targetLimit = this.visibleLimit[provider] + PAGE_SIZE;
     const pending = [...this.cursors[provider]].filter(
-      (entry): entry is [string, number] => entry[1] !== null,
+      (entry): entry is [string, number] => entry[1] !== null && entry[1] < targetLimit,
     );
-    if (pending.length === 0) return;
     this.patch(provider, { loadingMore: true });
     const includeArchived = this.includeArchived;
     const results = await Promise.allSettled(
@@ -256,12 +264,14 @@ export class ProviderConversationStore {
     });
     this.cursors[provider] = cursors;
     const latest = this.snapshot[provider];
+    if (!failure) this.visibleLimit[provider] = targetLimit;
+    this.loadedRows[provider] = mergeConversationRows(this.loadedRows[provider], ...pages);
     this.emit(provider, {
       ...latest,
-      rows: mergeConversationRows(latest.rows, ...pages),
+      rows: this.loadedRows[provider].slice(0, this.visibleLimit[provider]),
       diagnostics: [...new Set([...latest.diagnostics, ...diagnostics])],
       error: failure,
-      hasMore: [...cursors.values()].some((offset) => offset !== null),
+      hasMore: this.loadedRows[provider].length > this.visibleLimit[provider] || [...cursors.values()].some((offset) => offset !== null),
       loadingMore: false,
     });
   }
@@ -275,13 +285,13 @@ export class ProviderConversationStore {
       const state = this.snapshot[provider];
       const row = state.rows.find((entry) => entry.key === key);
       if (!row) continue;
-      const rows =
-        archived && !this.includeArchived
-          ? state.rows.filter((entry) => entry.key !== key)
-          : state.rows.map((entry) =>
-              entry.key === key ? { ...entry, archived } : entry,
-            );
-      this.patch(provider, { rows });
+      this.loadedRows[provider] = archived && !this.includeArchived
+        ? this.loadedRows[provider].filter((entry) => entry.key !== key)
+        : this.loadedRows[provider].map((entry) => entry.key === key ? { ...entry, archived } : entry);
+      this.patch(provider, {
+        rows: this.loadedRows[provider].slice(0, this.visibleLimit[provider]),
+        hasMore: this.loadedRows[provider].length > this.visibleLimit[provider] || [...this.cursors[provider].values()].some((offset) => offset !== null),
+      });
       return { provider, row };
     }
     return null;
@@ -289,12 +299,10 @@ export class ProviderConversationStore {
 
   /** Put a row back exactly as it was (rollback after a failed archive write). */
   restoreRow(provider: NativeProvider, row: ProviderConversation): void {
-    const state = this.snapshot[provider];
-    this.patch(provider, { rows: mergeConversationRows(state.rows, [row]) });
+    this.loadedRows[provider] = mergeConversationRows(this.loadedRows[provider].filter((entry) => entry.key !== row.key), [row]);
     this.patch(provider, {
-      rows: this.snapshot[provider].rows.map((entry) =>
-        entry.key === row.key ? row : entry,
-      ),
+      rows: this.loadedRows[provider].slice(0, this.visibleLimit[provider]),
+      hasMore: this.loadedRows[provider].length > this.visibleLimit[provider] || [...this.cursors[provider].values()].some((offset) => offset !== null),
     });
   }
 
@@ -303,11 +311,31 @@ export class ProviderConversationStore {
     for (const provider of PROVIDERS) {
       const state = this.snapshot[provider];
       if (!state.rows.some((row) => row.key === key)) continue;
+      this.loadedRows[provider] = this.loadedRows[provider].map((row) => row.key === key ? { ...row, monocodeSessionId: sessionId } : row);
       this.patch(provider, {
         rows: state.rows.map((row) =>
           row.key === key ? { ...row, monocodeSessionId: sessionId } : row,
         ),
       });
+    }
+  }
+
+  /** Refresh all expanded rows even beyond the backend's 500-row page cap. */
+  private async listExpandedPage(
+    provider: NativeProvider,
+    request: ProviderListRequest,
+  ): Promise<ProviderConversationPage> {
+    const conversations: ProviderConversation[] = [];
+    const diagnostics: string[] = [];
+    let offset = request.offset;
+    while (true) {
+      const page = await this.deps.list(provider, { ...request, offset, limit: Math.min(500, request.limit - offset) });
+      conversations.push(...page.conversations);
+      diagnostics.push(...page.diagnostics);
+      if (request.limit <= 500 || page.nextOffset === null || page.nextOffset >= request.limit)
+        return { conversations, diagnostics, nextOffset: page.nextOffset };
+      if (page.nextOffset <= offset) throw new Error("Provider conversation paging did not advance");
+      offset = page.nextOffset;
     }
   }
 

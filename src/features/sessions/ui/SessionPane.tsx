@@ -242,6 +242,7 @@ export type SessionPaneProps = {
   /** Saved per-chat Claude Remote Control choices. */
   remoteControlDesired?: ReadonlySet<string>;
   onRemoteControlChange?: (sessionId: string, enabled: boolean) => void;
+  onOperatorDisable?: (sessionId: string) => void;
   /** A Cloud launch from this session's composer started a task (or could not save its record). */
   onCloudLaunchOutcome?: (outcome: CloudLaunchOutcome) => void;
 
@@ -348,6 +349,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
   onNewTerminal,
   remoteControlDesired,
   onRemoteControlChange,
+  onOperatorDisable,
   onCloudLaunchOutcome,
   onPaneDragStart,
   transcriptPool,
@@ -365,11 +367,14 @@ const LocalSessionPane = memo(function LocalSessionPane({
   const title = sessionDisplayTitle(session.title, session.harness);
   // Earlier provider history is display-only: it makes the pane a transcript,
   // but it is never part of `session.blocks` (not saved, sent or counted).
+  const representedNativeIds = useMemo(() => new Set(session.blocks.flatMap((block) =>
+    block.externalTurnId ? [block.providerMessageId ?? block.externalTurnId] : [])), [session.blocks]);
   const history = useNativeHistory({
     sessionId: session.id,
     harness: session.harness,
     providerAccountId: session.providerAccountId,
     enabled: visible && !remoteSession && !session.inboxAsk,
+    representedNativeIds,
     cutoffMs: session.blocks.find(
       (block) => block.role === "user" && block.startedAt !== undefined,
     )?.startedAt,
@@ -760,6 +765,8 @@ const LocalSessionPane = memo(function LocalSessionPane({
         onModelSettingsChange(session.id, settings)
       }
       onRuntimeModeChange={(mode) => onRuntimeModeChange(session.id, mode)}
+      onOperatorDisable={onOperatorDisable ? () => onOperatorDisable(session.id) : undefined}
+      externalTurnActive={!!session.externalTurnId}
       canSaveDraft={
         (!remote || !!remoteFeatures?.draft) &&
         !session.busy &&

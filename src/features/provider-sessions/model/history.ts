@@ -10,6 +10,8 @@ export type HistoryItem = {
   text: string;
   /** Epoch ms when the provider recorded it, when present. */
   at?: number;
+  /** Stable provider record identity, when the transcript supplies one. */
+  nativeId?: string;
 };
 
 export const HISTORY_BLOCK_PREFIX = "history:";
@@ -91,9 +93,10 @@ function claudeItems(lines: Record<string, unknown>[]): Omit<HistoryItem, "id">[
         // tool_result, thinking and images are not conversation text.
       }
     const text = texts.join("\n\n").trim();
+    const identity = typeof rec.uuid === "string" ? { nativeId: rec.uuid } : {};
     if (text && !(role === "user" && injectedUserText(text)))
-      items.push({ role, text: cap(text), ...at(rec) });
-    for (const name of tools) items.push({ role: "tool", text: name, ...at(rec) });
+      items.push({ role, text: cap(text), ...at(rec), ...identity });
+    for (const name of tools) items.push({ role: "tool", text: name, ...at(rec), ...identity });
   }
   return items;
 }
@@ -196,9 +199,14 @@ export function historyBlocks(
 export function trimHistoryBefore(
   items: readonly HistoryItem[],
   cutoffMs: number | undefined,
+  representedNativeIds?: ReadonlySet<string>,
 ): HistoryItem[] {
-  if (cutoffMs === undefined) return [...items];
-  return items.filter((item) => item.at === undefined || item.at < cutoffMs);
+  // Provider timestamps can precede the moment MonoCode receives the phone turn.
+  // Trim the entire replayed suffix, including undated responses and tools.
+  const boundary = items.findIndex((item) => item.nativeId !== undefined && representedNativeIds?.has(item.nativeId));
+  const earlier = boundary < 0 ? items : items.slice(0, boundary);
+  if (cutoffMs === undefined) return [...earlier];
+  return earlier.filter((item) => item.at === undefined || item.at < cutoffMs);
 }
 
 /** What the transcript renders: history above the session's own blocks. */

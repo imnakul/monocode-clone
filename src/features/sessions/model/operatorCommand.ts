@@ -46,5 +46,11 @@ export function operatorUserPrompt(block: Block): string {
 }
 
 export function operatorEnabledInThread(blocks: Block[]): boolean {
-  return blocks.some(isOperatorUserTurn);
+  let enabled = false;
+  for (const block of blocks) {
+    if (block.role === "system" && typeof block.operatorAccess === "boolean")
+      enabled = block.operatorAccess;
+    else if (isOperatorUserTurn(block)) enabled = true;
+  }
+  return enabled;
 }

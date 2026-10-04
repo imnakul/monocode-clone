@@ -725,6 +725,12 @@ function sanitizeBlock(
     if (origin) next.branchOrigin = origin;
   }
   if (block.role === "user" && block.monocode) next.monocode = true;
+  if (block.role === "system" && typeof block.operatorAccess === "boolean")
+    next.operatorAccess = block.operatorAccess;
+  if (typeof block.externalTurnId === "string" && isPersistableId(block.externalTurnId))
+    next.externalTurnId = block.externalTurnId;
+  if (typeof block.providerMessageId === "string" && isPersistableId(block.providerMessageId))
+    next.providerMessageId = block.providerMessageId;
   if (
     block.role === "user" &&
     (block.intent === "plan" || block.intent === "orchestrate")

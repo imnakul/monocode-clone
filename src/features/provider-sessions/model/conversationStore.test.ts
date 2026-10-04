@@ -67,6 +67,68 @@ describe("mergeConversationRows", () => {
 });
 
 describe("ProviderConversationStore", () => {
+  it("retains expanded rows on refresh past the backend page cap", async () => {
+    const rows = Array.from({ length: 520 }, (_, index) => row(`chat-${index}`, 1000 - index));
+    const requests: ProviderListRequest[] = [];
+    const store = new ProviderConversationStore({
+      accounts: () => ["default"],
+      list: async (_provider, request) => {
+        requests.push(request);
+        const end = Math.min(rows.length, request.offset + Math.min(request.limit, 500));
+        return page(rows.slice(request.offset, end), end === rows.length ? null : end);
+      },
+    });
+    store.setProviders(["claude"]);
+    await tick();
+    for (let i = 0; i < 51; i += 1) await store.loadMore("claude");
+    expect(store.getSnapshot().claude.rows).toHaveLength(520);
+    requests.length = 0;
+    await store.refresh("claude");
+    expect(requests.map((request) => [request.offset, request.limit])).toEqual([[0, 500], [500, 20]]);
+    expect(store.getSnapshot().claude.rows).toEqual(rows);
+    expect(store.getSnapshot().claude.hasMore).toBe(false);
+  });
+
+  it("retries a failed page after a failed refresh without advancing or losing its cursor", async () => {
+    const { store, calls } = harness();
+    store.setProviders(["claude"]);
+    calls[0].resolve(page([row("a", 2)], 10));
+    await tick();
+    void store.refresh("claude");
+    calls[1].reject(new Error("refresh failed"));
+    await tick();
+    void store.loadMore("claude");
+    expect(calls[2].request.offset).toBe(10);
+    calls[2].reject(new Error("page failed"));
+    await tick();
+    expect(store.getSnapshot().claude.rows.map((entry) => entry.key)).toEqual(["a"]);
+    void store.loadMore("claude");
+    expect(calls[3].request.offset).toBe(10);
+    calls[3].resolve(page([row("b", 1)]));
+    await tick();
+    expect(store.getSnapshot().claude.rows.map((entry) => entry.key)).toEqual(["a", "b"]);
+    expect(store.getSnapshot().claude.hasMore).toBe(false);
+  });
+  it("shows ten total across accounts, then pages older rows without losing buffered chats", async () => {
+    const { store, calls } = harness(["default", "work"]);
+    store.setProviders(["claude"]);
+    expect(calls.map((call) => call.request.limit)).toEqual([10, 10]);
+    const rows = Array.from({ length: 30 }, (_, index) => row(`chat-${index}`, 100 - index));
+    calls[0].resolve(page(rows.filter((_, i) => i % 2 === 0).slice(0, 10), 10));
+    calls[1].resolve(page(rows.filter((_, i) => i % 2 === 1).slice(0, 10), 10));
+    await tick();
+    expect(store.getSnapshot().claude.rows).toEqual(rows.slice(0, 10));
+    void store.loadMore("claude");
+    calls[2].resolve(page(rows.filter((_, i) => i % 2 === 0).slice(10), null));
+    calls[3].resolve(page(rows.filter((_, i) => i % 2 === 1).slice(10), null));
+    await tick();
+    expect(store.getSnapshot().claude.rows).toEqual(rows.slice(0, 20));
+    expect(store.getSnapshot().claude.hasMore).toBe(true);
+    await store.loadMore("claude");
+    expect(calls).toHaveLength(4);
+    expect(store.getSnapshot().claude.rows).toEqual(rows);
+    expect(store.getSnapshot().claude.hasMore).toBe(false);
+  });
   it("loads a provider when enabled and shows loading before the first result", async () => {
     const { store, calls } = harness();
     store.setProviders(["claude"]);

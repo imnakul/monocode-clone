@@ -13,6 +13,10 @@ import type { McpFormField } from "../../../features/sessions/model/mcpForm";
 import { type ProcessedUsage } from "../../../features/sessions/model/tokenAccounting";
 
 export type HarnessEvent =
+  | { type: "externalTurn.started"; turnId: string; text?: string; nativeId?: string }
+  | { type: "externalTurn.user"; turnId: string; text: string; nativeId?: string }
+  | { type: "externalTurn.event"; turnId: string; event: HarnessEvent }
+  | { type: "externalTurn.finished"; turnId: string }
   | { type: "session.started" }
   | { type: "session.ended"; code?: number | null }
   | { type: "session.error"; message: string }

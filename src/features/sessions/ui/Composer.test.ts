@@ -939,6 +939,44 @@ describe("Composer question focus", () => {
     expect(container.querySelector('[role="status"][aria-label^="Operator access enabled"]')).toBeNull();
   });
 
+  it("turns persisted Operator access off without resending its activation command", async () => {
+    const onDisable = vi.fn();
+    const onSubmit = vi.fn(() => true);
+    const blocks = [{ id: "on", role: "user" as const, text: "Check tasks", monocode: true }];
+    const props = {
+      focused: true, harness: "claude" as const, model: "claude-sonnet",
+      runtimeMode: "supervised" as const, executionCwd: "/repo",
+      hideProjectPicker: true, hideBranchPicker: true, initialDraft: "Ordinary follow-up",
+      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(),
+      onRuntimeModeChange: vi.fn(), onSubmit, onOperatorDisable: onDisable, blocks,
+    };
+    await act(async () => root.render(createElement(Composer, props)));
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Turn off Operator"]')!.click());
+    expect(onDisable).toHaveBeenCalledOnce();
+    await act(async () => root.render(createElement(Composer, { ...props, blocks: [
+      ...blocks, { id: "off", role: "system", text: "Operator off", operatorAccess: false },
+    ] })));
+    expect(container.querySelector('[aria-label="Turn off Operator"]')).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send"]')!.click());
+    expect(onSubmit).toHaveBeenCalledWith("Ordinary follow-up", [], { intent: "default" });
+  });
+
+  it.each([{ busy: true }, { externalTurnActive: true }])("waits for an active turn before revoking saved Operator access (%o)", async (active) => {
+    const onDisable = vi.fn();
+    await act(async () => root.render(createElement(Composer, {
+      focused: true, harness: "claude", model: "claude-sonnet", runtimeMode: "supervised",
+      executionCwd: "/repo", hideProjectPicker: true, hideBranchPicker: true,
+      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(), onRuntimeModeChange: vi.fn(),
+      onSubmit: vi.fn(), onOperatorDisable: onDisable,
+      blocks: [{ id: "on", role: "user", text: "Check tasks", monocode: true }], ...active,
+    })));
+    const off = container.querySelector<HTMLButtonElement>('[aria-label="Turn off Operator"]');
+    expect(off?.disabled).toBe(true);
+    expect(off?.title).toContain("after the current turn finishes");
+    await act(async () => off?.click());
+    expect(onDisable).not.toHaveBeenCalled();
+  });
+
   it("keeps /plan in the text beside its pill and submits with the plan intent", async () => {
     const onSubmit = vi.fn(() => true);
     await act(async () =>

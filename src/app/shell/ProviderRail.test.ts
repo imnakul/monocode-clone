@@ -14,7 +14,6 @@ function render(selected: "claude" | "codex" | null = null, list = entries): str
       entries: list,
       selected,
       onSelect: vi.fn(),
-      onRefresh: vi.fn(),
     }),
   );
 }
@@ -24,19 +23,19 @@ describe("ProviderRail", () => {
     expect(render(null, [])).toBe("");
   });
 
-  it("renders a folder row per enabled provider with refresh controls", () => {
+  it("renders a folder row per enabled provider without duplicate refresh controls", () => {
     const html = render();
     expect(html).toContain("Claude conversations, 12 loaded");
     expect(html).toContain("Codex conversations, could not be read");
-    expect(html).toContain("Refresh Claude conversations");
-    expect(html).toContain("Refresh Codex conversations");
+    expect(html).not.toContain("Refresh Claude conversations");
+    expect(html).not.toContain("Refresh Codex conversations");
     expect(html).toContain("data-shared-hover-item");
   });
 
-  it("marks the selected provider and spins only the refreshing one", () => {
+  it("marks the selected provider and reports refresh without an inline button", () => {
     const html = render("claude");
     expect(html.match(/aria-current="true"/g)).toHaveLength(1);
-    expect(html.match(/animate-spin/g)).toHaveLength(1);
-    expect(html).toContain("disabled");
+    expect(html).not.toContain("animate-spin");
+    expect(html).toContain('aria-busy="true"');
   });
 });

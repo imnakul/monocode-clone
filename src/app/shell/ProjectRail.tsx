@@ -144,7 +144,6 @@ type Props = {
   providerEntries?: readonly ProviderRailEntry[];
   selectedProvider?: NativeProvider | null;
   onSelectProvider?: (provider: NativeProvider) => void;
-  onRefreshProvider?: (provider: NativeProvider) => void;
 };
 
 /** Projects / Chat lens switcher. Hari enables when its surface lands.
@@ -194,7 +193,6 @@ export function ProjectRail({
   providerEntries = [],
   selectedProvider = null,
   onSelectProvider,
-  onRefreshProvider,
 }: Props) {
   const resize = useDragResize({
     min: PROJECT_RAIL_WIDTH_MIN,
@@ -555,12 +553,11 @@ export function ProjectRail({
               groupLogos={groupLogos}
               groupMascots={groupMascots}
             />
-            {onSelectProvider && onRefreshProvider ? (
+            {onSelectProvider ? (
               <ProviderRail
                 entries={providerEntries}
                 selected={selectedProvider}
                 onSelect={onSelectProvider}
-                onRefresh={onRefreshProvider}
               />
             ) : null}
           </div>

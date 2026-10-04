@@ -1447,7 +1447,7 @@ function AutomationEditor({
               {draft.reuseSession ? (
                 <p className="mt-2 px-1 text-[11px] text-content/45">
                   Continued chats keep any existing Operator access, even with
-                  this switch off. Choose Start fresh for a new normal chat.
+                  this switch off. Turn Operator off in that chat, or choose Start fresh for a new normal chat.
                 </p>
               ) : null}
             </section>

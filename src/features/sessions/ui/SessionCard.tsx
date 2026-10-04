@@ -2,6 +2,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type ReactNode,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -60,6 +61,7 @@ export function SessionCard({
   onArchive,
   onRename,
   onDelete,
+  statusDetail,
 }: {
   session: SessionSummary;
   isActive: boolean;
@@ -80,6 +82,8 @@ export function SessionCard({
   onArchive?: () => void;
   onRename?: () => void;
   onDelete?: () => void;
+  /** Optional status supplied by a provider conversation list. */
+  statusDetail?: ReactNode;
 }) {
   const skipClickUntil = useRef(0);
   const [dragging, setDragging] = useState(false);
@@ -286,7 +290,7 @@ export function SessionCard({
               {model}
             </span>
           </span>
-          {status}
+          {statusDetail ?? status}
         </span>
       )}
       <span

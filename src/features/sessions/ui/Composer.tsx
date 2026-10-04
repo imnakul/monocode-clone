@@ -297,6 +297,8 @@ type Props = {
   onModelChange: (harness: HarnessId, model: string) => void;
   onModelSettingsChange?: (settings: Record<string, string>) => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
+  onOperatorDisable?: () => void;
+  externalTurnActive?: boolean;
   onQuoteRequestConsumed?: (id: number) => void;
   onInboxCardDismiss?: () => void;
   onNoteCardDismiss?: () => void;
@@ -682,6 +684,8 @@ export function Composer({
   onRecallLastTurnReady,
   onEditingLastTurnChange,
   cloudLaunch,
+  onOperatorDisable,
+  externalTurnActive = false,
   children,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -2721,11 +2725,17 @@ export function Composer({
                     <button
                       type="button"
                       aria-pressed={operatorActive}
-                      disabled={operatorThreadEnabled}
+                      disabled={operatorThreadEnabled && (busy || externalTurnActive || !onOperatorDisable)}
                       title={operatorThreadEnabled
-                        ? "Operator access is enabled for this chat" : undefined}
+                        ? "Turn off Operator access for this chat" : undefined}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => {
+                        if (operatorThreadEnabled) {
+                          setOperatorSelected(false);
+                          clearLeadingMode(OPERATOR_COMMAND.name);
+                          onOperatorDisable?.();
+                          return;
+                        }
                         setOperatorSelected(!operatorActive);
                         if (operatorActive) {
                           clearLeadingMode(OPERATOR_COMMAND.name);
@@ -2821,10 +2831,15 @@ export function Composer({
             {(!compact || operatorThreadEnabled) && operatorActive ? (
               <ModeCommandPill
                 name={OPERATOR_COMMAND.name}
+                disabled={operatorThreadEnabled && (busy || externalTurnActive)}
                 title={operatorThreadEnabled
-                  ? "Operator access enabled for this chat; later messages keep access"
+                  ? (!onOperatorDisable ? "Operator access enabled for this chat; later messages keep access" : busy || externalTurnActive ? "Turn Operator off after the current turn finishes" : "Turn off Operator access for later messages")
                   : undefined}
-                onClear={operatorThreadEnabled ? undefined : () => {
+                onClear={operatorThreadEnabled ? (onOperatorDisable ? () => {
+                  setOperatorSelected(false);
+                  clearLeadingMode(OPERATOR_COMMAND.name);
+                  onOperatorDisable();
+                } : undefined) : () => {
                     setOperatorSelected(false);
                     clearLeadingMode(OPERATOR_COMMAND.name);
                     ref.current?.focus();

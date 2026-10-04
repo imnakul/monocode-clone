@@ -79,6 +79,19 @@ describe("parseProviderHistory", () => {
 });
 
 describe("trimHistoryBefore", () => {
+  it("trims a saved phone turn and its undated suffix by native UUID despite receive-time skew", () => {
+    const items = parseProviderHistory("claude", jsonl(
+      { type: "user", uuid: "old", message: { content: "Earlier prompt" } },
+      { type: "assistant", message: { content: "Earlier reply" } },
+      { type: "user", uuid: "phone", timestamp: "2026-10-04T00:00:00Z", message: { content: "Phone prompt" } },
+      { type: "assistant", message: { content: "Phone reply" } },
+    ), "0");
+    const receiveTime = Date.parse("2026-10-04T00:00:02Z");
+    expect(trimHistoryBefore(items, receiveTime, new Set(["phone"])).map((item) => item.text))
+      .toEqual(["Earlier prompt", "Earlier reply"]);
+    expect(trimHistoryBefore(items, undefined, new Set(["old"]))).toEqual([]);
+    expect(trimHistoryBefore(items, undefined, new Set(["missing"]))).toEqual(items);
+  });
   it("drops items MonoCode already holds as its own turns", () => {
     const items = parseProviderHistory("claude", claudeFixture, "0");
     const cutoff = Date.parse("2026-10-04T00:00:03Z");

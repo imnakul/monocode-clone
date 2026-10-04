@@ -6,6 +6,7 @@ import { emptyProviderListState } from "../model/conversationStore";
 import type { ProviderListState } from "../model/conversationStore";
 import type { ProviderConversation } from "../model/providerSessions";
 import { conversationSummary } from "../model/conversationSummary";
+import { newSession } from "../../sessions/model/session";
 
 const storage = new Map<string, string>();
 Object.defineProperty(globalThis, "localStorage", {
@@ -74,6 +75,16 @@ describe("conversationSummary", () => {
 });
 
 describe("ProviderConversationList", () => {
+  it("renders confirmed RC status and saved paused intent without claiming Codex RC", () => {
+    const session = { ...newSession("claude", "/repo"), providerSessionId: "on", remoteControlStatus: "on" as const };
+    const state = { status: "ready" as const, rows: [row("on"), row("paused", { monocodeSessionId: "saved" }), row("off")] };
+    const extra = { sessions: [session], remoteControlDesired: new Set([session.id, "saved"]) };
+    const html = render(state, extra);
+    expect(html).toContain("RC On");
+    expect(html).toContain("RC Paused");
+    expect(html).toContain("RC Off");
+    expect(render({ status: "ready", rows: [row("codex", { provider: "codex" })] }, { provider: "codex", ...extra })).not.toContain("RC Off");
+  });
   it("shows a labelled skeleton while the first load runs", () => {
     const html = render({ status: "loading" });
     expect(html).toContain('aria-busy="true"');
