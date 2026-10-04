@@ -421,6 +421,7 @@ import {
   type NativeProvider,
   type ProviderConversation,
 } from "../features/provider-sessions/model/providerSessions";
+import { nativeHistoryStore } from "../features/provider-sessions/model/history";
 import { prepareNativeInput } from "../features/provider-sessions/model/nativeInput";
 import {
   archiveProviderConversationRow,
@@ -1152,10 +1153,6 @@ function Workspace({
   const [providerActionError, setProviderActionError] = useState<
     string | null
   >(null);
-  /** Chats opened from a provider conversation; their older transcript is not shown. */
-  const [nativeNoticeIds, setNativeNoticeIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
   /** Saved per-chat Remote Control intent; live state lives on the session. */
   const [remoteControlDesired, setRemoteControlDesired] = useState<
     ReadonlySet<string>
@@ -5219,12 +5216,7 @@ function Workspace({
           remoteControlSeeded.current.delete(sessionId);
           remoteControlInitialized.current.delete(sessionId);
           setRemoteControlDesired(loadRemoteControlSessions());
-          setNativeNoticeIds((current) => {
-            if (!current.has(sessionId)) return current;
-            const next = new Set(current);
-            next.delete(sessionId);
-            return next;
-          });
+          nativeHistoryStore.forget(sessionId);
           try {
             await detachProviderConversation(sessionId);
           } catch (error) {
@@ -5537,9 +5529,6 @@ function Workspace({
           }),
         );
         providerConversations.store.linkSession(row.key, session.id);
-        setNativeNoticeIds((current) =>
-          current.has(session.id) ? current : new Set(current).add(session.id),
-        );
         await onSelectHistorySession(session.id);
         void refreshHistory(sidebarCwdRef.current);
       } catch (error) {
@@ -12011,7 +12000,6 @@ function Workspace({
     onBtwStop,
     onBtwModelChange,
     onNewTerminal: onNewTerminalInSession,
-    nativeNoticeIds,
     remoteControlDesired,
     onRemoteControlChange: onChangeRemoteControl,
     onReviewFix,

@@ -268,3 +268,60 @@ fn cloud_retention_survives_reopen_and_keeps_first_launch_metadata_per_account()
         2
     );
 }
+
+#[test]
+fn history_reads_claude_and_codex_files_read_only_and_pages_earlier_chunks() {
+    let (dir, _conn) = setup();
+    claude(dir.path(), "native-one");
+    let path = dir.path().join("projects/-repo/native-one.jsonl");
+    let mut lines = String::new();
+    for index in 0..40 {
+        lines.push_str(&format!(
+            "{{\"type\":\"user\",\"message\":{{\"content\":\"line é {index}\"}}}}\n"
+        ));
+    }
+    fs::write(&path, &lines).unwrap();
+    let original = fs::read(&path).unwrap();
+    let whole =
+        read_history_at(dir.path(), &Provider::Claude, "native-one", None, 1 << 20).unwrap();
+    assert!(!whole.has_earlier);
+    assert_eq!(whole.text, lines);
+    let tail = read_history_at(dir.path(), &Provider::Claude, "native-one", None, 300).unwrap();
+    assert!(tail.has_earlier);
+    assert!(
+        tail.text.lines().all(|line| line.ends_with('}')),
+        "complete lines only"
+    );
+    let earlier = read_history_at(
+        dir.path(),
+        &Provider::Claude,
+        "native-one",
+        Some(tail.start),
+        300,
+    )
+    .unwrap();
+    assert!(!earlier.text.is_empty());
+    assert_eq!(
+        format!("{}{}", earlier.text, tail.text).lines().count(),
+        earlier.text.lines().count() + tail.text.lines().count()
+    );
+    assert_eq!(fs::read(&path).unwrap(), original);
+
+    let codex = dir.path().join("sessions/2026/10/04");
+    fs::create_dir_all(&codex).unwrap();
+    fs::write(
+        codex.join("rollout-2026-10-04T00-00-00-abc-123.jsonl"),
+        "{\"type\":\"response_item\"}\n",
+    )
+    .unwrap();
+    let found = read_history_at(dir.path(), &Provider::Codex, "abc-123", None, 1 << 20).unwrap();
+    assert!(found.text.contains("response_item"));
+}
+
+#[test]
+fn history_reports_missing_files_and_rejects_unsafe_ids() {
+    let (dir, _conn) = setup();
+    let missing = read_history_at(dir.path(), &Provider::Claude, "nope", None, 100).unwrap_err();
+    assert!(missing.contains("No transcript file"));
+    assert!(read_history_at(dir.path(), &Provider::Claude, "../etc", None, 100).is_err());
+}

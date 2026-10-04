@@ -631,5 +631,121 @@ pub fn provider_cloud_list(
         .collect()
 }
 
+/// Bytes of transcript returned per history request; older chunks are paged on demand.
+const HISTORY_CHUNK_BYTES: u64 = 6 * 1024 * 1024;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryChunk {
+    /// Complete JSONL lines only, oldest first.
+    pub text: String,
+    /// Byte offset where `text` starts; pass it as `end` to read the earlier chunk.
+    pub start: u64,
+    pub has_earlier: bool,
+}
+
+fn find_transcript(provider: &Provider, dir: &Path, id: &str, depth: u8) -> Option<PathBuf> {
+    if depth > 6 {
+        return None;
+    }
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        let kind = entry.file_type().ok()?;
+        if kind.is_dir() {
+            if *provider == Provider::Claude && entry.file_name() == "subagents" {
+                continue;
+            }
+            if let Some(found) = find_transcript(provider, &path, id, depth + 1) {
+                return Some(found);
+            }
+        } else if kind.is_file() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let matches = match provider {
+                Provider::Claude => name == format!("{id}.jsonl"),
+                Provider::Codex => name.ends_with(&format!("{id}.jsonl")),
+            };
+            if matches {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+/// Read-only tail/page of a native transcript. Never writes provider files.
+fn read_history_at(
+    root: &Path,
+    provider: &Provider,
+    id: &str,
+    end: Option<u64>,
+    chunk: u64,
+) -> Result<HistoryChunk, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    if id.is_empty()
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("Invalid native conversation ID.".into());
+    }
+    let roots: Vec<PathBuf> = match provider {
+        Provider::Claude => vec![root.join("projects")],
+        Provider::Codex => vec![root.join("sessions"), root.join("archived_sessions")],
+    };
+    let path = roots
+        .iter()
+        .find_map(|dir| find_transcript(provider, dir, id, 0))
+        .ok_or_else(|| {
+            "No transcript file was found for this conversation. Its provider store may use a layout MonoCode cannot read yet.".to_string()
+        })?;
+    let mut file = std::fs::File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let len = file.metadata().map_err(|e| e.to_string())?.len();
+    let end = end.unwrap_or(len).min(len);
+    let start = end.saturating_sub(chunk);
+    file.seek(SeekFrom::Start(start))
+        .map_err(|e| e.to_string())?;
+    let mut bytes = vec![0u8; (end - start) as usize];
+    file.read_exact(&mut bytes)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut aligned = start;
+    if start > 0 {
+        // Drop the partial first line; a newline byte never occurs inside a UTF-8 sequence.
+        match bytes.iter().position(|b| *b == b'\n') {
+            Some(index) => {
+                bytes.drain(..=index);
+                aligned = start + index as u64 + 1;
+            }
+            None => {
+                bytes.clear();
+                aligned = end;
+            }
+        }
+    }
+    Ok(HistoryChunk {
+        text: String::from_utf8_lossy(&bytes).into_owned(),
+        start: aligned,
+        has_earlier: aligned > 0,
+    })
+}
+
+/// Display-only history for an opened native conversation, read from the provider's own store.
+#[tauri::command(async)]
+pub fn provider_sessions_history(
+    app: AppHandle,
+    key: String,
+    provider: Provider,
+    account_id: Option<String>,
+    end: Option<u64>,
+) -> Result<HistoryChunk, String> {
+    validate_key(&key)?;
+    let parts: Vec<String> = serde_json::from_str(&key).map_err(|e| e.to_string())?;
+    let root = root_for(&app, &provider, account_id.as_deref().unwrap_or("default"))?;
+    let root = std::fs::canonicalize(&root).unwrap_or(root);
+    if parts[0] != provider.name() || Path::new(&parts[1]) != root {
+        return Err("The native conversation belongs to a different provider profile".into());
+    }
+    read_history_at(&root, &provider, &parts[2], end, HISTORY_CHUNK_BYTES)
+}
+
 #[cfg(test)]
 mod tests;

@@ -10,7 +10,6 @@ import {
   Loader,
   RemoteControl,
   RefreshCw,
-  X,
 } from "../../../shared/ui/icons";
 import { copyText } from "../../../platform/tauri/clipboard";
 import {
@@ -20,8 +19,15 @@ import {
 import type { RemoteControlStatus } from "../../../integrations/harness/core/types";
 
 export type SessionProviderStripProps = {
-  /** Provider name for the "older transcript" note; omit when not applicable. */
-  nativeNoticeProvider?: string;
+  /** Earlier-history status for a chat bound to a native conversation. */
+  history?: {
+    status: "error" | "ready";
+    message?: string;
+    canShowEarlier: boolean;
+    loadingEarlier: boolean;
+    onShowEarlier: () => void;
+    onRetry: () => void;
+  };
   remoteControl?: {
     desired: boolean;
     status?: RemoteControlStatus;
@@ -60,15 +66,16 @@ function ToneIcon({ view }: { view: RemoteControlView }): ReactElement {
  * saved choice. Neither touches a running turn.
  */
 export function SessionProviderStrip({
-  nativeNoticeProvider,
+  history,
   remoteControl,
 }: SessionProviderStripProps): ReactElement | null {
-  const [noticeDismissed, setNoticeDismissed] = useState(false);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [copied, setCopied] = useState(false);
   const chip = useRef<HTMLButtonElement>(null);
-  const showNotice = !!nativeNoticeProvider && !noticeDismissed;
-  if (!showNotice && !remoteControl) return null;
+  const showHistory =
+    !!history &&
+    (history.status === "error" || history.canShowEarlier || !!history.message);
+  if (!showHistory && !remoteControl) return null;
   const view = remoteControl
     ? remoteControlView({
         desired: remoteControl.desired,
@@ -130,22 +137,33 @@ export function SessionProviderStrip({
       data-session-provider-strip
       className="flex min-h-7 shrink-0 items-center gap-2 px-3 py-1 text-[11px] text-content/55"
     >
-      {showNotice ? (
+      {showHistory && history ? (
         <p className="flex min-w-0 flex-1 items-center gap-1.5">
           <span className="min-w-0 truncate">
-            Continuing your {nativeNoticeProvider} conversation. Earlier
-            messages are not shown here yet; the agent still has the full
-            context.
+            {history.status === "error"
+              ? `Earlier messages could not be loaded: ${history.message ?? "unknown error"}. You can still continue this conversation.`
+              : history.message
+                ? `Older messages could not be loaded: ${history.message}`
+                : "Showing recent earlier messages."}
           </span>
-          <button
-            type="button"
-            title="Dismiss"
-            aria-label="Dismiss note"
-            onClick={() => setNoticeDismissed(true)}
-            className="grid size-5 shrink-0 place-items-center rounded text-content/45 hover:bg-content/10 hover:text-content"
-          >
-            <X aria-hidden className="size-3" />
-          </button>
+          {history.status === "error" ? (
+            <button
+              type="button"
+              onClick={history.onRetry}
+              className="shrink-0 rounded px-1.5 py-0.5 text-content/70 hover:bg-content/10 hover:text-content"
+            >
+              Retry
+            </button>
+          ) : history.canShowEarlier ? (
+            <button
+              type="button"
+              disabled={history.loadingEarlier}
+              onClick={history.onShowEarlier}
+              className="shrink-0 rounded px-1.5 py-0.5 text-content/70 hover:bg-content/10 hover:text-content disabled:opacity-60"
+            >
+              {history.loadingEarlier ? "Loading…" : "Show earlier"}
+            </button>
+          ) : null}
         </p>
       ) : (
         <span className="flex-1" />

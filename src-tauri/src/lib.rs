@@ -572,6 +572,7 @@ pub fn run() {
             provider_sessions::provider_sessions_for_session,
             provider_sessions::provider_sessions_unbind,
             provider_sessions::provider_sessions_validate_source,
+            provider_sessions::provider_sessions_history,
             provider_sessions::provider_cloud_save,
             provider_sessions::provider_cloud_list,
             notes::notes_list,

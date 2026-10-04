@@ -14,12 +14,32 @@ describe("SessionProviderStrip", () => {
     expect(render({})).toBe("");
   });
 
-  it("shows the older-transcript note without claiming history is loaded", () => {
-    const html = render({ nativeNoticeProvider: "Claude" });
-    expect(html).toContain("Continuing your Claude conversation");
-    expect(html).toContain("Earlier");
-    expect(html).toContain("not shown here yet");
-    expect(html).not.toContain("Remote Control");
+  const history = {
+    status: "ready" as const,
+    canShowEarlier: true,
+    loadingEarlier: false,
+    onShowEarlier: vi.fn(),
+    onRetry: vi.fn(),
+  };
+
+  it("offers Show earlier only when more history can be revealed", () => {
+    expect(render({ history })).toContain("Show earlier");
+    expect(render({ history: { ...history, canShowEarlier: false } })).toBe("");
+    expect(render({ history: { ...history, loadingEarlier: true } })).toContain("Loading…");
+  });
+
+  it("explains a history failure, keeps resuming possible and offers Retry", () => {
+    const html = render({ history: { ...history, status: "error", canShowEarlier: false, message: "No transcript file was found" } });
+    expect(html).toContain("Earlier messages could not be loaded: No transcript file was found");
+    expect(html).toContain("You can still continue this conversation");
+    expect(html).toContain("Retry");
+    expect(html).not.toContain("not shown here yet");
+  });
+
+  it("reports a failed older chunk without hiding what loaded", () => {
+    const html = render({ history: { ...history, message: "file moved" } });
+    expect(html).toContain("Older messages could not be loaded: file moved");
+    expect(html).toContain("Show earlier");
   });
 
   it.each([

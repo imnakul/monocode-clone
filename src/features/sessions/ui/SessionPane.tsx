@@ -39,7 +39,6 @@ import {
   type RecentProject,
 } from "../../projects/model/recents";
 import {
-  HARNESS_TITLE,
   sessionDisplayTitle,
   sessionDraftBlock,
   sessionWorkCwd,
@@ -66,6 +65,8 @@ import {
 } from "../model/transcriptJump";
 import { EmptySession } from "./EmptySession";
 import { SessionProviderStrip } from "../../provider-sessions/ui/SessionProviderStrip";
+import { useNativeHistory } from "../../provider-sessions/ui/useNativeHistory";
+import { isHistoryBlock, withHistory } from "../../provider-sessions/model/history";
 import { canHarnessRemoteControl } from "../../../integrations/harness/core/registry";
 import { useComposerDockMotion } from "./useComposerDockMotion";
 import { MOD } from "../../../platform/tauri/platform";
@@ -235,8 +236,6 @@ export type SessionPaneProps = {
     modelSettings: Record<string, string>,
   ) => void;
   onNewTerminal: (sessionId: string) => void;
-  /** Chats opened from a provider conversation (older transcript not shown). */
-  nativeNoticeIds?: ReadonlySet<string>;
   /** Saved per-chat Claude Remote Control choices. */
   remoteControlDesired?: ReadonlySet<string>;
   onRemoteControlChange?: (sessionId: string, enabled: boolean) => void;
@@ -342,7 +341,6 @@ const LocalSessionPane = memo(function LocalSessionPane({
   onBtwStop,
   onBtwModelChange,
   onNewTerminal,
-  nativeNoticeIds,
   remoteControlDesired,
   onRemoteControlChange,
   onPaneDragStart,
@@ -359,7 +357,18 @@ const LocalSessionPane = memo(function LocalSessionPane({
       sameCheckout(orchestrationCheckoutCwd(run), sessionWorkCwd(session)),
   );
   const title = sessionDisplayTitle(session.title, session.harness);
-  const isEmpty = session.blocks.length === 0;
+  // Earlier provider history is display-only: it makes the pane a transcript,
+  // but it is never part of `session.blocks` (not saved, sent or counted).
+  const history = useNativeHistory({
+    sessionId: session.id,
+    harness: session.harness,
+    providerAccountId: session.providerAccountId,
+    enabled: visible && !remoteSession && !session.inboxAsk,
+    cutoffMs: session.blocks.find(
+      (block) => block.role === "user" && block.startedAt !== undefined,
+    )?.startedAt,
+  });
+  const isEmpty = session.blocks.length === 0 && history.blocks.length === 0;
   const recallLastTurnRef = useRef<(() => void) | null>(null);
   const remote = remoteSession;
   const showRemoteControl =
@@ -369,9 +378,9 @@ const LocalSessionPane = memo(function LocalSessionPane({
     !session.inboxAsk &&
     !session.worktreeRemoved &&
     canHarnessRemoteControl("claude");
-  const nativeNotice =
-    !remote && nativeNoticeIds?.has(session.id)
-      ? HARNESS_TITLE[session.harness]
+  const historyNotice =
+    !remote && history.state.status !== "none" && history.state.status !== "loading"
+      ? history.state
       : undefined;
   const editLastTurnSupported = !remote && canEditLastTurn(session);
   const turnRecall = editLastTurnSupported ? lastTurnRecall(session) : null;
@@ -425,11 +434,15 @@ const LocalSessionPane = memo(function LocalSessionPane({
     [onReviewFix, session.id],
   );
   const branchTurn = useCallback(
-    (turn: Block[]) => onBranch?.(session.id, turn),
+    (turn: Block[]) => {
+      if (!turn.some(isHistoryBlock)) onBranch?.(session.id, turn);
+    },
     [onBranch, session.id],
   );
   const askSidechat = useCallback(
-    (turn: Block[]) => onSidechat?.(session.id, turn),
+    (turn: Block[]) => {
+      if (!turn.some(isHistoryBlock)) onSidechat?.(session.id, turn);
+    },
     [onSidechat, session.id],
   );
   const replyQuestion = useCallback(
@@ -851,9 +864,30 @@ const LocalSessionPane = memo(function LocalSessionPane({
         </div>
       ) : null}
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        {visible && (nativeNotice || showRemoteControl) ? (
+        {visible && (historyNotice || showRemoteControl) ? (
           <SessionProviderStrip
-            nativeNoticeProvider={nativeNotice}
+            history={
+              historyNotice
+                ? {
+                    status: historyNotice.status,
+                    message:
+                      historyNotice.status === "error"
+                        ? historyNotice.message
+                        : historyNotice.status === "ready"
+                          ? historyNotice.earlierError
+                          : undefined,
+                    canShowEarlier:
+                      historyNotice.status === "ready" &&
+                      (historyNotice.visible < historyNotice.items.length ||
+                        historyNotice.hasEarlier),
+                    loadingEarlier:
+                      historyNotice.status === "ready" &&
+                      historyNotice.loadingEarlier,
+                    onShowEarlier: history.showEarlier,
+                    onRetry: history.retry,
+                  }
+                : undefined
+            }
             remoteControl={
               showRemoteControl
                 ? {
@@ -930,7 +964,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
                 onMouseDown={focusPane}
               >
                 <AgentTranscript
-                  blocks={session.blocks}
+                  blocks={withHistory(history.blocks, session.blocks)}
                   busy={!!session.busy}
                   visible={visible}
                   cwd={workCwd}
@@ -981,13 +1015,18 @@ const LocalSessionPane = memo(function LocalSessionPane({
                     !session.inboxAsk &&
                     !session.worktreeRemoved &&
                     onSecondOpinion
-                      ? (target, turn) =>
-                          onSecondOpinion(session.id, target, turn)
+                      ? (target, turn) => {
+                          if (!turn.some(isHistoryBlock))
+                            onSecondOpinion(session.id, target, turn);
+                        }
                       : undefined
                   }
                   onHandoff={
                     !session.inboxAsk && !session.worktreeRemoved && onHandoff
-                      ? (target, turn) => onHandoff(session.id, target, turn)
+                      ? (target, turn) => {
+                          if (!turn.some(isHistoryBlock))
+                            onHandoff(session.id, target, turn);
+                        }
                       : undefined
                   }
                   onJumpToBottomChange={setShowJumpToBottom}
