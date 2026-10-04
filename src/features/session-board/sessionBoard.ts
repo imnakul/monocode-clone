@@ -123,6 +123,8 @@ export type BoardCard = {
   queuedCount: number;
   updatedAt: number;
   hiddenRunId?: string;
+  /** Started by an automation (shows the Automations icon while running). */
+  automation?: boolean;
 };
 function cleanBoardText(value: string, limit: number): string {
   return [
@@ -265,6 +267,7 @@ export function projectBoardCard(
     queuedCount: session.queuedMessages?.length ?? 0,
     updatedAt: previous?.updatedAt ?? now,
     hiddenRunId: previous?.hiddenRunId,
+    ...(session.automationId ? { automation: true } : {}),
   };
   if (
     !previous ||

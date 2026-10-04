@@ -12192,6 +12192,7 @@ function Workspace({
           ) : null}
           <div className="flex min-h-0 min-w-0 flex-1">
             <Sidebar
+              remoteControlSessionIds={remoteControlDesired}
               cwd={sidebarCwd}
               gitCwd={gitCwd}
               worktreeTabStats={worktreeTabStats}
@@ -12386,7 +12387,8 @@ function Workspace({
                     }}
                   />
                 ) : null}
-                {compactTitleBar ? null : workspaceTitleBar}
+                {/* Beside Session Manager the pane has its own slim header. */}
+                {compactTitleBar || boardOpen ? null : workspaceTitleBar}
 
                 <main className="relative flex min-h-0 min-w-0 flex-1">
                   <div
@@ -12612,6 +12614,7 @@ function Workspace({
               ) : null}
               {boardOpen ? (
                 <SessionBoardView
+                  remoteControlSessionIds={remoteControlDesired}
                   cwd={projectCwd}
                   recents={recents}
                   cards={sessionBoard.cards}

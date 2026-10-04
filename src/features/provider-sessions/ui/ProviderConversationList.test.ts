@@ -80,10 +80,12 @@ describe("ProviderConversationList", () => {
     const state = { status: "ready" as const, rows: [row("on"), row("paused", { monocodeSessionId: "saved" }), row("off")] };
     const extra = { sessions: [session], remoteControlDesired: new Set([session.id, "saved"]) };
     const html = render(state, extra);
-    expect(html).toContain("RC On");
-    expect(html).toContain("RC Paused");
-    expect(html).toContain("RC Off");
-    expect(render({ status: "ready", rows: [row("codex", { provider: "codex" })] }, { provider: "codex", ...extra })).not.toContain("RC Off");
+    // A PC icon only when Remote Control is turned on; nothing when off.
+    expect(html).toContain('data-remote-control-indicator="On"');
+    expect(html).toContain('data-remote-control-indicator="Paused"');
+    expect(html).not.toContain('data-remote-control-indicator="Off"');
+    expect(html.match(/data-remote-control-indicator=/g)).toHaveLength(2);
+    expect(render({ status: "ready", rows: [row("codex", { provider: "codex" })] }, { provider: "codex", ...extra })).not.toContain("data-remote-control-indicator");
   });
   it("shows a labelled skeleton while the first load runs", () => {
     const html = render({ status: "loading" });
