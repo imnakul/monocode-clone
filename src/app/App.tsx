@@ -440,7 +440,11 @@ import {
 } from "../features/provider-sessions/ui/useProviderConversations";
 import { CloudSessionDialog } from "../features/provider-sessions/ui/CloudSessionDialog";
 import { useCloudRecords } from "../features/provider-sessions/ui/useCloudRecords";
-import type { CloudLaunchOutcome } from "../features/provider-sessions/ui/useCloudLaunch";
+import {
+  CLOUD_LAUNCH_OUTCOME_EVENT,
+  isCloudLaunchOutcome,
+  type CloudLaunchOutcome,
+} from "../features/provider-sessions/ui/useCloudLaunch";
 import type { CloudSession } from "../features/provider-sessions/model/cloudSessions";
 import { ProviderConversationList } from "../features/provider-sessions/ui/ProviderConversationList";
 import { PROVIDER_LABEL } from "../features/provider-sessions/model/conversationSummary";
@@ -5570,6 +5574,14 @@ function Workspace({
     [onArchiveHistorySession, providerConversations.store],
   );
 
+  const refreshProviderConversations = useCallback(
+    (provider: NativeProvider) => {
+      providerConversations.refresh(provider);
+      cloudRecords.refresh();
+    },
+    [cloudRecords.refresh, providerConversations.refresh],
+  );
+
   const providerRailEntries = useMemo<ProviderRailEntry[]>(
     () =>
       enabledNativeProviders.map((provider) => {
@@ -5577,12 +5589,27 @@ function Workspace({
         return {
           provider,
           label: PROVIDER_LABEL[provider],
-          count: state.status === "ready" ? state.rows.length : null,
-          refreshing: state.refreshing || state.status === "loading",
-          failed: state.error !== null,
+          count:
+            state.status === "ready"
+              ? state.rows.length +
+                cloudRecords.records.filter(
+                  (record) => record.provider === provider,
+                ).length
+              : null,
+          refreshing:
+            state.refreshing ||
+            state.status === "loading" ||
+            cloudRecords.refreshing,
+          failed: state.error !== null || !!cloudRecords.errors[provider],
         };
       }),
-    [enabledNativeProviders, providerConversations.snapshot],
+    [
+      cloudRecords.errors,
+      cloudRecords.records,
+      cloudRecords.refreshing,
+      enabledNativeProviders,
+      providerConversations.snapshot,
+    ],
   );
 
   const onCloudLaunchOutcome = useCallback(
@@ -5598,6 +5625,26 @@ function Workspace({
     [cloudRecords.add],
   );
 
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<CloudLaunchOutcome>(
+      CLOUD_LAUNCH_OUTCOME_EVENT,
+      ({ payload }) => {
+        if (isCloudLaunchOutcome(payload)) onCloudLaunchOutcome(payload);
+      },
+    )
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [onCloudLaunchOutcome]);
+
   const providerPanel = selectedProvider ? (
     <ProviderConversationList
       provider={selectedProvider}
@@ -5607,13 +5654,15 @@ function Workspace({
       actionError={providerActionError}
       activeSessionId={active?.id}
       onShowArchivedChange={providerConversations.setShowArchived}
-      onRefresh={() => providerConversations.refresh(selectedProvider)}
+      onRefresh={() => refreshProviderConversations(selectedProvider)}
       onLoadMore={() => providerConversations.loadMore(selectedProvider)}
       onOpen={(row) => void onOpenProviderConversation(row)}
       onArchive={(row, archived) =>
         void onArchiveProviderConversation(row, archived)
       }
       onDismissActionError={() => setProviderActionError(null)}
+      cloudError={cloudRecords.errors[selectedProvider] ?? null}
+      cloudRefreshing={cloudRecords.refreshing}
       cloudRecords={cloudRecords.records.filter(
         (record) => record.provider === selectedProvider,
       )}
@@ -12199,7 +12248,7 @@ function Workspace({
               providerEntries={providerRailEntries}
               selectedProvider={selectedProvider}
               onSelectProvider={onSelectProvider}
-              onRefreshProvider={providerConversations.refresh}
+              onRefreshProvider={refreshProviderConversations}
               providerPanel={providerPanel}
               onNew={onNew}
               openSessions={openProjectSessions}

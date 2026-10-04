@@ -1,6 +1,7 @@
 import {
   Fragment,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -11,6 +12,7 @@ import {
 import { ChevronDown, ChevronRight, Plus } from "../../../shared/ui/icons";
 import { ExplorerMenu, type ExplorerMenuItem } from "../../files/ui/ExplorerMenu";
 import { SessionCard, SessionRenameRow } from "./SessionCard";
+import { SessionListItem, type SessionInsertMotion } from "./SessionListItem";
 import {
   addSessionToFolder,
   applySessionListDrop,
@@ -69,6 +71,11 @@ export function ChatPanel({
   onNew,
   onSelectSidechat,
 }: Props) {
+  const insertMotion = useRef<SessionInsertMotion>({ cwd: "", seen: new Set() });
+  useLayoutEffect(() => {
+    insertMotion.current.cwd = CHAT_FOLDERS_KEY;
+    for (const chat of [...chats, ...sidechats]) insertMotion.current.seen.add(chat.id);
+  });
   const [folders, setFolders] = useState<SessionFolder[]>(() =>
     loadSessionFolders(CHAT_FOLDERS_KEY),
   );
@@ -286,6 +293,17 @@ export function ChatPanel({
       />
     );
 
+  const renderItem = (chat: SessionSummary): ReactNode => (
+    <SessionListItem
+      key={chat.id}
+      session={chat}
+      cwd={CHAT_FOLDERS_KEY}
+      motion={insertMotion}
+    >
+      {renderCard(chat)}
+    </SessionListItem>
+  );
+
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-content/10 px-3">
@@ -317,9 +335,9 @@ export function ChatPanel({
             <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content/40">
               Sidechats
             </p>
-            <ul data-shared-hover-continuity className="flex flex-col gap-0.5">
+            <ul data-session-list data-shared-hover-continuity className="flex flex-col gap-0.5">
               {sidechats.map((chat) => (
-                <li key={chat.id}>
+                <SessionListItem key={chat.id} session={chat} cwd={CHAT_FOLDERS_KEY} motion={insertMotion}>
                   <SessionCard
                     session={chat}
                     isActive={chat.id === activeSessionId}
@@ -340,7 +358,7 @@ export function ChatPanel({
                       event.stopPropagation();
                     }}
                   />
-                </li>
+                </SessionListItem>
               ))}
             </ul>
           </div>
@@ -351,7 +369,7 @@ export function ChatPanel({
             resume anytime.
           </p>
         ) : (
-          <ul className="flex flex-col gap-0.5">
+          <ul data-session-list className="flex flex-col gap-0.5">
             {groupedEntries.map((group) => {
               if (group.kind === "pinned") {
                 return (
@@ -361,9 +379,7 @@ export function ChatPanel({
                         data-shared-hover-continuity
                         className="flex flex-col gap-0.5"
                       >
-                        {group.entry.sessions.map((session) => (
-                          <li key={session.id}>{renderCard(session)}</li>
-                        ))}
+                        {group.entry.sessions.map(renderItem)}
                       </ul>
                     </li>
                     <li aria-hidden className="mx-1 my-1 list-none">
@@ -415,7 +431,7 @@ export function ChatPanel({
                         setRenamingFolderId(null);
                       }}
                       onCancelRename={() => setRenamingFolderId(null)}
-                      renderCard={renderCard}
+                      renderCard={renderItem}
                     />
                   </li>
                 );
@@ -426,9 +442,7 @@ export function ChatPanel({
                     data-shared-hover-continuity
                     className="flex flex-col gap-0.5"
                   >
-                    {group.sessions.map((item) => (
-                      <li key={item.session.id}>{renderCard(item.session)}</li>
-                    ))}
+                    {group.sessions.map((item) => renderItem(item.session))}
                   </ul>
                 </li>
               );
@@ -536,9 +550,7 @@ function ChatFolderGroup({
           data-shared-hover-continuity
           className="mt-0.5 flex flex-col gap-0.5 pl-2"
         >
-          {sessions.map((session) => (
-            <li key={session.id}>{renderCard(session)}</li>
-          ))}
+          {sessions.map(renderCard)}
         </ul>
       )}
     </div>

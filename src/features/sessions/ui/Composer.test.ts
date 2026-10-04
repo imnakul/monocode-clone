@@ -47,6 +47,7 @@ import {
 } from "../model/draftCache";
 import type { UserQuestionPrompt } from "../model/userQuestion";
 import type { McpFormPrompt } from "../model/mcpForm";
+import { CloudExecutionSwitch } from "../../provider-sessions/ui/CloudLaunchControls";
 
 function renderAction(
   busy: boolean,
@@ -205,6 +206,47 @@ describe("Composer question focus", () => {
       ),
     );
   }
+
+  it.each([true, false])("routes normal composer Cloud send without a local turn (launch succeeds=%s)", async (succeeds) => {
+    const launch = vi.fn(async () => succeeds);
+    const onSubmit = vi.fn();
+    await act(async () => root.render(createElement(Composer, {
+      harness: "claude", model: "claude-sonnet", runtimeMode: "supervised",
+      cwd: "/repo", executionCwd: "/repo", initialDraft: "Work in cloud",
+      hideProjectPicker: true, hideBranchPicker: true,
+      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(),
+      onRuntimeModeChange: vi.fn(), onSubmit,
+      cloudLaunch: {
+        active: true, canLaunch: true, launch, resetToLocal: vi.fn(), panel: null,
+        control: createElement(CloudExecutionSwitch, { value: "cloud", disabled: false, onChange: vi.fn() }),
+      },
+    })));
+    expect(container.querySelector('[aria-label="Where this session runs"]')).not.toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send"]')!.click());
+    expect(launch).toHaveBeenCalledExactlyOnceWith("Work in cloud", [], false);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.querySelector("textarea")?.value).toBe(succeeds ? "" : "Work in cloud");
+  });
+
+  it("blocks both button and keyboard Cloud send while the launcher cannot start", async () => {
+    const launch = vi.fn(async () => true);
+    const onSubmit = vi.fn();
+    await act(async () => root.render(createElement(Composer, {
+      harness: "codex", model: "gpt-5", runtimeMode: "supervised",
+      cwd: "/repo", executionCwd: "/repo", initialDraft: "Work in cloud",
+      hideProjectPicker: true, hideBranchPicker: true,
+      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(),
+      onRuntimeModeChange: vi.fn(), onSubmit,
+      cloudLaunch: { active: true, canLaunch: false, launch, resetToLocal: vi.fn(), control: null, panel: null },
+    })));
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="Send"]')?.disabled).toBe(true);
+    await act(async () => container.querySelector("textarea")!.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Enter", bubbles: true, cancelable: true,
+    })));
+    expect(launch).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.querySelector("textarea")?.value).toBe("Work in cloud");
+  });
 
   it("shows questions before forms and shows a form when no question is pending", async () => {
     const form: McpFormPrompt = {

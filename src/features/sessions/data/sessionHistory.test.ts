@@ -554,10 +554,33 @@ describe("scratchChatSummaries", () => {
     const live = newSession("cursor", "/home/u/.monocode/scratch/c1");
     live.id = "c1";
     live.blocks = [{ id: "u1", role: "user", text: "newer" }];
-    // Persisted rows stay fresh through history updates, so the live copy
-    // yields to the stored row instead of doubling it.
+    // A live update overlays the stored identity rather than doubling it.
     const rows = scratchChatSummaries([scratch("c1", 1)], [live]);
     expect(rows.map((row) => row.id)).toEqual(["c1"]);
+  });
+
+  it("shows a live title update before persistence while retaining saved ordering and flags", () => {
+    const live = {
+      ...newSession("claude", "/home/u/.monocode/scratch/c1"),
+      id: "c1",
+      title: "claude · Updated live title",
+      model: "claude:opus",
+      busy: true,
+    };
+    const saved = { ...scratch("c1", 5), pinned: true, archived: false };
+    const rows = scratchChatSummaries([scratch("c2", 9), saved], [live]);
+    expect(rows.map((row) => row.id)).toEqual(["c1", "c2"]);
+    expect(rows[0]).toMatchObject({
+      id: "c1", title: live.title, harness: "claude", model: live.model,
+      pinned: true, archived: false, createdAt: 5, updatedAt: 5,
+    });
+    expect(saved.title).not.toBe(live.title);
+  });
+
+  it("keeps a saved title while its cold chat placeholder is loading", () => {
+    const placeholder = { ...newSession("claude", "/home/u/.monocode/scratch/c1"), id: "c1" };
+    const saved = scratch("c1", 5);
+    expect(scratchChatSummaries([saved], [placeholder])[0]).toEqual(saved);
   });
 
   it("adds live sessions missing from history", () => {

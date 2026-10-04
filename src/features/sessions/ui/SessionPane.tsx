@@ -384,10 +384,16 @@ const LocalSessionPane = memo(function LocalSessionPane({
     blocksCount: session.blocks.length,
     inboxAsk: !!session.inboxAsk,
     remote: remoteSession,
+    nativeResume: !!session.providerSessionId || !!session.sidechat,
+    disabledReason:
+      session.workspaceMode === "worktree" || !!session.worktreeCwd || session.worktreeRemoved
+        ? "Switch to Current checkout before starting a cloud task. Local worktree choices are not cloud environments."
+        : undefined,
     onOutcome: onCloudLaunchOutcome ?? ignoreCloudOutcome,
   });
   const showRemoteControl =
     !remote &&
+    !cloudLaunch?.active &&
     !!onRemoteControlChange &&
     session.harness === "claude" &&
     !session.inboxAsk &&

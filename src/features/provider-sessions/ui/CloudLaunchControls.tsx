@@ -10,6 +10,8 @@ export type Execution = "local" | "cloud";
 /** What the session composer needs to offer Local | Cloud and launch once. */
 export type ComposerCloudLaunch = {
   active: boolean;
+  canLaunch: boolean;
+  disabledReason?: string;
   /** Toolbar control (the Local | Cloud switch). */
   control: ReactNode;
   /** Fields, notes and errors shown above the box while Cloud is chosen. */
@@ -20,20 +22,24 @@ export type ComposerCloudLaunch = {
     attachments: readonly Attachment[],
     conflictingMode: boolean,
   ) => Promise<boolean>;
+  resetToLocal: () => void;
 };
 
 export function CloudExecutionSwitch({
   value,
   disabled,
+  disabledReason,
   onChange,
 }: {
   value: Execution;
   disabled: boolean;
+  disabledReason?: string;
   onChange: (value: Execution) => void;
 }): ReactElement {
   return (
     <span
       data-cloud-execution
+      title={disabledReason}
       className={disabled ? "pointer-events-none opacity-60" : ""}
       aria-disabled={disabled || undefined}
     >
@@ -80,7 +86,7 @@ export function CloudLaunchPanel({
       <p className="flex items-start gap-1.5 leading-snug">
         <Cloud aria-hidden className="mt-0.5 size-3.5 shrink-0 text-content/55" />
         <span>
-          Send starts a {label} cloud task from this project. It runs on{" "}
+          Your prompt starts a {label} cloud task from this project. It runs on{" "}
           {label}&apos;s servers, so the model, permission mode, MCP setup and
           unsaved files you chose here are not carried over. Nothing opens
           automatically; continue it from {label} or from here.

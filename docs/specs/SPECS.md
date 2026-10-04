@@ -25,6 +25,8 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
+| 2026-10-04 | [Review — Provider controls and upstream motion repairs](provider-controls-motion-repair-plan.md) | Normal/quick Cloud, normal-pane RC, retained cloud refresh/errors and shared motion repaired on combined 0.7.0. Full check (5,499 web / 609 Rust) and build passed; manual desktop/provider checks remain. |
+| 2026-10-04 | [Review — Provider conversations, RC and cloud UI](provider-sessions-frontend-plan.md) | Parts A–D are built and merged into combined original 0.7.0. Normal/quick cloud controls and cloud refresh repaired in the current checkpoint; desktop/phone checks and compact-rail/phase-2 work remain. |
 | 2026-10-04 | [Review — Provider conversations, RC and cloud backend](provider-sessions-backend-plan.md) | Backend from original 0.7.0 `9effbed`; full gates/build passed. Native provider/phone/cloud checks remain. UI handoff is separate. |
 | 2026-10-03 | [Review — Upstream main after 0.7.0](upstream-main-after-070-plan.md) | Both complete lines (`9effbed` + main `00d68d3`) combined and published as `68c1edb`; 5,317 web / 599 Rust tests and build pass. Native desktop checks remain. |
 | 2026-10-03 | [Review — MCP controls and server approvals](mcp-controls-plan.md) | Implemented and full gates passed on latest 0.7.0 branch; native desktop/provider checks remain. |
@@ -39,7 +41,6 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
-| 2026-10-04 | [Review — Provider conversations, RC and cloud UI](provider-sessions-frontend-plan.md) | Parts A, B, C (session composer) and D (read-only earlier history) built with existing components; gates green. Desktop/phone checks pending; QuickComposer cloud choice and compact-rail entry remain. |
 
 ## Progress
 

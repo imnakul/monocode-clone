@@ -1,18 +1,23 @@
-# Todo — Provider conversations, Remote Control and cloud UI handoff
+# Review — Provider conversations, Remote Control and cloud UI handoff
 
 Created: 2026-10-04 (IST). Branch:
 `nakul/windows-support-upstream-0.7.0-provider-sessions-backend`.
 Base: `9effbed3c2fc2e5945d98bb33dce0655e0bfcc3c`.
 Implemented backend/source commit: `67eb8c4028ea87826bcb29ab80cb9a7a174ece7c`.
 Backend: [implementation/checkpoint](provider-sessions-backend-plan.md).
-Status: Review (frontend built; desktop/phone manual checks pending). Backend APIs
-below are implemented on this branch; the UI wiring below is now built. Start from this branch, not the original 0.7.0 or
-the separate upstream-latest branch.
+Status: Review (frontend built; desktop/phone manual checks pending).
+Current continuation branch: `nakul/windows-support-upstream-0.7.0`.
+The historical backend branch/base above records where work began. Combined
+0.7.0 at `47778dd` includes backend/frontend `ff70130` and upstream intake
+`fa566bc`. Continue on combined 0.7.0; do not switch to either older branch.
+Normal-pane forwarding, QuickComposer Cloud, cloud-list refresh/errors and
+shared session motion are repaired in
+[the current checkpoint](provider-controls-motion-repair-plan.md).
 
 ## Idea
 
-Use existing UI components to expose the backend built on this branch. This is
-the next frontend agent's task, not part of backend implementation. Read
+Use existing UI components to expose the backend. This was the frontend
+handoff after backend implementation; the UI is now built. Read
 AGENTS.md/WORKING-AGREEMENT.md and load the frontend-ui/design skill first.
 The requested skill is not installed here and its earlier Windows source is
 offline; locate the user's skill in the frontend execution environment.
@@ -220,7 +225,8 @@ Link reuse and full phone transcript rendering after real protocol findings.
 - [x] Normal/cloud creation (session composer) and cloud metadata/action presentation (`useCloudLaunch`, `CloudSessionDialog`, Cloud tasks section in the provider list).
 - [x] Test races, errors, accessibility, existing composer/provider behavior (vitest: stale responses, dedupe, archive sync/rollback, RC states, launch-once, history parsing/paging/trim).
 - [x] Run required gates (tsc, full vitest 5,455 / 500 files, build, cargo fmt, cargo test --lib 609); manual desktop/phone checks handed to the user.
-- [ ] Remaining: QuickComposer Local|Cloud choice, a provider entry in the compact rail, Codex layouts without a JSONL rollout (history shows the reason), teleport/phase 2.
+- [x] Repair normal/split-pane Cloud/RC forwarding, QuickComposer Local|Cloud choice and retained cloud refresh/errors/account races; see the current repair checkpoint for final gates.
+- [ ] Remaining outside this repair: a provider entry in the compact rail, Codex layouts without a JSONL rollout (history shows the reason), teleport/phase 2.
 
 ## Issues and fixes
 
@@ -230,7 +236,8 @@ Design notes and deviations:
 - Rows reuse `SessionCard` through a synthetic summary (native key as id, project folder in the model slot, epoch seconds converted to ms).
 - RC events reach sessions through `routeRemoteControlEvent` (not turn-generation gated) from both the turn callback and the enable/retry callback; only RC fields change, never busy. New Claude chats take the saved default once before first send (`initializeNewClaudeRemoteControlPreference`), skipped for resumed/native chats and chats the user already toggled.
 - Directive D replaced the "older transcript not shown" note. History is composed in `SessionPane` above `session.blocks`, trimmed at the chat's first MonoCode turn so continued chats never repeat turns; Branch/Sidechat/Second opinion/Handoff ignore history turns.
-- The cloud task view is a modal dialog (no tab infrastructure for non-session views); Open in browser is an explicit click. Cloud launch lives in the session composer only.
+- The cloud task view is a modal dialog (no tab infrastructure for non-session views); Open in browser is an explicit click. Cloud launch now lives in the normal empty-chat composer and QuickComposer Session mode. Native resumes/sidechats cannot be converted; unsupported local worktree choices show a reason and block Start/Send. QuickComposer Save to Draft explicitly keeps a local draft.
+- Both provider refresh controls reload retained cloud records. Per-account read errors retain prior rows; request generations and pending additions protect against stale results. QuickComposer emits the validated launch outcome to the main window, retains the ID/prompt on delivery or storage failure, and offers Retry saving without another provider launch. Only MonoCode-retained cloud tasks are listed; this is not external cloud discovery.
 - The first A+B commit was one commit because App wiring was shared.
 
 ## Learnings
@@ -243,5 +250,5 @@ execution target. Local archive is visibility metadata, not provider deletion.
 Frontend implemented and automatically validated. Not marked Done until the manual
 desktop/phone checklist above (plus the additions below) is run:
 - Open a real Claude and Codex conversation: earlier messages appear under the "Earlier in Claude Code/Codex" divider, Show earlier works on a very long chat, a moved/deleted file shows a reason and resuming still continues the same native ID, continued chats do not repeat turns after restart.
-- Cloud: Local|Cloud switch only on new Claude/Codex sessions; Codex requires an environment ID; one task per Send; retained task appears under the provider and after restart; no browser opens by itself; apply asks for confirmation and refuses a dirty checkout.
+- Cloud: Local|Cloud switch on normal blank Claude/Codex chats and QuickComposer Session mode; Codex requires an environment ID; one task per Send/Start; local-worktree selections show a reason and block Cloud; Save to Draft stays local. Retained task appears under the provider, after either refresh control and after restart; failures retain the draft/returned ID and Retry saving does not launch again. No browser opens by itself; apply asks for confirmation and refuses a dirty checkout.
 - Remote Control chip states, Retry after consent, Copy link only with a real URL; turning it on/off during a running turn does not stop the turn.

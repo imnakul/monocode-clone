@@ -212,6 +212,33 @@ function providerUrl(provider: NativeProvider, raw: string): string {
   return value.href;
 }
 
+/** Accept only a complete provider-owned record before cross-window display. */
+export function isCloudSessionRecord(value: unknown): value is CloudSession {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<CloudSession>;
+  if (
+    (record.provider !== "claude" && record.provider !== "codex") ||
+    typeof record.id !== "string" ||
+    typeof record.url !== "string" ||
+    typeof record.cwd !== "string" ||
+    record.cwd.trim() === "" ||
+    typeof record.providerAccountId !== "string" ||
+    record.providerAccountId.trim() === "" ||
+    (record.environmentId !== null && typeof record.environmentId !== "string") ||
+    (record.branch !== null && typeof record.branch !== "string") ||
+    typeof record.createdAt !== "number" ||
+    !Number.isFinite(record.createdAt)
+  )
+    return false;
+  try {
+    requireId(record.id);
+    providerUrl(record.provider, record.url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Accept a structured CLI result, or the official launch URL printed by its CLI. */
 export function parseCloudLaunch(
   provider: NativeProvider,

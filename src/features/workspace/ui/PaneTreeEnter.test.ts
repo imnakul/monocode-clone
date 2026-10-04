@@ -6,6 +6,8 @@ import { newSession } from "../../sessions/model/session";
 import type { EditorPane, LayoutNode } from "../model/layout";
 import { PaneTree } from "./PaneTree";
 
+const paneProps = vi.hoisted(() => vi.fn());
+
 vi.mock("../../files/ui/FilePane", async () => {
   const { createElement } = await import("react");
   return {
@@ -16,6 +18,7 @@ vi.mock("../../files/ui/FilePane", async () => {
 
 vi.mock("../../sessions/ui/SessionPane", () => ({
   SessionPane: (props: Record<string, unknown>) => {
+    paneProps(props);
     const localActions = [
       props.onReviewFix,
       props.onFormReply,
@@ -34,6 +37,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  paneProps.mockClear();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.append(container);
@@ -63,6 +67,7 @@ function render(
   layout: LayoutNode,
   ids: string[],
   sessions: ComponentProps<typeof PaneTree>["sessions"] = [],
+  controls: Partial<ComponentProps<typeof PaneTree>> = {},
 ) {
   const noop = vi.fn();
   const props: ComponentProps<typeof PaneTree> = {
@@ -112,6 +117,7 @@ function render(
     onMovePane: noop,
     onDetachPane: noop,
     onNewTerminal: noop,
+    ...controls,
   };
   act(() => root.render(createElement(PaneTree, props)));
 }
@@ -189,5 +195,36 @@ describe("pane enter animation", () => {
       "true,true,true,true",
     );
     expect(actions?.closest('[data-pane-enter="right"]')).not.toBeNull();
+  });
+
+  it("forwards Cloud and Claude RC controls to a normal empty chat and later split panes", () => {
+    const session = { ...newSession("claude", "/tmp/project"), id: "claude-chat" };
+    const onCloudLaunchOutcome = vi.fn();
+    const onRemoteControlChange = vi.fn();
+    const remoteControlDesired = new Set([session.id]);
+    const controls = { onCloudLaunchOutcome, onRemoteControlChange, remoteControlDesired };
+
+    render(leaf(session.id), [], [session], controls);
+    expect(paneProps.mock.lastCall?.[0]).toMatchObject({
+      session,
+      inSplit: false,
+      ...controls,
+    });
+    expect(paneProps.mock.lastCall?.[0].onCloudLaunchOutcome).toBe(onCloudLaunchOutcome);
+    expect(paneProps.mock.lastCall?.[0].onRemoteControlChange).toBe(onRemoteControlChange);
+    expect(paneProps.mock.lastCall?.[0].remoteControlDesired).toBe(remoteControlDesired);
+
+    const nextDesired = new Set<string>();
+    render(split("right", leaf("editor"), leaf(session.id)), ["editor"], [session], {
+      ...controls,
+      remoteControlDesired: nextDesired,
+    });
+    expect(paneProps.mock.lastCall?.[0]).toMatchObject({
+      session,
+      inSplit: true,
+      onCloudLaunchOutcome,
+      onRemoteControlChange,
+    });
+    expect(paneProps.mock.lastCall?.[0].remoteControlDesired).toBe(nextDesired);
   });
 });

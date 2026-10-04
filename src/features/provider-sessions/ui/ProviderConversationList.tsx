@@ -1,4 +1,5 @@
 import {
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -11,6 +12,10 @@ import {
 } from "../../files/ui/ExplorerMenu";
 import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
 import { SessionCard } from "../../sessions/ui/SessionCard";
+import {
+  SessionListItem,
+  type SessionInsertMotion,
+} from "../../sessions/ui/SessionListItem";
 import { Cloud, ListFilter, RefreshCw } from "../../../shared/ui/icons";
 import type { CloudSession } from "../model/cloudSessions";
 import type { ProviderListState } from "../model/conversationStore";
@@ -32,6 +37,9 @@ type Props = {
   openingKey: string | null;
   /** Failure from the last open/archive attempt. */
   actionError: string | null;
+  /** Failure to refresh MonoCode-retained cloud task metadata. */
+  cloudError?: string | null;
+  cloudRefreshing?: boolean;
   activeSessionId?: string;
   onShowArchivedChange: (value: boolean) => void;
   onRefresh: () => void;
@@ -69,6 +77,8 @@ export function ProviderConversationList({
   showArchived,
   openingKey,
   actionError,
+  cloudError = null,
+  cloudRefreshing = false,
   activeSessionId,
   onShowArchivedChange,
   onRefresh,
@@ -80,6 +90,8 @@ export function ProviderConversationList({
   onOpenCloud,
 }: Props): ReactElement {
   const label = PROVIDER_LABEL[provider];
+  const motionScope = `provider:${provider}`;
+  const motion = useRef<SessionInsertMotion>({ cwd: "", seen: new Set() });
   const [menu, setMenu] = useState<{
     x: number;
     y: number;
@@ -94,6 +106,16 @@ export function ProviderConversationList({
       state.rows.map((row) => ({ row, summary: conversationSummary(row) })),
     [state.rows],
   );
+  useLayoutEffect(() => {
+    if (state.status !== "ready") return;
+    const current = motion.current;
+    if (current.cwd !== motionScope) {
+      current.cwd = motionScope;
+      current.seen = new Set(summaries.map(({ summary }) => summary.id));
+    } else {
+      for (const { summary } of summaries) current.seen.add(summary.id);
+    }
+  }, [motionScope, state.status, summaries]);
   const menuRow = menu
     ? state.rows.find((row) => row.key === menu.key)
     : undefined;
@@ -151,15 +173,17 @@ export function ProviderConversationList({
         </button>
         <button
           type="button"
-          title={`Refresh ${label} conversations`}
-          aria-label={`Refresh ${label} conversations`}
-          disabled={state.refreshing || state.status === "loading"}
+          title={`Refresh ${label} conversations and cloud tasks`}
+          aria-label={`Refresh ${label} conversations and cloud tasks`}
+          disabled={
+            state.refreshing || state.status === "loading" || cloudRefreshing
+          }
           onClick={onRefresh}
           className="grid size-6 shrink-0 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content disabled:opacity-60"
         >
           <RefreshCw
             className={`size-3.5 ${
-              state.refreshing || state.status === "loading"
+              state.refreshing || state.status === "loading" || cloudRefreshing
                 ? "animate-spin motion-reduce:animate-none"
                 : ""
             }`}
@@ -167,7 +191,9 @@ export function ProviderConversationList({
         </button>
       </div>
       <div className="sr-only" role="status" aria-live="polite">
-        {state.refreshing ? `Refreshing ${label} conversations` : ""}
+        {state.refreshing || cloudRefreshing
+          ? `Refreshing ${label} conversations and cloud tasks`
+          : ""}
         {openingKey ? "Opening conversation" : ""}
       </div>
       {state.error ? (
@@ -180,6 +206,25 @@ export function ProviderConversationList({
           </span>
           <button
             type="button"
+            disabled={state.refreshing || cloudRefreshing}
+            onClick={onRefresh}
+            className="shrink-0 rounded px-1 text-content/70 underline-offset-2 hover:text-content hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
+      {cloudError ? (
+        <div
+          role="alert"
+          className="flex shrink-0 items-start gap-2 border-b border-content/10 px-3 py-1.5 text-[12px] text-red-400/90"
+        >
+          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">
+            Could not read retained {label} cloud tasks. {cloudError}
+          </span>
+          <button
+            type="button"
+            disabled={state.refreshing || cloudRefreshing}
             onClick={onRefresh}
             className="shrink-0 rounded px-1 text-content/70 underline-offset-2 hover:text-content hover:underline"
           >
@@ -234,7 +279,7 @@ export function ProviderConversationList({
             <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content/40">
               Cloud tasks
             </p>
-            <ul data-shared-hover-continuity className="flex flex-col gap-0.5">
+            <ul data-session-list data-shared-hover-continuity className="flex flex-col gap-0.5">
               {cloudRecords.map((record) => (
                 <li key={`${record.providerAccountId}:${record.id}`}>
                   <button
@@ -272,9 +317,14 @@ export function ProviderConversationList({
                 : `No ${label} conversations found on this computer. Archived ones are hidden; use the filter to show them.`}
           </p>
         ) : state.rows.length > 0 ? (
-          <ul data-shared-hover-continuity className="flex flex-col gap-0.5">
+          <ul data-session-list data-shared-hover-continuity className="flex flex-col gap-0.5">
             {summaries.map(({ row, summary }) => (
-              <li key={row.key}>
+              <SessionListItem
+                key={row.key}
+                session={summary}
+                cwd={motionScope}
+                motion={motion}
+              >
                 <SessionCard
                   session={summary}
                   isActive={
@@ -288,7 +338,7 @@ export function ProviderConversationList({
                   onArchive={() => onArchive(row, !row.archived)}
                   onContextMenu={(event) => onRowContextMenu(row.key, event)}
                 />
-              </li>
+              </SessionListItem>
             ))}
           </ul>
         ) : null}

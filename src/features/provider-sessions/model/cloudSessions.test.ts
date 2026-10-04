@@ -5,6 +5,7 @@ import {
   buildCloudLaunchArgs,
   cloudCapabilitiesFromHelp,
   CloudRetentionError,
+  isCloudSessionRecord,
   launchProviderCloudSession,
   parseCloudLaunch,
   runCloudSessionAction,
@@ -29,6 +30,23 @@ beforeEach(() => {
     async (_name: string, { session: value }: { session: CloudSession }) =>
       value,
   );
+});
+
+describe("isCloudSessionRecord", () => {
+  it("accepts provider records and rejects unsafe URLs or IDs at the event boundary", () => {
+    expect(isCloudSessionRecord(session)).toBe(true);
+    expect(
+      isCloudSessionRecord({
+        ...session,
+        provider: "claude",
+        url: "https://chatgpt.com/codex/tasks/task_one",
+      }),
+    ).toBe(false);
+    expect(
+      isCloudSessionRecord({ ...session, url: "javascript:alert(1)" }),
+    ).toBe(false);
+    expect(isCloudSessionRecord({ ...session, id: "../task_one" })).toBe(false);
+  });
 });
 
 describe("provider-specific cloud commands", () => {

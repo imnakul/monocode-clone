@@ -77,6 +77,12 @@ import { QuickPermissionIcon, QuickPermissions } from "./QuickPermissions";
 import { SavedPromptMenu } from "../../prompts/ui/SavedPromptMenu";
 import { useSavedPromptMenu } from "../../prompts/ui/useSavedPromptMenu";
 import { useQuickPickerMotion } from "./useQuickPickerMotion";
+import {
+  CLOUD_LAUNCH_OUTCOME_EVENT,
+  useCloudLaunch,
+  type CloudLaunchOutcome,
+} from "../../provider-sessions/ui/useCloudLaunch";
+import { CloudSessionDialog } from "../../provider-sessions/ui/CloudSessionDialog";
 import { OPERATOR_COMMAND } from "../../sessions/model/operatorCommand";
 import { ORCHESTRATOR_COMMAND } from "../../sessions/model/orchestratorCommand";
 import { PLAN_COMMAND } from "../../sessions/model/plan";
@@ -246,6 +252,40 @@ export function QuickComposer({
   const [highlight, setHighlight] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [cloudOutcome, setCloudOutcome] = useState<CloudLaunchOutcome | null>(
+    null,
+  );
+  const cloudOutcomeRef = useRef<CloudLaunchOutcome | null>(null);
+  const [cloudOutcomeDialogOpen, setCloudOutcomeDialogOpen] = useState(false);
+  const reportCloudLaunchOutcome = useCallback(
+    async (outcome: CloudLaunchOutcome): Promise<void> => {
+      cloudOutcomeRef.current = outcome;
+      setCloudOutcome(outcome);
+      if (outcome.kind === "unsaved") setCloudOutcomeDialogOpen(true);
+      try {
+        await emit(CLOUD_LAUNCH_OUTCOME_EVENT, outcome);
+      } catch (reason) {
+        setCloudOutcomeDialogOpen(true);
+        throw new Error(
+          `Cloud task ${outcome.record.id} started, but its details could not reach MonoCode. Keep this ID and retry saving the record if needed. ${reason instanceof Error ? reason.message : String(reason)}`,
+        );
+      }
+    },
+    [],
+  );
+  const cloudDisabledReason =
+    workspace.mode === "current" && (!workspace.tree || workspace.tree.isMain)
+      ? undefined
+      : "Cloud tasks cannot use the selected local worktree. Switch to the project checkout to start Cloud.";
+  const cloudLaunch = useCloudLaunch({
+    harness: choice.harness,
+    cwd: cwd ?? "",
+    blocksCount: 0,
+    remote: false,
+    nativeResume: false,
+    disabledReason: cloudDisabledReason,
+    onOutcome: reportCloudLaunchOutcome,
+  });
   const attachmentsSupported = harnessSupportsAttachments(choice.harness);
   const attachments = useQuickAttachments(
     attachmentsSupported && !busy && !taskMode,
@@ -527,6 +567,7 @@ export function QuickComposer({
       launchMode.mode === DRAFT_COMMAND.name || !canStart ? "draft" : requested;
     const reveal = action === "open";
     const text = launchMode.prompt.trim();
+    const cloudSubmit = cloudLaunch?.active === true && action !== "draft";
     if (
       (!text && !attachments.files.length) ||
       !cwd ||
@@ -537,34 +578,60 @@ export function QuickComposer({
       (attachments.files.length > 0 && !attachmentsSupported)
     )
       return;
+    if (cloudOutcome && action !== "draft") return;
+    if (cloudSubmit && cloudLaunch && !cloudLaunch.canLaunch) {
+      setError(
+        cloudLaunch.disabledReason ?? "This cloud task cannot start yet.",
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
     const picked = { harness: model.harness, model: model.id };
     try {
-      const request: QuickLaunch = {
-        prompt: text,
-        ...(action === "draft" ? { draft: true } : {}),
-        ...(launchMode.mode === PLAN_COMMAND.name
-          ? { intent: "plan" as const }
-          : launchMode.mode === ORCHESTRATOR_COMMAND.name
-            ? { intent: "orchestrate" as const }
-            : {}),
-        cwd,
-        ...picked,
-        modelSettings: settings,
-        runtimeMode,
-        attachments: quickLaunchAttachments(attachments.files),
-        ...(await quickWorkspaceLaunch(workspace)),
-        reveal,
-      };
-      if (onSubmitLaunch && action === "draft")
-        await onSubmitLaunch({ ...request, draft: true, reveal: false });
-      else if (onStartLaunch)
-        await onStartLaunch({ ...request, reveal }, reveal);
-      else
-        await invoke("quick_composer_submit", {
-          request: action === "draft" ? { ...request, reveal: false } : request,
-        });
+      if (cloudSubmit && cloudLaunch) {
+        const launched = await cloudLaunch.launch(
+          text,
+          attachments.files,
+          launchMode.mode !== null,
+        );
+        if (!launched) return;
+        if (cloudOutcomeRef.current?.kind === "unsaved") {
+          setCloudOutcomeDialogOpen(true);
+          return;
+        }
+        cloudOutcomeRef.current = null;
+        setCloudOutcome(null);
+        setCloudOutcomeDialogOpen(false);
+        if (onDismiss) onDismiss();
+        else void invoke("quick_composer_dismiss").catch(() => undefined);
+      } else {
+        const request: QuickLaunch = {
+          prompt: text,
+          ...(action === "draft" ? { draft: true } : {}),
+          ...(launchMode.mode === PLAN_COMMAND.name
+            ? { intent: "plan" as const }
+            : launchMode.mode === ORCHESTRATOR_COMMAND.name
+              ? { intent: "orchestrate" as const }
+              : {}),
+          cwd,
+          ...picked,
+          modelSettings: settings,
+          runtimeMode,
+          attachments: quickLaunchAttachments(attachments.files),
+          ...(await quickWorkspaceLaunch(workspace)),
+          reveal,
+        };
+        if (onSubmitLaunch && action === "draft")
+          await onSubmitLaunch({ ...request, draft: true, reveal: false });
+        else if (onStartLaunch)
+          await onStartLaunch({ ...request, reveal }, reveal);
+        else
+          await invoke("quick_composer_submit", {
+            request: action === "draft" ? { ...request, reveal: false } : request,
+          });
+        if (action === "draft") cloudLaunch?.resetToLocal();
+      }
       rememberQuickProject(cwd);
       saveLastModelSettings(settings);
       saveRecentModelChoice(picked.harness, picked.model);
@@ -777,6 +844,7 @@ export function QuickComposer({
             ariaLabel="Create"
           />
         ) : null}
+        {!taskMode && cloudLaunch ? cloudLaunch.control : null}
         <button
           type="button"
           aria-label="Close composer"
@@ -870,6 +938,63 @@ export function QuickComposer({
           value={taskFields}
           disabled={busy}
           onChange={setTaskFields}
+        />
+      ) : null}
+
+      {!taskMode && cloudLaunch?.active ? cloudLaunch.panel : null}
+      {!taskMode && cloudLaunch?.active ? (
+        <p className="px-3 pb-1 text-[11px] text-content/50">
+          Save to Draft keeps a local Session Manager draft. Only Start launches
+          a Cloud task.
+        </p>
+      ) : null}
+      {!taskMode && cloudLaunch?.disabledReason && !cloudLaunch.active ? (
+        <p role="status" className="px-3 pb-1 text-[11px] text-amber-400/90">
+          {cloudLaunch.disabledReason}
+        </p>
+      ) : null}
+      {cloudOutcome ? (
+        <div
+          role="alert"
+          className="flex items-center gap-2 border-t border-amber-400/20 bg-amber-400/5 px-3 py-1.5 text-[11px] text-content/80"
+        >
+          <span className="min-w-0 flex-1 truncate">
+            Cloud task already started. Keep ID {cloudOutcome.record.id}.
+          </span>
+          <button
+            type="button"
+            onClick={() => setCloudOutcomeDialogOpen(true)}
+            className="shrink-0 rounded px-1 text-content/70 underline-offset-2 hover:text-content hover:underline"
+          >
+            Task details
+          </button>
+        </div>
+      ) : null}
+      {cloudOutcome && cloudOutcomeDialogOpen ? (
+        <CloudSessionDialog
+          record={cloudOutcome.record}
+          unsavedMessage={
+            cloudOutcome.kind === "unsaved" ? cloudOutcome.message : undefined
+          }
+          onClose={() => setCloudOutcomeDialogOpen(false)}
+          onSaved={(record) => {
+            const outcome: CloudLaunchOutcome = { kind: "launched", record };
+            setCloudOutcome(outcome);
+            void emit(CLOUD_LAUNCH_OUTCOME_EVENT, outcome)
+              .then(() => {
+                setCloudOutcomeDialogOpen(false);
+                if (onDismiss) onDismiss();
+                else
+                  void invoke("quick_composer_dismiss").catch(
+                    () => undefined,
+                  );
+              })
+              .catch((reason: unknown) => {
+                setError(
+                  `Task ${record.id} was saved, but its details could not reach MonoCode. Refresh the provider list to reload it. ${reason instanceof Error ? reason.message : String(reason)}`,
+                );
+              });
+          }}
         />
       ) : null}
 
@@ -970,7 +1095,11 @@ export function QuickComposer({
               {!taskMode && canStart ? (
                 <>
                   <Kbd>{`${MOD}↵`}</Kbd>
-                  start and open
+                  {cloudOutcome
+                    ? "task already started"
+                    : cloudLaunch?.active
+                      ? "start cloud task"
+                      : "start and open"}
                 </>
               ) : null}
             </span>
@@ -990,7 +1119,11 @@ export function QuickComposer({
                 type="button"
                 onClick={() => void submit("draft")}
                 disabled={!canSubmit}
-                title="Keep it in Session Manager as a draft to start later"
+                title={
+                  cloudLaunch?.active
+                    ? "Save this as a local Session Manager draft; it will not start a cloud task"
+                    : "Keep it in Session Manager as a draft to start later"
+                }
                 className={
                   canStart && !draftCommand
                     ? SECONDARY_BUTTON_CLASS
@@ -1003,11 +1136,27 @@ export function QuickComposer({
                 <button
                   type="button"
                   onClick={() => void submit("start")}
-                  disabled={!canSubmit}
-                  title={`Start (${MOD}↵ starts and opens it)`}
+                  disabled={
+                    !canSubmit ||
+                    !!cloudOutcome ||
+                    (cloudLaunch?.active && !cloudLaunch.canLaunch)
+                  }
+                  title={
+                    cloudOutcome
+                      ? "This cloud task has already started; open its details above"
+                      : cloudLaunch?.active && cloudLaunch.disabledReason
+                        ? cloudLaunch.disabledReason
+                        : cloudLaunch?.active
+                          ? "Start this cloud task"
+                          : `Start (${MOD}↵ starts and opens it)`
+                  }
                   className={PRIMARY_BUTTON_CLASS}
                 >
-                  Start
+                  {cloudOutcome
+                    ? "Task started"
+                    : cloudLaunch?.active
+                      ? "Start cloud task"
+                      : "Start"}
                 </button>
               ) : null}
             </>

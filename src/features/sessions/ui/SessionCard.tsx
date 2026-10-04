@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Archive, Check, CircleAlert, GitBranch, Pin } from "../../../shared/ui/icons";
 import { HarnessIcon } from "./HarnessIcon";
+import { ParticleText } from "../../../shared/ui/ParticleText";
 import { TerminalSpinner } from "./TerminalSpinner";
 import { suppressTextSelection } from "../../../shared/lib/drag";
 import type { PaneEdge } from "../../workspace/model/layout";
@@ -296,9 +297,10 @@ export function SessionCard({
         {session.pinned ? (
           <Pin className="size-3 shrink-0 text-content/45" strokeWidth={1.75} />
         ) : null}
-        <span className="min-w-0 flex-1 line-clamp-1 text-[13px] font-semibold leading-snug text-content">
-          {title}
-        </span>
+        <ParticleText
+          text={title}
+          className="line-clamp-1 text-[13px] font-semibold leading-snug text-content"
+        />
         {compact ? status : null}
       </span>
       {compact && showCompactModel && model ? (

@@ -1806,6 +1806,7 @@ export function Composer({
     // keeps the text, files and chosen modes so nothing is lost.
     const launchingInCloud = cloudLaunch?.active === true;
     if (launchingInCloud) {
+      if (!cloudLaunch.canLaunch) return;
       const launched = await cloudLaunch.launch(
         text,
         files,
@@ -2919,7 +2920,7 @@ export function Composer({
             <div className="flex shrink-0 items-center gap-1">
               <ComposerAction
                 busy={busy}
-                disabled={disabled}
+                disabled={disabled || (cloudLaunch?.active === true && !cloudLaunch.canLaunch)}
                 hasValue={hasValue && !worktreeRemoved}
                 actionTooltip={actionTooltip}
                 actionAriaLabel={actionAriaLabel}

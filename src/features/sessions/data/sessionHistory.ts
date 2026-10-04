@@ -256,7 +256,24 @@ export function scratchChatSummaries(
   let rows = history.filter((entry) => isScratchCwd(entry.cwd));
   for (const session of sessions) {
     if (session.ephemeral || !isScratchCwd(session.cwd)) continue;
-    if (rows.some((row) => row.id === session.id)) continue;
+    const storedIndex = rows.findIndex((row) => row.id === session.id);
+    if (storedIndex >= 0) {
+      if (
+        !shouldPersistSession(session) &&
+        !session.busy &&
+        !sessionNeedsInput(session)
+      ) continue;
+      // Title/model events land before storage. Overlay their live values
+      // without changing pin/archive state or the saved list ordering.
+      rows[storedIndex] = {
+        ...rows[storedIndex],
+        title: session.title,
+        harness: session.harness,
+        model: session.model,
+        activeTurnModel: activeTurnModelFor(session),
+      };
+      continue;
+    }
     rows = mergeHistorySummary(rows, summaryFromSession(session));
   }
   return [...rows].sort(compareSessionSummaries);

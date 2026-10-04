@@ -270,7 +270,7 @@ it("embedded hosts with a start handler get Save to Draft and Start, Ctrl+Enter 
     onDismiss: () => {},
   });
   // No Task | Session switch inside Session Manager or Task Manager.
-  expect(container.querySelector('[role="tablist"]')).toBeNull();
+  expect(container.querySelector('[role="tablist"][aria-label="Create"]')).toBeNull();
   await key("Enter", { ctrlKey: true });
   expect(start).toHaveBeenCalledWith(
     expect.objectContaining({ prompt: "Work on: Fix installer", reveal: true }),

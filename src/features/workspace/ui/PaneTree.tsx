@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ComponentProps,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { setGrabbing, suppressTextSelection } from "../../../shared/lib/drag";
@@ -58,7 +59,10 @@ import type { SessionFolderTarget } from "../../sessions/model/sessionFolders";
 import type { Worktree } from "../../source-control/model/worktrees";
 import { type ReviewIssue } from "../../inbox/model/githubTasks";
 
-type Shared = {
+type Shared = Pick<
+  ComponentProps<typeof SessionPane>,
+  "remoteControlDesired" | "onRemoteControlChange" | "onCloudLaunchOutcome"
+> & {
   workspaceSwitchingSessionId?: string;
   visible: boolean;
   sessions: Session[];
@@ -290,6 +294,9 @@ function PaneTreeComponent({
   onMovePane,
   onDetachPane,
   onNewTerminal,
+  remoteControlDesired,
+  onRemoteControlChange,
+  onCloudLaunchOutcome,
   onTerminalMetaChange,
   transcriptPool,
 }: Props) {
@@ -582,6 +589,9 @@ function PaneTreeComponent({
                   onBtwStop={onBtwStop}
                   onBtwModelChange={onBtwModelChange}
                   onNewTerminal={onNewTerminal}
+                  remoteControlDesired={remoteControlDesired}
+                  onRemoteControlChange={onRemoteControlChange}
+                  onCloudLaunchOutcome={onCloudLaunchOutcome}
                   onPaneDragStart={onPaneDragStart}
                   transcriptPool={transcriptPool}
                 />

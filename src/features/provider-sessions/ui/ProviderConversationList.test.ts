@@ -97,6 +97,7 @@ describe("ProviderConversationList", () => {
     expect(html).toContain("Archive Title a");
     expect(html).toContain('aria-current="true"');
     expect(html).not.toContain("aria-busy");
+    expect(html).toContain("data-session-list");
   });
 
   it("shows an unarchive action for archived rows", () => {
@@ -110,6 +111,32 @@ describe("ProviderConversationList", () => {
     expect(html).toContain("Could not read Claude conversations. disk unreadable");
     expect(html).toContain("Retry");
     expect(html).toContain("Title a");
+  });
+
+  it("shows retained cloud-list errors beside any previously loaded tasks", () => {
+    const html = render(
+      { status: "ready" },
+      {
+        cloudError: "Account A is unavailable",
+        cloudRecords: [
+          {
+            provider: "claude",
+            id: "cloud-1",
+            url: "https://claude.ai/code/cloud-1",
+            cwd: "/Users/dev/acme-app",
+            providerAccountId: "account-a",
+            environmentId: null,
+            branch: null,
+            createdAt: 10,
+          },
+        ],
+        onOpenCloud: vi.fn(),
+      },
+    );
+    expect(html).toContain("Could not read retained Claude cloud tasks");
+    expect(html).toContain("Account A is unavailable");
+    expect(html).toContain("cloud-1");
+    expect(html).toContain("Retry");
   });
 
   it("shows an error state when nothing loaded", () => {

@@ -5,7 +5,10 @@ import {
   createCloudLauncher,
   type CloudLaunchResult,
 } from "../model/cloudLaunchModel";
-import type { CloudSession } from "../model/cloudSessions";
+import {
+  isCloudSessionRecord,
+  type CloudSession,
+} from "../model/cloudSessions";
 import type { NativeProvider } from "../model/providerSessions";
 import {
   CloudExecutionSwitch,
@@ -17,6 +20,22 @@ import {
 export type CloudLaunchOutcome =
   | { kind: "launched"; record: CloudSession }
   | { kind: "unsaved"; record: CloudSession; message: string };
+
+/** Cross-window delivery for cloud launches made from the floating composer. */
+export const CLOUD_LAUNCH_OUTCOME_EVENT = "provider-cloud-launch-outcome";
+
+/** Validate the webview event before it reaches App's retained-record state. */
+export function isCloudLaunchOutcome(value: unknown): value is CloudLaunchOutcome {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as { kind?: unknown; record?: unknown; message?: unknown };
+  if (candidate.kind !== "launched" && candidate.kind !== "unsaved") return false;
+  if (candidate.kind === "unsaved" && typeof candidate.message !== "string")
+    return false;
+  return (
+    isCloudSessionRecord(candidate.record) &&
+    (candidate.kind === "launched" || typeof candidate.message === "string")
+  );
+}
 
 const ENV_KEY = (provider: NativeProvider): string =>
   `monocode.cloudEnvironment.${provider}`;
@@ -43,12 +62,16 @@ export function cloudLaunchEligible(session: {
   blocksCount: number;
   inboxAsk?: boolean;
   remote: boolean;
+  /** Existing native conversations can also have no local user blocks. */
+  nativeResume?: boolean;
+  /** Local workspace choices such as a worktree are not cloud launch inputs. */
 }): boolean {
   return (
     (session.harness === "claude" || session.harness === "codex") &&
     session.blocksCount === 0 &&
     !session.inboxAsk &&
     !session.remote &&
+    !session.nativeResume &&
     session.cwd.trim() !== "" &&
     session.cwd !== "~"
   );
@@ -65,16 +88,28 @@ export function useCloudLaunch(input: {
   blocksCount: number;
   inboxAsk?: boolean;
   remote: boolean;
-  onOutcome: (outcome: CloudLaunchOutcome) => void;
+  nativeResume?: boolean;
+  disabledReason?: string;
+  onOutcome: (outcome: CloudLaunchOutcome) => void | Promise<void>;
 }): ComposerCloudLaunch | undefined {
-  const { harness, cwd, providerAccountId, blocksCount, inboxAsk, remote, onOutcome } =
-    input;
+  const {
+    harness,
+    cwd,
+    providerAccountId,
+    blocksCount,
+    inboxAsk,
+    remote,
+    nativeResume,
+    disabledReason,
+    onOutcome,
+  } = input;
   const eligible = cloudLaunchEligible({
     harness,
     cwd,
     blocksCount,
     inboxAsk,
     remote,
+    nativeResume,
   });
   const provider: NativeProvider = harness === "codex" ? "codex" : "claude";
   const [execution, setExecution] = useState<Execution>("local");
@@ -94,6 +129,10 @@ export function useCloudLaunch(input: {
       conflictingMode,
     ) => {
       setError(null);
+      if (disabledReason) {
+        setError(disabledReason);
+        return false;
+      }
       setPending(true);
       let result: CloudLaunchResult;
       try {
@@ -116,7 +155,7 @@ export function useCloudLaunch(input: {
       }
       if (provider === "codex") saveEnvironment(provider, environmentId.trim());
       setExecution("local");
-      onOutcome(
+      await onOutcome(
         result.status === "unsaved"
           ? { kind: "unsaved", record: result.record, message: result.message }
           : { kind: "launched", record: result.record },
@@ -125,6 +164,9 @@ export function useCloudLaunch(input: {
     };
     return {
       active,
+      canLaunch: active && !pending && !disabledReason,
+      ...(disabledReason ? { disabledReason } : {}),
+      resetToLocal: () => setExecution("local"),
       launch,
       control: createElement(CloudExecutionSwitch, {
         value: execution,
@@ -140,7 +182,7 @@ export function useCloudLaunch(input: {
             environmentId,
             branch,
             pending,
-            error,
+            error: error ?? disabledReason ?? null,
             onEnvironmentChange: (value: string) =>
               setEnvironments((current) => ({ ...current, [provider]: value })),
             onBranchChange: setBranch,
@@ -158,6 +200,7 @@ export function useCloudLaunch(input: {
     providerAccountId,
     environmentId,
     branch,
+    disabledReason,
     onOutcome,
   ]);
 }
