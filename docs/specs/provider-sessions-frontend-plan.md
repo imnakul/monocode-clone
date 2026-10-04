@@ -3,6 +3,7 @@
 Created: 2026-10-04 (IST). Branch:
 `nakul/windows-support-upstream-0.7.0-provider-sessions-backend`.
 Base: `9effbed3c2fc2e5945d98bb33dce0655e0bfcc3c`.
+Implemented backend/source commit: `67eb8c4028ea87826bcb29ab80cb9a7a174ece7c`.
 Backend: [implementation/checkpoint](provider-sessions-backend-plan.md).
 Status: Todo. Backend APIs below are implemented on this branch; UI wiring is
 intentionally still to do. Start from this branch, not the original 0.7.0 or

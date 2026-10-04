@@ -9,6 +9,7 @@ L-39 updated for the 0.6.0 build at `18ab934` (version changes uncommitted).
 commits after `c2c8bf6`. No earlier row was found adopted upstream.
 2026-10-04: L-61–L-63 backend foundations added on
 `nakul/windows-support-upstream-0.7.0-provider-sessions-backend` from `9effbed`.
+Backend/source commit: `67eb8c4028ea87826bcb29ab80cb9a7a174ece7c`.
 Frontend wiring and real CLI/account/phone verification remain follow-ups.
 
 ## Index (read this, then search for the ID, e.g. `grep -n "| L-43 |"`)

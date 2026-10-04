@@ -96,7 +96,7 @@ provider. Retain their IDs/URLs and expose only supported CLI actions.
 - [x] Focused tests and TypeScript pass.
 - [x] Cargo fmt/check, full npm run check and production build pass.
 - [x] Review preservation, update changelog/local features and checkpoint.
-- [ ] Commit and verify new branch; hand off UI/account/phone manual checklist.
+- [x] Commit and verify new branch; hand off UI/account/phone manual checklist.
 
 ## Issues and fixes
 
@@ -125,8 +125,10 @@ The proper baseline command includes `npm run test:host` and its pre-build.
 That proper untouched-base run also passed all 96 tests/5 skipped. The single
 effort failure was not reproduced; preserve this evidence if it reappears.
 The actual frontend API map, App wiring and error/manual checklist are written.
-Next: update records with actual counts, commit and verify
-the new branch. No merge/source conflict. Account/phone RC probe is unavailable
+Backend/source committed and pushed to the new branch at
+`67eb8c4028ea87826bcb29ab80cb9a7a174ece7c`; local/remote SHA verified.
+Next: frontend agent follows its Todo plan; user/separate desktop session performs
+the real CLI/account/phone checklist. No merge/source conflict. RC probe is unavailable
 here; automated checks prove state contracts, not account eligibility or phone UI.
 
 ## Learnings
@@ -153,4 +155,10 @@ Backend implementation and automated validation are complete; this spec is
 Review because real CLI/account/phone checks remain. The frontend plan is Todo
 with actual APIs, existing component locations, App integration sequence and
 manual checklist. No UI rendering, remote-machine engine or installer changes.
-Final branch/commit verification will be recorded after committing.
+Backend/source commit: `67eb8c4028ea87826bcb29ab80cb9a7a174ece7c`, published on
+`origin/nakul/windows-support-upstream-0.7.0-provider-sessions-backend`.
+Verified original remote 0.7.0 stays at `9effbed`; upstream-latest stays at
+`fa566bc`. Original local worktrees/changes/stashes were left untouched.
+No `.tsx`, dependency/lockfile, version or installer changes. All source tests
+were completed before committing; this documentation checkpoint changes no source.
+Frontend implementation and real provider/phone checks remain explicitly pending.
