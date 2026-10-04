@@ -378,4 +378,37 @@ describe("rateLimitWindowTooltip", () => {
       "58% left · 5h window",
     );
   });
+
+  it("shows percent left with a reset countdown", () => {
+    const now = Date.parse("2026-08-27T08:00:00Z");
+    expect(
+      rateLimitWindowTooltip(
+        {
+          usedPercent: 42.4,
+          windowMinutes: 300,
+          resetsAt: now + 2 * 3_600_000,
+        },
+        now,
+        true,
+      ),
+    ).toBe("58% left · Resets in 2h");
+  });
+
+  it.each([
+    [0, "100%"],
+    [100, "0%"],
+    [-10, "100%"],
+    [110, "0%"],
+  ])(
+    "clamps %s used before showing remaining quota left",
+    (usedPercent, remaining) => {
+      expect(
+        rateLimitWindowTooltip(
+          { usedPercent, windowMinutes: 10_080, resetsAt: null },
+          0,
+          true,
+        ),
+      ).toBe(`${remaining} left · wk window`);
+    },
+  );
 });

@@ -105,6 +105,74 @@ describe("historyWithLiveSessions", () => {
     expect(replacement[0].orchestration?.tasks).toEqual([]);
   });
 
+  it("shows a live generated title and work item before the next persist", () => {
+    const cwd = "/tmp/project-a";
+    const linkedWorkItem = {
+      kind: "pr" as const,
+      repo: "acme/app",
+      number: 42,
+      url: "https://github.com/acme/app/pull/42",
+    };
+    const session = {
+      ...newSession("cursor", cwd),
+      id: "live",
+      title: "cursor · Fix tab title refresh",
+      linkedWorkItem,
+      blocks: [{ id: "u", role: "user" as const, text: "Fix PR #42" }],
+      busy: true,
+    };
+    const rows = historyWithLiveSessions([summary("live", cwd)], [session], cwd);
+    expect(rows[0]).toMatchObject({
+      title: "cursor · Fix tab title refresh",
+      linkedWorkItem,
+    });
+  });
+
+  it("updates title, linked work, provider and active model together", () => {
+    const cwd = "/tmp/project-a";
+    const linkedWorkItem = {
+      kind: "pr" as const,
+      repo: "acme/app",
+      number: 42,
+      url: "https://github.com/acme/app/pull/42",
+    };
+    const session = {
+      ...newSession("codex", cwd),
+      id: "live",
+      model: "gpt-5.1",
+      title: "codex · Fix the release build",
+      linkedWorkItem,
+      blocks: [
+        {
+          id: "u",
+          role: "user" as const,
+          text: "Fix the release build",
+          turnModel: { harness: "codex" as const, id: "gpt-5.1", name: "GPT-5.1" },
+        },
+      ],
+      busy: true,
+    };
+    const cached = {
+      ...summary("live", cwd),
+      model: "old-model",
+      title: "old title",
+    };
+    const rows = historyWithLiveSessions([cached], [session], cwd);
+    expect(rows[0]).toMatchObject({
+      harness: "codex",
+      model: "gpt-5.1",
+      activeTurnModel: { harness: "codex", id: "gpt-5.1", name: "GPT-5.1" },
+      title: "codex · Fix the release build",
+      linkedWorkItem,
+    });
+
+    session.busy = false;
+    const settled = historyWithLiveSessions(rows, [session], cwd);
+    expect(settled[0]?.activeTurnModel).toBeUndefined();
+    expect(settled[0]?.linkedWorkItem).toEqual(linkedWorkItem);
+    expect(settled[0]?.title).toBe("codex · Fix the release build");
+  });
+
   it("does not inject an internal worker without a loaded run", () => {
     const worker = {
       ...newSession("codex", run.cwd),

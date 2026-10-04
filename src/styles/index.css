@@ -2289,6 +2289,78 @@ header[data-tauri-drag-region] button {
   }
 }
 
+@keyframes linked-panel-slide {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.linked-panel-slide {
+  animation: linked-panel-slide 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* New split panes; same motion as the linked panel's slide. */
+@keyframes pane-enter {
+  from {
+    opacity: var(--pane-enter-opacity, 1);
+    transform: translate(var(--pane-enter-x, 0), var(--pane-enter-y, 0));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+[data-pane-enter] {
+  animation: pane-enter 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-pane-enter="right"] {
+  --pane-enter-x: 100%;
+}
+
+[data-pane-enter="left"] {
+  --pane-enter-x: -100%;
+}
+
+[data-pane-enter="bottom"] {
+  --pane-enter-y: 100%;
+}
+
+[data-pane-enter="top"] {
+  --pane-enter-y: -100%;
+}
+
+[data-pane-enter="fade"] {
+  --pane-enter-opacity: 0;
+}
+
+@keyframes linked-panel-reveal {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.linked-panel-reveal {
+  animation: linked-panel-reveal 240ms cubic-bezier(0.22, 1, 0.36, 1) 90ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .linked-panel-slide,
+  .linked-panel-reveal,
+  [data-pane-enter] {
+    animation: none;
+  }
+}
+
 .shimmer-text {
   background-image:
     linear-gradient(

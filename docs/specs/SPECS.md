@@ -26,6 +26,7 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 | Created (IST) | Spec | Notes |
 |---|---|---|
 | 2026-10-04 | [Review — Provider conversations, RC and cloud backend](provider-sessions-backend-plan.md) | Backend from original 0.7.0 `9effbed`; full gates/build passed. Native provider/phone/cloud checks remain. UI handoff is separate. |
+| 2026-10-03 | [Review — Upstream main after 0.7.0](upstream-main-after-070-plan.md) | Both complete lines (`9effbed` + main `00d68d3`) combined and published as `68c1edb`; 5,317 web / 599 Rust tests and build pass. Native desktop checks remain. |
 | 2026-10-03 | [Review — MCP controls and server approvals](mcp-controls-plan.md) | Implemented and full gates passed on latest 0.7.0 branch; native desktop/provider checks remain. |
 | 2026-10-03 | [Review — Task Manager focus/archive, one composer, Drafts group](task-focus-composer-plan.md) | Implemented on `nakul/windows-support-upstream-0.7.0`; manual desktop checks listed in the spec. |
 | 2026-10-02 21:06 | [Review — Windows 0.6.0 build](windows-060-build-plan.md) | Unsigned installer built and archived; exact version requested by Nakul. Three existing test failures documented; desktop verification remains. |

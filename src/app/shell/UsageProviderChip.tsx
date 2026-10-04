@@ -793,7 +793,7 @@ function UsageWindowCard({
       <div className="flex items-baseline justify-between gap-3">
         <h3 className="text-[11px] font-medium text-content/65">{title}</h3>
         <span className="shrink-0 text-[11px] font-medium tabular-nums">
-          {formatUsagePercent(pct)} used
+          {formatUsagePercent(shown)} {showRemaining ? "remaining" : "used"}
         </span>
       </div>
       <div
@@ -810,7 +810,10 @@ function UsageWindowCard({
         />
       </div>
       <div className="mt-1.5 flex items-center justify-between gap-3 text-[10px] leading-4 text-content/40">
-        <span className="tabular-nums">{Math.round(remaining)}% remaining</span>
+        <span className="tabular-nums">
+          {formatUsagePercent(showRemaining ? pct : remaining)}{" "}
+          {showRemaining ? "used" : "remaining"}
+        </span>
         <span
           className="truncate text-right tabular-nums"
           title={

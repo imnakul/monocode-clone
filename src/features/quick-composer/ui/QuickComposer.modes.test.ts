@@ -162,9 +162,10 @@ it("saves a session as a Session Manager draft without opening it", async () => 
 it("switches to Task mode, remembers it, and saves a Personal task with its fields", async () => {
   await click(button("Task"));
   expect(stored.get("monocode.quickComposer.kind")).toBe("task");
-  // Task mode has no model or attachment controls.
+  // Task mode has no model, attachment, or session-permission controls.
   expect(container.querySelector('[title^="Model"]')).toBeNull();
   expect(container.querySelector('[aria-label="Add attachment"]')).toBeNull();
+  expect(container.querySelector('button[title="Permissions"]')).toBeNull();
   expect(container.textContent).toContain("Personal");
   input("Fix installer\nIt fails on Windows 11");
   await click(button("Blocked"));
@@ -202,6 +203,48 @@ it("switches to Task mode, remembers it, and saves a Personal task with its fiel
   // Cleared for the next task; status stays.
   expect(prompt.value).toBe("");
   expect(button("Blocked").getAttribute("aria-checked")).toBe("true");
+});
+
+it("keeps Session-only permissions and a saved prompt together in a draft", async () => {
+  await click(button("Task"));
+  expect(container.querySelector('button[title="Permissions"]')).toBeNull();
+  await click(button("Session"));
+
+  const permissionsButton = container.querySelector<HTMLButtonElement>(
+    'button[title="Permissions"]',
+  );
+  expect(permissionsButton).not.toBeNull();
+  await click(permissionsButton!);
+
+  const picker = container.querySelector<HTMLElement>(
+    '[role="listbox"][aria-label="Permissions"]',
+  );
+  expect(picker).not.toBeNull();
+  const autoAccept = [
+    ...picker!.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+  ].find((option) => option.textContent?.includes("Auto-accept edits"));
+  expect(autoAccept).toBeDefined();
+  await click(autoAccept!);
+  expect(
+    container.querySelector('[role="listbox"][aria-label="Permissions"]'),
+  ).toBeNull();
+
+  input("Please !");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(container.querySelector("[data-saved-prompt-menu]")).not.toBeNull();
+  await key("Enter");
+  expect(prompt.value).toBe("Please Review this change carefully");
+  expect(container.querySelector("[data-saved-prompt-menu]")).toBeNull();
+  await click(button("Save to Draft"));
+  expect(invoke).toHaveBeenCalledWith("quick_composer_submit", {
+    request: expect.objectContaining({
+      prompt: "Please Review this change carefully",
+      draft: true,
+      runtimeMode: "auto-accept-edits",
+    }),
+  });
 });
 
 it("reopens in the last kind chosen", async () => {

@@ -51,6 +51,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import {
   loadSidebarTabOrder,
@@ -67,6 +68,7 @@ import { IS_MAC, MOD } from "../../platform/tauri/platform";
 import { copyText } from "../../platform/tauri/clipboard";
 import type { OpenFileFn } from "../../features/search/model/search";
 import { sessionDisplayTitle } from "../../features/sessions/model/session";
+import { ParticleText } from "../../shared/ui/ParticleText";
 import { nextUnseenFinishedSessions } from "../../features/sessions/model/sessionDone";
 import { orchestrationTaskLabel } from "../../features/orchestration/model/orchestrationSummary";
 import {
@@ -166,6 +168,7 @@ import { ProjectRail } from "./ProjectRail";
 import type { ProviderRailEntry } from "./ProviderRail";
 import type { NativeProvider } from "../../features/provider-sessions/model/providerSessions";
 import { InboxNotificationMenu } from "../../features/inbox/ui/InboxNotificationMenu";
+import { prefetchGithubWorkItem } from "../../features/inbox/model/githubTasks";
 import { RailAction } from "./RailAction";
 import { TerminalSpinner } from "../../features/sessions/ui/TerminalSpinner";
 import { DevModeSlot, IconButton, TabVisitNav } from "./TitleBar";
@@ -1544,6 +1547,18 @@ function SidebarComponent({
     [],
   );
 
+  const sessionInsertMotion = useRef<SessionInsertMotion>({
+    cwd: "",
+    seen: new Set(),
+  });
+  // Runs after the rows' mount effects: a project's first paint never animates,
+  // and rows that mount later (drawer opened, folder expanded) are not new.
+  useLayoutEffect(() => {
+    const motion = sessionInsertMotion.current;
+    motion.cwd = cwd;
+    for (const session of listedSessions) motion.seen.add(session.id);
+  });
+
   const renderSessionCard = (session: SessionSummary, compact = false) =>
     renamingSessionId === session.id && onRenameSession ? (
       <SessionRenameRow
@@ -1907,7 +1922,7 @@ function SidebarComponent({
                   <SessionsEmpty message="Sessions you start will show up here" />
                 )
               ) : (
-                <ul className="flex flex-col gap-0.5 p-1.5">
+                <ul data-session-list className="flex flex-col gap-0.5 p-1.5">
                   {groupedSessionListEntries.map((group) => {
                     if (
                       group.kind === "pinned" ||
@@ -1997,9 +2012,14 @@ function SidebarComponent({
                                 className="flex flex-col gap-px p-1"
                               >
                                 {entry.sessions.map((session) => (
-                                  <li key={session.id}>
+                                  <SessionListItem
+                                    key={session.id}
+                                    session={session}
+                                    cwd={cwd}
+                                    motion={sessionInsertMotion}
+                                  >
                                     {renderSessionCard(session, true)}
-                                  </li>
+                                  </SessionListItem>
                                 ))}
                               </ul>
                             ) : null}
@@ -2138,9 +2158,14 @@ function SidebarComponent({
                                   className="flex flex-col gap-px p-1"
                                 >
                                   {entry.sessions.map((session) => (
-                                    <li key={session.id}>
+                                    <SessionListItem
+                                      key={session.id}
+                                      session={session}
+                                      cwd={cwd}
+                                      motion={sessionInsertMotion}
+                                    >
                                       {renderSessionCard(session, true)}
-                                    </li>
+                                    </SessionListItem>
                                   ))}
                                 </ul>
                                 {onNew ? (
@@ -2180,9 +2205,14 @@ function SidebarComponent({
                           className="flex flex-col gap-0.5"
                         >
                           {group.sessions.map((item) => (
-                            <li key={item.session.id}>
+                            <SessionListItem
+                              key={item.session.id}
+                              session={item.session}
+                              cwd={cwd}
+                              motion={sessionInsertMotion}
+                            >
                               {renderSessionCard(item.session)}
-                            </li>
+                            </SessionListItem>
                           ))}
                         </ul>
                       </li>
@@ -3176,6 +3206,81 @@ function FolderRenameRow({
 }
 
 const SESSION_PREFETCH_DELAY_MS = 120;
+/** Rows created this recently slide in; older ones are just being listed. */
+const SESSION_INSERT_WINDOW_MS = 15_000;
+
+type SessionInsertMotion = { cwd: string; seen: Set<string> };
+
+/** List row that grows open when a new session lands, pushing rows below it down. */
+function SessionListItem({
+  session,
+  cwd,
+  motion,
+  children,
+}: {
+  session: SessionSummary;
+  cwd: string;
+  motion: RefObject<SessionInsertMotion>;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLLIElement>(null);
+  // Decided once per row: effects can replay (StrictMode, reordering), and a
+  // row that already slid in must not do it again.
+  const played = useRef(false);
+  useLayoutEffect(() => {
+    if (played.current) return;
+    played.current = true;
+    const state = motion.current;
+    const fresh =
+      state.cwd === cwd &&
+      !state.seen.has(session.id) &&
+      (session.createdAt === 0 ||
+        Date.now() - session.createdAt < SESSION_INSERT_WINDOW_MS);
+    state.seen.add(session.id);
+    const el = ref.current;
+    const content = el?.firstElementChild;
+    if (
+      !fresh ||
+      !el ||
+      !(content instanceof HTMLElement) ||
+      typeof el.animate !== "function" ||
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    )
+      return;
+    // The card takes its place at once; everything below starts where it was
+    // and slides down, uncovering it as it fades in.
+    const offset =
+      el.offsetHeight +
+      (parseFloat(getComputedStyle(el.parentElement ?? el).rowGap) || 0);
+    const timing = {
+      duration: 380,
+      easing: "cubic-bezier(0.32, 0.72, 0, 1)",
+    };
+    for (
+      let node: Element | null = el;
+      node && !node.hasAttribute("data-session-list");
+      node = node.parentElement
+    ) {
+      for (
+        let below = node.nextElementSibling;
+        below;
+        below = below.nextElementSibling
+      ) {
+        if (!(below instanceof HTMLElement)) continue;
+        below.animate(
+          [{ transform: `translateY(${-offset}px)` }, { transform: "none" }],
+          // Stack with a push already in flight instead of restarting it.
+          { ...timing, composite: "add" },
+        );
+      }
+    }
+    content.animate([{ opacity: 0 }, { opacity: 1 }], {
+      duration: 220,
+      easing: "ease-out",
+    });
+  }, []);
+  return <li ref={ref}>{children}</li>;
+}
 
 const SessionCard = memo(function SessionCard({
   session,
@@ -3306,6 +3411,11 @@ const SessionCard = memo(function SessionCard({
       data-tauri-drag-region="false"
       title={`Open ${linkedWorkItem.kind === "pr" ? "PR" : "issue"} #${linkedWorkItem.number} beside this session (${MOD}-click for GitHub)`}
       aria-label={`Open ${linkedWorkItem.kind === "pr" ? "PR" : "issue"} #${linkedWorkItem.number}`}
+      onPointerEnter={() => {
+        // Hover usually precedes the click by a few hundred ms, which is
+        // most of what the panel would otherwise spend waiting on GitHub.
+        if (onOpenWorkItem) prefetchGithubWorkItem(session.cwd, linkedWorkItem);
+      }}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.preventDefault();
@@ -3594,9 +3704,10 @@ const SessionCard = memo(function SessionCard({
                 strokeWidth={1.75}
               />
             ) : null}
-            <span className="min-w-0 flex-1 line-clamp-1 text-[13px] font-semibold leading-snug text-content">
-              {title}
-            </span>
+            <ParticleText
+              text={title}
+              className="line-clamp-1 text-[13px] font-semibold leading-snug text-content"
+            />
             {compact && !orchestrationExpanded ? (
               <span className="flex shrink-0 items-center gap-1.5">
                 {linkedUpdateDot}

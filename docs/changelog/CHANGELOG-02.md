@@ -5,6 +5,23 @@ Entries dated 2026-10-02 to 2026-10-03 were backfilled from commits made in clou
 that did not have the docs; file lists name the main files only.
 
 
+## 2026-10-04 — One test line: provider sessions + upstream main sync on 0.7.0
+- What: `nakul/windows-support-upstream-0.7.0` fast-forwarded to the provider-sessions branch (backend + sidebar list, earlier history, Remote Control, Local | Cloud) and merged with `nakul/windows-support-upstream-0.7.0-latest-2026-10-03` (upstream main through `00d68d3`). Only conflict: one row each in `docs/specs/SPECS.md` (both kept).
+- Files: merge only; `docs/specs/SPECS.md` (both Review rows kept)
+- Verified: tsc ✅ tests ✅ (5,478) build ✅ cargo fmt ✅ cargo test --lib ✅ (609) | manual: provider-sessions and upstream-sync checklists in their specs
+- Commit: see git log for this entry
+## 2026-10-04 — Original 0.7.0 updates combined with latest upstream intake
+- What: Included all four original-branch commits through `9effbed` after explicit user approval. Kept both conflict sides: saved-prompt/permissions imports and all changelog records. Latest now combines MCP switch polish, saved prompts, Task Focus/hover changes and the Remote Control draft with the seven upstream improvements. Session draft regression checks prompt insertion and selected permission mode together; Task/Session and existing actions remain.
+- Files: all incoming prompts/Tasks/MCP/settings/hover source and tests; QuickComposer import combination and combined regression; preserved docs plus intake spec/index and local-feature audit.
+- Verified: focused tests ✅ (107 / 7 files) full `npm run check` ✅ (5,317 web tests / 487 files, tsc, fmt/Clippy, 599 Rust passed / 2 ignored) cargo check ✅ production build ✅ diff check ✅ | manual: merged desktop checklist in intake spec.
+- Commit: `68c1edb8b657c9d8a1194b82c90dc8bdeaf048a8` (combined source merge; both complete parent lines verified).
+
+## 2026-10-03 — Seven upstream main commits after 0.7.0
+- What: Integrated upstream through `00d68d3` on the new dated branch from `6705686`, after user approval of all eight conflict combinations. Added title/sidebar/pane/panel animations, separate composer permissions, detailed live usage captions and PR/issue activity/overview. Preserved Task/Session and Drafts, hover, active-model metadata, pane actions, Windows support and MCP controls. Compact quota setting/default/used-left wording stays independent. Four newer commits on the original base branch are excluded pending the separate inclusion choice.
+- Files: App/Sidebar/UsageProviderChip; Inbox models/views and new overview/timeline tests; QuickComposer/model/permissions/motion; session history; PaneTree and entry tests; ParticleText/styles; preservation register, spec/index and conflict record.
+- Verified: full `npm run check` ✅ (5,286 web tests / 483 files, tsc, fmt/Clippy, 596 Rust passed / 2 ignored) production build ✅ diff check ✅ | manual: desktop checklist in `docs/specs/upstream-main-after-070-plan.md`; no installer built.
+- Commit: `1f399abecb6fc6529b0a39532ddd0322785c0c92` (source merge pushed and verified; handoff records follow).
+
 ## 2026-10-04 — Normal vs Cloud launch and cloud task view (frontend part C)
 - What: New Claude/Codex sessions get a Local | Cloud switch in the composer. Cloud shows what it will not carry over (model, permissions, MCP, unsaved files), asks Codex for a required environment ID and optional branch, launches exactly once through `launchProviderCloudSession` (never a local send), keeps the draft on any refusal or failure, warns that a timeout may still have started a task, and on a retention failure shows the real task ID with Retry saving instead of launching again. Retained tasks list under the provider with a cloud icon; opening one shows its details and only the actions the installed CLI supports (explained when not), real CLI output, and Apply behind an explicit confirmation. Nothing opens a browser or phone automatically.
 - Files: `src/features/provider-sessions/model/cloudLaunchModel.ts`, `cloudView.ts`; `ui/CloudLaunchControls.tsx`, `useCloudLaunch.tsx`, `CloudSessionDialog.tsx`, `useCloudRecords.ts`, `ProviderConversationList.tsx` (Cloud tasks section); `Composer.tsx` (`cloudLaunch` prop, launch branch in `completeSubmit`), `SessionPane.tsx`, `App.tsx`; tests beside each file

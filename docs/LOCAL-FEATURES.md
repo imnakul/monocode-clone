@@ -14,6 +14,21 @@ Frontend wiring and real CLI/account/phone verification remain follow-ups.
 
 ## Index (read this, then search for the ID, e.g. `grep -n "| L-43 |"`)
 
+2026-10-03 source preservation audit for the seven main commits through
+`00d68d3`: L-01–L-59 remain active on the new dated integration branch from
+`6705686`. The compact quota preference/wording is kept independently of live
+usage meters; the unified Task/Session composer keeps its actions and adds
+Session-only permissions; Drafts/hover and local pane actions remain wired.
+Full validation and manual follow-up are recorded in
+[`upstream-main-after-070-plan.md`](specs/upstream-main-after-070-plan.md).
+
+Follow-up: the original branch at `9effbed` is now combined with that intake;
+L-01–L-60 remain active, including the newer in-place MCP switches, saved
+prompts, centered Task Focus and hover reflow. Both saved-prompt and permission
+pickers coexist in Session mode and save into the same draft. Combined full
+validation passed (5,317 frontend / 599 Rust tests and production build),
+recorded in the same spec; native desktop checks remain separate.
+
 | ID | Feature | Area | Windows only |
 |---|---|---|---|
 | L-01 | Stop stays visible while busy; send becomes Queue/Steer | composer | No |

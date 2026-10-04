@@ -125,8 +125,19 @@ export function UnifiedDiffView({
   useEffect(() => {
     if (!resolvedFocusId) return;
     const node = fileRefs.current.get(resolvedFocusId);
+    if (!node) return;
     const scroller = scrollerRef.current;
-    if (!node || !scroller) return;
+    if (!scroller) {
+      // Embedded review surfaces jump in from a file list, so open the file
+      // and let the ancestor that owns scrolling bring it up.
+      setOpen((current) =>
+        current.has(resolvedFocusId)
+          ? current
+          : new Set(current).add(resolvedFocusId),
+      );
+      node.scrollIntoView({ block: "start" });
+      return;
+    }
     const top = node.offsetTop - 8;
     scroller.scrollTo({ top: Math.max(0, top) });
   }, [resolvedFocusId, fileKey]);

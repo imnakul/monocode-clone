@@ -1473,6 +1473,7 @@ function Workspace({
     () =>
       preloadNavigationWhenIdle([
         InboxView.preload,
+        LinkedWorkItemPanel.preload,
         AutomationsView.preload,
         listAutomations,
         ...(notesEnabled ? [NotesView.preload, loadNotes] : []),
@@ -6813,6 +6814,9 @@ function Workspace({
       if (remote && remoteProjectFor(remote.cwd))
         return !!remoteSessionActions(sessionId)?.submit(text, attachments, options);
       if (editedResends.isActive(sessionId)) return false;
+      // Output already received belongs before the submitted user message.
+      // Flush before reading the session too, since pending errors can settle it.
+      flushHarnessEvents();
       const controlError = orchestrator.submissionError(
         sessionId,
         options?.managed,
@@ -10358,6 +10362,7 @@ function Workspace({
         }).catch(console.error);
       },
       steer: async (id, text) => {
+        flushHarnessEvents();
         const session = sessionsRef.current.find((entry) => entry.id === id);
         if (!session) throw new Error("This agent is no longer available");
         if (!session.busy)
@@ -10415,7 +10420,7 @@ function Workspace({
         }
       },
     });
-  }, [checkOpenWorktreeFiles, submitSession, onStop]);
+  }, [checkOpenWorktreeFiles, submitSession, onStop, flushHarnessEvents]);
 
   useEffect(() => {
     orchestrator.sync();
