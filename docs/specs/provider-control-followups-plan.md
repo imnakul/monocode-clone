@@ -82,7 +82,7 @@ cards for the two screenshot sessions.
 - [x] Implement isolated live phone transcript events with regressions.
 - [x] Diagnose Session Manager omission and add supported-launch guidance; no fabricated Done runs.
 - [x] Run full gates/build and update records.
-- [ ] Commit/push and verify publication; provide manual checklist.
+- [x] Commit/push and verify source publication; provide manual checklist.
 
 ## Issues and fixes
 
@@ -110,7 +110,10 @@ Rust fmt/Clippy with warnings denied, 612 Rust passed / 2 ignored.
 Separate cargo check and production build passed; git diff check is clean.
 Initial targeted coverage passed 183 tests / 9 files, then the final batching,
 protocol and active-turn Off additions passed in the full suite. Seven focused
-Rust control tests also passed. Commit/push and publication verification remain.
+Rust control tests also passed. Source/records commit `da14888b99ab9564b0a1d727fb2a4fb82e1488e1`
+was pushed to the original 0.7.0 branch and independently remote-verified.
+This documentation-only checkpoint records that publication; source stays
+identical to the validated commit. Manual checks below keep status Review.
 Unrelated untracked UPSTREAM-0.7.0 notes are preserved.
 
 Phone events have independent saved boundaries, isolated stream/tool state,
