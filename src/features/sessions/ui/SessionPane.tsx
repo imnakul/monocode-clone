@@ -65,6 +65,7 @@ import {
 } from "../model/transcriptJump";
 import { EmptySession } from "./EmptySession";
 import { SessionProviderStrip } from "../../provider-sessions/ui/SessionProviderStrip";
+import { useCloudLaunch, type CloudLaunchOutcome } from "../../provider-sessions/ui/useCloudLaunch";
 import { useNativeHistory } from "../../provider-sessions/ui/useNativeHistory";
 import { isHistoryBlock, withHistory } from "../../provider-sessions/model/history";
 import { canHarnessRemoteControl } from "../../../integrations/harness/core/registry";
@@ -109,6 +110,8 @@ import { type ReviewIssue } from "../../inbox/model/githubTasks";
 import { RemoteSession } from "../../connections/ui/RemoteSession";
 import { isRemoteProjectPath } from "../../projects/model/recents";
 import type { HostSession } from "../../connections/model/protocol";
+
+function ignoreCloudOutcome(): void {}
 
 export type SessionPaneProps = {
   session: Session;
@@ -239,6 +242,8 @@ export type SessionPaneProps = {
   /** Saved per-chat Claude Remote Control choices. */
   remoteControlDesired?: ReadonlySet<string>;
   onRemoteControlChange?: (sessionId: string, enabled: boolean) => void;
+  /** A Cloud launch from this session's composer started a task (or could not save its record). */
+  onCloudLaunchOutcome?: (outcome: CloudLaunchOutcome) => void;
 
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
   /** Keeps this transcript mounted after the pane closes. */
@@ -343,6 +348,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
   onNewTerminal,
   remoteControlDesired,
   onRemoteControlChange,
+  onCloudLaunchOutcome,
   onPaneDragStart,
   transcriptPool,
 }: Props) {
@@ -371,6 +377,15 @@ const LocalSessionPane = memo(function LocalSessionPane({
   const isEmpty = session.blocks.length === 0 && history.blocks.length === 0;
   const recallLastTurnRef = useRef<(() => void) | null>(null);
   const remote = remoteSession;
+  const cloudLaunch = useCloudLaunch({
+    harness: session.harness,
+    cwd: session.cwd,
+    providerAccountId: session.providerAccountId,
+    blocksCount: session.blocks.length,
+    inboxAsk: !!session.inboxAsk,
+    remote: remoteSession,
+    onOutcome: onCloudLaunchOutcome ?? ignoreCloudOutcome,
+  });
   const showRemoteControl =
     !remote &&
     !!onRemoteControlChange &&
@@ -789,6 +804,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
         recallLastTurnRef.current = recall;
       }}
       onEditingLastTurnChange={setEditingLastTurn}
+      cloudLaunch={onCloudLaunchOutcome ? cloudLaunch : undefined}
     />
   );
 

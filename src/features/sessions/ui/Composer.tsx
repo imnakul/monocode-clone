@@ -109,6 +109,7 @@ import {
   type SlashToken,
 } from "../../skills/model/skills";
 import { AccessPicker } from "./AccessPicker";
+import type { ComposerCloudLaunch } from "../../provider-sessions/ui/CloudLaunchControls";
 import { ComposerRunner } from "./ComposerRunner";
 import { ContextMeter } from "./ContextMeter";
 import type { ProcessedUsage } from "../model/tokenAccounting";
@@ -330,6 +331,8 @@ type Props = {
   onPendingInputChange?: (pending: boolean) => void;
   onRecallLastTurnReady?: (recall: () => void) => void;
   onEditingLastTurnChange?: (editing: boolean) => void;
+  /** Local | Cloud choice for a new session; Cloud launches instead of sending a local turn. */
+  cloudLaunch?: ComposerCloudLaunch;
   children?: ReactNode;
 };
 
@@ -677,6 +680,7 @@ export function Composer({
   onPendingInputChange,
   onRecallLastTurnReady,
   onEditingLastTurnChange,
+  cloudLaunch,
   children,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -1798,13 +1802,29 @@ export function Composer({
     // the composer when the first message leaves an empty session (EmptySession →
     // docked layout). If draftRef still holds the sent text, the new instance
     // resurrects it as initialDraft.
+    // Cloud: launch exactly once through the cloud API. A refusal or failure
+    // keeps the text, files and chosen modes so nothing is lost.
+    const launchingInCloud = cloudLaunch?.active === true;
+    if (launchingInCloud) {
+      const launched = await cloudLaunch.launch(
+        text,
+        files,
+        planActive ||
+          command.planning ||
+          orchestrationActive ||
+          orchestratorCommand.matched ||
+          operatorActive ||
+          draftActive,
+      );
+      if (!launched) return;
+    }
     const resendDraftRevision = draftRevisionRef.current;
     const resendBorrowedAttachmentIds = new Set(
       borrowedAttachmentIdsRef.current,
     );
     const resendSelectedMcp = selectedMcp;
     onDraftChange?.("");
-    const accepted = onSubmit(
+    const accepted = launchingInCloud ? true : onSubmit(
       mcpContextText(
         taggedMcpServers(submittedText, selectedMcp),
         submittedText,
@@ -2215,6 +2235,7 @@ export function Composer({
         <McpForm prompt={form} onReply={onFormReply} />
       ) : null}
       {children}
+      {cloudLaunch?.panel}
       {usageLimit ? (
         <UsageLimitNotice
           limit={usageLimit}
@@ -2878,6 +2899,7 @@ export function Composer({
                     onClose={() => ref.current?.focus()}
                   />
                 ) : null}
+                {cloudLaunch?.control}
               </div>
             </div>
 

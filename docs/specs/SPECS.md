@@ -38,7 +38,7 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
-| 2026-10-04 | [Todo — Provider conversations, RC and cloud UI](provider-sessions-frontend-plan.md) | Separate frontend agent: existing components only; sidebar provider entries, native resume, archive, RC and cloud wiring. Backend on the new 0.7.0 branch. |
+| 2026-10-04 | [Review — Provider conversations, RC and cloud UI](provider-sessions-frontend-plan.md) | Parts A, B, C (session composer) and D (read-only earlier history) built with existing components; gates green. Desktop/phone checks pending; QuickComposer cloud choice and compact-rail entry remain. |
 
 ## Progress
 

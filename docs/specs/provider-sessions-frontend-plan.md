@@ -5,8 +5,8 @@ Created: 2026-10-04 (IST). Branch:
 Base: `9effbed3c2fc2e5945d98bb33dce0655e0bfcc3c`.
 Implemented backend/source commit: `67eb8c4028ea87826bcb29ab80cb9a7a174ece7c`.
 Backend: [implementation/checkpoint](provider-sessions-backend-plan.md).
-Status: Todo. Backend APIs below are implemented on this branch; UI wiring is
-intentionally still to do. Start from this branch, not the original 0.7.0 or
+Status: Review (frontend built; desktop/phone manual checks pending). Backend APIs
+below are implemented on this branch; the UI wiring below is now built. Start from this branch, not the original 0.7.0 or
 the separate upstream-latest branch.
 
 ## Idea
@@ -212,18 +212,26 @@ Link reuse and full phone transcript rendering after real protocol findings.
 
 ## Todos
 
-- [ ] Locate/load frontend design skill; read backend checkpoint and APIs.
-- [ ] Provider navigation rows and secondary conversation list/refresh.
-- [ ] Native open/deduplication and MonoCode-only archive/unarchive wiring.
-- [ ] RC settings/per-chat controls and confirmed-status presentation.
-- [ ] Normal/cloud creation and cloud metadata/action presentation.
-- [ ] Test races, errors, accessibility, existing composer/provider behavior.
-- [ ] Run required gates; hand manual desktop/phone checks to user.
+- [x] Locate/load frontend design skill; read backend checkpoint and APIs.
+- [x] Provider navigation rows and secondary conversation list/refresh (`ProviderRail`, `ProviderConversationList`, `ProviderConversationStore`).
+- [x] Native open/deduplication and MonoCode-only archive/unarchive wiring (`liveNativeDependencies`, `archiveProviderConversationRow`).
+- [x] D. Read-only earlier history for opened conversations (`provider_sessions_history`, `NativeHistoryStore`, divider, Show earlier).
+- [x] RC settings/per-chat controls and confirmed-status presentation (`SessionProviderStrip`, `remoteControlView`, Settings → Providers).
+- [x] Normal/cloud creation (session composer) and cloud metadata/action presentation (`useCloudLaunch`, `CloudSessionDialog`, Cloud tasks section in the provider list).
+- [x] Test races, errors, accessibility, existing composer/provider behavior (vitest: stale responses, dedupe, archive sync/rollback, RC states, launch-once, history parsing/paging/trim).
+- [x] Run required gates (tsc, full vitest 5,455 / 500 files, build, cargo fmt, cargo test --lib 609); manual desktop/phone checks handed to the user.
+- [ ] Remaining: QuickComposer Local|Cloud choice, a provider entry in the compact rail, Codex layouts without a JSONL rollout (history shows the reason), teleport/phase 2.
 
 ## Issues and fixes
 
-Backend API contract is being built; no UI code has been changed. User explicitly
-prefers backend implementation plus this detailed handoff, using existing UI.
+Backend verified first: tsc clean, 1,619 focused web tests, 8 Rust provider_sessions tests; no backend bugs found.
+Design notes and deviations:
+- Provider entries live in `ProjectRail`; the list replaces the secondary panel through a `providerPanel` slot in `Sidebar` (same pattern as chat mode). The compact rail has no provider entry yet.
+- Rows reuse `SessionCard` through a synthetic summary (native key as id, project folder in the model slot, epoch seconds converted to ms).
+- RC events reach sessions through `routeRemoteControlEvent` (not turn-generation gated) from both the turn callback and the enable/retry callback; only RC fields change, never busy. New Claude chats take the saved default once before first send (`initializeNewClaudeRemoteControlPreference`), skipped for resumed/native chats and chats the user already toggled.
+- Directive D replaced the "older transcript not shown" note. History is composed in `SessionPane` above `session.blocks`, trimmed at the chat's first MonoCode turn so continued chats never repeat turns; Branch/Sidechat/Second opinion/Handoff ignore history turns.
+- The cloud task view is a modal dialog (no tab infrastructure for non-session views); Open in browser is an explicit click. Cloud launch lives in the session composer only.
+- The first A+B commit was one commit because App wiring was shared.
 
 ## Learnings
 
@@ -232,5 +240,8 @@ execution target. Local archive is visibility metadata, not provider deletion.
 
 ## Done
 
-Frontend implementation is a separate follow-up. Do not mark complete until
-wired, validated and manually checked on desktop/phone.
+Frontend implemented and automatically validated. Not marked Done until the manual
+desktop/phone checklist above (plus the additions below) is run:
+- Open a real Claude and Codex conversation: earlier messages appear under the "Earlier in Claude Code/Codex" divider, Show earlier works on a very long chat, a moved/deleted file shows a reason and resuming still continues the same native ID, continued chats do not repeat turns after restart.
+- Cloud: Local|Cloud switch only on new Claude/Codex sessions; Codex requires an environment ID; one task per Send; retained task appears under the provider and after restart; no browser opens by itself; apply asks for confirmation and refuses a dirty checkout.
+- Remote Control chip states, Retry after consent, Copy link only with a real URL; turning it on/off during a running turn does not stop the turn.

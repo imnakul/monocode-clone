@@ -438,6 +438,10 @@ import {
   useEnabledNativeProviders,
   useProviderConversations,
 } from "../features/provider-sessions/ui/useProviderConversations";
+import { CloudSessionDialog } from "../features/provider-sessions/ui/CloudSessionDialog";
+import { useCloudRecords } from "../features/provider-sessions/ui/useCloudRecords";
+import type { CloudLaunchOutcome } from "../features/provider-sessions/ui/useCloudLaunch";
+import type { CloudSession } from "../features/provider-sessions/model/cloudSessions";
 import { ProviderConversationList } from "../features/provider-sessions/ui/ProviderConversationList";
 import { PROVIDER_LABEL } from "../features/provider-sessions/model/conversationSummary";
 import type { ProviderRailEntry } from "./shell/ProviderRail";
@@ -1147,6 +1151,11 @@ function Workspace({
     selectedProviderRaw && enabledNativeProviders.includes(selectedProviderRaw)
       ? selectedProviderRaw
       : null;
+  const cloudRecords = useCloudRecords(enabledNativeProviders);
+  const [cloudDialog, setCloudDialog] = useState<{
+    record: CloudSession;
+    unsavedMessage?: string;
+  } | null>(null);
   const [providerOpeningKey, setProviderOpeningKey] = useState<string | null>(
     null,
   );
@@ -5575,6 +5584,19 @@ function Workspace({
     [enabledNativeProviders, providerConversations.snapshot],
   );
 
+  const onCloudLaunchOutcome = useCallback(
+    (outcome: CloudLaunchOutcome) => {
+      cloudRecords.add(outcome.record);
+      setCloudDialog({
+        record: outcome.record,
+        ...(outcome.kind === "unsaved"
+          ? { unsavedMessage: outcome.message }
+          : {}),
+      });
+    },
+    [cloudRecords.add],
+  );
+
   const providerPanel = selectedProvider ? (
     <ProviderConversationList
       provider={selectedProvider}
@@ -5591,6 +5613,10 @@ function Workspace({
         void onArchiveProviderConversation(row, archived)
       }
       onDismissActionError={() => setProviderActionError(null)}
+      cloudRecords={cloudRecords.records.filter(
+        (record) => record.provider === selectedProvider,
+      )}
+      onOpenCloud={(record) => setCloudDialog({ record })}
     />
   ) : null;
 
@@ -12002,6 +12028,7 @@ function Workspace({
     onNewTerminal: onNewTerminalInSession,
     remoteControlDesired,
     onRemoteControlChange: onChangeRemoteControl,
+    onCloudLaunchOutcome,
     onReviewFix,
     onBranch,
     onSidechat,
@@ -12061,6 +12088,20 @@ function Workspace({
         >
           {compactTitleBar ? workspaceTitleBar : null}
           <SavePromptDialogHost />
+          {cloudDialog ? (
+            <CloudSessionDialog
+              key={`${cloudDialog.record.providerAccountId}:${cloudDialog.record.id}`}
+              record={cloudDialog.record}
+              unsavedMessage={cloudDialog.unsavedMessage}
+              onClose={() => setCloudDialog(null)}
+              onSaved={(saved) => {
+                cloudRecords.add(saved);
+                setCloudDialog((current) =>
+                  current ? { record: saved } : current,
+                );
+              }}
+            />
+          ) : null}
           <div className="flex min-h-0 min-w-0 flex-1">
             <Sidebar
               cwd={sidebarCwd}

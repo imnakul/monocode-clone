@@ -11,10 +11,12 @@ import {
 } from "../../files/ui/ExplorerMenu";
 import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
 import { SessionCard } from "../../sessions/ui/SessionCard";
-import { ListFilter, RefreshCw } from "../../../shared/ui/icons";
+import { Cloud, ListFilter, RefreshCw } from "../../../shared/ui/icons";
+import type { CloudSession } from "../model/cloudSessions";
 import type { ProviderListState } from "../model/conversationStore";
 import {
   conversationSummary,
+  folderName,
   PROVIDER_LABEL,
 } from "../model/conversationSummary";
 import type {
@@ -37,6 +39,9 @@ type Props = {
   onOpen: (row: ProviderConversation) => void;
   onArchive: (row: ProviderConversation, archived: boolean) => void;
   onDismissActionError: () => void;
+  /** Cloud tasks MonoCode launched for this provider. */
+  cloudRecords?: readonly CloudSession[];
+  onOpenCloud?: (record: CloudSession) => void;
 };
 
 const SKELETON_ROWS = [0, 1, 2, 3];
@@ -71,6 +76,8 @@ export function ProviderConversationList({
   onOpen,
   onArchive,
   onDismissActionError,
+  cloudRecords = [],
+  onOpenCloud,
 }: Props): ReactElement {
   const label = PROVIDER_LABEL[provider];
   const [menu, setMenu] = useState<{
@@ -222,6 +229,38 @@ export function ProviderConversationList({
         </div>
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-none p-1.5">
+        {cloudRecords.length > 0 && onOpenCloud ? (
+          <section aria-label={`${label} cloud tasks`} className="mb-1.5">
+            <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content/40">
+              Cloud tasks
+            </p>
+            <ul data-shared-hover-continuity className="flex flex-col gap-0.5">
+              {cloudRecords.map((record) => (
+                <li key={`${record.providerAccountId}:${record.id}`}>
+                  <button
+                    type="button"
+                    data-shared-hover-item
+                    title={record.url}
+                    aria-label={`Cloud task ${record.id}`}
+                    onClick={() => onOpenCloud(record)}
+                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-content/80 hover:bg-content/5 hover:text-content"
+                  >
+                    <Cloud aria-hidden className="size-3.5 shrink-0 text-content/55" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-semibold leading-snug text-content">
+                        {record.id}
+                      </span>
+                      <span className="block truncate text-[11px] text-content/45">
+                        {folderName(record.cwd)}
+                        {record.environmentId ? ` · ${record.environmentId}` : ""}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
         {initialLoading ? (
           <ListSkeleton label={`Loading ${label} conversations`} />
         ) : showEmpty ? (
