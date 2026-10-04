@@ -376,6 +376,7 @@ import {
   loadAiHelperSettings,
   currentKeybindings,
   loadClaudeHooks,
+  loadClaudeRemoteControlDefault,
   loadCloseToTray,
   loadCollapsedProjectRailMode,
   loadComposerRunner,
@@ -395,6 +396,7 @@ import {
   loadQuickComposerShortcut,
   loadTabAnimationsEnabled,
   saveClaudeHooks,
+  saveClaudeRemoteControlDefault,
   saveCloseToTray,
   saveCollapsedProjectRailMode,
   saveComposerRunner,
@@ -4033,6 +4035,9 @@ export function ProvidersPage({
   >("checking");
   const initialLoading = initialStatus === "checking";
   const [claudeHooks, setClaudeHooks] = useState(loadClaudeHooks);
+  const [claudeRemoteControl, setClaudeRemoteControl] = useState(
+    loadClaudeRemoteControlDefault,
+  );
   const [updateNotices, setUpdateNotices] = useState<CliUpdateNotice[]>([]);
   const notifiedRef = useRef<Set<HarnessId>>(new Set());
   const runUpdateCheck = useCallback(async () => {
@@ -4130,6 +4135,11 @@ export function ProvidersPage({
   const onClaudeHooks = (next: boolean) => {
     saveClaudeHooks(next);
     setClaudeHooks(next);
+  };
+
+  const onClaudeRemoteControl = (next: boolean) => {
+    saveClaudeRemoteControlDefault(next);
+    setClaudeRemoteControl(next);
   };
 
   const onModelChange = (harness: HarnessId, model: string) => {
@@ -4278,6 +4288,17 @@ export function ProvidersPage({
             label="Claude Code hooks"
             on={claudeHooks}
             onChange={onClaudeHooks}
+          />
+        </Row>
+        <Row
+          id="claude-remote-control"
+          label="Turn on Remote Control for new Claude chats"
+          description="Lets you continue a new local Claude chat from your phone. It applies only to chats you start after turning this on; each chat keeps its own Remote Control switch. Nothing is started when MonoCode launches, and a chat connects when you first send a message."
+        >
+          <Toggle
+            label="Turn on Remote Control for new Claude chats"
+            on={claudeRemoteControl}
+            onChange={onClaudeRemoteControl}
           />
         </Row>
       </Group>

@@ -39,6 +39,7 @@ import {
   type RecentProject,
 } from "../../projects/model/recents";
 import {
+  HARNESS_TITLE,
   sessionDisplayTitle,
   sessionDraftBlock,
   sessionWorkCwd,
@@ -64,6 +65,8 @@ import {
   subscribeTranscriptJump,
 } from "../model/transcriptJump";
 import { EmptySession } from "./EmptySession";
+import { SessionProviderStrip } from "../../provider-sessions/ui/SessionProviderStrip";
+import { canHarnessRemoteControl } from "../../../integrations/harness/core/registry";
 import { useComposerDockMotion } from "./useComposerDockMotion";
 import { MOD } from "../../../platform/tauri/platform";
 import {
@@ -232,6 +235,11 @@ export type SessionPaneProps = {
     modelSettings: Record<string, string>,
   ) => void;
   onNewTerminal: (sessionId: string) => void;
+  /** Chats opened from a provider conversation (older transcript not shown). */
+  nativeNoticeIds?: ReadonlySet<string>;
+  /** Saved per-chat Claude Remote Control choices. */
+  remoteControlDesired?: ReadonlySet<string>;
+  onRemoteControlChange?: (sessionId: string, enabled: boolean) => void;
 
   onPaneDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
   /** Keeps this transcript mounted after the pane closes. */
@@ -334,6 +342,9 @@ const LocalSessionPane = memo(function LocalSessionPane({
   onBtwStop,
   onBtwModelChange,
   onNewTerminal,
+  nativeNoticeIds,
+  remoteControlDesired,
+  onRemoteControlChange,
   onPaneDragStart,
   transcriptPool,
 }: Props) {
@@ -351,6 +362,17 @@ const LocalSessionPane = memo(function LocalSessionPane({
   const isEmpty = session.blocks.length === 0;
   const recallLastTurnRef = useRef<(() => void) | null>(null);
   const remote = remoteSession;
+  const showRemoteControl =
+    !remote &&
+    !!onRemoteControlChange &&
+    session.harness === "claude" &&
+    !session.inboxAsk &&
+    !session.worktreeRemoved &&
+    canHarnessRemoteControl("claude");
+  const nativeNotice =
+    !remote && nativeNoticeIds?.has(session.id)
+      ? HARNESS_TITLE[session.harness]
+      : undefined;
   const editLastTurnSupported = !remote && canEditLastTurn(session);
   const turnRecall = editLastTurnSupported ? lastTurnRecall(session) : null;
   const draftBlock = sessionDraftBlock(session);
@@ -829,6 +851,23 @@ const LocalSessionPane = memo(function LocalSessionPane({
         </div>
       ) : null}
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        {visible && (nativeNotice || showRemoteControl) ? (
+          <SessionProviderStrip
+            nativeNoticeProvider={nativeNotice}
+            remoteControl={
+              showRemoteControl
+                ? {
+                    desired: remoteControlDesired?.has(session.id) ?? false,
+                    status: session.remoteControlStatus,
+                    url: session.remoteControlUrl,
+                    message: session.remoteControlMessage,
+                    onChange: (enabled) =>
+                      onRemoteControlChange?.(session.id, enabled),
+                  }
+                : undefined
+            }
+          />
+        ) : null}
         <div
           ref={transcriptScope}
           className="@container relative min-h-0 flex-1"

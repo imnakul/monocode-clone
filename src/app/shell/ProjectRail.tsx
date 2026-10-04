@@ -80,6 +80,8 @@ import { notificationMuteStatus } from "../../features/notifications/ui/notifica
 import { useProjectNotificationPreferences } from "../../features/notifications/hooks/useProjectNotificationPreferences";
 import { useNotificationProjects } from "../../features/notifications/hooks/useNotificationProjects";
 import { GithubStarPrompt } from "./GithubStarPrompt";
+import { ProviderRail, type ProviderRailEntry } from "./ProviderRail";
+import type { NativeProvider } from "../../features/provider-sessions/model/providerSessions";
 import { SharedHoverHighlight } from "../../features/sessions/ui/SharedHoverHighlight";
 import { type AppMode } from "../../features/settings/model/appearance";
 
@@ -138,6 +140,11 @@ type Props = {
   onDismissUpdate?: () => void;
   mode?: AppMode;
   onModeChange?: (mode: AppMode) => void;
+  /** Enabled provider folders shown below the projects. */
+  providerEntries?: readonly ProviderRailEntry[];
+  selectedProvider?: NativeProvider | null;
+  onSelectProvider?: (provider: NativeProvider) => void;
+  onRefreshProvider?: (provider: NativeProvider) => void;
 };
 
 /** Projects / Chat lens switcher. Hari enables when its surface lands.
@@ -184,6 +191,10 @@ export function ProjectRail({
   onDismissUpdate,
   mode: _mode = "projects",
   onModeChange: _onModeChange,
+  providerEntries = [],
+  selectedProvider = null,
+  onSelectProvider,
+  onRefreshProvider,
 }: Props) {
   const resize = useDragResize({
     min: PROJECT_RAIL_WIDTH_MIN,
@@ -451,6 +462,7 @@ export function ProjectRail({
                 pinned
                 searchActive={
                   searchActive ||
+                  selectedProvider !== null ||
                   inboxActive ||
                   notesActive || tasksActive || kanbanActive ||
                   automationsActive
@@ -485,6 +497,7 @@ export function ProjectRail({
                       statsEnabled={visible}
                       searchActive={
                         searchActive ||
+                        selectedProvider !== null ||
                         inboxActive ||
                         notesActive || tasksActive || kanbanActive ||
                         automationsActive
@@ -530,7 +543,7 @@ export function ProjectRail({
               sortable={projectSortable}
               pinned={false}
               searchActive={
-                searchActive || inboxActive || notesActive || tasksActive || kanbanActive || automationsActive
+                searchActive || selectedProvider !== null || inboxActive || notesActive || tasksActive || kanbanActive || automationsActive
               }
               onSelect={onSelectProject}
               onTogglePin={toggleProjectPin}
@@ -542,6 +555,14 @@ export function ProjectRail({
               groupLogos={groupLogos}
               groupMascots={groupMascots}
             />
+            {onSelectProvider && onRefreshProvider ? (
+              <ProviderRail
+                entries={providerEntries}
+                selected={selectedProvider}
+                onSelect={onSelectProvider}
+                onRefresh={onRefreshProvider}
+              />
+            ) : null}
           </div>
           <LiveAgentsPreview
             agents={liveAgents}

@@ -414,6 +414,32 @@ import {
   type AddToChatRequest,
 } from "../features/sessions/model/quoteDraft";
 import { createSessionRemover } from "../features/sessions/model/sessionRemoval";
+import {
+  detachProviderConversation,
+  openProviderConversation,
+  setProviderConversationArchived,
+  type NativeProvider,
+  type ProviderConversation,
+} from "../features/provider-sessions/model/providerSessions";
+import { prepareNativeInput } from "../features/provider-sessions/model/nativeInput";
+import {
+  archiveProviderConversationRow,
+  liveNativeDependencies,
+} from "../features/provider-sessions/model/providerActions";
+import {
+  changeClaudeRemoteControl,
+  initializeNewClaudeRemoteControlPreference,
+  persistClaudeRemoteControlEvent,
+  removeClaudeRemoteControlPreference,
+  restoreClaudeRemoteControlPreferences,
+} from "../features/provider-sessions/model/remoteControl";
+import {
+  useEnabledNativeProviders,
+  useProviderConversations,
+} from "../features/provider-sessions/ui/useProviderConversations";
+import { ProviderConversationList } from "../features/provider-sessions/ui/ProviderConversationList";
+import { PROVIDER_LABEL } from "../features/provider-sessions/model/conversationSummary";
+import type { ProviderRailEntry } from "./shell/ProviderRail";
 import { shouldGenerateSessionTitle } from "../features/sessions/model/sessionTitle";
 import {
   DEFAULT_PROVIDER_ACCOUNT_ID,
@@ -494,6 +520,7 @@ import {
   upsertSession,
   flushSessionWrites,
   type SessionSummary,
+  upsertNativeResumeSession,
 } from "../features/sessions/data/sessionStore";
 import { rememberLoadedSession } from "../features/sessions/data/sessionCache";
 import {
@@ -645,6 +672,7 @@ import {
   peekAzureDevOpsWorkItemDetails,
 } from "../features/inbox/model/azureDevOps";
 import {
+  loadRemoteControlSessions,
   loadCloseToTray,
   loadAutosave,
   loadCollapsedProjectRailMode,
@@ -720,7 +748,11 @@ import { queuePersistFingerprint } from "../features/sessions/data/sessionStore"
 import { sidechatContextBlock, sidechatTitle } from "../features/sessions/model/fork";
 import { planBranch } from "../features/sessions/model/branchPlan";
 import { sendBranchTurn } from "../features/sessions/model/branchFlow";
-import type { NativeForkRequest } from "../integrations/harness";
+import {
+  HarnessRemoteControlError,
+  type HarnessSessionInput,
+  type NativeForkRequest,
+} from "../integrations/harness/core/types";
 import { settleQueuedSteerCancellations } from "../features/sessions/model/messageQueue";
 import { isProviderFailureText } from "../features/sessions/model/plan";
 import { QueueDurabilityScheduler } from "../features/sessions/model/queueDurability";
@@ -1104,6 +1136,32 @@ function Workspace({
   const [sessionSidebarOpen, setSessionSidebarOpen] = useState(
     loadSessionSidebarOpen,
   );
+  const enabledNativeProviders = useEnabledNativeProviders();
+  const providerConversations = useProviderConversations(
+    enabledNativeProviders,
+  );
+  const [selectedProviderRaw, setSelectedProvider] =
+    useState<NativeProvider | null>(null);
+  const selectedProvider =
+    selectedProviderRaw && enabledNativeProviders.includes(selectedProviderRaw)
+      ? selectedProviderRaw
+      : null;
+  const [providerOpeningKey, setProviderOpeningKey] = useState<string | null>(
+    null,
+  );
+  const [providerActionError, setProviderActionError] = useState<
+    string | null
+  >(null);
+  /** Chats opened from a provider conversation; their older transcript is not shown. */
+  const [nativeNoticeIds, setNativeNoticeIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  /** Saved per-chat Remote Control intent; live state lives on the session. */
+  const [remoteControlDesired, setRemoteControlDesired] = useState<
+    ReadonlySet<string>
+  >(loadRemoteControlSessions);
+  const remoteControlSeeded = useRef(new Set<string>());
+  const remoteControlInitialized = useRef(new Set<string>());
   const tabCloseScope = "project" as const;
   const currentProjectDock = findProjectTerminal(projectTerminals, projectCwd);
   const dockVisible = !!currentProjectDock?.open;
@@ -1644,6 +1702,21 @@ function Workspace({
       }
     },
     [applyApprovalEvent, flushHarnessEvents],
+  );
+
+  /**
+   * Remote Control events are not part of a turn: they arrive after a turn
+   * ends, on enable/retry and on process exit. They reach the session through
+   * this per-session route (never a turn-generation-gated callback) and only
+   * touch Remote Control fields, never busy or turn state.
+   */
+  const routeRemoteControlEvent = useCallback(
+    (sessionId: string, event: HarnessEvent) => {
+      persistClaudeRemoteControlEvent(sessionId, event);
+      setRemoteControlDesired(loadRemoteControlSessions());
+      enqueueHarnessEvent(sessionId, event);
+    },
+    [enqueueHarnessEvent],
   );
 
   useEffect(() => {
@@ -5139,6 +5212,28 @@ function Workspace({
           },
         });
         const removed = await remover.remove(sessionId);
+        if (removed && mode === "delete") {
+          // Provider files and the sticky archive flag stay; only the native
+          // link and the Remote Control preference belong to this chat.
+          removeClaudeRemoteControlPreference(sessionId);
+          remoteControlSeeded.current.delete(sessionId);
+          remoteControlInitialized.current.delete(sessionId);
+          setRemoteControlDesired(loadRemoteControlSessions());
+          setNativeNoticeIds((current) => {
+            if (!current.has(sessionId)) return current;
+            const next = new Set(current);
+            next.delete(sessionId);
+            return next;
+          });
+          try {
+            await detachProviderConversation(sessionId);
+          } catch (error) {
+            void message(
+              `The conversation was deleted, but its link to the provider conversation could not be cleared.\n\n${String(error)}`,
+              { title: "MonoCode", kind: "warning" },
+            );
+          }
+        }
         if (removed && deleteWorktreePath && seed) {
           try {
             await onRemoveWorktree(seed.cwd, deleteWorktreePath, false);
@@ -5342,6 +5437,173 @@ function Workspace({
     },
     [onArchiveHistorySession],
   );
+
+  // Seed saved Remote Control intent for Claude chats as they load. This only
+  // tells the adapter what was wanted; it never starts a provider process.
+  useEffect(() => {
+    const fresh = sessions.filter(
+      (session) =>
+        session.harness === "claude" &&
+        !isRemoteProjectPath(session.cwd) &&
+        !remoteControlSeeded.current.has(session.id),
+    );
+    if (fresh.length === 0) return;
+    for (const session of fresh) remoteControlSeeded.current.add(session.id);
+    try {
+      restoreClaudeRemoteControlPreferences(fresh);
+    } catch {
+      // The adapter may be unavailable; the saved choice itself is untouched.
+    }
+    setRemoteControlDesired(loadRemoteControlSessions());
+  }, [sessions]);
+
+  const onChangeRemoteControl = useCallback(
+    async (sessionId: string, enabled: boolean): Promise<void> => {
+      const session = sessionsRef.current.find(
+        (entry) => entry.id === sessionId,
+      );
+      if (
+        !session ||
+        session.harness !== "claude" ||
+        isRemoteProjectPath(session.cwd)
+      )
+        return;
+      // An explicit choice on a new chat must outlive the first-send default.
+      remoteControlInitialized.current.add(sessionId);
+      try {
+        await changeClaudeRemoteControl({
+          sessionId,
+          cwd: sessionWorkCwd(session),
+          model: session.model,
+          modelSettings: session.modelSettings,
+          providerAccountId:
+            session.providerAccountId ??
+            selectedProviderAccountId("claude", session.cwd),
+          runtimeMode: session.runtimeMode,
+          enabled,
+          name: session.title,
+          onEvent: (event) => {
+            if (event.type === "remoteControl.changed")
+              routeRemoteControlEvent(sessionId, event);
+          },
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        flushHarnessEvents();
+        const status =
+          error instanceof HarnessRemoteControlError
+            ? error.status
+            : "failed";
+        const latest = sessionsRef.current.find(
+          (entry) => entry.id === sessionId,
+        );
+        // The adapter reports its own failures as events; only add one when
+        // the error came from somewhere that could not (e.g. a missing native source).
+        if (latest?.remoteControlStatus !== status || !latest.remoteControlMessage)
+          routeRemoteControlEvent(sessionId, {
+            type: "remoteControl.changed",
+            status,
+            message: reason,
+          });
+      } finally {
+        setRemoteControlDesired(loadRemoteControlSessions());
+      }
+    },
+    [flushHarnessEvents, routeRemoteControlEvent],
+  );
+
+  const onSelectProvider = useCallback((provider: NativeProvider) => {
+    setSearchViewOpen(false);
+    setInboxViewOpen(false);
+    setRecordsViewOpen(false);
+    setAutomationsViewOpen(false);
+    setProviderActionError(null);
+    setSelectedProvider((current) => (current === provider ? null : provider));
+    setSessionSidebarOpen(true);
+    saveSessionSidebarOpen(true);
+  }, []);
+
+  const onOpenProviderConversation = useCallback(
+    async (row: ProviderConversation) => {
+      setProviderActionError(null);
+      setProviderOpeningKey(row.key);
+      try {
+        const session = await openProviderConversation(
+          row,
+          liveNativeDependencies({
+            liveSessions: () => sessionsRef.current,
+            getStored: getSession,
+            saveNative: upsertNativeResumeSession,
+          }),
+        );
+        providerConversations.store.linkSession(row.key, session.id);
+        setNativeNoticeIds((current) =>
+          current.has(session.id) ? current : new Set(current).add(session.id),
+        );
+        await onSelectHistorySession(session.id);
+        void refreshHistory(sidebarCwdRef.current);
+      } catch (error) {
+        setProviderActionError(
+          error instanceof Error ? error.message : String(error),
+        );
+      } finally {
+        setProviderOpeningKey((current) =>
+          current === row.key ? null : current,
+        );
+      }
+    },
+    [onSelectHistorySession, providerConversations.store, refreshHistory],
+  );
+
+  /** MonoCode-only visibility; the provider's own conversation is never touched. */
+  const onArchiveProviderConversation = useCallback(
+    async (row: ProviderConversation, archived: boolean) => {
+      setProviderActionError(null);
+      const error = await archiveProviderConversationRow({
+        store: providerConversations.store,
+        setArchived: setProviderConversationArchived,
+        syncSession: onArchiveHistorySession,
+        row,
+        archived,
+      });
+      if (error) setProviderActionError(error);
+    },
+    [onArchiveHistorySession, providerConversations.store],
+  );
+
+  const providerRailEntries = useMemo<ProviderRailEntry[]>(
+    () =>
+      enabledNativeProviders.map((provider) => {
+        const state = providerConversations.snapshot[provider];
+        return {
+          provider,
+          label: PROVIDER_LABEL[provider],
+          count: state.status === "ready" ? state.rows.length : null,
+          refreshing: state.refreshing || state.status === "loading",
+          failed: state.error !== null,
+        };
+      }),
+    [enabledNativeProviders, providerConversations.snapshot],
+  );
+
+  const providerPanel = selectedProvider ? (
+    <ProviderConversationList
+      provider={selectedProvider}
+      state={providerConversations.snapshot[selectedProvider]}
+      showArchived={providerConversations.showArchived}
+      openingKey={providerOpeningKey}
+      actionError={providerActionError}
+      activeSessionId={active?.id}
+      onShowArchivedChange={providerConversations.setShowArchived}
+      onRefresh={() => providerConversations.refresh(selectedProvider)}
+      onLoadMore={() => providerConversations.loadMore(selectedProvider)}
+      onOpen={(row) => void onOpenProviderConversation(row)}
+      onArchive={(row, archived) =>
+        void onArchiveProviderConversation(row, archived)
+      }
+      onDismissActionError={() => setProviderActionError(null)}
+    />
+  ) : null;
 
   const onPinHistorySessions = useCallback(
     async (sessionIds: readonly string[], pinned: boolean) => {
@@ -5819,6 +6081,14 @@ function Workspace({
       workspaceNavigation.cancel,
       workspaceNavigation.selectProject,
     ],
+  );
+
+  const onSelectProjectFromRail = useCallback(
+    (path: string) => {
+      setSelectedProvider(null);
+      onSelectProject(path);
+    },
+    [onSelectProject],
   );
 
   const pickProject = useCallback(async () => {
@@ -7424,21 +7694,23 @@ function Workspace({
             : [];
           if (editedResend && canRewindHarnessLastTurn(current.harness)) {
             try {
-              await rewindHarnessLastTurn({
-                harness: current.harness,
-                sessionId,
-                cwd: sessionWorkCwd(current),
-                model: current.model,
-                modelSettings: current.modelSettings,
-                runtimeMode: current.runtimeMode,
-                ...(editedProviderTurnId
-                  ? { providerTurnId: editedProviderTurnId }
-                  : {}),
-                onEvent: (event) => {
-                  if (turnGen.current.get(sessionId) !== gen) return;
-                  enqueueHarnessEvent(sessionId, event);
-                },
-              });
+              await rewindHarnessLastTurn(
+                await prepareNativeInput(current.harness, {
+                  harness: current.harness,
+                  sessionId,
+                  cwd: sessionWorkCwd(current),
+                  model: current.model,
+                  modelSettings: current.modelSettings,
+                  runtimeMode: current.runtimeMode,
+                  ...(editedProviderTurnId
+                    ? { providerTurnId: editedProviderTurnId }
+                    : {}),
+                  onEvent: (event) => {
+                    if (turnGen.current.get(sessionId) !== gen) return;
+                    enqueueHarnessEvent(sessionId, event);
+                  },
+                }),
+              );
             } catch (error) {
               flushHarnessEvents();
               editedResend.reject();
@@ -7471,8 +7743,8 @@ function Workspace({
               return;
             }
           }
-          const sendTurn = (text: string, turnAttachments = prepared, fork?: NativeForkRequest, onSummaryBinding?: (id: string) => void) =>
-            sendHarnessTurn({
+          const sendTurn = async (text: string, turnAttachments = prepared, fork?: NativeForkRequest, onSummaryBinding?: (id: string) => void) => {
+            const nativeInput = await prepareNativeInput(current.harness, {
               ...(fork ? { fork } : {}),
               harness: current.harness,
               sessionId,
@@ -7493,11 +7765,34 @@ function Workspace({
               ...(editedResend ? { onAccepted: acceptEditedResend } : {}),
               humanAuthored: !options?.managed,
               onEvent: event => {
+                if (event.type === "remoteControl.changed") {
+                  routeRemoteControlEvent(sessionId, event);
+                  return;
+                }
                 if (event.type === "session.providerBound" && onSummaryBinding) {
                   if (turnGen.current.get(sessionId) === gen) onSummaryBinding(event.providerSessionId);
                 } else routeTurnEvent(event);
               },
             });
+            const resumedInput: HarnessSessionInput = nativeInput;
+            // A genuinely new local Claude chat takes the saved default once,
+            // before its first send; resumed/discovered chats keep their intent.
+            if (
+              current.harness === "claude" &&
+              !resumedInput.nativeResume &&
+              !current.providerSessionId &&
+              !remoteControlInitialized.current.has(sessionId)
+            ) {
+              remoteControlInitialized.current.add(sessionId);
+              initializeNewClaudeRemoteControlPreference({
+                id: sessionId,
+                harness: "claude",
+                title: current.title,
+              });
+              setRemoteControlDesired(loadRemoteControlSessions());
+            }
+            return sendHarnessTurn(nativeInput);
+          };
           const wrappedPrompt = orchestrator.prompt(
               sessionId,
               inboxAskPrompt(
@@ -7747,6 +8042,7 @@ function Workspace({
       dismissNoticesForContinuedSession,
       enqueueHarnessEvent,
       flushHarnessEvents,
+      routeRemoteControlEvent,
     ],
   );
   submitAfterProjectSyncRef.current = submitSession;
@@ -9393,22 +9689,28 @@ function Workspace({
 
       void (async () => {
         try {
-          await compactHarnessContext({
-            harness: current.harness,
-            sessionId,
-            cwd: sessionWorkCwd(current),
-            model: current.model,
-            modelSettings: current.modelSettings,
-            providerAccountId: supportsProviderAccounts(current.harness)
-              ? (current.providerAccountId ??
-                selectedProviderAccountId(current.harness, current.cwd))
-              : undefined,
-            runtimeMode: current.runtimeMode,
-            onEvent: (event) => {
-              if (turnGen.current.get(sessionId) !== gen) return;
-              enqueueHarnessEvent(sessionId, event);
-            },
-          });
+          await compactHarnessContext(
+            await prepareNativeInput(current.harness, {
+              harness: current.harness,
+              sessionId,
+              cwd: sessionWorkCwd(current),
+              model: current.model,
+              modelSettings: current.modelSettings,
+              providerAccountId: supportsProviderAccounts(current.harness)
+                ? (current.providerAccountId ??
+                  selectedProviderAccountId(current.harness, current.cwd))
+                : undefined,
+              runtimeMode: current.runtimeMode,
+              onEvent: (event) => {
+                if (event.type === "remoteControl.changed") {
+                  routeRemoteControlEvent(sessionId, event);
+                  return;
+                }
+                if (turnGen.current.get(sessionId) !== gen) return;
+                enqueueHarnessEvent(sessionId, event);
+              },
+            }),
+          );
           if (turnGen.current.get(sessionId) !== gen) return;
           enqueueHarnessEvent(sessionId, {
             type: "status",
@@ -9436,7 +9738,7 @@ function Workspace({
       })();
       return true;
     },
-    [enqueueHarnessEvent, flushHarnessEvents],
+    [enqueueHarnessEvent, flushHarnessEvents, routeRemoteControlEvent],
   );
 
   const onStop = useCallback(
@@ -11709,6 +12011,9 @@ function Workspace({
     onBtwStop,
     onBtwModelChange,
     onNewTerminal: onNewTerminalInSession,
+    nativeNoticeIds,
+    remoteControlDesired,
+    onRemoteControlChange: onChangeRemoteControl,
     onReviewFix,
     onBranch,
     onSidechat,
@@ -11854,9 +12159,14 @@ function Workspace({
               )}
               liveAgents={liveAgents}
               onSelectAgent={onSelectLiveAgent}
-              onSelectProject={onSelectProject}
+              onSelectProject={onSelectProjectFromRail}
               onOpenProject={pickProject}
               onRemoveProject={onRemoveProject}
+              providerEntries={providerRailEntries}
+              selectedProvider={selectedProvider}
+              onSelectProvider={onSelectProvider}
+              onRefreshProvider={providerConversations.refresh}
+              providerPanel={providerPanel}
               onNew={onNew}
               openSessions={openProjectSessions}
               onNewTerminal={onNewTerminal}

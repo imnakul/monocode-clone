@@ -481,6 +481,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     keywords: "pretooluse settings.json block command notification",
   },
   {
+    id: "claude-remote-control",
+    section: "providers",
+    label: "Turn on Remote Control for new Claude chats",
+    keywords: "remote control phone mobile continue claude new chats default",
+  },
+  {
     id: "project-notifications",
     section: "inbox",
     label: "Project notifications",

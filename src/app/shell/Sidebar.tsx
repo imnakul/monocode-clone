@@ -163,6 +163,8 @@ import { FileTree } from "../../features/files/ui/FileTree";
 import { HarnessIcon } from "../../features/sessions/ui/HarnessIcon";
 import { LiveAgentsPreview } from "../../features/sessions/ui/LiveAgentsPreview";
 import { ProjectRail } from "./ProjectRail";
+import type { ProviderRailEntry } from "./ProviderRail";
+import type { NativeProvider } from "../../features/provider-sessions/model/providerSessions";
 import { InboxNotificationMenu } from "../../features/inbox/ui/InboxNotificationMenu";
 import { RailAction } from "./RailAction";
 import { TerminalSpinner } from "../../features/sessions/ui/TerminalSpinner";
@@ -351,6 +353,12 @@ type Props = {
   onNewChat?: () => void;
   creatingChat?: boolean;
   chatError?: string | null;
+  /** Provider folders under the projects, and the list shown for the selected one. */
+  providerEntries?: readonly ProviderRailEntry[];
+  selectedProvider?: NativeProvider | null;
+  onSelectProvider?: (provider: NativeProvider) => void;
+  onRefreshProvider?: (provider: NativeProvider) => void;
+  providerPanel?: ReactNode;
 };
 
 function SidebarComponent({
@@ -455,6 +463,11 @@ function SidebarComponent({
   onNewChat,
   creatingChat = false,
   chatError = null,
+  providerEntries,
+  selectedProvider = null,
+  onSelectProvider,
+  onRefreshProvider,
+  providerPanel,
 }: Props) {
   const remoteProject = isRemoteProjectPath(cwd);
   const tab: SidebarTabId = requestedTab;
@@ -830,6 +843,16 @@ function SidebarComponent({
     !notesActive && !tasksActive && !kanbanActive &&
     !settingsOpen;
   const sidebarVisible = open && sidebarAvailable;
+  // A selected provider folder replaces the workspace panel with its
+  // conversation list; it honors the same overlays as chat mode.
+  const providerPanelVisible =
+    providerPanel != null &&
+    open &&
+    !searchActive &&
+    !inboxActive &&
+    !notesActive && !tasksActive && !kanbanActive &&
+    !automationsActive &&
+    !settingsOpen;
   // With the sidebar collapsed beside the compact rail, its tab shortcuts
   // open the sidebar temporarily until the user clicks away.
   const drawerMode = compactRailVisible && !open;
@@ -1675,11 +1698,15 @@ function SidebarComponent({
     <aside
       ref={resize.setPaneRef}
       // Names this panel in Performance overlay logs ("Sessions", "Explorer").
-      data-debug-surface={mode === "chat" ? "Chats" : TAB_LABELS[tab]}
+      data-debug-surface={
+        providerPanel != null ? "Provider conversations" : mode === "chat" ? "Chats" : TAB_LABELS[tab]
+      }
       className="body-glass relative flex h-full min-h-0 shrink-0 flex-col border-r border-stroke"
     >
       <SharedHoverHighlight />
-      {mode === "chat" ? (
+      {providerPanel != null ? (
+        providerPanel
+      ) : mode === "chat" ? (
         <ChatPanel
           chats={chatSessions}
           sidechats={sidechatSessions}
@@ -2376,9 +2403,13 @@ function SidebarComponent({
           onDismissUpdate={onDismissUpdate}
           mode={mode}
           onModeChange={onModeChange}
+          providerEntries={providerEntries}
+          selectedProvider={selectedProvider}
+          onSelectProvider={onSelectProvider}
+          onRefreshProvider={onRefreshProvider}
         />
       ) : null}
-      {(mode === "chat" ? chatVisible : sidebarVisible)
+      {providerPanelVisible || (mode === "chat" ? chatVisible : sidebarVisible)
         ? sidebarContent
         : null}
       {drawerRendered ? (

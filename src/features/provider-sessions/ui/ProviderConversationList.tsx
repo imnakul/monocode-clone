@@ -1,0 +1,307 @@
+import {
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactElement,
+} from "react";
+import {
+  ExplorerMenu,
+  type ExplorerMenuItem,
+} from "../../files/ui/ExplorerMenu";
+import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
+import { SessionCard } from "../../sessions/ui/SessionCard";
+import { ListFilter, RefreshCw } from "../../../shared/ui/icons";
+import type { ProviderListState } from "../model/conversationStore";
+import {
+  conversationSummary,
+  PROVIDER_LABEL,
+} from "../model/conversationSummary";
+import type {
+  NativeProvider,
+  ProviderConversation,
+} from "../model/providerSessions";
+
+type Props = {
+  provider: NativeProvider;
+  state: ProviderListState;
+  showArchived: boolean;
+  /** Key of the row being opened, if any. */
+  openingKey: string | null;
+  /** Failure from the last open/archive attempt. */
+  actionError: string | null;
+  activeSessionId?: string;
+  onShowArchivedChange: (value: boolean) => void;
+  onRefresh: () => void;
+  onLoadMore: () => void;
+  onOpen: (row: ProviderConversation) => void;
+  onArchive: (row: ProviderConversation, archived: boolean) => void;
+  onDismissActionError: () => void;
+};
+
+const SKELETON_ROWS = [0, 1, 2, 3];
+
+function ListSkeleton({ label }: { label: string }): ReactElement {
+  return (
+    <ul aria-busy="true" aria-label={label} className="flex flex-col gap-0.5">
+      {SKELETON_ROWS.map((row) => (
+        <li
+          key={row}
+          className="mx-0.5 h-[66px] animate-pulse rounded-md bg-content/5"
+        />
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Secondary-sidebar list of one provider's discovered local conversations.
+ * Presentational: loading, paging and archive state come from the caller.
+ */
+export function ProviderConversationList({
+  provider,
+  state,
+  showArchived,
+  openingKey,
+  actionError,
+  activeSessionId,
+  onShowArchivedChange,
+  onRefresh,
+  onLoadMore,
+  onOpen,
+  onArchive,
+  onDismissActionError,
+}: Props): ReactElement {
+  const label = PROVIDER_LABEL[provider];
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    key: string;
+  } | null>(null);
+  const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const filterButton = useRef<HTMLButtonElement>(null);
+  const now = Date.now();
+  const summaries = useMemo(
+    () =>
+      state.rows.map((row) => ({ row, summary: conversationSummary(row) })),
+    [state.rows],
+  );
+  const menuRow = menu
+    ? state.rows.find((row) => row.key === menu.key)
+    : undefined;
+  const menuItems: ExplorerMenuItem[] = menuRow
+    ? [
+        { kind: "item", id: "open", label: "Open" },
+        { kind: "sep" },
+        {
+          kind: "item",
+          id: "archive",
+          label: menuRow.archived ? "Unarchive" : "Archive",
+          description: `Hides it in MonoCode only. ${label} keeps the original.`,
+        },
+      ]
+    : [];
+
+  const onRowContextMenu = (
+    key: string,
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMenu({ x: event.clientX, y: event.clientY, key });
+  };
+
+  const initialLoading = state.status === "idle" || state.status === "loading";
+  const showEmpty = state.status === "ready" && state.rows.length === 0;
+  const hasDiagnostics = state.diagnostics.length > 0;
+
+  return (
+    <div
+      data-provider-conversation-list={provider}
+      className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
+    >
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-content/10 px-3">
+        <HarnessIcon harness={provider} className="size-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+          {label} conversations
+        </span>
+        <button
+          ref={filterButton}
+          type="button"
+          title="Filter conversations"
+          aria-label="Filter conversations"
+          aria-haspopup="menu"
+          aria-expanded={filterAnchor !== null}
+          onClick={(event) => setFilterAnchor(event.currentTarget)}
+          className={`grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content ${
+            showArchived || filterAnchor
+              ? "bg-selection text-content"
+              : "text-content/50"
+          }`}
+        >
+          <ListFilter className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          title={`Refresh ${label} conversations`}
+          aria-label={`Refresh ${label} conversations`}
+          disabled={state.refreshing || state.status === "loading"}
+          onClick={onRefresh}
+          className="grid size-6 shrink-0 place-items-center rounded-md text-content/50 hover:bg-content/10 hover:text-content disabled:opacity-60"
+        >
+          <RefreshCw
+            className={`size-3.5 ${
+              state.refreshing || state.status === "loading"
+                ? "animate-spin motion-reduce:animate-none"
+                : ""
+            }`}
+          />
+        </button>
+      </div>
+      <div className="sr-only" role="status" aria-live="polite">
+        {state.refreshing ? `Refreshing ${label} conversations` : ""}
+        {openingKey ? "Opening conversation" : ""}
+      </div>
+      {state.error ? (
+        <div
+          role="alert"
+          className="flex shrink-0 items-start gap-2 border-b border-content/10 px-3 py-1.5 text-[12px] text-red-400/90"
+        >
+          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">
+            Could not read {label} conversations. {state.error}
+          </span>
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="shrink-0 rounded px-1 text-content/70 underline-offset-2 hover:text-content hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
+      {actionError ? (
+        <div
+          role="alert"
+          className="flex shrink-0 items-start gap-2 border-b border-content/10 px-3 py-1.5 text-[12px] text-red-400/90"
+        >
+          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">
+            {actionError}
+          </span>
+          <button
+            type="button"
+            aria-label="Dismiss message"
+            onClick={onDismissActionError}
+            className="shrink-0 rounded px-1 text-content/70 underline-offset-2 hover:text-content hover:underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+      {hasDiagnostics ? (
+        <div className="shrink-0 border-b border-content/10 px-3 py-1.5 text-[11px] text-content/50">
+          <button
+            type="button"
+            aria-expanded={notesOpen}
+            onClick={() => setNotesOpen((open) => !open)}
+            className="rounded text-left text-content/60 hover:text-content"
+          >
+            {state.diagnostics.length === 1
+              ? "1 item could not be read"
+              : `${state.diagnostics.length} items could not be read`}
+          </button>
+          {notesOpen ? (
+            <ul className="mt-1 flex flex-col gap-0.5">
+              {state.diagnostics.map((note) => (
+                <li key={note} className="break-words">
+                  {note}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-none p-1.5">
+        {initialLoading ? (
+          <ListSkeleton label={`Loading ${label} conversations`} />
+        ) : showEmpty ? (
+          <p className="px-3 py-2 text-[12px] text-content/50">
+            {state.error
+              ? ""
+              : showArchived
+                ? `No ${label} conversations found on this computer.`
+                : `No ${label} conversations found on this computer. Archived ones are hidden; use the filter to show them.`}
+          </p>
+        ) : state.rows.length > 0 ? (
+          <ul data-shared-hover-continuity className="flex flex-col gap-0.5">
+            {summaries.map(({ row, summary }) => (
+              <li key={row.key}>
+                <SessionCard
+                  session={summary}
+                  isActive={
+                    !!activeSessionId && row.monocodeSessionId === activeSessionId
+                  }
+                  busy={openingKey === row.key}
+                  done={false}
+                  needsApproval={false}
+                  now={now}
+                  onSelect={() => onOpen(row)}
+                  onArchive={() => onArchive(row, !row.archived)}
+                  onContextMenu={(event) => onRowContextMenu(row.key, event)}
+                />
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {state.hasMore ? (
+          <div className="flex justify-center p-2">
+            <button
+              type="button"
+              disabled={state.loadingMore}
+              onClick={onLoadMore}
+              className="rounded-md px-3 py-1 text-[12px] text-content/60 hover:bg-content/10 hover:text-content disabled:opacity-60"
+            >
+              {state.loadingMore ? "Loading…" : "Show more"}
+            </button>
+          </div>
+        ) : null}
+      </div>
+      {menu && menuRow ? (
+        <ExplorerMenu
+          x={menu.x}
+          y={menu.y}
+          ariaLabel="Conversation actions"
+          items={menuItems}
+          onPick={(id) => {
+            setMenu(null);
+            if (id === "open") onOpen(menuRow);
+            else if (id === "archive") onArchive(menuRow, !menuRow.archived);
+          }}
+          onClose={() => setMenu(null)}
+        />
+      ) : null}
+      {filterAnchor ? (
+        <ExplorerMenu
+          anchor={filterAnchor}
+          ariaLabel="Conversation filters"
+          items={[
+            {
+              kind: "item",
+              id: "archived",
+              label: "Show archived",
+              checked: showArchived,
+            },
+          ]}
+          onPick={(id) => {
+            setFilterAnchor(null);
+            if (id === "archived") onShowArchivedChange(!showArchived);
+          }}
+          onClose={() => {
+            setFilterAnchor(null);
+            filterButton.current?.focus();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
