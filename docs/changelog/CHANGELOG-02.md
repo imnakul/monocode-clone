@@ -1,5 +1,17 @@
 # Changelog 02
 
+## 2026-10-04 23:20 IST — Windows 0.7.0 local3 installer
+- What: Rebuilt the unchanged current branch at `728ab243` as `0.7.0-local3-upstream-sync`, using the next local counter. Archived the unsigned NSIS installer alongside local2; earlier installers preserved. No feature changes, commit, push or installation; pre-existing Cargo.toml bytes preserved.
+- Files: `package.json` (line 4), `package-lock.json` (root metadata), `Cargo.toml` (line 7), `Cargo.lock` (monocode version), `src-tauri/tauri.conf.json` (line 4); [build record and logs](../notes/windows-070-local3-build/README.md).
+- Verified: TypeScript, Rust fmt/check, production frontend, native release and NSIS pass; installer version fields and archive/source SHA-256 match; diff check passes. Full web suite: 5,544 passed / 3 failed (two known Windows shortcuts plus a CRLF Git staging timeout); isolated CRLF file passes all 4 tests. Timeout cause unresolved; full-suite gate remains red. Lint unavailable; Rust tests/Clippy not rerun (no Rust source changes). Manual: installation/version, launch/window/history/providers and recent-feature spec checklists.
+- Commit: uncommitted.
+
+## 2026-10-04 23:15 IST — Windows 0.7.0 local2 installer
+- What: Built the current `nakul/windows-support-upstream-0.7.0` branch at `728ab243` as `0.7.0-local2-upstream-sync`, assuming the next local build counter. Archived the unsigned NSIS installer in `E:\Developing\Installable versions`; earlier installers preserved. No feature changes, commit, push or installation. Preserved the original bytes of the pre-existing content-identical Cargo.toml modification.
+- Files: `package.json` (line 4), `package-lock.json` (root version metadata), `Cargo.toml` (line 7), `Cargo.lock` (monocode version), `src-tauri/tauri.conf.json` (line 4); [build record and logs](../notes/windows-070-local2-build/README.md).
+- Verified: TypeScript, Rust fmt/check, production frontend and NSIS build pass; archive/source SHA-256 matches; FileVersion/ProductVersion match. Web tests: 5,545 passed / 2 documented existing Windows shortcut expectation failures. Full test gate remains red; tests unchanged. Lint unavailable; Rust tests/Clippy not rerun (no Rust source changes). Manual: install/version, launch/window controls/history/providers and existing recent-feature spec checklists.
+- Commit: uncommitted.
+
 Newest first. One short entry per change (format in `docs/WORKING-AGREEMENT.md` → Records).
 Entries dated 2026-10-02 to 2026-10-03 were backfilled from commits made in cloud sessions
 that did not have the docs; file lists name the main files only.
