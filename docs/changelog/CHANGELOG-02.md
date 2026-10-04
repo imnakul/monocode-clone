@@ -1,5 +1,11 @@
 # Changelog 02
 
+## 2026-10-04 23:48 IST — Reusable Windows build handoff
+- What: Saved a repeatable installer-build runbook and copyable prompt for a lower-cost agent. Includes dynamic version selection, storage hard stops, sequential checks, exact known-failure handling, checksum/archive verification, preserving existing work and separate manual desktop checks.
+- Files: `docs/specs/repeatable-windows-installer-build.md`; `docs/specs/SPECS.md` (Draft row).
+- Verified: Compared against the local2/local3 build records and current manifests/scripts; documentation-only diff check. No build or source changes in this task.
+- Commit: uncommitted.
+
 ## 2026-10-04 23:20 IST — Windows 0.7.0 local3 installer
 - What: Rebuilt the unchanged current branch at `728ab243` as `0.7.0-local3-upstream-sync`, using the next local counter. Archived the unsigned NSIS installer alongside local2; earlier installers preserved. No feature changes, commit, push or installation; pre-existing Cargo.toml bytes preserved.
 - Files: `package.json` (line 4), `package-lock.json` (root metadata), `Cargo.toml` (line 7), `Cargo.lock` (monocode version), `src-tauri/tauri.conf.json` (line 4); [build record and logs](../notes/windows-070-local3-build/README.md).
