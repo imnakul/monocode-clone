@@ -3,6 +3,7 @@
 Created: 2026-10-04 (IST).
 Branch: `nakul/windows-support-upstream-0.7.0`.
 Base: `47778ddcd9a8ca87135c71fe7580b25bdf7fd982`.
+Repair/source commit: `614b27e5c2758aca48c442ce049894a2c9550c92`.
 Worktree: `/workspace/monocode-windows-upstream-0.7.0`.
 Tier: Large (provider creation flow and merged UI integration).
 
@@ -69,8 +70,9 @@ use repository text search and direct source review.
 - [x] Audit all seven upstream changes and fix confirmed motion omissions.
 - [x] Run targeted checks, complete gates and production build.
 - [x] Update preservation evidence, records and checkpoint.
-- [ ] Commit/push and verify remote contains both original parent lines.
-- [ ] Hand over separate manual desktop/provider checks.
+- [x] Commit/push and verify remote contains both original parent lines.
+- [x] Hand over separate manual desktop/provider checks below.
+- [ ] User verifies actual Windows/provider/cloud/phone behavior.
 
 ## Issues and fixes
 
@@ -126,9 +128,13 @@ optional callbacks. Test the rendered integration path, not only the controls.
 
 ## Done
 
-Implementation and automated gates complete on combined 0.7.0; commit/push
-verification is the final publication step. No merge conflicts occurred.
-Both original parent lines and existing local features remain included.
+Implementation and automated gates complete on combined 0.7.0. Repair commit
+`614b27e` pushed to the fork; `git ls-remote` matched the full source hash above.
+Both `fa566bc` (upstream intake) and `ff70130` (provider frontend/backend) have
+zero commits absent from the repaired branch. No merge conflicts occurred.
+This follow-up checkpoint changes documentation only; the checked source is
+unchanged. Two pre-existing untracked UPSTREAM-0.7.0 sync/progress documents
+remain untouched and excluded from both commits.
 Manual follow-up: new blank
 Claude/Codex chat and quick Session Cloud launch; per-chat Claude RC consent/
 retry/phone; cloud records after refresh/restart; title update/new row/split
