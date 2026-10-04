@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sent: string[] = [];
 const spawned: string[][] = [];
+const spawnChild = vi.fn(async (_id: string, _path: string, args: string[]) => {
+  spawned.push(args);
+});
 const children: Array<{
   onLine: (line: string) => void;
   onExit: (code?: number | null) => void;
@@ -12,9 +15,7 @@ const writeChild = vi.fn(async (_id: string, line: string) => {
 
 vi.mock("../../core/child", () => ({
   resolveClaudeBinary: async () => ({ path: "/fake/claude" }),
-  spawnChild: async (_id: string, _path: string, args: string[]) => {
-    spawned.push(args);
-  },
+  spawnChild,
   killChild: async () => undefined,
   unwatchChild: () => undefined,
   watchChild: (
@@ -29,8 +30,12 @@ vi.mock("../../core/child", () => ({
 
 const {
   ClaudeControlError,
+  cancelClaudeTurn,
   requestClaudeControl,
+  isClaudeRemoteControlDesired,
   respondClaudeApproval,
+  setClaudeRemoteControl,
+  setClaudeRemoteControlDesired,
   sendClaudeTurn,
   stopClaudeSession,
   __claudeTestReset,
@@ -137,6 +142,10 @@ beforeEach(() => {
   writeChild.mockReset();
   writeChild.mockImplementation(async (_id: string, line: string) => {
     sent.push(line);
+  });
+  spawnChild.mockReset();
+  spawnChild.mockImplementation(async (_id: string, _path: string, args: string[]) => {
+    spawned.push(args);
   });
   __claudeTestReset();
 });
@@ -367,5 +376,652 @@ describe("Claude control transport", () => {
     const result = await latestRequest;
     expect(result.generation).toBeGreaterThan(generationA);
     await finishTurn(second.turn, second.childIndex);
+  });
+});
+
+describe("Claude Remote Control", () => {
+  const input = (onEvent: (event: HarnessEvent) => void) => ({
+    sessionId: "s1",
+    cwd: "/repo",
+    model: "claude:claude-sonnet-4-6",
+    modelSettings: {},
+    runtimeMode: "supervised" as const,
+    onEvent,
+  });
+
+  it("enables through the control protocol without writing a user message", async () => {
+    const events: HarnessEvent[] = [];
+    const enabling = setClaudeRemoteControl({
+      ...input((event) => events.push(event)),
+      enabled: true,
+      name: "  MonoCode chat  ",
+    });
+    await waitFor(() => controlRequest("initialize") !== undefined, "initialize");
+    const initialize = controlRequest("initialize");
+    emit(0, { type: "system", subtype: "init", session_id: "sess_1" });
+    respondControl(0, initialize?.request_id);
+
+    await waitFor(
+      () => controlRequest("remote_control") !== undefined,
+      "Remote Control enable request",
+    );
+    const request = controlRequest("remote_control");
+    expect(request?.request).toEqual({
+      subtype: "remote_control",
+      enabled: true,
+      name: "MonoCode chat",
+    });
+    expect(parse().some((message) => message.type === "user")).toBe(false);
+
+    respondControl(0, request?.request_id, {
+      session_url: "https://claude.ai/code/remote-session",
+    });
+    await enabling;
+    expect(events).toContainEqual({
+      type: "remoteControl.changed",
+      status: "on",
+      url: "https://claude.ai/code/remote-session",
+    });
+  });
+
+  it("coalesces enable and first send, and does not wait for the RC response before sending", async () => {
+    const events: HarnessEvent[] = [];
+    const enabling = setClaudeRemoteControl({
+      ...input((event) => events.push(event)),
+      enabled: true,
+      name: "Concurrent chat",
+    });
+    const turn = sendClaudeTurn({
+      ...input((event) => events.push(event)),
+      text: "first message",
+      attachments: [],
+    });
+    await waitFor(() => controlRequest("initialize") !== undefined, "initialize");
+    const initialize = controlRequest("initialize");
+    emit(0, { type: "system", subtype: "init", session_id: "sess_1" });
+    respondControl(0, initialize?.request_id);
+    await waitFor(
+      () => controlRequest("remote_control") !== undefined,
+      "Remote Control request",
+    );
+    const remote = controlRequest("remote_control");
+    await waitFor(
+      () => parse().some((message) => message.type === "user"),
+      "user message while RC is pending",
+    );
+    expect(spawned).toHaveLength(1);
+    const messages = parse();
+    const remoteIndex = messages.findIndex((message) => {
+      const request = message.request as Record<string, unknown> | undefined;
+      return request?.subtype === "remote_control";
+    });
+    const userIndex = messages.findIndex((message) => message.type === "user");
+    expect(remoteIndex).toBeLessThan(userIndex);
+    emit(0, {
+      type: "control_response",
+      response: {
+        subtype: "error",
+        request_id: remote?.request_id,
+        error: "Remote Control is unavailable for this account.",
+      },
+    });
+    await expect(enabling).rejects.toMatchObject({ status: "failed" });
+    emit(0, { type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+
+  it("unblocks automatic RC initialization if the control write never completes before exit", async () => {
+    setClaudeRemoteControlDesired("s1", true, "Saved chat");
+    writeChild.mockImplementation(async (_id: string, line: string) => {
+      sent.push(line);
+      const record = JSON.parse(line) as Record<string, unknown>;
+      const request = record.request as Record<string, unknown> | undefined;
+      if (request?.subtype === "remote_control") {
+        await new Promise<void>(() => undefined);
+      }
+    });
+
+    const turn = sendClaudeTurn({
+      ...input(() => undefined),
+      text: "first local message",
+      attachments: [],
+    });
+    const rejected = expect(turn).rejects.toThrow("Claude Code exited");
+    await waitFor(() => controlRequest("initialize") !== undefined, "initialize");
+    const initialize = controlRequest("initialize");
+    emit(0, { type: "system", subtype: "init", session_id: "sess_1" });
+    respondControl(0, initialize?.request_id);
+    await waitFor(
+      () => controlRequest("remote_control") !== undefined,
+      "Remote Control write",
+    );
+
+    children[0]?.onExit(1);
+    await rejected;
+    expect(parse().some((message) => message.type === "user")).toBe(false);
+  });
+
+  it("ignores a failed startup from an enable request superseded by disable", async () => {
+    let rejectSpawn: ((error: Error) => void) | undefined;
+    spawnChild.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSpawn = reject;
+        }),
+    );
+    const events: HarnessEvent[] = [];
+    const enabling = setClaudeRemoteControl({
+      ...input((event) => events.push(event)),
+      enabled: true,
+    });
+    await waitFor(() => rejectSpawn !== undefined, "pending Claude spawn");
+
+    await setClaudeRemoteControl({
+      ...input((event) => events.push(event)),
+      enabled: false,
+    });
+    rejectSpawn?.(new Error("simulated stale spawn failure"));
+    await expect(enabling).resolves.toBeUndefined();
+    expect(isClaudeRemoteControlDesired("s1")).toBe(false);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "remoteControl.changed" && event.status === "failed",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not mistake a delayed system init for an unfinished phone turn", async () => {
+    const events: HarnessEvent[] = [];
+    const enabling = setClaudeRemoteControl({
+      ...input((event) => events.push(event)),
+      enabled: true,
+    });
+    await waitFor(() => controlRequest("initialize") !== undefined, "initialize");
+    const initialize = controlRequest("initialize");
+    respondControl(0, initialize?.request_id);
+    await waitFor(
+      () => controlRequest("remote_control") !== undefined,
+      "Remote Control enable",
+    );
+    const remote = controlRequest("remote_control");
+    respondControl(0, remote?.request_id, {
+      session_url: "https://claude.ai/code/late-init",
+    });
+    await enabling;
+
+    emit(0, { type: "system", subtype: "init", session_id: "sess_1" });
+    const turn = sendClaudeTurn({
+      ...input((event) => events.push(event)),
+      text: "send after delayed initialization",
+      attachments: [],
+    });
+    await waitFor(
+      () => parse().some((message) => message.type === "user"),
+      "local user message after delayed init",
+    );
+    expect(events).not.toContainEqual({
+      type: "status",
+      text: "Claude is answering a message sent from another device.",
+    });
+    emit(0, { type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+
+  it("keeps consent required as desired state and emits the real CLI error", async () => {
+    const events: HarnessEvent[] = [];
+    const enabling = setClaudeRemoteControl({
+      ...input((event) => events.push(event)),
+      enabled: true,
+      name: "MonoCode chat",
+    });
+    await waitFor(() => controlRequest("initialize") !== undefined, "initialize");
+    const initialize = controlRequest("initialize");
+    emit(0, { type: "system", subtype: "init", session_id: "sess_1" });
+    respondControl(0, initialize?.request_id);
+    await waitFor(
+      () => controlRequest("remote_control") !== undefined,
+      "Remote Control enable request",
+    );
+    const request = controlRequest("remote_control");
+    emit(0, {
+      type: "control_response",
+      response: {
+        subtype: "error",
+        request_id: request?.request_id,
+        error:
+          "Remote Control asks for a one-time confirmation before it's first enabled.",
+      },
+    });
+
+    await expect(enabling).rejects.toMatchObject({
+      status: "needs-consent",
+      message:
+        "Remote Control asks for a one-time confirmation before it's first enabled.",
+    });
+    expect(isClaudeRemoteControlDesired("s1")).toBe(true);
+    expect(events).toContainEqual({
+      type: "remoteControl.changed",
+      status: "needs-consent",
+      message:
+        "Remote Control asks for a one-time confirmation before it's first enabled.",
+    });
+    expect(parse().some((message) => message.type === "user")).toBe(false);
+  });
+
+  it("clears desired state after a hard failure", async () => {
+    const events: HarnessEvent[] = [];
+    const enabling = setClaudeRemoteControl({
+      ...input((event) => events.push(event)),
+      enabled: true,
+    });
+    await waitFor(() => controlRequest("initialize") !== undefined, "initialize");
+    const initialize = controlRequest("initialize");
+    emit(0, { type: "system", subtype: "init", session_id: "sess_1" });
+    respondControl(0, initialize?.request_id);
+    await waitFor(
+      () => controlRequest("remote_control") !== undefined,
+      "Remote Control enable request",
+    );
+    const request = controlRequest("remote_control");
+    emit(0, {
+      type: "control_response",
+      response: {
+        subtype: "error",
+        request_id: request?.request_id,
+        error: "Remote Control is unavailable for this account.",
+      },
+    });
+
+    await expect(enabling).rejects.toMatchObject({ status: "failed" });
+    expect(isClaudeRemoteControlDesired("s1")).toBe(false);
+    expect(events).toContainEqual({
+      type: "remoteControl.changed",
+      status: "failed",
+      message: "Remote Control is unavailable for this account.",
+    });
+  });
+
+  it("re-enables after process exit, after initialize and before the next user message", async () => {
+    setClaudeRemoteControlDesired("s1", true, "Saved chat");
+    const events: HarnessEvent[] = [];
+    const first = sendClaudeTurn({
+      ...input((event) => events.push(event)),
+      text: "first turn",
+      attachments: [],
+    });
+    await waitFor(() => controlRequest("initialize") !== undefined, "first initialize");
+    const firstInit = controlRequest("initialize");
+    emit(0, { type: "system", subtype: "init", session_id: "sess_1" });
+    respondControl(0, firstInit?.request_id);
+    await waitFor(
+      () => parse().filter((message) => (message.request as Record<string, unknown> | undefined)?.subtype === "remote_control").length === 1,
+      "first RC enable",
+    );
+    const firstRemote = controlRequest("remote_control");
+    respondControl(0, firstRemote?.request_id, {
+      session_url: "https://claude.ai/code/first",
+    });
+    await waitFor(
+      () => parse().filter((message) => message.type === "user").length === 1,
+      "first user message",
+    );
+    emit(0, { type: "result", subtype: "success", session_id: "sess_1" });
+    await first;
+    children[0]?.onExit(1);
+
+    const second = sendClaudeTurn({
+      ...input((event) => events.push(event)),
+      text: "second turn",
+      attachments: [],
+    });
+    await waitFor(
+      () => parse().filter((message) => (message.request as Record<string, unknown> | undefined)?.subtype === "initialize").length === 2,
+      "second initialize",
+    );
+    const secondInit = parse()
+      .filter((message) => (message.request as Record<string, unknown> | undefined)?.subtype === "initialize")
+      .at(-1);
+    emit(1, { type: "system", subtype: "init", session_id: "sess_1" });
+    respondControl(1, secondInit?.request_id);
+    await waitFor(
+      () => parse().filter((message) => (message.request as Record<string, unknown> | undefined)?.subtype === "remote_control").length === 2,
+      "second RC enable",
+    );
+    const secondRemote = controlRequest("remote_control");
+    const requests = parse().flatMap((message) => {
+      const request = message.request as Record<string, unknown> | undefined;
+      return request ? [request.subtype] : [];
+    });
+    const secondInitializeIndex = requests.lastIndexOf("initialize");
+    const secondRemoteIndex = requests.lastIndexOf("remote_control");
+    expect(secondInitializeIndex).toBeLessThan(secondRemoteIndex);
+    respondControl(1, secondRemote?.request_id, {
+      session_url: "https://claude.ai/code/second",
+    });
+    await waitFor(
+      () => parse().filter((message) => message.type === "user").length === 2,
+      "second user message",
+    );
+    emit(1, { type: "result", subtype: "success", session_id: "sess_1" });
+    await second;
+  });
+
+  it("lets the last of rapid toggle responses own the status", async () => {
+    const { events, turn, childIndex } = await startTurn("s1");
+    const enablingA = setClaudeRemoteControl({
+      ...input((event) => events.push(event)),
+      enabled: true,
+    });
+    await waitFor(
+      () => parse().filter((message) => (message.request as Record<string, unknown> | undefined)?.subtype === "remote_control").length === 1,
+      "first toggle request",
+    );
+    const disabling = setClaudeRemoteControl({
+      ...input((event) => events.push(event)),
+      enabled: false,
+    });
+    await waitFor(
+      () => parse().filter((message) => (message.request as Record<string, unknown> | undefined)?.subtype === "remote_control").length === 2,
+      "second toggle request",
+    );
+    const enablingC = setClaudeRemoteControl({
+      ...input((event) => events.push(event)),
+      enabled: true,
+    });
+    await waitFor(
+      () => parse().filter((message) => (message.request as Record<string, unknown> | undefined)?.subtype === "remote_control").length === 3,
+      "third toggle request",
+    );
+    const requests = parse().filter((message) =>
+      (message.request as Record<string, unknown> | undefined)?.subtype ===
+      "remote_control",
+    );
+    respondControl(childIndex, requests[2]?.request_id, {
+      session_url: "https://claude.ai/code/latest",
+    });
+    await enablingC;
+    respondControl(childIndex, requests[0]?.request_id, {
+      session_url: "https://claude.ai/code/stale-on",
+    });
+    respondControl(childIndex, requests[1]?.request_id);
+    await Promise.all([enablingA, disabling]);
+    const remoteEvents = events.filter(
+      (event) => event.type === "remoteControl.changed",
+    );
+    expect(remoteEvents.at(-1)).toEqual({
+      type: "remoteControl.changed",
+      status: "on",
+      url: "https://claude.ai/code/latest",
+    });
+
+    let turnSettled = false;
+    void turn.then(() => {
+      turnSettled = true;
+    });
+    await Promise.resolve();
+    expect(turnSettled).toBe(false);
+    await finishTurn(turn, childIndex);
+  });
+
+  it("isolates phone turns, allows approval cancellation, and waits before MonoCode sends", async () => {
+    setClaudeRemoteControlDesired("s1", true, "Phone-safe chat");
+    const events: HarnessEvent[] = [];
+    const first = sendClaudeTurn({
+      ...input((event) => events.push(event)),
+      text: "first turn",
+      attachments: [],
+    });
+    await waitFor(() => controlRequest("initialize") !== undefined, "initialize");
+    const initialize = controlRequest("initialize");
+    emit(0, { type: "system", subtype: "init", session_id: "sess_1" });
+    respondControl(0, initialize?.request_id);
+    await waitFor(
+      () => controlRequest("remote_control") !== undefined,
+      "Remote Control enable",
+    );
+    const remote = controlRequest("remote_control");
+    respondControl(0, remote?.request_id, {
+      session_url: "https://claude.ai/code/phone-safe",
+    });
+    await waitFor(
+      () => parse().some((message) => message.type === "user"),
+      "first user message",
+    );
+    emit(0, { type: "result", subtype: "success", session_id: "sess_1" });
+    await first;
+
+    const eventOffset = events.length;
+    emit(0, {
+      type: "user",
+      session_id: "sess_1",
+      message: { role: "user", content: "phone message" },
+    });
+    emit(0, {
+      type: "assistant",
+      session_id: "sess_1",
+      message: {
+        content: [{ type: "text", text: "phone reply" }],
+        usage: { input_tokens: 9, output_tokens: 4 },
+      },
+    });
+    emit(0, {
+      type: "tool_progress",
+      session_id: "sess_1",
+      tool_use_id: "phone-tool",
+      content: "phone tool output",
+    });
+
+    emit(0, {
+      type: "control_request",
+      request_id: "phone_permission",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "Read",
+        input: { file_path: "/repo/file" },
+      },
+    });
+    await waitFor(
+      () => events.some((event) => event.type === "approval.requested"),
+      "phone permission approval",
+    );
+    emit(0, {
+      type: "control_cancel_request",
+      request_id: "phone_permission",
+    });
+    await waitFor(
+      () =>
+        events.some(
+          (event) =>
+            event.type === "approval.resolved" &&
+            event.decision === "cancelled",
+        ),
+      "phone-cancelled approval",
+    );
+
+    const next = sendClaudeTurn({
+      ...input((event) => events.push(event)),
+      text: "MonoCode follow-up",
+      attachments: [],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(parse().filter((message) => message.type === "user")).toHaveLength(
+      1,
+    );
+    const externalEvents = events.slice(eventOffset);
+    expect(externalEvents).toContainEqual({
+      type: "status",
+      text: "Claude is answering a message sent from another device.",
+    });
+    expect(
+      externalEvents.some(
+        (event) =>
+          event.type === "message.delta" ||
+          event.type === "tool.started" ||
+          event.type === "tool.updated" ||
+          event.type === "usage" ||
+          event.type === "turn.metrics",
+      ),
+    ).toBe(false);
+
+    emit(0, { type: "result", subtype: "success", session_id: "sess_1" });
+    await waitFor(
+      () => parse().filter((message) => message.type === "user").length === 2,
+      "MonoCode follow-up after the phone result",
+    );
+    expect(events.slice(eventOffset)).toContainEqual({
+      type: "status",
+      text: "The other device's turn finished; live transcript sync is not available yet.",
+    });
+    emit(0, { type: "result", subtype: "success", session_id: "sess_1" });
+    await next;
+  });
+
+  it("cancel releases the waiting send but keeps retries behind phone work", async () => {
+    setClaudeRemoteControlDesired("s1", true, "Phone-safe chat");
+    const events: HarnessEvent[] = [];
+    const first = sendClaudeTurn({
+      ...input((event) => events.push(event)),
+      text: "first local turn",
+      attachments: [],
+    });
+    await waitFor(() => controlRequest("initialize") !== undefined, "initialize");
+    const initialize = controlRequest("initialize");
+    emit(0, { type: "system", subtype: "init", session_id: "sess_1" });
+    respondControl(0, initialize?.request_id);
+    await waitFor(
+      () => controlRequest("remote_control") !== undefined,
+      "Remote Control enable",
+    );
+    const remote = controlRequest("remote_control");
+    respondControl(0, remote?.request_id, {
+      session_url: "https://claude.ai/code/cancel-wait",
+    });
+    await waitFor(
+      () => parse().filter((message) => message.type === "user").length === 1,
+      "first local message",
+    );
+    emit(0, { type: "result", subtype: "success", session_id: "sess_1" });
+    await first;
+
+    emit(0, {
+      type: "user",
+      session_id: "sess_1",
+      message: { role: "user", content: "phone turn" },
+    });
+    const cancelled = sendClaudeTurn({
+      ...input((event) => events.push(event)),
+      text: "cancel this queued local send",
+      attachments: [],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    await cancelClaudeTurn("s1");
+    await cancelled;
+    expect(parse().filter((message) => message.type === "user")).toHaveLength(1);
+
+    const retry = sendClaudeTurn({
+      ...input((event) => events.push(event)),
+      text: "retry after phone turn",
+      attachments: [],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    expect(parse().filter((message) => message.type === "user")).toHaveLength(1);
+
+    emit(0, { type: "result", subtype: "success", session_id: "sess_1" });
+    await waitFor(
+      () => parse().filter((message) => message.type === "user").length === 2,
+      "retry user message after phone result",
+    );
+    emit(0, { type: "result", subtype: "success", session_id: "sess_1" });
+    await retry;
+  });
+
+  it("stop releases the waiting send without writing to the stopped child", async () => {
+    setClaudeRemoteControlDesired("s1", true, "Phone-safe chat");
+    const events: HarnessEvent[] = [];
+    const first = sendClaudeTurn({
+      ...input((event) => events.push(event)),
+      text: "first local turn",
+      attachments: [],
+    });
+    await waitFor(() => controlRequest("initialize") !== undefined, "initialize");
+    const initialize = controlRequest("initialize");
+    emit(0, { type: "system", subtype: "init", session_id: "sess_1" });
+    respondControl(0, initialize?.request_id);
+    await waitFor(
+      () => controlRequest("remote_control") !== undefined,
+      "Remote Control enable",
+    );
+    const remote = controlRequest("remote_control");
+    respondControl(0, remote?.request_id, {
+      session_url: "https://claude.ai/code/stop-wait",
+    });
+    await waitFor(
+      () => parse().filter((message) => message.type === "user").length === 1,
+      "first local message",
+    );
+    emit(0, { type: "result", subtype: "success", session_id: "sess_1" });
+    await first;
+
+    emit(0, {
+      type: "user",
+      session_id: "sess_1",
+      message: { role: "user", content: "phone turn" },
+    });
+    const waiting = sendClaudeTurn({
+      ...input((event) => events.push(event)),
+      text: "must not write to stopped process",
+      attachments: [],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    await stopClaudeSession("s1");
+    await waiting;
+    expect(parse().filter((message) => message.type === "user")).toHaveLength(1);
+
+    const retry = sendClaudeTurn({
+      ...input((event) => events.push(event)),
+      text: "retry on a new child",
+      attachments: [],
+    });
+    await waitFor(
+      () =>
+        parse().filter(
+          (message) =>
+            (message.request as Record<string, unknown> | undefined)?.subtype ===
+            "initialize",
+        ).length === 2,
+      "retry initialize",
+    );
+    const initializes = parse().filter(
+      (message) =>
+        (message.request as Record<string, unknown> | undefined)?.subtype ===
+        "initialize",
+    );
+    emit(1, { type: "system", subtype: "init", session_id: "sess_1" });
+    respondControl(1, initializes.at(-1)?.request_id);
+    await waitFor(
+      () =>
+        parse().filter(
+          (message) =>
+            (message.request as Record<string, unknown> | undefined)?.subtype ===
+            "remote_control",
+        ).length === 2,
+      "retry Remote Control enable",
+    );
+    const remotes = parse().filter(
+      (message) =>
+        (message.request as Record<string, unknown> | undefined)?.subtype ===
+        "remote_control",
+    );
+    respondControl(1, remotes.at(-1)?.request_id, {
+      session_url: "https://claude.ai/code/stop-retry",
+    });
+    await waitFor(
+      () => parse().filter((message) => message.type === "user").length === 2,
+      "retry user message",
+    );
+    expect(spawned).toHaveLength(2);
+    emit(1, { type: "result", subtype: "success", session_id: "sess_1" });
+    await retry;
   });
 });

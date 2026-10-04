@@ -530,6 +530,50 @@ export function buildClaudeSpawnArgs(input: {
   return args;
 }
 
+/** Claude's SDK-hosted Remote Control request (undocumented stream-json API). */
+export function buildRemoteControlRequest(
+  enabled: boolean,
+  name?: string,
+): Record<string, unknown> {
+  const request: Record<string, unknown> = {
+    subtype: "remote_control",
+    enabled,
+  };
+  const trimmedName = name?.trim();
+  if (trimmedName) {
+    request.name = [...trimmedName].slice(0, 80).join("");
+  }
+  return request;
+}
+
+export type ClaudeRemoteControlResponse = {
+  sessionUrl: string;
+  bridgeSessionId?: string;
+};
+
+/** Only HTTPS session links are safe to expose to the UI. */
+export function parseRemoteControlResponse(
+  payload: Record<string, unknown>,
+): ClaudeRemoteControlResponse | null {
+  const rawUrl = stringField(payload, "session_url")?.trim();
+  if (!rawUrl) return null;
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:" || !url.hostname) return null;
+  } catch {
+    return null;
+  }
+  const bridgeSessionId = stringField(payload, "bridge_session_id")?.trim();
+  return {
+    sessionUrl: rawUrl,
+    ...(bridgeSessionId ? { bridgeSessionId } : {}),
+  };
+}
+
+export function isRemoteControlConsentError(message: string): boolean {
+  return message.toLowerCase().includes("one-time confirmation");
+}
+
 export function buildControlRequest(
   requestId: string,
   request: Record<string, unknown>,

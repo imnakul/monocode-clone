@@ -5,6 +5,12 @@ Entries dated 2026-10-02 to 2026-10-03 were backfilled from commits made in clou
 that did not have the docs; file lists name the main files only.
 
 
+## 2026-10-04 — Provider conversations, local Claude RC and cloud backend; UI handoff
+- What: New isolated branch from original 0.7.0 (`9effbed`). Read-only Claude/Codex discovery, durable native bindings/original cwd and MonoCode-only archive state, strict native continuation, local Claude RC lifecycle/remembered choices, and supported cloud launch/actions with retained IDs. Existing UI is unchanged; a frontend spec names exact APIs, components, placement and error/manual checks.
+- Files: `src-tauri/src/provider_sessions.rs`, module tests, `lib.rs`, `session_store.rs`, scanner parser visibility; `src/features/provider-sessions/model/*`; session-store native metadata save; settings/session types and harness core/Claude/Codex adapters/tests; backend/frontend specs, index and L-61–L-63.
+- Verified: `npm run check` ✅ (5,365 web tests/488 files; 607 Rust passed/2 ignored; TypeScript/fmt/Clippy); cargo check ✅; production build ✅; host build/full tests ✅ (96 passed/5 skipped after one intermittent effort fixture failure; evidence in backend spec); diff check ✅. Manual: real provider resume, undocumented Claude RC account/phone protocol, cloud launch/actions, future desktop UI wiring. No installer.
+- Commit: uncommitted
+
 ## 2026-10-03 — Focus centred in the Task Manager toolbar; glide in the ! prompt picker
 - What: The Focus button sits centred in the free space between the filters and the view controls (new `center` toolbar slot). The `!` saved-prompt picker uses the same gliding hover as menus and popovers.
 - Files: `src/features/tasks/ui/TasksToolbar.tsx` (`center` slot); `src/features/tasks/ui/TasksView.tsx` (Focus moved); `src/features/prompts/ui/SavedPromptMenu.tsx` (`SharedHoverHighlight`); tests `TasksView.test.ts`, `SavedPrompts.ui.test.ts`

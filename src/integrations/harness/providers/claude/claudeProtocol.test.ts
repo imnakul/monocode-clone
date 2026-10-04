@@ -12,6 +12,7 @@ import {
   buildClaudeSpawnArgs,
   buildSetModelRequest,
   buildSetPermissionModeRequest,
+  buildRemoteControlRequest,
   buildClaudeUserMessage,
   claudeLiveKey,
   claudeSessionRules,
@@ -28,6 +29,8 @@ import {
   parseClaudeVersion,
   parseControlRequest,
   parseControlResponse,
+  parseRemoteControlResponse,
+  isRemoteControlConsentError,
   parseTaskNotification,
   parseTaskProgress,
   parseTaskStarted,
@@ -369,6 +372,45 @@ describe("buildClaudeUserMessage", () => {
 });
 
 describe("control protocol", () => {
+  it("builds Remote Control requests with a trimmed, bounded optional name", () => {
+    expect(buildRemoteControlRequest(true, "  Work session  ")).toEqual({
+      subtype: "remote_control",
+      enabled: true,
+      name: "Work session",
+    });
+    expect(buildRemoteControlRequest(false, "  ")).toEqual({
+      subtype: "remote_control",
+      enabled: false,
+    });
+    expect(buildRemoteControlRequest(true, "n".repeat(90)).name).toHaveLength(
+      80,
+    );
+  });
+
+  it("accepts only HTTPS Remote Control session URLs", () => {
+    expect(
+      parseRemoteControlResponse({
+        session_url: "https://claude.ai/code/session",
+        bridge_session_id: " bridge-1 ",
+      }),
+    ).toEqual({
+      sessionUrl: "https://claude.ai/code/session",
+      bridgeSessionId: "bridge-1",
+    });
+    expect(parseRemoteControlResponse({})).toBeNull();
+    expect(parseRemoteControlResponse({ session_url: "http://example.com" })).toBeNull();
+    expect(parseRemoteControlResponse({ session_url: "https://" })).toBeNull();
+  });
+
+  it("recognizes the headless one-time consent failure", () => {
+    expect(
+      isRemoteControlConsentError(
+        "Remote Control asks for a one-time confirmation before enabling.",
+      ),
+    ).toBe(true);
+    expect(isRemoteControlConsentError("Not signed in")).toBe(false);
+  });
+
   it("parses can_use_tool requests", () => {
     const parsed = parseControlRequest({
       type: "control_request",

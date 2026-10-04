@@ -204,6 +204,17 @@ export function applyHarnessEvent(
           return { ...block, branchOrigin, text: branchDividerText(branchOrigin, HARNESS_TITLE[branchOrigin.harness]) };
         }),
       };
+    case "remoteControl.changed": {
+      const next: Session = {
+        ...session,
+        remoteControlStatus: event.status,
+      };
+      if (event.url) next.remoteControlUrl = event.url;
+      else delete next.remoteControlUrl;
+      if (event.message) next.remoteControlMessage = event.message;
+      else delete next.remoteControlMessage;
+      return next;
+    }
     case "turn.forkPoint": {
       const index = lastMatchingBlock(session.blocks, block => block.role === "user");
       if (index < 0) return session;

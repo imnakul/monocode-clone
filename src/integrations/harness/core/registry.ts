@@ -12,6 +12,7 @@ import { hasLiveCatalog } from "../../../features/sessions/model/models";
 import type { UserQuestionReply } from "../../../features/sessions/model/userQuestion";
 import type { McpFormReply } from "../../../features/sessions/model/mcpForm";
 import type { NativeCommandProvider } from "./nativeCommands";
+import { HarnessRemoteControlError } from "./types";
 import type {
   ApprovalDecision,
   ApprovalScope,
@@ -21,7 +22,13 @@ import type {
   RewindLastTurnResult,
   SendTurnInput,
   SteerTurnInput,
+  HarnessSessionInput,
 } from "./types";
+
+export type HarnessRemoteControlInput = HarnessSessionInput & {
+  enabled: boolean;
+  name?: string;
+};
 
 export type TitleInput = {
   sessionId: string;
@@ -125,6 +132,16 @@ export type HarnessAdapter = {
   runTextPrompt?(input: TextPromptInput): Promise<string>;
   /** Stop an isolated text-generation backend. */
   stopTextPrompt?(): Promise<void>;
+  /** Toggle this provider's local Remote Control feature without queueing a turn. */
+  setRemoteControl?(input: HarnessRemoteControlInput): Promise<void>;
+  /** Seed persisted desired state without starting a process. */
+  setRemoteControlDesired?(
+    sessionId: string,
+    enabled: boolean,
+    name?: string,
+  ): void;
+  /** Current persisted-or-live desired state, used by idle parking. */
+  isRemoteControlDesired?(sessionId: string): boolean;
 };
 
 const adapters = new Map<HarnessId, HarnessAdapter>();
@@ -138,6 +155,7 @@ const idleParkTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const sessionOperationTails = new Map<string, Promise<void>>();
 const sessionSteerTails = new Map<string, Promise<void>>();
 const activeTurnSessions = new Set<string>();
+const idleParkExempt = new Set<string>();
 
 function queueSessionOperation<T>(
   sessionId: string,
@@ -193,6 +211,10 @@ function cancelIdlePark(sessionId: string): void {
 
 function scheduleIdlePark(harness: HarnessId, sessionId: string): void {
   cancelIdlePark(sessionId);
+  const adapterDesired = adapters
+    .get(harness)
+    ?.isRemoteControlDesired?.(sessionId);
+  if (adapterDesired ?? idleParkExempt.has(sessionId)) return;
   idleParkTimers.set(
     sessionId,
     setTimeout(() => {
@@ -206,6 +228,7 @@ function scheduleIdlePark(harness: HarnessId, sessionId: string): void {
 export function resetHarnessIdlePark(): void {
   for (const timer of idleParkTimers.values()) clearTimeout(timer);
   idleParkTimers.clear();
+  idleParkExempt.clear();
 }
 
 export function registerHarness(adapter: HarnessAdapter): void {
@@ -287,6 +310,83 @@ export function canSteerHarness(id: HarnessId): boolean {
   const adapter = adapters.get(id);
   if (!adapter?.live) return false;
   return adapter.canSteer !== false;
+}
+
+export function canHarnessRemoteControl(id: HarnessId): boolean {
+  return adapters.get(id)?.setRemoteControl != null;
+}
+
+/**
+ * Synchronize persisted RC preference into the adapter without waking a
+ * provider process. Call this for saved session ids during model startup.
+ */
+export function syncHarnessRemoteControlDesired(input: {
+  harness: HarnessId;
+  sessionId: string;
+  enabled: boolean;
+  name?: string;
+}): void {
+  const adapter = getHarness(input.harness);
+  if (!adapter?.setRemoteControlDesired) {
+    if (input.enabled) {
+      throw new Error(`${input.harness} does not support Remote Control`);
+    }
+    idleParkExempt.delete(input.sessionId);
+    return;
+  }
+  adapter.setRemoteControlDesired(
+    input.sessionId,
+    input.enabled,
+    input.name,
+  );
+  if (input.enabled) {
+    idleParkExempt.add(input.sessionId);
+    cancelIdlePark(input.sessionId);
+  } else {
+    idleParkExempt.delete(input.sessionId);
+  }
+}
+
+/**
+ * Toggle RC independently from a running provider turn. Its control request
+ * must remain responsive while the normal per-session queue is occupied.
+ */
+export async function setHarnessRemoteControl(
+  input: HarnessRemoteControlInput & { harness: HarnessId },
+): Promise<void> {
+  const adapter = requireHarness(input.harness);
+  if (!adapter.setRemoteControl) {
+    throw new Error(`${input.harness} does not support Remote Control`);
+  }
+  if (input.enabled) {
+    idleParkExempt.add(input.sessionId);
+    cancelIdlePark(input.sessionId);
+  } else {
+    idleParkExempt.delete(input.sessionId);
+  }
+  try {
+    await adapter.setRemoteControl(input);
+  } catch (error) {
+    if (
+      input.enabled &&
+      error instanceof HarnessRemoteControlError &&
+      error.status === "failed"
+    ) {
+      idleParkExempt.delete(input.sessionId);
+    }
+    if (
+      (!input.enabled ||
+        (error instanceof HarnessRemoteControlError &&
+          error.status === "failed")) &&
+      !activeTurnSessions.has(input.sessionId)
+    ) {
+      scheduleIdlePark(input.harness, input.sessionId);
+    }
+    throw error;
+  }
+  if (!input.enabled && !activeTurnSessions.has(input.sessionId)) {
+    scheduleIdlePark(input.harness, input.sessionId);
+  }
 }
 
 export function canRewindHarnessLastTurn(id: HarnessId): boolean {
@@ -388,8 +488,10 @@ export async function forgetHarnessSession(
   sessionId: string,
 ): Promise<void> {
   cancelIdlePark(sessionId);
+  idleParkExempt.delete(sessionId);
   const adapter = getHarness(harness);
   if (!adapter) return;
+  adapter.setRemoteControlDesired?.(sessionId, false);
   await adapter.forgetSession(sessionId);
 }
 

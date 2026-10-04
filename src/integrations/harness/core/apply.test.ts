@@ -49,6 +49,40 @@ describe("background work", () => {
   });
 });
 
+describe("Claude Remote Control state", () => {
+  it("applies and clears ephemeral status, link, and message fields", () => {
+    let session = newSession("claude", "/tmp");
+    session = applyHarnessEvent(session, {
+      type: "remoteControl.changed",
+      status: "on",
+      url: "https://claude.ai/code/session",
+    });
+    expect(session).toMatchObject({
+      remoteControlStatus: "on",
+      remoteControlUrl: "https://claude.ai/code/session",
+    });
+
+    session = applyHarnessEvent(session, {
+      type: "remoteControl.changed",
+      status: "needs-consent",
+      message: "Open Claude Code and accept Remote Control.",
+    });
+    expect(session).toMatchObject({
+      remoteControlStatus: "needs-consent",
+      remoteControlMessage: "Open Claude Code and accept Remote Control.",
+    });
+    expect(session).not.toHaveProperty("remoteControlUrl");
+
+    session = applyHarnessEvent(session, {
+      type: "remoteControl.changed",
+      status: "off",
+    });
+    expect(session).toMatchObject({ remoteControlStatus: "off" });
+    expect(session).not.toHaveProperty("remoteControlUrl");
+    expect(session).not.toHaveProperty("remoteControlMessage");
+  });
+});
+
 describe("turn duration", () => {
   it("records the selected provider and model on a user turn", () => {
     const session = appendUser(

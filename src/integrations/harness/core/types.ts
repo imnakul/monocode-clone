@@ -17,6 +17,12 @@ export type HarnessEvent =
   | { type: "session.ended"; code?: number | null }
   | { type: "session.error"; message: string }
   | { type: "session.providerBound"; providerSessionId: string }
+  | {
+      type: "remoteControl.changed";
+      status: RemoteControlStatus;
+      url?: string;
+      message?: string;
+    }
   | { type: "turn.started"; providerTurnId: string }
   | { type: "turn.forkPoint"; providerForkPoint: string }
   | {
@@ -177,11 +183,30 @@ export type HarnessEvent =
     }
   | ({ type: "turn.metrics" } & TurnMetrics);
 
+export type RemoteControlStatus =
+  | "off"
+  | "connecting"
+  | "on"
+  | "needs-consent"
+  | "failed";
+
+export class HarnessRemoteControlError extends Error {
+  constructor(
+    readonly status: "needs-consent" | "failed",
+    message: string,
+  ) {
+    super(message);
+    this.name = "HarnessRemoteControlError";
+  }
+}
+
 export type ApprovalDecision = "allow" | "deny";
 export type ApprovalScope = "once" | "session" | "server";
 
 export type HarnessSessionInput = {
   fork?: NativeForkRequest;
+  /** Resume this exact provider conversation; the adapter must fail closed. */
+  nativeResume?: { providerSessionId: string };
   sessionId: string;
   cwd: string;
   model: string;
@@ -211,6 +236,14 @@ export class NativeForkError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "NativeForkError";
+  }
+}
+
+/** Native resume failed before the user message was written. */
+export class NativeResumeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NativeResumeError";
   }
 }
 

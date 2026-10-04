@@ -219,6 +219,78 @@ function sendFollowupTurn(
 }
 
 describe("codex live turn sequence", () => {
+  it.each([
+    { nativeId: "another-thread", cwd: "/repo", account: "work" },
+    { nativeId: "original-thread", cwd: "/other", account: "work" },
+    { nativeId: "original-thread", cwd: "/repo", account: "other" },
+  ])(
+    "rejects a changed native binding without writing to the provider: %j",
+    async ({ nativeId, cwd, account }) => {
+      bindCodexSession("codex-live", "original-thread", "/repo", "work");
+      await expect(
+        sendCodexTurn({
+          sessionId: "codex-live",
+          cwd,
+          providerAccountId: account,
+          model: "codex:gpt-5.4",
+          runtimeMode: "supervised",
+          nativeResume: { providerSessionId: nativeId },
+          text: "Continue",
+          onEvent: () => undefined,
+        }),
+      ).rejects.toThrow("saved provider binding");
+      expect(sent).toEqual([]);
+    },
+  );
+  it.each([
+    { error: { code: -32000, message: "thread not found" } },
+    { result: { thread: { id: "different-thread" } } },
+    { result: {} },
+  ])(
+    "never starts a fresh chat after a strict native resume failure: %j",
+    async (response) => {
+      const turn = sendCodexTurn({
+        sessionId: "codex-live",
+        cwd: "/repo",
+        model: "codex:gpt-5.4",
+        runtimeMode: "supervised",
+        nativeResume: { providerSessionId: "original-thread" },
+        text: "Continue original context",
+        attachments: [],
+        onEvent: () => undefined,
+      });
+      const failure = expect(turn).rejects.toThrow();
+      await waitFor(
+        () => parse().some((message) => message.method === "initialize"),
+        "initialize",
+      );
+      reply(
+        parse().find((message) => message.method === "initialize")!
+          .id as number,
+        {},
+      );
+      await waitFor(
+        () => parse().some((message) => message.method === "thread/resume"),
+        "native resume",
+      );
+      const request = parse().find(
+        (message) => message.method === "thread/resume",
+      )!;
+      expect(request.params).toMatchObject({
+        threadId: "original-thread",
+        cwd: "/repo",
+      });
+      onLine!(JSON.stringify({ id: request.id, ...response }));
+      await failure;
+      expect(
+        parse().some(
+          (message) =>
+            message.method === "thread/start" ||
+            message.method === "turn/start",
+        ),
+      ).toBe(false);
+    },
+  );
   it("forks without starting a fresh thread, then resumes the fork on the next send", async () => {
     const { events, turn } = await startTurn("codex-live", {
       fork: { sourceProviderSessionId: "source", forkPoint: "turn-2" },
@@ -1671,7 +1743,10 @@ describe("codex live turn sequence", () => {
     sent.length = 0;
     const resumed = await startTurn("codex-live", { resume: true });
     sendMcpToolRequest(92, "codebase_search");
-    await waitFor(() => parse().some((message) => message.id === 92), "replayed reply");
+    await waitFor(
+      () => parse().some((message) => message.id === 92),
+      "replayed reply",
+    );
     expect(parse().find((message) => message.id === 92)?.result).toEqual({
       action: "accept",
       content: {},
@@ -1693,7 +1768,10 @@ describe("codex live turn sequence", () => {
       throw new Error("missing other server approval");
     expect(otherServer.serverScope?.serverName).toBe("other");
     respondCodexApproval("codex-live", otherServer.requestId, "deny");
-    await waitFor(() => parse().some((message) => message.id === 93), "deny reply");
+    await waitFor(
+      () => parse().some((message) => message.id === 93),
+      "deny reply",
+    );
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await resumed.turn;
 
@@ -1702,7 +1780,8 @@ describe("codex live turn sequence", () => {
     const otherChat = await startTurn("codex-other");
     sendMcpToolRequest(94, "codebase_status");
     await waitFor(
-      () => otherChat.events.some((event) => event.type === "approval.requested"),
+      () =>
+        otherChat.events.some((event) => event.type === "approval.requested"),
       "new chat approval",
     );
     const newChatApproval = otherChat.events.find(
@@ -1711,7 +1790,10 @@ describe("codex live turn sequence", () => {
     if (newChatApproval?.type !== "approval.requested")
       throw new Error("missing new chat approval");
     respondCodexApproval("codex-other", newChatApproval.requestId, "deny");
-    await waitFor(() => parse().some((message) => message.id === 94), "new chat reply");
+    await waitFor(
+      () => parse().some((message) => message.id === 94),
+      "new chat reply",
+    );
     notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
     await otherChat.turn;
   });
@@ -1739,7 +1821,9 @@ describe("codex live turn sequence", () => {
       () => parse().some((message) => message.method === "turn/start"),
       "Plan turn start",
     );
-    const turnStart = parse().find((message) => message.method === "turn/start");
+    const turnStart = parse().find(
+      (message) => message.method === "turn/start",
+    );
     if (typeof turnStart?.id !== "number")
       throw new Error("missing Plan turn request id");
     reply(turnStart.id, { turn: { id: "turn_2", status: "inProgress" } });
@@ -1757,7 +1841,10 @@ describe("codex live turn sequence", () => {
     expect(planApproval.serverScope).toBeUndefined();
     expect(parse().some((message) => message.id === 92)).toBe(false);
     respondCodexApproval("codex-live", planApproval.requestId, "deny");
-    await waitFor(() => parse().some((message) => message.id === 92), "Plan reply");
+    await waitFor(
+      () => parse().some((message) => message.id === 92),
+      "Plan reply",
+    );
     notify("turn/completed", { turn: { id: "turn_2", status: "completed" } });
     await plan.turn;
   });

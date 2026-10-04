@@ -37,6 +37,7 @@ import {
   buildClaudeUserMessage,
   buildControlRequest,
   buildControlResponse,
+  buildRemoteControlRequest,
   buildSetModelRequest,
   buildSetPermissionModeRequest,
   claudeLiveKey,
@@ -48,6 +49,7 @@ import {
   inputJsonDeltaFromEvent,
   isAgentTaskType,
   isClaudeUltracodeEffort,
+  isRemoteControlConsentError,
   isSubagentMessage,
   isTerminalAgentTaskStatus,
   isTodoTool,
@@ -58,6 +60,7 @@ import {
   parseControlCancelId,
   parseControlResponse,
   parseControlRequest,
+  parseRemoteControlResponse,
   parseJsonLine,
   parseTaskNotification,
   parseTaskProgress,
@@ -96,13 +99,18 @@ import {
   questionsFromUnknown,
   type UserQuestionReply,
 } from "../../../../features/sessions/model/userQuestion";
-import { NativeForkError } from "../../core/types";
+import {
+  HarnessRemoteControlError,
+  NativeForkError,
+  NativeResumeError,
+} from "../../core/types";
 import type {
   ApprovalDecision,
   ApprovalScope,
   CompactContextInput,
   HarnessEvent,
   HarnessSessionInput,
+  RemoteControlStatus,
   SendTurnInput,
   SteerTurnInput,
 } from "../../core/types";
@@ -170,6 +178,9 @@ type Live = {
   sessionId: string;
   cwd: string;
   claudeSessionId: string;
+  nativeResumeSessionId?: string;
+  nativeResumeError?: NativeResumeError;
+  initializeRequestId?: string;
   providerAccountId?: string;
   runtimeMode: RuntimeMode;
   planning: boolean;
@@ -212,6 +223,18 @@ type Live = {
   turnFailed: ((error: Error) => void) | null;
   turnEndPending: boolean;
   activeTurn: boolean;
+  stopped: boolean;
+  externalTurn: boolean;
+  externalTurnWait: Promise<void> | null;
+  externalTurnDone: (() => void) | null;
+  pendingExternalWaitCancel: (() => void) | null;
+  remoteControl: {
+    status: RemoteControlStatus;
+    url?: string;
+    message?: string;
+    generation: number;
+  };
+  remoteControlAttempt?: { generation: number; promise: Promise<void> };
   initDone: (() => void) | null;
   initialized: boolean;
   emittedAssistant: string;
@@ -232,6 +255,7 @@ type Resume = {
 
 const INIT_TIMEOUT_MS = 8_000;
 const CONTROL_TIMEOUT_MS = 5_000;
+const REMOTE_CONTROL_TIMEOUT_MS = 10_000;
 
 export type ClaudeControlFailure =
   | "error"
@@ -252,7 +276,10 @@ export class ClaudeControlError extends Error {
 }
 
 const liveByThread = new Map<string, Live>();
+const liveStartsByThread = new Map<string, Promise<Live>>();
 const resumeByThread = new Map<string, Resume>();
+const remoteControlDesired = new Map<string, { name?: string }>();
+const remoteControlGenerations = new Map<string, number>();
 const sessionGrantsByThread = new Map<
   string,
   {
@@ -322,6 +349,109 @@ export function setClaudeMcpServerResolver(
   ) => Promise<{ configured: string[]; enabled: string[] }>,
 ): void {
   resolveClaudeMcpServersImpl = fn;
+}
+
+/** Seed saved intent without starting Claude. */
+export function setClaudeRemoteControlDesired(
+  sessionId: string,
+  enabled: boolean,
+  name?: string,
+): void {
+  if (!sessionId) return;
+  const current = remoteControlDesired.get(sessionId);
+  const trimmedName = name?.trim();
+  if (enabled) {
+    if (remoteControlDesired.has(sessionId) && current?.name === trimmedName) {
+      return;
+    }
+    nextRemoteControlGeneration(sessionId);
+    remoteControlDesired.set(sessionId, {
+      ...(trimmedName ? { name: trimmedName } : {}),
+    });
+  } else {
+    if (!remoteControlDesired.has(sessionId)) return;
+    nextRemoteControlGeneration(sessionId);
+    remoteControlDesired.delete(sessionId);
+  }
+}
+
+export function isClaudeRemoteControlDesired(sessionId: string): boolean {
+  return remoteControlDesired.has(sessionId);
+}
+
+/** Toggle Claude Remote Control outside the normal per-session turn queue. */
+export async function setClaudeRemoteControl(
+  input: HarnessSessionInput & { enabled: boolean; name?: string },
+): Promise<void> {
+  const name = input.name?.trim();
+  const generation = nextRemoteControlGeneration(input.sessionId);
+  if (input.enabled) {
+    remoteControlDesired.set(input.sessionId, {
+      ...(name ? { name } : {}),
+    });
+  } else {
+    remoteControlDesired.delete(input.sessionId);
+  }
+
+  let live = liveByThread.get(input.sessionId);
+  if (!input.enabled) {
+    if (!live || live.exited || !live.initialized) {
+      if (live) emitRemoteControl(live, "off");
+      else {
+        input.onEvent({ type: "remoteControl.changed", status: "off" });
+      }
+      return;
+    }
+    await requestClaudeRemoteControl(live, false, generation, name, {
+      throwOnFailure: true,
+      waitForResponse: true,
+    });
+    return;
+  }
+
+  if (live?.remoteControl.status === "on") return;
+  if (live) emitRemoteControl(live, "connecting");
+  else input.onEvent({ type: "remoteControl.changed", status: "connecting" });
+
+  try {
+    live = await ensureLive(input, true);
+  } catch (error) {
+    if (remoteControlGenerations.get(input.sessionId) !== generation) return;
+    const message = error instanceof Error ? error.message : String(error);
+    const status = isRemoteControlConsentError(message)
+      ? "needs-consent"
+      : "failed";
+    if (status === "failed") remoteControlDesired.delete(input.sessionId);
+    input.onEvent({ type: "remoteControl.changed", status, message });
+    throw new HarnessRemoteControlError(status, message);
+  }
+
+  live.onEvent = input.onEvent;
+  if (remoteControlGenerations.get(input.sessionId) !== generation) return;
+  if (live.remoteControl.status === "on") return;
+  if (
+    live.remoteControl.status === "connecting" &&
+    live.remoteControl.generation === generation &&
+    live.remoteControlAttempt?.generation === generation
+  ) {
+    await live.remoteControlAttempt.promise;
+    if (remoteControlGenerations.get(input.sessionId) !== generation) return;
+    const statusAfterAttempt = live.remoteControl.status as RemoteControlStatus;
+    if (statusAfterAttempt === "on") return;
+  }
+  if (live.remoteControl.generation !== generation) {
+    await requestClaudeRemoteControl(live, true, generation, name, {
+      throwOnFailure: true,
+      waitForResponse: true,
+    });
+    return;
+  }
+  const status =
+    live.remoteControl.status === "needs-consent" ? "needs-consent" : "failed";
+  throw new HarnessRemoteControlError(
+    status,
+    live.remoteControl.message ?? "Claude Remote Control could not be enabled.",
+  );
 }
 
 export async function sendClaudeTurn(input: SendTurnInput): Promise<void> {
@@ -446,8 +576,11 @@ export async function cancelClaudeTurn(sessionId: string): Promise<void> {
     cancelledThreads.add(sessionId);
     return;
   }
+  const cancelWaitingSend = live.pendingExternalWaitCancel;
+  const hadActiveTurn = live.activeTurn || live.turnDone !== null;
   live.cancelled = true;
   live.muteUpdates = true;
+  cancelWaitingSend?.();
   for (const [, pending] of live.approvals)
     pending.resolve({ decision: "deny" });
   live.approvals.clear();
@@ -469,10 +602,12 @@ export async function cancelClaudeTurn(sessionId: string): Promise<void> {
     sessionId,
     buildControlRequest(nextControlId(), { subtype: "interrupt" }),
   ).catch(() => undefined);
-  finishActiveTurn(live, [
-    { type: "message.completed" },
-    { type: "reasoning.completed" },
-  ]);
+  if (hadActiveTurn) {
+    finishActiveTurn(live, [
+      { type: "message.completed" },
+      { type: "reasoning.completed" },
+    ]);
+  }
 }
 
 export async function stopClaudeSession(sessionId: string): Promise<void> {
@@ -480,6 +615,9 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
   const live = liveByThread.get(sessionId);
   liveByThread.delete(sessionId);
   if (live) {
+    live.stopped = true;
+    resolveExternalClaudeTurn(live);
+    resetRemoteControlForExit(live);
     live.muteUpdates = true;
     rejectPendingControls(
       live,
@@ -503,6 +641,7 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
 }
 
 export async function forgetClaudeSession(sessionId: string): Promise<void> {
+  setClaudeRemoteControlDesired(sessionId, false);
   resumeByThread.delete(sessionId);
   sessionGrantsByThread.delete(sessionId);
   tasksByThread.delete(sessionId);
@@ -560,7 +699,60 @@ export function restoreClaudeTaskLists(
   });
 }
 
-async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+function validateNativeResumeInput(
+  input: HarnessSessionInput,
+): string | undefined {
+  const nativeResumeSessionId = input.nativeResume?.providerSessionId.trim();
+  if (input.nativeResume && !nativeResumeSessionId) {
+    throw new NativeResumeError("The original Claude conversation id is empty.");
+  }
+  if (nativeResumeSessionId && input.fork) {
+    throw new NativeResumeError(
+      "A native Claude resume cannot be combined with a fork request.",
+    );
+  }
+  return nativeResumeSessionId || undefined;
+}
+
+async function ensureLive(
+  input: HarnessSessionInput,
+  remoteControlConnectingEmitted = false,
+): Promise<Live> {
+  validateNativeResumeInput(input);
+  const pending = liveStartsByThread.get(input.sessionId);
+  if (pending) {
+    const live = await pending;
+    const nativeResumeSessionId = input.nativeResume?.providerSessionId.trim();
+    const requestedLiveKey = claudeLiveKey(input, loadClaudeHooks());
+    if (
+      live.cwd !== input.cwd ||
+      !sameProviderAccountId(live.providerAccountId, input.providerAccountId) ||
+      planClaudeLiveSwitch(live.liveKey, requestedLiveKey).kind !== "reuse" ||
+      (nativeResumeSessionId &&
+        live.nativeResumeSessionId !== nativeResumeSessionId)
+    ) {
+      return ensureLive(input, remoteControlConnectingEmitted);
+    }
+    live.onEvent = input.onEvent;
+    live.runtimeMode = input.runtimeMode;
+    return live;
+  }
+  const starting = ensureLiveUncoalesced(input, remoteControlConnectingEmitted);
+  let tracked: Promise<Live>;
+  tracked = starting.finally(() => {
+    if (liveStartsByThread.get(input.sessionId) === tracked) {
+      liveStartsByThread.delete(input.sessionId);
+    }
+  });
+  liveStartsByThread.set(input.sessionId, tracked);
+  return tracked;
+}
+
+async function ensureLiveUncoalesced(
+  input: HarnessSessionInput,
+  remoteControlConnectingEmitted: boolean,
+): Promise<Live> {
+  const nativeResumeSessionId = validateNativeResumeInput(input);
   const sessionGrant = sessionGrantsByThread.get(input.sessionId);
   if (
     sessionGrant &&
@@ -570,7 +762,34 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
         input.providerAccountId,
       ))
   ) {
+    if (nativeResumeSessionId) {
+      throw new NativeResumeError(
+        "This Claude conversation is bound to a different folder or account.",
+      );
+    }
     sessionGrantsByThread.delete(input.sessionId);
+  }
+  const savedResume = resumeByThread.get(input.sessionId);
+  if (
+    nativeResumeSessionId &&
+    savedResume &&
+    (savedResume.sessionId !== nativeResumeSessionId ||
+      savedResume.cwd !== input.cwd ||
+      !sameProviderAccountId(
+        savedResume.providerAccountId,
+        input.providerAccountId,
+      ))
+  ) {
+    throw new NativeResumeError(
+      "The requested Claude conversation does not match this session's saved provider binding.",
+    );
+  }
+  if (nativeResumeSessionId && !savedResume) {
+    resumeByThread.set(input.sessionId, {
+      sessionId: nativeResumeSessionId,
+      cwd: input.cwd,
+      providerAccountId: input.providerAccountId,
+    });
   }
   const settingsKey = settingsKeyFor(input);
   const liveKey = claudeLiveKey(input, loadClaudeHooks());
@@ -581,7 +800,15 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       ? { kind: "restart" as const, reason: "Claude model did not match" }
       : planClaudeLiveSwitch(existing.liveKey, liveKey)
     : null;
-  if (existing && existing.cwd === input.cwd && switchPlan?.kind === "reuse") {
+  const existingMatchesNativeResume =
+    !nativeResumeSessionId ||
+    existing?.nativeResumeSessionId === nativeResumeSessionId;
+  if (
+    existing &&
+    existing.cwd === input.cwd &&
+    existingMatchesNativeResume &&
+    switchPlan?.kind === "reuse"
+  ) {
     existing.settingsKey = settingsKey;
     existing.liveKey = liveKey;
     existing.planning = planning;
@@ -593,6 +820,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   if (
     existing &&
     existing.cwd === input.cwd &&
+    existingMatchesNativeResume &&
     switchPlan?.kind === "switch" &&
     existing.initialized &&
     !existing.activeTurn &&
@@ -632,10 +860,11 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   }
 
   const resume = resumeByThread.get(input.sessionId);
-  const canResume =
-    resume != null &&
-    resume.cwd === input.cwd &&
-    sameProviderAccountId(resume.providerAccountId, input.providerAccountId);
+  const canResume = nativeResumeSessionId
+    ? true
+    : resume != null &&
+      resume.cwd === input.cwd &&
+      sameProviderAccountId(resume.providerAccountId, input.providerAccountId);
   if (
     resume &&
     (resume.cwd !== input.cwd ||
@@ -646,8 +875,11 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   }
   const { path } = await resolveClaudeBinaryImpl();
   const liveRef: { current: Live | null } = { current: null };
-  const claudeSessionId =
-    canResume && resume ? resume.sessionId : crypto.randomUUID();
+  const claudeSessionId = nativeResumeSessionId
+    ? nativeResumeSessionId
+    : canResume && resume
+      ? resume.sessionId
+      : crypto.randomUUID();
   const retained = tasksByThread.get(input.sessionId);
   const claudeTasks =
     retained?.providerSessionId === claudeSessionId
@@ -682,6 +914,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     sessionId: input.sessionId,
     cwd: input.cwd,
     claudeSessionId,
+    ...(nativeResumeSessionId ? { nativeResumeSessionId } : {}),
     providerAccountId: input.providerAccountId,
     runtimeMode: input.runtimeMode,
     planning,
@@ -712,6 +945,15 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     turnFailed: null,
     turnEndPending: false,
     activeTurn: false,
+    stopped: false,
+    externalTurn: false,
+    externalTurnWait: null,
+    externalTurnDone: null,
+    pendingExternalWaitCancel: null,
+    remoteControl: {
+      status: remoteControlDesired.has(input.sessionId) ? "connecting" : "off",
+      generation: 0,
+    },
     initDone: null,
     initialized: false,
     emittedAssistant: "",
@@ -724,6 +966,12 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     compactionConfirmed: false,
   };
   liveRef.current = live;
+  if (
+    remoteControlDesired.has(input.sessionId) &&
+    !remoteControlConnectingEmitted
+  ) {
+    live.onEvent({ type: "remoteControl.changed", status: "connecting" });
+  }
 
   watchChild(
     input.sessionId,
@@ -736,6 +984,8 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       const current = liveRef.current;
       if (current) {
         current.exited = true;
+        resolveExternalClaudeTurn(current);
+        resetRemoteControlForExit(current);
         if (
           current.forkPending &&
           resumeByThread.get(input.sessionId)?.sessionId ===
@@ -783,15 +1033,41 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   });
 
   try {
+    const initializeRequestId = nextControlId();
+    live.initializeRequestId = initializeRequestId;
     await writeJson(
       input.sessionId,
-      buildControlRequest(nextControlId(), { subtype: "initialize" }),
+      buildControlRequest(initializeRequestId, { subtype: "initialize" }),
     );
     await waitForInit(live, INIT_TIMEOUT_MS);
+    if (live.nativeResumeError) throw live.nativeResumeError;
+    if (
+      nativeResumeSessionId &&
+      (live.exited ||
+        !live.initialized ||
+        live.claudeSessionId !== nativeResumeSessionId)
+    ) {
+      throw new NativeResumeError(
+        "Claude Code could not resume the original conversation. No new conversation was started.",
+      );
+    }
     if (live.forkPending && live.exited) {
       resumeByThread.delete(input.sessionId);
       throw new NativeForkError(
         "Claude Code could not open the original conversation.",
+      );
+    }
+    const desiredRemoteControl = remoteControlDesired.get(input.sessionId);
+    if (desiredRemoteControl) {
+      const remoteGeneration =
+        remoteControlGenerations.get(input.sessionId) ??
+        nextRemoteControlGeneration(input.sessionId);
+      await requestClaudeRemoteControl(
+        live,
+        true,
+        remoteGeneration,
+        desiredRemoteControl.name,
+        { throwOnFailure: false, waitForResponse: false },
       );
     }
     if (!live.forkPending)
@@ -821,6 +1097,10 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
       "Claude Code could not open the original conversation.",
     );
   }
+  if (!(await waitForExternalClaudeTurn(live))) return;
+  if (live.stopped || live.cancelled) return;
+  if (live.nativeResumeError) throw live.nativeResumeError;
+  if (live.exited) throw new Error("Claude Code exited");
   const effort = input.modelSettings?.effort;
   const message = buildClaudeUserMessage({
     text: input.text,
@@ -871,6 +1151,26 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   }
 }
 
+async function waitForExternalClaudeTurn(live: Live): Promise<boolean> {
+  while (live.externalTurn && live.externalTurnWait) {
+    const externalWait = live.externalTurnWait;
+    let cancelWait!: () => void;
+    const cancelled = new Promise<void>((resolve) => {
+      cancelWait = resolve;
+      live.pendingExternalWaitCancel = resolve;
+    });
+    const outcome = await Promise.race([
+      externalWait.then(() => "external" as const),
+      cancelled.then(() => "cancelled" as const),
+    ]);
+    if (live.pendingExternalWaitCancel === cancelWait) {
+      live.pendingExternalWaitCancel = null;
+    }
+    if (outcome === "cancelled" || live.cancelled || live.stopped) return false;
+  }
+  return !live.cancelled && !live.stopped;
+}
+
 function handleLine(sessionId: string, live: Live, line: string): void {
   const rec = parseJsonLine(line);
   if (!rec) return;
@@ -913,9 +1213,27 @@ function handleLine(sessionId: string, live: Live, line: string): void {
     return;
   }
 
+  if (type === "result" && live.externalTurn) {
+    finishExternalClaudeTurn(live);
+    return;
+  }
+
   if (live.muteUpdates) return;
 
   const sessionIdFromLine = sessionIdFromMessage(rec);
+  if (
+    live.nativeResumeSessionId &&
+    sessionIdFromLine &&
+    sessionIdFromLine !== live.nativeResumeSessionId
+  ) {
+    const error = new NativeResumeError(
+      "Claude Code opened a different conversation than the one requested. No new conversation was started.",
+    );
+    live.nativeResumeError = error;
+    if (live.activeTurn) live.turnFailed?.(error);
+    markInitialized(live);
+    return;
+  }
   if (
     sessionIdFromLine &&
     sessionIdFromLine !== live.claudeSessionId &&
@@ -952,6 +1270,16 @@ function handleLine(sessionId: string, live: Live, line: string): void {
 
   if (type === "control_response") {
     const response = parseControlResponse(rec);
+    if (
+      response &&
+      response.requestId === live.initializeRequestId &&
+      !response.ok &&
+      live.nativeResumeSessionId
+    ) {
+      live.nativeResumeError = new NativeResumeError(
+        response.error ?? "Claude Code could not open the original conversation.",
+      );
+    }
     if (response?.ok) {
       resolvePendingControl(live, response.requestId, response.payload ?? {});
     } else if (response) {
@@ -965,6 +1293,17 @@ function handleLine(sessionId: string, live: Live, line: string): void {
       );
     }
     markInitialized(live);
+    return;
+  }
+
+  if (live.externalTurn) return;
+  if (
+    !live.activeTurn &&
+    live.remoteControl.status === "on" &&
+    isExternalClaudeTurnActivity(type)
+  ) {
+    beginExternalClaudeTurn(live);
+    if (type === "result") finishExternalClaudeTurn(live);
     return;
   }
 
@@ -1008,6 +1347,60 @@ function handleLine(sessionId: string, live: Live, line: string): void {
       }
       live.onEvent({ type: "status", text });
     }
+  }
+}
+
+function isExternalClaudeTurnActivity(
+  type: string | undefined,
+): boolean {
+  return (
+    type === "assistant" ||
+    type === "stream_event" ||
+    type === "user" ||
+    type === "result" ||
+    type === "tool_progress" ||
+    type === "rate_limit_event" ||
+    type === "task_notification"
+  );
+}
+
+function beginExternalClaudeTurn(live: Live): void {
+  if (live.externalTurn) return;
+  live.externalTurn = true;
+  live.externalTurnWait = new Promise<void>((resolve) => {
+    live.externalTurnDone = resolve;
+  });
+  live.onEvent({
+    type: "status",
+    text: "Claude is answering a message sent from another device.",
+  });
+}
+
+function finishExternalClaudeTurn(live: Live): void {
+  if (!live.externalTurn) return;
+  resolveExternalClaudeTurn(live);
+  live.onEvent({
+    type: "status",
+    text: "The other device's turn finished; live transcript sync is not available yet.",
+  });
+}
+
+function resolveExternalClaudeTurn(live: Live): void {
+  if (!live.externalTurn) return;
+  live.externalTurn = false;
+  const done = live.externalTurnDone;
+  live.externalTurnDone = null;
+  live.externalTurnWait = null;
+  done?.();
+}
+
+function resetRemoteControlForExit(live: Live): void {
+  if (
+    live.remoteControl.status !== "off" ||
+    live.remoteControl.url ||
+    live.remoteControl.message
+  ) {
+    emitRemoteControl(live, "off");
   }
 }
 
@@ -2222,7 +2615,11 @@ function rejectPendingControls(live: Live, error: ClaudeControlError): void {
 function sendControl(
   live: Live,
   request: Record<string, unknown>,
-  opts?: { timeoutMs?: number; signal?: AbortSignal },
+  opts?: {
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    onWriteComplete?: () => void;
+  },
 ): Promise<Record<string, unknown>> {
   const signal = opts?.signal;
   if (signal?.aborted) {
@@ -2234,6 +2631,12 @@ function sendControl(
   const requestId = nextControlId();
   return new Promise((resolve, reject) => {
     let abortHandler: (() => void) | undefined;
+    let writeCompletionNotified = false;
+    const notifyWriteComplete = (): void => {
+      if (writeCompletionNotified) return;
+      writeCompletionNotified = true;
+      opts?.onWriteComplete?.();
+    };
     const pending: PendingControl = {
       resolve,
       reject,
@@ -2275,20 +2678,21 @@ function sendControl(
     }
 
     try {
-      void writeJson(
-        live.sessionId,
-        buildControlRequest(requestId, request),
-      ).catch((error: unknown) => {
-        rejectPendingControl(
-          live,
-          requestId,
-          new ClaudeControlError(
-            "write-failed",
-            error instanceof Error ? error.message : String(error),
-          ),
-        );
-      });
+      void writeJson(live.sessionId, buildControlRequest(requestId, request))
+        .then(notifyWriteComplete)
+        .catch((error: unknown) => {
+          notifyWriteComplete();
+          rejectPendingControl(
+            live,
+            requestId,
+            new ClaudeControlError(
+              "write-failed",
+              error instanceof Error ? error.message : String(error),
+            ),
+          );
+        });
     } catch (error) {
+      notifyWriteComplete();
       rejectPendingControl(
         live,
         requestId,
@@ -2299,6 +2703,97 @@ function sendControl(
       );
     }
   });
+}
+
+function nextRemoteControlGeneration(sessionId: string): number {
+  const generation = (remoteControlGenerations.get(sessionId) ?? 0) + 1;
+  remoteControlGenerations.set(sessionId, generation);
+  return generation;
+}
+
+function emitRemoteControl(
+  live: Live,
+  status: RemoteControlStatus,
+  details: { url?: string; message?: string } = {},
+): void {
+  live.remoteControl = {
+    status,
+    generation: live.remoteControl.generation,
+    ...(details.url ? { url: details.url } : {}),
+    ...(details.message ? { message: details.message } : {}),
+  };
+  live.onEvent({
+    type: "remoteControl.changed",
+    status,
+    ...(details.url ? { url: details.url } : {}),
+    ...(details.message ? { message: details.message } : {}),
+  });
+}
+
+function isCurrentRemoteControlAction(live: Live, generation: number): boolean {
+  return (
+    !live.exited &&
+    liveByThread.get(live.sessionId) === live &&
+    remoteControlGenerations.get(live.sessionId) === generation
+  );
+}
+
+async function requestClaudeRemoteControl(
+  live: Live,
+  enabled: boolean,
+  generation: number,
+  name: string | undefined,
+  options: { throwOnFailure: boolean; waitForResponse: boolean },
+): Promise<void> {
+  live.remoteControl.generation = generation;
+  emitRemoteControl(live, "connecting");
+  let completeWrite!: () => void;
+  const writeComplete = new Promise<void>((resolve) => {
+    completeWrite = resolve;
+  });
+  const response = sendControl(
+    live,
+    buildRemoteControlRequest(enabled, name),
+    {
+      timeoutMs: REMOTE_CONTROL_TIMEOUT_MS,
+      onWriteComplete: completeWrite,
+    },
+  )
+    .then((payload) => {
+      if (!isCurrentRemoteControlAction(live, generation)) return;
+      if (!enabled) {
+        emitRemoteControl(live, "off");
+        return;
+      }
+      const parsed = parseRemoteControlResponse(payload);
+      if (!parsed) {
+        throw new Error(
+          "Claude Code did not return a valid HTTPS Remote Control session URL.",
+        );
+      }
+      emitRemoteControl(live, "on", { url: parsed.sessionUrl });
+    })
+    .catch((error: unknown) => {
+      if (!isCurrentRemoteControlAction(live, generation)) return;
+      const message = error instanceof Error ? error.message : String(error);
+      const status = isRemoteControlConsentError(message)
+        ? "needs-consent"
+        : "failed";
+      if (enabled && status === "failed") {
+        remoteControlDesired.delete(live.sessionId);
+      }
+      emitRemoteControl(live, status, { message });
+      if (options.throwOnFailure) {
+        throw new HarnessRemoteControlError(status, message);
+      }
+    });
+  void response.then(completeWrite, completeWrite);
+  live.remoteControlAttempt = { generation, promise: response };
+  if (options.waitForResponse) {
+    await response;
+    return;
+  }
+  await writeComplete;
 }
 
 const READ_ONLY_CLAUDE_CONTROL_SUBTYPES = new Set([
@@ -2450,7 +2945,10 @@ function addClaudeSessionRules(
 /** Exported for tests. */
 export function __claudeTestReset(): void {
   liveByThread.clear();
+  liveStartsByThread.clear();
   resumeByThread.clear();
+  remoteControlDesired.clear();
+  remoteControlGenerations.clear();
   sessionGrantsByThread.clear();
   resolveClaudeMcpServersImpl = discoverClaudeMcpServers;
   tasksByThread.clear();

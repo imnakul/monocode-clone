@@ -241,7 +241,7 @@ struct ClaudeAcc {
     message_count: u32,
 }
 
-fn parse_claude_file(path: &Path, slug: &str) -> Option<(u64, ExternalSession)> {
+pub(crate) fn parse_claude_file(path: &Path, slug: &str) -> Option<(u64, ExternalSession)> {
     let text = std::fs::read_to_string(path).ok()?;
     let mut acc = ClaudeAcc::default();
     // Files that contribute no signal at all (no timestamps, ids, cwd, or
@@ -483,7 +483,7 @@ struct CodexAcc {
     message_count: u32,
 }
 
-fn parse_codex_file(path: &Path) -> Option<(u64, ExternalSession)> {
+pub(crate) fn parse_codex_file(path: &Path) -> Option<(u64, ExternalSession)> {
     let text = std::fs::read_to_string(path).ok()?;
     let mut acc = CodexAcc::default();
     let mut signals = 0u32;

@@ -61,7 +61,7 @@ import {
   type McpFormUnsupportedReason,
 } from "./codexElicitation";
 import { snapshotRemainder } from "../../core/streamText";
-import { NativeForkError } from "../../core/types";
+import { NativeForkError, NativeResumeError } from "../../core/types";
 import { buildThreadForkParams } from "./codexProtocol";
 import type {
   ApprovalDecision,
@@ -507,7 +507,48 @@ export function bindCodexSession(
 }
 
 async function ensureLive(input: HarnessSessionInput): Promise<Live> {
+  const nativeId = input.nativeResume?.providerSessionId.trim();
+  if (input.nativeResume && !nativeId)
+    throw new NativeResumeError("The native Codex conversation ID is missing.");
+  if (nativeId && input.fork)
+    throw new NativeResumeError(
+      "A native Codex resume cannot be combined with a fork request.",
+    );
   const existing = liveByThread.get(input.sessionId);
+  if (
+    nativeId &&
+    existing &&
+    (existing.threadId !== nativeId ||
+      existing.cwd !== input.cwd ||
+      !sameProviderAccountId(
+        existing.providerAccountId,
+        input.providerAccountId,
+      ))
+  )
+    throw new NativeResumeError(
+      "This running Codex conversation belongs to a different thread, folder or account.",
+    );
+  const savedResume = resumeByThread.get(input.sessionId);
+  if (
+    nativeId &&
+    savedResume &&
+    (savedResume.threadId !== nativeId ||
+      savedResume.cwd !== input.cwd ||
+      !sameProviderAccountId(
+        savedResume.providerAccountId,
+        input.providerAccountId,
+      ))
+  )
+    throw new NativeResumeError(
+      "The requested Codex conversation does not match its saved provider binding.",
+    );
+  if (nativeId)
+    bindCodexSession(
+      input.sessionId,
+      nativeId,
+      input.cwd,
+      input.providerAccountId,
+    );
   const controlsAgents = input.controlsAgents === true;
   if (
     existing &&
@@ -687,9 +728,19 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
             }),
           },
         );
+        if (nativeId && opened.thread?.id !== nativeId)
+          throw new NativeResumeError(
+            "Codex returned a different native conversation.",
+          );
         threadId = opened.thread?.id ?? resume.threadId;
         didResume = true;
       } catch (error) {
+        if (input.nativeResume)
+          throw new NativeResumeError(
+            error instanceof Error
+              ? error.message
+              : "Codex could not resume the original conversation.",
+          );
         if (!isRecoverableThreadResumeError(error)) throw error;
         threadId = undefined;
       }

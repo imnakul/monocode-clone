@@ -49,7 +49,11 @@ const {
   __claudeTestReset,
 } = await import("./claude");
 import type { HarnessEvent } from "../../core/types";
-import { NativeForkError, type NativeForkRequest } from "../../core/types";
+import {
+  NativeForkError,
+  NativeResumeError,
+  type NativeForkRequest,
+} from "../../core/types";
 import type {
   RuntimeMode,
   TurnIntent,
@@ -269,6 +273,269 @@ describe("Claude native fork", () => {
     );
     emit({ type: "result", subtype: "success" });
     await next.turn;
+  });
+});
+
+describe("Claude strict native resume", () => {
+  it("rejects an empty native id before coalescing with a pending start", async () => {
+    const base = {
+      sessionId: "s1",
+      cwd: "/repo",
+      model: "claude:claude-sonnet-5",
+      runtimeMode: "supervised" as const,
+      text: "first pending send",
+      attachments: [],
+      onEvent: () => undefined,
+    };
+    const first = sendClaudeTurn(base);
+    await waitFor(
+      () => outgoingControlRequest("initialize") !== undefined,
+      "pending initialize",
+    );
+
+    await expect(
+      sendClaudeTurn({
+        ...base,
+        nativeResume: { providerSessionId: " " },
+        text: "invalid empty id",
+      }),
+    ).rejects.toBeInstanceOf(NativeResumeError);
+    expect(spawned).toHaveLength(1);
+    expect(parse().some((message) => message.type === "user")).toBe(false);
+    const initialize = outgoingControlRequest("initialize");
+    emit({ type: "system", subtype: "init", session_id: "sess_1" });
+    respondToControl(initialize?.request_id);
+    await waitFor(
+      () => parse().some((message) => message.type === "user"),
+      "first valid user message",
+    );
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await first;
+    expect(parse().filter((message) => message.type === "user")).toHaveLength(1);
+  });
+
+  it("rejects native resume plus fork before coalescing with a pending resume", async () => {
+    const base = {
+      sessionId: "s1",
+      cwd: "/repo",
+      model: "claude:claude-sonnet-5",
+      runtimeMode: "supervised" as const,
+      nativeResume: { providerSessionId: "provider-session-17" },
+      text: "first pending native resume",
+      attachments: [],
+      onEvent: () => undefined,
+    };
+    const first = sendClaudeTurn(base);
+    await waitFor(
+      () => outgoingControlRequest("initialize") !== undefined,
+      "pending native initialize",
+    );
+
+    await expect(
+      sendClaudeTurn({
+        ...base,
+        fork: { sourceProviderSessionId: "provider-session-17" },
+        text: "invalid resume fork",
+      }),
+    ).rejects.toBeInstanceOf(NativeResumeError);
+    expect(spawned).toHaveLength(1);
+    expect(parse().some((message) => message.type === "user")).toBe(false);
+    const initialize = outgoingControlRequest("initialize");
+    emit({
+      type: "system",
+      subtype: "init",
+      session_id: "provider-session-17",
+    });
+    respondToControl(initialize?.request_id);
+    await waitFor(
+      () => parse().some((message) => message.type === "user"),
+      "first valid native user message",
+    );
+    emit({
+      type: "result",
+      subtype: "success",
+      session_id: "provider-session-17",
+    });
+    await first;
+    expect(parse().filter((message) => message.type === "user")).toHaveLength(1);
+  });
+
+  it("passes the exact provider id and confirms it before writing a user message", async () => {
+    const events: HarnessEvent[] = [];
+    const turn = sendClaudeTurn({
+      sessionId: "s1",
+      cwd: "/repo",
+      model: "claude:claude-sonnet-5",
+      runtimeMode: "supervised",
+      nativeResume: { providerSessionId: "provider-session-17" },
+      text: "continue this native conversation",
+      attachments: [],
+      onEvent: (event) => events.push(event),
+    });
+    await waitFor(
+      () => outgoingControlRequest("initialize") !== undefined,
+      "native initialize",
+    );
+    const args = spawned[0];
+    expect(args[args.indexOf("--resume") + 1]).toBe("provider-session-17");
+    expect(args).not.toContain("--session-id");
+    const initialize = outgoingControlRequest("initialize");
+    emit({
+      type: "system",
+      subtype: "init",
+      session_id: "provider-session-17",
+    });
+    respondToControl(initialize?.request_id);
+    await waitFor(
+      () => parse().some((message) => message.type === "user"),
+      "native user message",
+    );
+    expect(events).not.toContainEqual({
+      type: "session.error",
+      message: expect.any(String),
+    });
+    emit({ type: "result", subtype: "success" });
+    await turn;
+  });
+
+  it("accepts an initialize response when the CLI omits a pre-message system init", async () => {
+    const turn = sendClaudeTurn({
+      sessionId: "s1",
+      cwd: "/repo",
+      model: "claude:claude-sonnet-5",
+      runtimeMode: "supervised",
+      nativeResume: { providerSessionId: "provider-session-18" },
+      text: "continue the requested conversation",
+      attachments: [],
+      onEvent: () => undefined,
+    });
+    await waitFor(
+      () => outgoingControlRequest("initialize") !== undefined,
+      "native initialize",
+    );
+    const initialize = outgoingControlRequest("initialize");
+    respondToControl(initialize?.request_id);
+    await waitFor(
+      () => parse().some((message) => message.type === "user"),
+      "native user message after initialize",
+    );
+    expect(spawned[0][spawned[0].indexOf("--resume") + 1]).toBe(
+      "provider-session-18",
+    );
+    emit({ type: "result", subtype: "success" });
+    await turn;
+  });
+
+  it("fails before writing if Claude initializes a different conversation", async () => {
+    const events: HarnessEvent[] = [];
+    const turn = sendClaudeTurn({
+      sessionId: "s1",
+      cwd: "/repo",
+      model: "claude:claude-sonnet-5",
+      runtimeMode: "supervised",
+      nativeResume: { providerSessionId: "provider-session-17" },
+      text: "continue this native conversation",
+      attachments: [],
+      onEvent: (event) => events.push(event),
+    });
+    const rejected = expect(turn).rejects.toBeInstanceOf(NativeResumeError);
+    await waitFor(
+      () => outgoingControlRequest("initialize") !== undefined,
+      "native initialize",
+    );
+    emit({
+      type: "system",
+      subtype: "init",
+      session_id: "fresh-conversation",
+    });
+    await rejected;
+    expect(parse().some((message) => message.type === "user")).toBe(false);
+    expect(
+      events.some((event) => event.type === "session.providerBound"),
+    ).toBe(false);
+    expect(spawned[0]).not.toContain("--session-id");
+  });
+
+  it("fails the active turn if Claude reports a different id after the user write", async () => {
+    const events: HarnessEvent[] = [];
+    const turn = sendClaudeTurn({
+      sessionId: "s1",
+      cwd: "/repo",
+      model: "claude:claude-sonnet-5",
+      runtimeMode: "supervised",
+      nativeResume: { providerSessionId: "provider-session-17" },
+      text: "continue this native conversation",
+      attachments: [],
+      onEvent: (event) => events.push(event),
+    });
+    const rejected = expect(turn).rejects.toBeInstanceOf(NativeResumeError);
+    await waitFor(
+      () => outgoingControlRequest("initialize") !== undefined,
+      "native initialize",
+    );
+    const initialize = outgoingControlRequest("initialize");
+    emit({
+      type: "system",
+      subtype: "init",
+      session_id: "provider-session-17",
+    });
+    respondToControl(initialize?.request_id);
+    await waitFor(
+      () => parse().some((message) => message.type === "user"),
+      "native user message",
+    );
+
+    emit({
+      type: "assistant",
+      session_id: "fresh-conversation",
+      message: { content: [{ type: "text", text: "wrong conversation" }] },
+    });
+    await rejected;
+    expect(events).toContainEqual({
+      type: "session.error",
+      message:
+        "Claude Code opened a different conversation than the one requested. No new conversation was started.",
+    });
+    expect(events).not.toContainEqual({
+      type: "session.providerBound",
+      providerSessionId: "fresh-conversation",
+    });
+  });
+
+  it("fails closed on early exit and profile or folder mismatch", async () => {
+    const exited = sendClaudeTurn({
+      sessionId: "s1",
+      cwd: "/repo",
+      model: "claude:claude-sonnet-5",
+      runtimeMode: "supervised",
+      nativeResume: { providerSessionId: "provider-session-17" },
+      text: "continue this native conversation",
+      onEvent: () => undefined,
+    });
+    const rejected = expect(exited).rejects.toBeInstanceOf(NativeResumeError);
+    await waitFor(
+      () => outgoingControlRequest("initialize") !== undefined,
+      "native initialize",
+    );
+    onExit?.(1);
+    await rejected;
+    expect(parse().some((message) => message.type === "user")).toBe(false);
+
+    __claudeTestReset();
+    bindClaudeSession("s1", "provider-session-17", "/different", "account-a");
+    await expect(
+      sendClaudeTurn({
+        sessionId: "s1",
+        cwd: "/repo",
+        model: "claude:claude-sonnet-5",
+        providerAccountId: "account-a",
+        runtimeMode: "supervised",
+        nativeResume: { providerSessionId: "provider-session-17" },
+        text: "continue this native conversation",
+        onEvent: () => undefined,
+      }),
+    ).rejects.toBeInstanceOf(NativeResumeError);
+    expect(spawned).toHaveLength(1);
   });
 });
 

@@ -195,3 +195,34 @@ it("disables close-to-tray outside Windows without consulting storage", () => {
   expect(settings.loadCloseToTray()).toBe(false);
   expect(read).not.toHaveBeenCalled();
 });
+
+describe("Claude Remote Control persistence", () => {
+  it("defaults off and persists the global default", () => {
+    expect(settings.loadClaudeRemoteControlDefault()).toBe(false);
+    settings.saveClaudeRemoteControlDefault(true);
+    expect(localStorage.getItem("monocode.claudeRemoteControlDefault")).toBe(
+      "1",
+    );
+    expect(settings.loadClaudeRemoteControlDefault()).toBe(true);
+  });
+
+  it("loads valid per-session ids and writes a normalized JSON array", () => {
+    localStorage.setItem(
+      "monocode.claudeRemoteControlSessions",
+      JSON.stringify([" session-b ", "session-a", "session-b", "", 1]),
+    );
+    expect(settings.loadRemoteControlSessions()).toEqual(
+      new Set(["session-b", "session-a"]),
+    );
+
+    settings.saveRemoteControlSessions([" session-c ", "session-a", ""]);
+    expect(
+      localStorage.getItem("monocode.claudeRemoteControlSessions"),
+    ).toBe('["session-a","session-c"]');
+  });
+
+  it("treats malformed per-session storage as empty", () => {
+    localStorage.setItem("monocode.claudeRemoteControlSessions", "{");
+    expect(settings.loadRemoteControlSessions()).toEqual(new Set());
+  });
+});

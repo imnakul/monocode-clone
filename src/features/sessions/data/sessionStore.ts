@@ -267,6 +267,39 @@ export async function upsertSession(
   if (!shouldPersistSession(session) || deletedSessionIds.has(session.id)) {
     return null;
   }
+  return writeSessionRecord(session);
+}
+
+/** Native context stays in the provider store; persist its blank MonoCode view without fake user blocks. */
+export async function upsertNativeResumeSession(
+  session: Session,
+): Promise<SessionSummary | null> {
+  if (
+    session.ephemeral || session.inboxAsk || isRemoteProjectPath(session.cwd) ||
+    (session.harness !== "claude" && session.harness !== "codex")
+  ) {
+    throw new Error(
+      "Only local Claude/Codex native conversations can use this save path.",
+    );
+  }
+  if (deletedSessionIds.has(session.id)) return null;
+  const source = await invoke<{ key: string; cwd: string } | null>(
+    "provider_sessions_for_session", { sessionId: session.id },
+  );
+  if (!source || !source.cwd || source.cwd !== session.cwd) {
+    throw new Error("Native conversation binding is missing or its project folder changed.");
+  }
+  await invoke("provider_sessions_validate_source", {
+    key: source.key,
+    provider: session.harness,
+    accountId: session.providerAccountId ?? "default",
+  });
+  return writeSessionRecord(session);
+}
+
+async function writeSessionRecord(
+  session: Session,
+): Promise<SessionSummary | null> {
   const payload = sanitizeSessionForPersist(session);
   if (session.orchestrationLeadId) {
     sessionWriteLeadById.set(session.id, session.orchestrationLeadId);

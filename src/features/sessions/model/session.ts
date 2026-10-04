@@ -1,4 +1,5 @@
 import type { ProcessedUsage } from "./tokenAccounting";
+import type { RemoteControlStatus } from "../../../integrations/harness/core/types";
 import { deriveLocalSessionTitle } from "./sessionTitle";
 import { dropContextWindow, type ContextUsage } from "./contextUsage";
 import type { UserQuestionPrompt } from "./userQuestion";
@@ -478,6 +479,10 @@ export type Session = {
   usageLimit?: UsageLimit;
   /** Provider-side conversation id (Cursor ACP session id). */
   providerSessionId?: string;
+  /** Current local Claude Remote Control state; in-memory only. */
+  remoteControlStatus?: RemoteControlStatus;
+  remoteControlUrl?: string;
+  remoteControlMessage?: string;
   /** Named local credential profile used by Claude or Codex. */
   providerAccountId?: string;
   /** Context-window level reported by the harness. Absent until it reports. */

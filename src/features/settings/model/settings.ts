@@ -1196,6 +1196,50 @@ export function saveClaudeHooks(value: boolean) {
   writeFlag(CLAUDE_HOOKS_KEY, value);
 }
 
+const CLAUDE_REMOTE_CONTROL_DEFAULT_KEY =
+  "monocode.claudeRemoteControlDefault";
+const CLAUDE_REMOTE_CONTROL_SESSIONS_KEY =
+  "monocode.claudeRemoteControlSessions";
+
+export function loadClaudeRemoteControlDefault(): boolean {
+  return readFlag(CLAUDE_REMOTE_CONTROL_DEFAULT_KEY) ?? false;
+}
+
+export function saveClaudeRemoteControlDefault(value: boolean): void {
+  writeFlag(CLAUDE_REMOTE_CONTROL_DEFAULT_KEY, value);
+}
+
+export function loadRemoteControlSessions(): Set<string> {
+  try {
+    const raw = localStorage.getItem(CLAUDE_REMOTE_CONTROL_SESSIONS_KEY);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(
+      parsed.filter(
+        (value): value is string =>
+          typeof value === "string" && value.trim().length > 0,
+      ).map((value) => value.trim()),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveRemoteControlSessions(ids: Iterable<string>): void {
+  try {
+    const normalized = [...new Set(
+      [...ids].map((id) => id.trim()).filter(Boolean),
+    )].sort();
+    localStorage.setItem(
+      CLAUDE_REMOTE_CONTROL_SESSIONS_KEY,
+      JSON.stringify(normalized),
+    );
+  } catch {
+    // Keep the live setting usable if local storage is unavailable.
+  }
+}
+
 const DETAILED_CONTEXT_KEY = "monocode.detailedContext";
 
 export const DETAILED_CONTEXT_DEFAULT = false;

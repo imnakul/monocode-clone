@@ -30,6 +30,7 @@ mod pasteboard;
 mod pi_usage;
 mod project_logo;
 mod prompts;
+mod provider_sessions;
 mod pty;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod quick_composer;
@@ -565,6 +566,14 @@ pub fn run() {
             session_store::workspace_get_snapshot,
             session_import::scan_external_sessions,
             session_import::read_external_transcript,
+            provider_sessions::provider_sessions_list,
+            provider_sessions::provider_sessions_set_archived,
+            provider_sessions::provider_sessions_bind,
+            provider_sessions::provider_sessions_for_session,
+            provider_sessions::provider_sessions_unbind,
+            provider_sessions::provider_sessions_validate_source,
+            provider_sessions::provider_cloud_save,
+            provider_sessions::provider_cloud_list,
             notes::notes_list,
             notes::notes_get,
             notes::notes_upsert,

@@ -8,6 +8,7 @@ import {
   HARNESS_IDLE_PARK_MS,
   bindHarnessSession,
   canCompactHarnessContext,
+  canHarnessRemoteControl,
   canRunHarnessTextPrompt,
   runHarnessTextPrompt,
   canRewindHarnessLastTurn,
@@ -18,7 +19,9 @@ import {
   registerHarness,
   respondHarnessApproval,
   resetHarnessIdlePark,
+  setHarnessRemoteControl,
   sendHarnessTurn,
+  syncHarnessRemoteControlDesired,
   type HarnessAdapter,
 } from "./registry";
 import type { SendTurnInput, SteerTurnInput } from "./types";
@@ -336,6 +339,118 @@ describe("harness registry", () => {
     expect(stopSession).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(stopSession).toHaveBeenCalledWith("s1");
+  });
+
+  it("keeps desired Remote Control sessions warm and restores parking on disable", async () => {
+    vi.useFakeTimers();
+    const stopSession = vi.fn(async () => undefined);
+    let desired = false;
+    const setRemoteControl = vi.fn(async ({ enabled }: { enabled: boolean }) => {
+      desired = enabled;
+    });
+    registerHarness(
+      stub("claude", {
+        setRemoteControl,
+        setRemoteControlDesired: (_sessionId, enabled) => {
+          desired = enabled;
+        },
+        isRemoteControlDesired: () => desired,
+        stopSession,
+      }),
+    );
+
+    expect(canHarnessRemoteControl("claude")).toBe(true);
+    expect(canHarnessRemoteControl("codex")).toBe(false);
+    await sendHarnessTurn({
+      harness: "claude",
+      sessionId: "rc-session",
+      cwd: "/tmp",
+      model: "claude:sonnet",
+      text: "hi",
+      runtimeMode: "supervised",
+      onEvent: () => undefined,
+    });
+    syncHarnessRemoteControlDesired({
+      harness: "claude",
+      sessionId: "rc-session",
+      enabled: true,
+    });
+    await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS + 1);
+    expect(stopSession).not.toHaveBeenCalled();
+
+    await setHarnessRemoteControl({
+      harness: "claude",
+      sessionId: "rc-session",
+      cwd: "/tmp",
+      model: "claude:sonnet",
+      runtimeMode: "supervised",
+      onEvent: () => undefined,
+      enabled: false,
+    });
+    await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS);
+    expect(setRemoteControl).toHaveBeenCalledOnce();
+    expect(stopSession).toHaveBeenCalledWith("rc-session");
+  });
+
+  it("does not queue Remote Control behind a running turn", async () => {
+    let releaseTurn!: () => void;
+    let started!: () => void;
+    const sendStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const sendTurn = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseTurn = resolve;
+          started();
+        }),
+    );
+    const setRemoteControl = vi.fn(async () => undefined);
+    registerHarness(stub("claude", { sendTurn, setRemoteControl }));
+
+    const turn = sendHarnessTurn({
+      harness: "claude",
+      sessionId: "rc-live",
+      cwd: "/tmp",
+      model: "claude:sonnet",
+      text: "hi",
+      runtimeMode: "supervised",
+      onEvent: () => undefined,
+    });
+    await sendStarted;
+    await setHarnessRemoteControl({
+      harness: "claude",
+      sessionId: "rc-live",
+      cwd: "/tmp",
+      model: "claude:sonnet",
+      runtimeMode: "supervised",
+      onEvent: () => undefined,
+      enabled: true,
+    });
+    expect(setRemoteControl).toHaveBeenCalledOnce();
+    releaseTurn();
+    await turn;
+  });
+
+  it("synchronizes saved desired state without calling the live toggle", () => {
+    const setRemoteControl = vi.fn(async () => undefined);
+    const setDesired = vi.fn();
+    registerHarness(
+      stub("claude", {
+        setRemoteControl,
+        setRemoteControlDesired: setDesired,
+      }),
+    );
+
+    syncHarnessRemoteControlDesired({
+      harness: "claude",
+      sessionId: "saved-rc",
+      enabled: true,
+      name: "Saved chat",
+    });
+
+    expect(setDesired).toHaveBeenCalledWith("saved-rc", true, "Saved chat");
+    expect(setRemoteControl).not.toHaveBeenCalled();
   });
   it("serializes provider-state operations per session", async () => {
     const order: string[] = [];
