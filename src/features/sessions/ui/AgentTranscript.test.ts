@@ -396,6 +396,20 @@ describe("AgentTranscript collapsed work", () => {
     expect(markup).toContain(">Draft</span>");
   });
 
+  it("offers Edit on an unsent draft only when the session can edit it", () => {
+    const blocks: Block[] = [
+      { id: "draft", role: "user", text: "Explore this", draft: true },
+    ];
+    expect(render(blocks)).not.toContain('aria-label="Edit draft"');
+    const markup = renderToStaticMarkup(
+      createElement(AgentTranscript, { blocks, busy: false, onEditDraft: () => {} }),
+    );
+    expect(markup).toContain('aria-label="Edit draft"');
+    // Remove, Edit, then Send.
+    expect(markup.indexOf("Remove draft")).toBeLessThan(markup.indexOf("Edit draft"));
+    expect(markup.indexOf("Edit draft")).toBeLessThan(markup.indexOf("Send draft"));
+  });
+
   it("keeps surrounding prose and previews its first URL", () => {
     const markup = render([
       {

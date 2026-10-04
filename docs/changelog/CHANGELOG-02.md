@@ -1,11 +1,23 @@
 # Changelog 02
 
+## 2026-10-05 00:22 IST — Preserve UI changes and build handoff in merge
+- What: Resolved the single changelog conflict between local `07952d9` and incoming `d6f0ad8` by keeping both the reusable build handoff and Edit on opened drafts entries, as requested. Incoming UI/test/local-feature files remain identical to the remote commit; the local runbook and spec index remain identical to the local documentation commit. Nakul explicitly authorized the merge commit despite the documented red full-suite gate; push was not authorized.
+- Files: `docs/changelog/CHANGELOG-02.md` (conflict markers removed; both entries retained).
+- Verified: Exact source/document comparisons, TypeScript, transcript tests (36), production build and staged diff check pass; no unresolved paths remain. Pre-commit full web suite: 5,548 passed / 4 failed (two known Windows shortcut expectations and two Quick Composer attachment assertions). Attachment tests pass in isolation; those files are unchanged from HEAD and outside this merge. Full-suite gate remains red; no tests changed or weakened. Logs: `.git/merge-web-check.log`, `.git/merge-attachments-check.log`, `.git/merge-typecheck.log`. Existing CSS-highlight/chunk-size warnings remain; lint unavailable. Manual: open an unsent local draft, Edit, save, then Send.
+- Commit: merge commit containing this entry (see git log).
+
 ## 2026-10-04 23:48 IST — Reusable Windows build handoff
 - What: Saved a repeatable installer-build runbook and copyable prompt for a lower-cost agent. Includes dynamic version selection, storage hard stops, sequential checks, exact known-failure handling, checksum/archive verification, preserving existing work and separate manual desktop checks.
 - Files: `docs/specs/repeatable-windows-installer-build.md`; `docs/specs/SPECS.md` (Draft row).
 - Verified: Compared against the local2/local3 build records and current manifests/scripts; documentation-only diff check. No build or source changes in this task.
 - Commit: uncommitted.
 
+
+## 2026-10-04 — Edit on opened drafts
+- What: An unsent draft opened from the project Sessions list (or anywhere in the workspace) shows Remove, Edit and Send; Edit opens the same Edit Draft composer as Session Manager. Only whole-draft local sessions that can still be edited get it.
+- Files: `src/features/sessions/ui/AgentTranscript.tsx` (`onEditDraft`, Edit button); `src/features/sessions/ui/SessionPane.tsx`; `src/features/workspace/ui/PaneTree.tsx`; `src/app/App.tsx` (`onEditOpenDraft`); test `AgentTranscript.test.ts`
+- Verified: tsc ✅ tests ✅ build ✅ | manual: open a draft from Sessions → Drafts, Edit, save, Send
+- Commit: see git log for this entry
 ## 2026-10-04 23:20 IST — Windows 0.7.0 local3 installer
 - What: Rebuilt the unchanged current branch at `728ab243` as `0.7.0-local3-upstream-sync`, using the next local counter. Archived the unsigned NSIS installer alongside local2; earlier installers preserved. No feature changes, commit, push or installation; pre-existing Cargo.toml bytes preserved.
 - Files: `package.json` (line 4), `package-lock.json` (root metadata), `Cargo.toml` (line 7), `Cargo.lock` (monocode version), `src-tauri/tauri.conf.json` (line 4); [build record and logs](../notes/windows-070-local3-build/README.md).

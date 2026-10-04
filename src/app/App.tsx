@@ -8531,6 +8531,15 @@ function Workspace({
     setTodoComposer({ id, launch, editing: true, revision });
   };
 
+  // Stable for the memoized panes; always calls the latest editSessionTodo.
+  const editSessionTodoRef = useRef(editSessionTodo);
+  editSessionTodoRef.current = editSessionTodo;
+  const onEditOpenDraft = useCallback((sessionId: string) => {
+    void editSessionTodoRef.current(sessionId).catch((error: unknown) =>
+      console.warn("Could not open the draft for editing:", error),
+    );
+  }, []);
+
   const appReceipts = useRef(
     new Map<string, { signature: string; promise: Promise<unknown> }>(),
   );
@@ -12115,6 +12124,7 @@ function Workspace({
     onNewTerminal: onNewTerminalInSession,
     remoteControlDesired,
     onRemoteControlChange: onChangeRemoteControl,
+    onEditDraft: onEditOpenDraft,
     onOperatorDisable: onDisableOperator,
     onCloudLaunchOutcome,
     onReviewFix,

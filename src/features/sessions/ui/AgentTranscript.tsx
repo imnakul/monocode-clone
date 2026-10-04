@@ -188,6 +188,8 @@ type Props = {
   onSaveNote?: (text: string) => void | Promise<void>;
   onSendDraft?: (block: Block) => boolean | void;
   onRemoveDraft?: (block: Block) => boolean | void;
+  /** Opens the draft in the Edit Draft composer (unsent draft sessions). */
+  onEditDraft?: (block: Block) => void;
   onSaveSelectionNote?: (text: string) => void | Promise<void>;
   onSaveSelectionTask?: (text: string, blockId?: string) => void | Promise<void>;
   onAddToSessionManager?: (text: string) => void;
@@ -236,6 +238,7 @@ function AgentTranscriptComponent({
   onSaveNote,
   onSendDraft,
   onRemoveDraft,
+  onEditDraft,
   onSaveSelectionNote,
   onSaveSelectionTask,
   onAddToSessionManager,
@@ -825,6 +828,7 @@ function AgentTranscriptComponent({
                   onSaveNote={onSaveNote}
                   onSendDraft={onSendDraft}
                   onRemoveDraft={onRemoveDraft}
+                  onEditDraft={onEditDraft}
                   onOpenFile={onOpenFile}
                   onOpenDiff={onOpenDiff}
                   onOpenPlan={onOpenPlan}
@@ -1483,6 +1487,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   onSaveNote,
   onSendDraft,
   onRemoveDraft,
+  onEditDraft,
   onOpenFile,
   onOpenDiff,
   onOpenPlan,
@@ -1512,6 +1517,8 @@ const TranscriptBlock = memo(function TranscriptBlock({
   onSaveNote?: (text: string) => void | Promise<void>;
   onSendDraft?: (block: Block) => boolean | void;
   onRemoveDraft?: (block: Block) => boolean | void;
+  /** Opens the draft in the Edit Draft composer (unsent draft sessions). */
+  onEditDraft?: (block: Block) => void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
   onOpenPlan?: (blockId: string) => void;
@@ -1536,6 +1543,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
         onSaveNote={onSaveNote}
         onSendDraft={onSendDraft}
         onRemoveDraft={onRemoveDraft}
+        onEditDraft={onEditDraft}
       />
     );
   }
@@ -1705,6 +1713,7 @@ function UserMessageBlock({
   onSaveNote,
   onSendDraft,
   onRemoveDraft,
+  onEditDraft,
 }: {
   block: Block;
   layout: TranscriptLayout;
@@ -1716,6 +1725,8 @@ function UserMessageBlock({
   onSaveNote?: (text: string) => void | Promise<void>;
   onSendDraft?: (block: Block) => boolean | void;
   onRemoveDraft?: (block: Block) => boolean | void;
+  /** Opens the draft in the Edit Draft composer (unsent draft sessions). */
+  onEditDraft?: (block: Block) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
@@ -1901,6 +1912,18 @@ function UserMessageBlock({
                   <Trash2 className="size-3.5" strokeWidth={1.75} />
                   Remove
                 </button>
+                {onEditDraft ? (
+                  <button
+                    type="button"
+                    title="Edit draft"
+                    aria-label="Edit draft"
+                    onClick={() => onEditDraft(block)}
+                    className="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-content/55 hover:bg-content/10 hover:text-content"
+                  >
+                    <Pencil className="size-3.5" strokeWidth={1.75} />
+                    Edit
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   title="Send draft"
