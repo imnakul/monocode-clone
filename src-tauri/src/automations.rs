@@ -6,6 +6,7 @@ use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::session_store::{now_millis, validate_id, SessionStore};
+mod cron_schedule;
 
 pub(crate) const CHANGED: &str = "monocode:automations-changed";
 
@@ -31,6 +32,8 @@ pub struct Automation {
     #[serde(default)]
     session_folder_id: String,
     reuse_session: bool,
+    #[serde(default)]
+    operator_mode: bool,
     runtime_mode: String,
     #[serde(default = "default_trigger_kind")]
     trigger_kind: String,
@@ -40,6 +43,8 @@ pub struct Automation {
     minute: i64,
     time: String,
     day_of_week: i64,
+    #[serde(default)]
+    cron: String,
     #[serde(default)]
     triggers: Option<Vec<AutomationTrigger>>,
     missed_run_grace_minutes: i64,
@@ -75,6 +80,8 @@ pub struct AutomationUpsert {
     session_folder_id: String,
     #[serde(default)]
     reuse_session: bool,
+    #[serde(default)]
+    operator_mode: bool,
     runtime_mode: String,
     #[serde(default = "default_trigger_kind")]
     trigger_kind: String,
@@ -84,6 +91,8 @@ pub struct AutomationUpsert {
     minute: i64,
     time: String,
     day_of_week: i64,
+    #[serde(default)]
+    cron: String,
     #[serde(default)]
     triggers: Option<Vec<AutomationTrigger>>,
     missed_run_grace_minutes: i64,
@@ -135,6 +144,8 @@ pub struct AutomationTrigger {
     time: String,
     #[serde(default = "default_day_of_week")]
     day_of_week: i64,
+    #[serde(default)]
+    cron: String,
     #[serde(default)]
     repos: Vec<String>,
     #[serde(default)]
@@ -287,9 +298,12 @@ fn validate_upsert(input: &AutomationUpsert, now: i64) -> Result<(), String> {
     }
     if !matches!(
         input.schedule_kind.as_str(),
-        "hourly" | "daily" | "weekdays" | "weekly"
+        "hourly" | "daily" | "weekdays" | "weekly" | "custom"
     ) {
         return Err("Invalid automation schedule.".into());
+    }
+    if input.schedule_kind == "custom" {
+        cron_schedule::validate_cron(&input.cron)?;
     }
     if !(0..=59).contains(&input.minute)
         || !(0..=6).contains(&input.day_of_week)
@@ -332,9 +346,12 @@ fn validate_trigger(trigger: &AutomationTrigger) -> Result<(), String> {
     }
     if !matches!(
         trigger.schedule_kind.as_str(),
-        "hourly" | "daily" | "weekdays" | "weekly"
+        "hourly" | "daily" | "weekdays" | "weekly" | "custom"
     ) {
         return Err("Invalid automation schedule.".into());
+    }
+    if trigger.schedule_kind == "custom" {
+        cron_schedule::validate_cron(&trigger.cron)?;
     }
     if !(0..=59).contains(&trigger.minute)
         || !(0..=6).contains(&trigger.day_of_week)
@@ -353,7 +370,7 @@ fn hydrate_triggers(automation: &mut Automation) {
 }
 
 fn legacy_trigger(automation: &Automation) -> AutomationTrigger {
-    trigger_from_fields(
+    let mut trigger = trigger_from_fields(
         &automation.id,
         &automation.trigger_kind,
         &automation.trigger_event,
@@ -361,7 +378,9 @@ fn legacy_trigger(automation: &Automation) -> AutomationTrigger {
         automation.minute,
         &automation.time,
         automation.day_of_week,
-    )
+    );
+    trigger.cron.clone_from(&automation.cron);
+    trigger
 }
 
 fn has_time_trigger(automation: &Automation) -> bool {
@@ -373,7 +392,7 @@ fn has_time_trigger(automation: &Automation) -> bool {
 
 fn normalize_triggers(input: &AutomationUpsert) -> Vec<AutomationTrigger> {
     let mut triggers = input.triggers.clone().unwrap_or_else(|| {
-        vec![trigger_from_fields(
+        let mut trigger = trigger_from_fields(
             &input.id,
             &input.trigger_kind,
             &input.trigger_event,
@@ -381,13 +400,20 @@ fn normalize_triggers(input: &AutomationUpsert) -> Vec<AutomationTrigger> {
             input.minute,
             &input.time,
             input.day_of_week,
-        )]
+        );
+        trigger.cron.clone_from(&input.cron);
+        vec![trigger]
     });
     for trigger in &mut triggers {
         if trigger.id.trim().is_empty() {
             trigger.id = Uuid::new_v4().to_string();
         }
         trigger.event = trigger.event.trim().to_string();
+        trigger.cron = trigger
+            .cron
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
         trigger.repo = trigger.repo.trim().to_string();
         trigger.branch = trigger.branch.trim().to_string();
         trigger.actor = trigger.actor.trim().to_string();
@@ -425,6 +451,7 @@ fn trigger_from_fields(
         minute,
         time: time.to_string(),
         day_of_week,
+        cron: String::new(),
         repos: Vec::new(),
         repo: String::new(),
         branch: String::new(),
@@ -674,6 +701,7 @@ pub fn automations_upsert(
         worktree_cwd,
         session_folder_id: automation.session_folder_id.trim().to_string(),
         reuse_session: automation.reuse_session,
+        operator_mode: automation.operator_mode,
         runtime_mode: automation.runtime_mode,
         trigger_kind: automation.trigger_kind,
         trigger_event: automation.trigger_event.trim().to_string(),
@@ -681,6 +709,11 @@ pub fn automations_upsert(
         minute: automation.minute,
         time: automation.time,
         day_of_week: automation.day_of_week,
+        cron: automation
+            .cron
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" "),
         triggers,
         missed_run_grace_minutes: automation.missed_run_grace_minutes,
         enabled: automation.enabled,
@@ -1034,6 +1067,45 @@ mod tests {
     }
 
     #[test]
+    fn custom_and_operator_definitions_round_trip_and_legacy_defaults_stay_off() {
+        let mut automation: Automation = serde_json::from_value(serde_json::json!({
+            "id": "automation-id", "name": "Audit", "prompt": "Check open tasks",
+            "harness": "codex", "model": "model", "cwd": "/tmp",
+            "workspaceMode": "current", "reuseSession": false, "runtimeMode": "supervised",
+            "scheduleKind": "daily", "minute": 0, "time": "21:00", "dayOfWeek": 1,
+            "missedRunGraceMinutes": 720, "enabled": true, "nextRunAt": 1,
+            "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        assert!(!automation.operator_mode);
+        assert!(automation.cron.is_empty());
+        hydrate_triggers(&mut automation);
+        assert_eq!(
+            automation.triggers.as_ref().unwrap()[0].schedule_kind,
+            "daily"
+        );
+        automation.schedule_kind = "custom".into();
+        automation.cron = "0 21 2 * *".into();
+        automation.operator_mode = true;
+        automation.triggers = Some(vec![legacy_trigger(&automation)]);
+        let input: AutomationUpsert =
+            serde_json::from_value(serde_json::to_value(&automation).unwrap()).unwrap();
+        assert!(validate_upsert(&input, 0).is_ok());
+        let conn = Connection::open_in_memory().unwrap();
+        ensure_tables(&conn).unwrap();
+        write_automation(&conn, &automation).unwrap();
+        let restored = get(&conn, "automation-id").unwrap().unwrap();
+        assert!(restored.operator_mode);
+        assert_eq!(restored.cron, "0 21 2 * *");
+        assert_eq!(restored.triggers.unwrap()[0].cron, "0 21 2 * *");
+        let mut invalid = input;
+        invalid.triggers.as_mut().unwrap()[0].cron = "* * 2 *".into();
+        assert!(validate_upsert(&invalid, 0)
+            .unwrap_err()
+            .contains("five fields"));
+    }
+
+    #[test]
     fn existing_automations_default_to_time_triggers() {
         let automation = Automation {
             id: "automation-id".into(),
@@ -1047,6 +1119,7 @@ mod tests {
             worktree_cwd: String::new(),
             session_folder_id: String::new(),
             reuse_session: false,
+            operator_mode: false,
             runtime_mode: "auto".into(),
             trigger_kind: "github".into(),
             trigger_event: "pull_request_opened".into(),
@@ -1054,6 +1127,7 @@ mod tests {
             minute: 0,
             time: "09:00".into(),
             day_of_week: 1,
+            cron: String::new(),
             triggers: None,
             missed_run_grace_minutes: 720,
             enabled: true,
@@ -1096,6 +1170,7 @@ mod tests {
             worktree_cwd: String::new(),
             session_folder_id: String::new(),
             reuse_session: false,
+            operator_mode: false,
             runtime_mode: "auto".into(),
             trigger_kind: "gitlab".into(),
             trigger_event: "merge_request_opened".into(),
@@ -1103,6 +1178,7 @@ mod tests {
             minute: 0,
             time: "09:00".into(),
             day_of_week: 1,
+            cron: String::new(),
             triggers: None,
             missed_run_grace_minutes: 720,
             enabled: true,

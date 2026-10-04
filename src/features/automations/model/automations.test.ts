@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyTriggers,
+  automationSubmissionPrompt,
   automationScheduleLabel,
   automationTriggers,
   createAutomationTrigger,
@@ -27,6 +28,35 @@ describe("automation schedules", () => {
         at("2026-09-19T10:20:00"),
       ),
     ).toBe(at("2026-09-19T11:15:00"));
+  });
+
+  it("preserves custom cron through save fields and hydration, alongside simple/event triggers", () => {
+    const custom = createAutomationTrigger("time", "custom", { cron: "0 21 2 * *" });
+    const synced = applyTriggers(newAutomationDraft("/repo", "codex", "model"), [custom, createAutomationTrigger("github", "issue_opened")]);
+    const restored = draftFromAutomation({ ...synced, id: "custom-id", nextRunAt: 1, createdAt: 1, updatedAt: 1, operatorMode: true });
+    expect(restored.cron).toBe("0 21 2 * *");
+    expect(restored.operatorMode).toBe(true);
+    expect(restored.triggers).toEqual(synced.triggers);
+    expect(nextTriggersRunAt(restored.triggers, at("2026-10-04T21:00:00"))).toBe(at("2026-11-02T21:00:00"));
+    expect(automationScheduleLabel(restored)).toBe("Custom: 0 21 2 * *");
+  });
+
+  it("bounds custom catch-up and deduplicates coinciding simple/custom runs", () => {
+    const custom = createAutomationTrigger("time", "custom", { cron: "*/15 * * * *" });
+    const hourly = createAutomationTrigger("time", "hourly", { minute: 0 });
+    const first = at("2026-10-04T20:00:00");
+    const runs = overdueTriggerOccurrences([custom, hourly], first, at("2026-10-04T21:00:00"));
+    expect(runs.map((run) => run.scheduledFor)).toEqual([0, 15, 30, 45, 60].map((minute) => first + minute * 60_000));
+    expect(overdueTriggerOccurrences([custom], first, first + 86_400_000, 3)).toHaveLength(3);
+  });
+
+  it("activates Operator for all launch prompts without duplicating an explicit command", () => {
+    expect(automationSubmissionPrompt({ operatorMode: true }, "Check open tasks")).toBe("/operator Check open tasks");
+    expect(automationSubmissionPrompt({ operatorMode: true }, "Issue opened\nCheck open tasks")).toBe("/operator Issue opened\nCheck open tasks");
+    expect(automationSubmissionPrompt({ operatorMode: true }, "/operator Check open tasks")).toBe("/operator Check open tasks");
+    expect(automationSubmissionPrompt({ operatorMode: true }, "/mono Check tasks")).toBe("/mono Check tasks");
+    expect(automationSubmissionPrompt({ operatorMode: false }, "Check open tasks")).toBe("Check open tasks");
+    expect(newAutomationDraft("/repo", "codex", "model").operatorMode).toBe(false);
   });
 
   it("skips weekends for weekday schedules", () => {

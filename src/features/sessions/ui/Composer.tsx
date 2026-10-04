@@ -164,6 +164,7 @@ import { UsageLimitNotice } from "./UsageLimitNotice";
 import { consumePlanCommand, PLAN_COMMAND } from "../model/plan";
 import {
   consumeOperatorCommand,
+  operatorEnabledInThread,
   OPERATOR_COMMAND,
 } from "../model/operatorCommand";
 import {
@@ -906,7 +907,9 @@ export function Composer({
   );
 
   // A leading mode command in the text shows the same pill as picking the mode.
+  const operatorThreadEnabled = !remote && operatorEnabledInThread(blocks);
   const operatorActive =
+    operatorThreadEnabled ||
     operatorSelected || leadingMode?.name === OPERATOR_COMMAND.name;
   const orchestrationActive =
     orchestrationSelected || leadingMode?.name === ORCHESTRATOR_COMMAND.name;
@@ -2718,6 +2721,9 @@ export function Composer({
                     <button
                       type="button"
                       aria-pressed={operatorActive}
+                      disabled={operatorThreadEnabled}
+                      title={operatorThreadEnabled
+                        ? "Operator access is enabled for this chat" : undefined}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => {
                         setOperatorSelected(!operatorActive);
@@ -2736,7 +2742,9 @@ export function Composer({
                       <span className="min-w-0 flex-1">
                         <span className="block text-[13px]">Operator</span>
                         <span className="block truncate whitespace-nowrap text-[11px] leading-4 text-content/45">
-                          Give this thread access to MonoCode
+                          {operatorThreadEnabled
+                            ? "Enabled for this chat"
+                            : "Give this thread access to MonoCode"}
                         </span>
                       </span>
                       {operatorActive ? (
@@ -2810,14 +2818,17 @@ export function Composer({
                 </Popover>
               ) : null}
             </div>
-            {!compact && operatorActive ? (
+            {(!compact || operatorThreadEnabled) && operatorActive ? (
               <ModeCommandPill
                 name={OPERATOR_COMMAND.name}
-                onClear={() => {
-                  setOperatorSelected(false);
-                  clearLeadingMode(OPERATOR_COMMAND.name);
-                  ref.current?.focus();
-                }}
+                title={operatorThreadEnabled
+                  ? "Operator access enabled for this chat; later messages keep access"
+                  : undefined}
+                onClear={operatorThreadEnabled ? undefined : () => {
+                    setOperatorSelected(false);
+                    clearLeadingMode(OPERATOR_COMMAND.name);
+                    ref.current?.focus();
+                  }}
               />
             ) : null}
             {!compact && orchestrationActive ? (

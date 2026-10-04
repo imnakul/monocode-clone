@@ -597,6 +597,7 @@ import {
   type NoteComposerCard,
 } from "../features/notes";
 import {
+  automationSubmissionPrompt,
   claimDueAutomations,
   listAutomations,
   recoverAutomationRuns,
@@ -8252,10 +8253,12 @@ function Workspace({
         releaseAfterSettle = true;
         await submitWithSettlement({
           submit: (onSettled) =>
-            submitSession(session.id, prompt, [], {
-              refreshTitle: eventRun,
-              onSettled,
-            }),
+            submitSession(
+              session.id,
+              automationSubmissionPrompt(automation, prompt),
+              [],
+              { refreshTitle: eventRun, onSettled },
+            ),
           rejectionMessage:
             "The selected agent session could not start this run.",
           onSettled: (outcome) => {

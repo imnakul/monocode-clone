@@ -41,6 +41,12 @@ import { ProjectLogoIcon } from "../../projects/ui/ProjectLogoIcon";
 import { ProjectMascot } from "../../projects/ui/ProjectMascot";
 import { SearchableProjectPicker } from "../../projects/ui/SearchableProjectPicker";
 import { SearchableSelect } from "../../../shared/ui/SearchableSelect";
+import { Toggle } from "../../../shared/ui/Toggle";
+import {
+  CRON_FIELDS,
+  cronFromSimpleSchedule,
+  cronScheduleError,
+} from "../model/cronSchedule";
 import { SkillPromptField } from "../../skills/ui/SkillPromptField";
 import { OverlayNav } from "../../../app/shell/TitleBar";
 import { WindowControls } from "../../../app/shell/WindowControls";
@@ -73,6 +79,7 @@ import {
   type AutomationRun,
   type AutomationTrigger,
   type AutomationTriggerKind,
+  type AutomationScheduleKind,
 } from "../model/automations";
 import {
   AUTOMATION_TEMPLATE_CATEGORIES,
@@ -893,7 +900,11 @@ function AutomationEditor({
     draft.name.trim().length > 0 &&
     draft.prompt.trim().length > 0 &&
     looksLikeProject(draft.cwd) &&
-    draft.model.length > 0;
+    draft.model.length > 0 &&
+    draft.triggers.every((trigger) =>
+      trigger.kind !== "time" || trigger.scheduleKind !== "custom" ||
+      !cronScheduleError(trigger.cron ?? ""),
+    );
   const [sessionFolders, setSessionFolders] = useState(() =>
     loadSessionFolders(draft.cwd),
   );
@@ -1373,6 +1384,16 @@ function AutomationEditor({
               <SectionTitle>Session</SectionTitle>
               <div className="mt-3 divide-y divide-content/7 rounded-md border border-content/10">
                 <SettingsRow
+                  label="Operator mode"
+                  hint="Let this run manage MonoCode tasks, sessions, notes and worktrees"
+                >
+                  <Toggle
+                    label="Operator mode"
+                    on={draft.operatorMode}
+                    onChange={(on) => update("operatorMode", on)}
+                  />
+                </SettingsRow>
+                <SettingsRow
                   label="Working copy"
                   hint="This repo, or a fresh worktree"
                 >
@@ -1423,6 +1444,12 @@ function AutomationEditor({
                   />
                 </SettingsRow>
               </div>
+              {draft.reuseSession ? (
+                <p className="mt-2 px-1 text-[11px] text-content/45">
+                  Continued chats keep any existing Operator access, even with
+                  this switch off. Choose Start fresh for a new normal chat.
+                </p>
+              ) : null}
             </section>
 
             <details className="rounded-md border border-content/10">
@@ -1686,6 +1713,7 @@ const TRIGGER_EVENTS: Record<AutomationTriggerKind, readonly TriggerEvent[]> = {
     { value: "daily", label: "Daily" },
     { value: "weekdays", label: "Weekdays" },
     { value: "weekly", label: "Weekly" },
+    { value: "custom", label: "Advanced custom" },
   ],
   github: [
     { value: "draft_opened", label: "Draft opened" },
@@ -1781,10 +1809,13 @@ function TriggerRow({
   ) {
     branchOptions.unshift({ value: trigger.branch, label: trigger.branch });
   }
-  const nextAt = trigger.kind === "time" ? nextAutomationRunAt(trigger) : 0;
+  const cronError = trigger.scheduleKind === "custom"
+    ? cronScheduleError(trigger.cron ?? "") : null;
+  const nextAt = trigger.kind === "time" && !cronError
+    ? nextAutomationRunAt(trigger) : 0;
 
   return (
-    <div className="group flex min-h-10 items-center gap-2.5 py-1">
+    <div data-automation-trigger={trigger.id} className="group flex min-h-10 items-center gap-2.5 py-1">
       <TriggerMark
         kind={trigger.kind}
         className="size-3.5 shrink-0 text-content/45"
@@ -1825,7 +1856,99 @@ function TimeTriggerSentence({
   trigger: AutomationTrigger;
   nextAt: number;
   onChange: (trigger: AutomationTrigger) => void;
-}) {
+}): ReactNode {
+  const fieldId = useId();
+  const custom = trigger.scheduleKind === "custom";
+  const simpleKind = useRef<Exclude<AutomationScheduleKind, "custom">>(
+    trigger.scheduleKind === "custom" ? "daily" : trigger.scheduleKind,
+  );
+  if (trigger.scheduleKind !== "custom")
+    simpleKind.current = trigger.scheduleKind;
+  const advanced = (
+    <span className="ml-auto flex items-center gap-2 text-[11px] text-content/50">
+      Advanced
+      <Toggle
+        label="Advanced custom schedule"
+        on={custom}
+        onChange={(on) => onChange({
+          ...trigger,
+          scheduleKind: on ? "custom" : simpleKind.current,
+          event: on ? "custom" : simpleKind.current,
+          cron: on ? cronFromSimpleSchedule(trigger) : trigger.cron,
+        })}
+      />
+    </span>
+  );
+  if (custom) {
+    const expression = trigger.cron ?? "";
+    const parts = expression.trim().split(/\s+/);
+    const error = cronScheduleError(expression);
+    const errorId = `${fieldId}-error`;
+    return (
+      <div className="flex w-full min-w-0 flex-col gap-2 py-1.5">
+        <div className="flex items-center gap-3">
+          <span>Custom schedule</span>
+          {advanced}
+        </div>
+        <label className="flex flex-wrap items-center gap-2 text-[12px]">
+          Cron expression
+          <input
+            aria-label="Cron expression"
+            aria-invalid={!!error}
+            aria-describedby={error ? errorId : `${fieldId}-help`}
+            value={expression}
+            maxLength={256}
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(event) => onChange({ ...trigger, cron: event.target.value })}
+            className="h-8 min-w-0 flex-1 rounded-md border border-content/10 bg-content/5 px-2 font-mono text-[12px] text-content outline-none focus-visible:ring-1 focus-visible:ring-accent"
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {CRON_FIELDS.map((field, index) => (
+            <label key={field.label} className="flex min-w-0 flex-col gap-1 text-[11px] text-content/50">
+              <span>{field.label} ({field.min}–{field.max})</span>
+              <input
+                aria-label={`Cron ${field.label.toLowerCase()}`}
+                value={parts[index] ?? ""}
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(event) => onChange({
+                  ...trigger,
+                  cron: CRON_FIELDS.map((_, at) =>
+                    at === index ? event.target.value : (parts[at] || "*"),
+                  ).join(" "),
+                })}
+                className="h-7 min-w-0 rounded-md border border-content/10 bg-content/5 px-2 font-mono text-[12px] text-content outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              />
+            </label>
+          ))}
+        </div>
+        <p id={`${fieldId}-help`} className="text-[11px] leading-relaxed text-content/45">
+          Five fields, in order: minute, hour, day of month, month, weekday.
+          Use * for any, 1,3 for a list, 1-5 for a range, or */15 for steps.
+          Sunday is 0 or 7. When both day fields are restricted, either can match.
+          A day field starting with * requires both to match. Runs use this computer&apos;s local timezone.
+        </p>
+        <SearchableSelect
+          variant="pill"
+          label="Custom schedule examples"
+          value=""
+          placeholder="Choose an example"
+          options={[
+            { value: "0 21 * * *", label: "Every day at 9pm" },
+            { value: "0 21 * * 1-5", label: "Weekdays at 9pm" },
+            { value: "*/15 * * * *", label: "Every 15 minutes" },
+            { value: "0 21 2 * *", label: "2nd of each month at 9pm" },
+          ]}
+          onChange={(cron) => onChange({ ...trigger, cron })}
+        />
+        {error ? <p id={errorId} role="alert" className="text-[12px] text-red-400">{error}</p> : (
+          <span className="text-[11px] text-content/45">{gmtOffsetLabel()} · {nextRunPreview(nextAt)}</span>
+        )}
+      </div>
+    );
+  }
   const dayOptions = AUTOMATION_WEEKDAYS.map((label, value) => ({
     value: String(value),
     label,
@@ -1875,6 +1998,7 @@ function TimeTriggerSentence({
       )}
       <span className="text-content/45">{gmtOffsetLabel()}</span>
       <span className="ml-1 text-content/35">{nextRunPreview(nextAt)}</span>
+      {advanced}
     </>
   );
 }

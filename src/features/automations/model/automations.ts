@@ -1,12 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { HarnessId, RuntimeMode } from "../../sessions/model/session";
+import { DEFAULT_CRON, nextCronRunAt } from "./cronSchedule";
+import { consumeOperatorCommand } from "../../sessions/model/operatorCommand";
 
 export const AUTOMATIONS_CHANGED = "monocode:automations-changed";
 const LOCAL_CHANGED = "monocode:automations-local-changed";
 
 export type AutomationWorkspaceMode = "current" | "worktree" | "existing";
-export type AutomationScheduleKind = "hourly" | "daily" | "weekdays" | "weekly";
+export type AutomationScheduleKind =
+  "hourly" | "daily" | "weekdays" | "weekly" | "custom";
 export type AutomationTriggerKind =
   "time" | "github" | "linear" | "jira" | "gitlab" | "azuredevops";
 
@@ -18,6 +21,7 @@ export type AutomationTrigger = {
   minute: number;
   time: string;
   dayOfWeek: number;
+  cron?: string;
   repos: string[];
   repo: string;
   branch: string;
@@ -41,6 +45,7 @@ export type Automation = {
   worktreeCwd?: string;
   sessionFolderId?: string;
   reuseSession: boolean;
+  operatorMode?: boolean;
   runtimeMode: RuntimeMode;
   triggerKind: AutomationTriggerKind;
   triggerEvent: string;
@@ -48,6 +53,7 @@ export type Automation = {
   minute: number;
   time: string;
   dayOfWeek: number;
+  cron?: string;
   triggers?: AutomationTrigger[] | null;
   missedRunGraceMinutes: number;
   enabled: boolean;
@@ -134,6 +140,7 @@ export type AutomationDraft = {
   worktreeCwd: string;
   sessionFolderId: string;
   reuseSession: boolean;
+  operatorMode: boolean;
   runtimeMode: RuntimeMode;
   triggerKind: AutomationTriggerKind;
   triggerEvent: string;
@@ -141,6 +148,7 @@ export type AutomationDraft = {
   minute: number;
   time: string;
   dayOfWeek: number;
+  cron?: string;
   triggers: AutomationTrigger[];
   missedRunGraceMinutes: number;
   enabled: boolean;
@@ -161,7 +169,8 @@ export function isScheduleKind(value: string): value is AutomationScheduleKind {
     value === "hourly" ||
     value === "daily" ||
     value === "weekdays" ||
-    value === "weekly"
+    value === "weekly" ||
+    value === "custom"
   );
 }
 
@@ -180,6 +189,7 @@ export function createAutomationTrigger(
     minute: extras.minute ?? 0,
     time: extras.time ?? "09:00",
     dayOfWeek: extras.dayOfWeek ?? 1,
+    cron: extras.cron ?? DEFAULT_CRON,
     repos: extras.repos ?? [],
     repo: extras.repo ?? "",
     branch: extras.branch ?? "",
@@ -198,6 +208,7 @@ export function automationTriggers(
     | "minute"
     | "time"
     | "dayOfWeek"
+    | "cron"
   >,
 ): AutomationTrigger[] {
   if (automation.triggers) return automation.triggers;
@@ -211,6 +222,7 @@ export function automationTriggers(
         minute: automation.minute,
         time: automation.time,
         dayOfWeek: automation.dayOfWeek,
+        cron: automation.cron,
       },
     ),
   ];
@@ -231,6 +243,7 @@ export function applyTriggers(
     minute: primary?.minute ?? 0,
     time: primary?.time ?? "09:00",
     dayOfWeek: primary?.dayOfWeek ?? 1,
+    cron: primary?.cron ?? DEFAULT_CRON,
   };
 }
 
@@ -294,10 +307,12 @@ export function nextRunPreview(at: number): string {
 export function nextAutomationRunAt(
   schedule: Pick<
     AutomationDraft,
-    "scheduleKind" | "minute" | "time" | "dayOfWeek"
+    "scheduleKind" | "minute" | "time" | "dayOfWeek" | "cron"
   >,
   after = Date.now(),
 ): number {
+  if (schedule.scheduleKind === "custom")
+    return nextCronRunAt(schedule.cron ?? "", after);
   const start = new Date(after);
   start.setSeconds(0, 0);
   const [hour, minute] = parseTime(schedule.time);
@@ -335,9 +350,11 @@ export function nextAutomationRunAt(
 export function automationScheduleLabel(
   automation: Pick<
     Automation,
-    "scheduleKind" | "minute" | "time" | "dayOfWeek"
+    "scheduleKind" | "minute" | "time" | "dayOfWeek" | "cron"
   >,
 ): string {
+  if (automation.scheduleKind === "custom")
+    return `Custom: ${automation.cron ?? ""}`;
   const time = formatClock(automation.time);
   if (automation.scheduleKind === "hourly") {
     return `Hourly at :${String(automation.minute).padStart(2, "0")}`;
@@ -363,6 +380,7 @@ export function newAutomationDraft(
     worktreeCwd: "",
     sessionFolderId: "",
     reuseSession: false,
+    operatorMode: false,
     runtimeMode: "auto",
     triggerKind: "time",
     triggerEvent: "",
@@ -370,6 +388,7 @@ export function newAutomationDraft(
     minute: 0,
     time: "09:00",
     dayOfWeek: 1,
+    cron: DEFAULT_CRON,
     triggers: [],
     missedRunGraceMinutes: 720,
     enabled: true,
@@ -427,6 +446,7 @@ export function draftFromAutomation(automation: Automation): AutomationDraft {
     worktreeCwd: automation.worktreeCwd ?? "",
     sessionFolderId: automation.sessionFolderId ?? "",
     reuseSession: automation.reuseSession,
+    operatorMode: automation.operatorMode ?? false,
     runtimeMode: automation.runtimeMode,
     triggerKind: automation.triggerKind,
     triggerEvent: automation.triggerEvent,
@@ -434,6 +454,7 @@ export function draftFromAutomation(automation: Automation): AutomationDraft {
     minute: automation.minute,
     time: automation.time,
     dayOfWeek: automation.dayOfWeek,
+    cron: automation.cron ?? DEFAULT_CRON,
     triggers: automationTriggers(automation),
     missedRunGraceMinutes: automation.missedRunGraceMinutes,
     enabled: automation.enabled,
@@ -441,6 +462,16 @@ export function draftFromAutomation(automation: Automation): AutomationDraft {
 }
 
 let cachedAutomations: Automation[] | null = null;
+
+/** All launch sources enter the ordinary, persisted Operator activation path. */
+export function automationSubmissionPrompt(
+  automation: Pick<Automation, "operatorMode">,
+  prompt: string,
+): string {
+  return automation.operatorMode && !consumeOperatorCommand(prompt).matched
+    ? `/operator ${prompt}`
+    : prompt;
+}
 
 /** Last successful list, for an immediate first render while refreshing. */
 export function peekAutomations(): Automation[] | null {

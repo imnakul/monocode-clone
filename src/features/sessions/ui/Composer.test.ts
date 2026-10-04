@@ -907,6 +907,38 @@ describe("Composer question focus", () => {
     });
   });
 
+  it.each([false, true])("keeps Operator visible after restoration and plain follow-ups (compact=%s)", async (compact) => {
+    const onSubmit = vi.fn(() => true);
+    const props = {
+      focused: true, compact, harness: "claude" as const,
+      model: "claude-sonnet", runtimeMode: "supervised" as const,
+      executionCwd: "/repo", initialDraft: "Continue the next task",
+      hideProjectPicker: true, hideBranchPicker: true,
+      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(),
+      onRuntimeModeChange: vi.fn(), onSubmit,
+      blocks: [{ id: "operator-turn", role: "user" as const, text: "Check my tasks", monocode: true }],
+    };
+    await act(async () => root.render(createElement(Composer, { ...props, key: "restored" })));
+    expect(container.querySelector('[role="status"][aria-label^="Operator access enabled"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Turn off Operator"]')).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send"]')!.click());
+    expect(onSubmit).toHaveBeenCalledWith("Continue the next task", [], { intent: "default" });
+    expect(container.querySelector('[role="status"][aria-label^="Operator access enabled"]')).not.toBeNull();
+    await act(async () => root.render(createElement(Composer, { ...props, key: "remounted" })));
+    expect(container.querySelector('[role="status"][aria-label^="Operator access enabled"]')).not.toBeNull();
+  });
+
+  it("does not display persistent Operator access for an unsent draft", async () => {
+    await act(async () => root.render(createElement(Composer, {
+      focused: true, harness: "claude", model: "claude-sonnet", runtimeMode: "supervised",
+      executionCwd: "/repo", hideProjectPicker: true, hideBranchPicker: true,
+      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(),
+      onRuntimeModeChange: vi.fn(), onSubmit: vi.fn(),
+      blocks: [{ id: "draft", role: "user", text: "Check tasks", monocode: true, draft: true }],
+    })));
+    expect(container.querySelector('[role="status"][aria-label^="Operator access enabled"]')).toBeNull();
+  });
+
   it("keeps /plan in the text beside its pill and submits with the plan intent", async () => {
     const onSubmit = vi.fn(() => true);
     await act(async () =>

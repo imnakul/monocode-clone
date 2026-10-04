@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   AiIdea,
   CircleDashed,
@@ -146,13 +147,28 @@ export function ModeCommandText({
 export function ModeCommandPill({
   name,
   onClear,
+  title,
 }: {
   name: string;
-  onClear: () => void;
-}) {
+  onClear?: () => void;
+  title?: string;
+}): ReactNode {
   const style = MODE_COMMAND_STYLES[name];
   if (!style?.pill) return null;
   const { Icon, pill } = style;
+  if (!onClear) {
+    return (
+      <span
+        role="status"
+        aria-label={title ?? `${pill.title} enabled`}
+        title={title ?? `${pill.title} enabled`}
+        className={`flex h-6.5 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] ${pill.className}`}
+      >
+        <Icon className="size-3.5" />
+        <span>{pill.label}</span>
+      </span>
+    );
+  }
   return (
     <button
       type="button"
