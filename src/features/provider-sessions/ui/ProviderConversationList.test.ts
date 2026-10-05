@@ -175,6 +175,12 @@ describe("ProviderConversationList", () => {
     expect(render({ status: "ready" })).not.toContain("animate-spin");
   });
 
+  it("disables Show more while the provider refresh replaces its paging cursors", () => {
+    const state = { status: "ready" as const, rows: [row("a")], hasMore: true };
+    expect(render({ ...state, refreshing: true })).toMatch(/<button[^>]*disabled=""[^>]*>Show more<\/button>/);
+    expect(render(state)).not.toMatch(/<button[^>]*disabled=""[^>]*>Show more<\/button>/);
+  });
+
   it("reports an action error and lets the user dismiss it", () => {
     const html = render({ status: "ready" }, { actionError: "Native conversation identity changed." });
     expect(html).toContain("Native conversation identity changed.");

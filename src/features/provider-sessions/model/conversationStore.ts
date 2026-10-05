@@ -227,7 +227,7 @@ export class ProviderConversationStore {
 
   async loadMore(provider: NativeProvider): Promise<void> {
     const state = this.snapshot[provider];
-    if (!this.enabled.has(provider) || state.loadingMore || !state.hasMore)
+    if (!this.enabled.has(provider) || state.refreshing || state.loadingMore || !state.hasMore)
       return;
     const generation = this.generation[provider];
     const targetLimit = this.visibleLimit[provider] + PAGE_SIZE;

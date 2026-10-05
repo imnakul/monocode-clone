@@ -2441,6 +2441,7 @@ function Workspace({
     tabsRef,
     orchestrationRuns,
     liveAgentsEnabled,
+    remoteControlDesired,
     unseenFinishedIds,
     openingSessionIds,
     loadedSessionCache,
@@ -7891,38 +7892,6 @@ function Workspace({
             }
             return sendHarnessTurn(nativeInput);
           };
-          const wrappedPrompt = orchestrator.prompt(
-              sessionId,
-              inboxAskPrompt(
-                rawCommand ? undefined : current.inboxAsk,
-                wrap && !rawCommand
-                  ? wrapHandoffPrompt(
-                      wrap.text,
-                      wrap.from,
-                      turnPrompt.trim() || CONTINUE_PROMPT,
-                      earlier,
-                    )
-                  : turnPrompt,
-              ),
-            );
-          await sendBranchTurn({
-            session: current,
-            text: wrappedPrompt,
-            canPrefix: !wrap && !current.inboxAsk && wrappedPrompt === turnPrompt,
-            isCurrent: () => turnGen.current.get(sessionId) === gen,
-            readSession: () => {
-              flushHarnessEvents();
-              return sessionsRef.current.find(session => session.id === sessionId) ?? current;
-            },
-            readSource: async (id) => sessionsRef.current.find(session => session.id === id) ?? await getSession(id) ?? undefined,
-            updateSession: update => {
-              flushHarnessEvents();
-              const next = sessionsRef.current.map(session => session.id === sessionId ? update(session) : session);
-              sessionsRef.current = next;
-              setSessions(next);
-            },
-            send: (text, fork, onSummaryBinding) => sendTurn(text, prepared, fork, onSummaryBinding),
-          });
           let sendText = orchestrator.prompt(
             sessionId,
             inboxAskPrompt(
@@ -7937,11 +7906,33 @@ function Workspace({
                 : turnPrompt,
             ),
           );
+          const canPrefixBranch = !wrap && !current.inboxAsk && sendText === turnPrompt;
           if (operatorCommand.matched) {
             const cli = `${shellPath(await invoke<string>("app_cli_path"))} app`;
             sendText += `\n\n<monocode_app>\nThe user's Operator command enables app access in this thread, including later turns without the command. You can start session tabs or split session panes right or down, list and create project worktrees, choose a new session's checkout, read and continue other project sessions, save unsent drafts, organize session folders, and read or write saved notes and tasks through its local CLI. Use the supported CLI/API to create, submit and track sessions. Never insert or edit MonoCode internal SQLite database rows: that bypasses live agents, request receipts and the Session Manager run ledger, and stored assistant text is not proof a worker ran. Session Manager supports prepared Todos with session_manager.list/read/write/delete/start, plus run-scoped remove/clear of done and stopped cards (both shown in the Done column). Saving a Todo does not launch an agent; start it explicitly. Todos preserve project, provider/model/settings/effort, permissions, prompt, files/images, and workspace/base. Operator can manage Todos across local projects via projectCwd. Task Manager uses the existing tasks.* actions. Tasks support status, tags, Personal/project association, source links, completion and deletion; tasks.list filters by status/statuses, tags (all or any), projectCwd and query with pagination. Run \`${cli} --help\` for exact commands and JSON fields, then use it as needed for the user's request. When reading another session, start with its latest two or three user/assistant exchanges. Request older exchanges with nextBefore or a larger excerpt only if needed. The CLI uses a session credential already in your environment; never print it. New sessions inherit this session's permission mode unless runtimeMode is set explicitly. For a new session with a draft, call sessions.start with its prompt and draft:true; do not submit a seed prompt. The returned ID can be used as besideSessionId to split its pane again or moved into a folder immediately. A normal sessions.start submits its prompt but returns after acceptance, so do not wait for that agent to finish before organizing it.\n</monocode_app>`;
           }
-          await sendTurn(sendText);
+          // Branch handling owns this submission, including ordinary turns.
+          // Prepare Operator context first so there is exactly one user send.
+          if (turnGen.current.get(sessionId) !== gen) return;
+          await sendBranchTurn({
+            session: current,
+            text: sendText,
+            canPrefix: canPrefixBranch,
+            isCurrent: () => turnGen.current.get(sessionId) === gen,
+            readSession: () => {
+              flushHarnessEvents();
+              return sessionsRef.current.find(session => session.id === sessionId) ?? current;
+            },
+            readSource: async (id) => sessionsRef.current.find(session => session.id === id) ?? await getSession(id) ?? undefined,
+            updateSession: update => {
+              flushHarnessEvents();
+              const next = sessionsRef.current.map(session => session.id === sessionId ? update(session) : session);
+              sessionsRef.current = next;
+              setSessions(next);
+            },
+            send: (text, fork, onSummaryBinding) => sendTurn(text, prepared, fork, onSummaryBinding),
+          });
+          if (turnGen.current.get(sessionId) !== gen) return;
           acceptEditedResend();
           if (proposalDraft && !providerFailureSeen) {
             completedProposal = await completeOrRepairOrchestrationProposal(

@@ -114,6 +114,7 @@ type WorkspaceState = {
   busySessionIds: ReadonlySet<string>;
   activeSessionId: string;
   liveAgentsEnabled: boolean;
+  remoteControlDesired: ReadonlySet<string>;
 };
 
 function mountWorkspace(initial: Partial<WorkspaceState> = {}) {
@@ -133,6 +134,7 @@ function mountWorkspace(initial: Partial<WorkspaceState> = {}) {
     busySessionIds: new Set(["lead", "worker"]),
     activeSessionId: "other",
     liveAgentsEnabled: true,
+    remoteControlDesired: new Set<string>(),
     ...initial,
   };
   const sessionsRef = { current: props.sessions };
@@ -209,6 +211,73 @@ async function advance(milliseconds = 250) {
 }
 
 describe("orchestration worker detachment", () => {
+  it("retains a hidden Claude RC chat until Remote Control is disabled", async () => {
+    const workspace = mountWorkspace({
+      sessions: [chat("phone", { harness: "claude" }), chat("other")],
+      tabs: [newTab("other")],
+      orchestrationRuns: [],
+      busySessionIds: new Set(),
+      remoteControlDesired: new Set(["phone"]),
+    });
+    await advance();
+    expect(
+      workspace.snapshot().sessions.map((session) => session.id),
+    ).toContain("phone");
+    expect(mocks.forgetHarnessSession).not.toHaveBeenCalled();
+    workspace.update({ remoteControlDesired: new Set() });
+    await advance();
+    expect(
+      workspace.snapshot().sessions.map((session) => session.id),
+    ).not.toContain("phone");
+    expect(mocks.forgetHarnessSession).toHaveBeenCalledWith("claude", "phone");
+  });
+
+  it.each(["on", "connecting"] as const)(
+    "retains confirmed %s RC while saved preference state catches up",
+    async (status) => {
+      const workspace = mountWorkspace({
+        sessions: [
+          chat("phone", { harness: "claude", remoteControlStatus: status }),
+          chat("other"),
+        ],
+        tabs: [newTab("other")],
+        orchestrationRuns: [],
+        busySessionIds: new Set(),
+      });
+      await advance();
+      expect(
+        workspace.snapshot().sessions.map((session) => session.id),
+      ).toContain("phone");
+      expect(mocks.forgetHarnessSession).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retains a hidden phone turn until its completion without changing local busy state", async () => {
+    const workspace = mountWorkspace({
+      sessions: [
+        chat("phone", { harness: "claude", externalTurnId: "phone-turn" }),
+        chat("other"),
+      ],
+      tabs: [newTab("other")],
+      orchestrationRuns: [],
+      busySessionIds: new Set(),
+    });
+    await advance();
+    expect(
+      workspace.snapshot().sessions.map((session) => session.id),
+    ).toContain("phone");
+    expect(mocks.forgetHarnessSession).not.toHaveBeenCalled();
+    workspace.update({
+      sessions: workspace
+        .snapshot()
+        .sessions.map((session) => ({ ...session, externalTurnId: undefined })),
+    });
+    await advance();
+    expect(
+      workspace.snapshot().sessions.map((session) => session.id),
+    ).not.toContain("phone");
+  });
+
   it("retains finished workers until their lead closes, then persists and forgets them", async () => {
     const workspace = mountWorkspace();
     await advance();

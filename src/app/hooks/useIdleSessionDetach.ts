@@ -26,6 +26,7 @@ export function useIdleSessionDetach({
   tabsRef,
   orchestrationRuns,
   liveAgentsEnabled,
+  remoteControlDesired,
   unseenFinishedIds,
   openingSessionIds,
   loadedSessionCache,
@@ -39,6 +40,7 @@ export function useIdleSessionDetach({
   tabsRef: RefObject<WorkspaceTab[]>;
   orchestrationRuns: OrchestrationRun[];
   liveAgentsEnabled: boolean;
+  remoteControlDesired: ReadonlySet<string>;
   unseenFinishedIds: ReadonlySet<string>;
   openingSessionIds: RefObject<Set<string>>;
   loadedSessionCache: RefObject<Map<string, Session>>;
@@ -48,15 +50,24 @@ export function useIdleSessionDetach({
 }) {
   // Dropping a session re-renders the whole app, so it waits until a switch
   // has painted, and a burst of switches pays for it once.
-  const detachInputs = useRef({ orchestrationRuns, liveAgentsEnabled });
-  detachInputs.current = { orchestrationRuns, liveAgentsEnabled };
+  const detachInputs = useRef({
+    orchestrationRuns,
+    liveAgentsEnabled,
+    remoteControlDesired,
+  });
+  detachInputs.current = {
+    orchestrationRuns,
+    liveAgentsEnabled,
+    remoteControlDesired,
+  };
   const unseenFinishedRef = useRef(unseenFinishedIds);
   unseenFinishedRef.current = unseenFinishedIds;
   const detachTimer = useRef<number | null>(null);
   const detachIdleSessions = useCallback(() => {
     detachTimer.current = null;
     const sessions = sessionsRef.current;
-    const { orchestrationRuns, liveAgentsEnabled } = detachInputs.current;
+    const { orchestrationRuns, liveAgentsEnabled, remoteControlDesired } =
+      detachInputs.current;
     const visibleIds = new Set(
       tabsRef.current.flatMap((tab) => leafIds(tab.layout)),
     );
@@ -84,10 +95,20 @@ export function useIdleSessionDetach({
       loadedSessionCache.current.delete(sessionId);
     }
     const keepUnseen = liveAgentsEnabled;
+    // An enabled RC chat owns a live provider connection even without a tab.
+    // Phone activity is independent of the local busy flag. Forgetting either
+    // would kill its process and disconnect the other device.
+    const keepRemote = (session: Session): boolean =>
+      !!session.externalTurnId ||
+      (session.harness === "claude" &&
+        (remoteControlDesired.has(session.id) ||
+          session.remoteControlStatus === "on" ||
+          session.remoteControlStatus === "connecting"));
     const idleDetached = sessions.filter(
       (session) =>
         !visibleIds.has(session.id) &&
         !session.busy &&
+        !keepRemote(session) &&
         !openingSessionIds.current.has(session.id) &&
         !(keepUnseen && unseenFinishedRef.current.has(session.id)),
     );
@@ -107,6 +128,7 @@ export function useIdleSessionDetach({
         (session) =>
           visibleIds.has(session.id) ||
           session.busy ||
+          keepRemote(session) ||
           openingSessionIds.current.has(session.id) ||
           (keepUnseen && unseenFinishedRef.current.has(session.id)) ||
           skipForgetSessionIds.current.has(session.id),
@@ -132,6 +154,7 @@ export function useIdleSessionDetach({
     sessions,
     tabs,
     liveAgentsEnabled,
+    remoteControlDesired,
     orchestrationRuns,
     detachIdleSessions,
   ]);

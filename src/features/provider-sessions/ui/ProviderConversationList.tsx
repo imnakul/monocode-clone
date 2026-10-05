@@ -358,7 +358,7 @@ export function ProviderConversationList({
           <div className="flex justify-center p-2">
             <button
               type="button"
-              disabled={state.loadingMore}
+              disabled={state.loadingMore || state.refreshing}
               onClick={onLoadMore}
               className="rounded-md px-3 py-1 text-[12px] text-content/60 hover:bg-content/10 hover:text-content disabled:opacity-60"
             >

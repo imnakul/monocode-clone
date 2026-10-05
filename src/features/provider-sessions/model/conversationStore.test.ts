@@ -67,6 +67,25 @@ describe("mergeConversationRows", () => {
 });
 
 describe("ProviderConversationStore", () => {
+  it("waits for a refresh before requesting more with the refreshed cursor", async () => {
+    const { store, calls } = harness();
+    store.setProviders(["claude"]);
+    calls[0].resolve(page([row("old", 1)], 10));
+    await tick();
+    const refresh = store.refresh("claude", { quiet: true });
+    void store.loadMore("claude");
+    expect(calls).toHaveLength(2);
+    expect(store.getSnapshot().claude.loadingMore).toBe(false);
+    calls[1].resolve(page([row("fresh", 3)], 7));
+    await refresh;
+    const more = store.loadMore("claude");
+    expect(calls[2].request.offset).toBe(7);
+    calls[2].resolve(page([row("older", 2)]));
+    await more;
+    expect(store.getSnapshot().claude.rows.map(entry => entry.key)).toEqual(["fresh", "older"]);
+    expect(store.getSnapshot().claude.hasMore).toBe(false);
+  });
+
   it("retains expanded rows on refresh past the backend page cap", async () => {
     const rows = Array.from({ length: 520 }, (_, index) => row(`chat-${index}`, 1000 - index));
     const requests: ProviderListRequest[] = [];
