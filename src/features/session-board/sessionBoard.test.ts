@@ -271,6 +271,19 @@ describe("durable board ledger", () => {
       1,
     );
   });
+  it("never sends the display-only automation flag to storage but keeps it on the card", async () => {
+    const board = await import("./sessionBoard");
+    await board.observeBoardSessions([
+      session({ busy: true, automationId: "nightly" }),
+    ]);
+    const sent = vi
+      .mocked(invoke)
+      .mock.calls.filter(([command]) => command === "session_board_upsert")
+      .map(([, args]) => (args as { card: Record<string, unknown> }).card);
+    expect(sent.length).toBeGreaterThan(0);
+    for (const card of sent) expect(card).not.toHaveProperty("automation");
+    expect(board.boardSnapshot().cards[0].automation).toBe(true);
+  });
   it("records provider failure and explicit stop without inferring assistant prose", async () => {
     const board = await import("./sessionBoard");
     await board.recordBoardOutcome(session(), "blocked", "provider failed");

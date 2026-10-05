@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { OverlayNav } from "../../../app/shell/TitleBar";
 import { WindowControls } from "../../../app/shell/WindowControls";
 import { IS_MAC } from "../../../platform/tauri/platform";
@@ -33,30 +33,6 @@ import { BoardSessionCard } from "./BoardSessionCard";
 import { usePresence } from "../../../shared/hooks/usePresence";
 
 const COLUMN_MIN_WIDTH = 256;
-const COLUMN_RESIZE_MIN = 220;
-const COLUMN_RESIZE_MAX = 560;
-const COLUMN_WIDTH_KEY = "monocode.sessionBoard.columnWidth";
-
-/** Fixed session column width, or null to fill the board. */
-function loadColumnWidth(): number | null {
-  try {
-    const value = Number(localStorage.getItem(COLUMN_WIDTH_KEY));
-    return Number.isFinite(value) && value > 0
-      ? Math.min(COLUMN_RESIZE_MAX, Math.max(COLUMN_RESIZE_MIN, value))
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveColumnWidth(width: number | null) {
-  try {
-    if (width === null) localStorage.removeItem(COLUMN_WIDTH_KEY);
-    else localStorage.setItem(COLUMN_WIDTH_KEY, String(width));
-  } catch {
-    /* storage unavailable: the width just won't persist */
-  }
-}
 export function SessionBoardView({
   cards,
   cwd,
@@ -83,7 +59,8 @@ export function SessionBoardView({
   loading: boolean;
   error: string | null;
   activeSessionId?: string;
-  onOpenSession: (sessionId: string, altKey?: boolean) => Promise<void>;
+  /** Resolves false when the session no longer exists (its card is dropped). */
+  onOpenSession: (sessionId: string, altKey?: boolean) => Promise<boolean | void>;
   onClose: () => void;
   onPaneVisible: (visible: boolean) => void;
   onWorkspaceHost: (host: HTMLElement | null) => void;
@@ -103,14 +80,13 @@ export function SessionBoardView({
   const [selected, setSelected] = useState(false);
   // The session pane slides in and out; it stays mounted while leaving.
   const pane = usePresence(selected);
+  // The pane grows out of the card that opened it and shrinks back into it.
+  const paneRef = useRef<HTMLDivElement>(null);
+  const morphFrom = useRef<DOMRect | null>(null);
+  const closing = useRef(false);
+  const openedCard = useRef<string | undefined>(undefined);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [columnWidth, setColumnWidth] = useState(loadColumnWidth);
-  const [liveColumnWidth, setLiveColumnWidth] = useState<number | null>(null);
-  const commitColumnWidth = (next: number | null) => {
-    setColumnWidth(next);
-    saveColumnWidth(next);
-  };
   const [width, setWidth] = useState(() => {
     try {
       return Math.max(
@@ -219,12 +195,60 @@ export function SessionBoardView({
       setBusy(false);
     }
   };
+  const cardRect = (sessionId?: string): DOMRect | null => {
+    if (!sessionId) return null;
+    const element = body.current?.querySelector<HTMLElement>(
+      `[data-board-card="${CSS.escape(sessionId)}"]`,
+    );
+    return element ? element.getBoundingClientRect() : null;
+  };
+  const closePane = (): void => {
+    const element = paneRef.current;
+    // Shrink into the card of the session shown now (or the one that opened it).
+    const target = cardRect(activeSessionId) ?? cardRect(openedCard.current);
+    if (closing.current) return;
+    if (!element || !target || !canMorph(element)) {
+      setSelected(false);
+      return;
+    }
+    closing.current = true;
+    const animation = element.animate(
+      morphFrames(target, element.getBoundingClientRect()).reverse(),
+      { duration: MORPH_MS, easing: MORPH_EASING, fill: "forwards" },
+    );
+    let finished = false;
+    const done = (): void => {
+      if (finished) return;
+      finished = true;
+      closing.current = false;
+      setSelected(false);
+    };
+    animation.onfinish = done;
+    animation.oncancel = done;
+    // Never leave the pane stuck if the animation never reports back.
+    window.setTimeout(done, MORPH_MS + 80);
+  };
   const open = async (card: BoardCard, altKey?: boolean) => {
+    if (!selected) morphFrom.current = cardRect(card.sessionId);
+    openedCard.current = card.sessionId;
     await runAction(async () => {
-      await onOpenSession(card.sessionId, altKey);
-      setSelected(true);
+      // False means the session is gone (its card was removed): no pane.
+      const opened = await onOpenSession(card.sessionId, altKey);
+      if (opened !== false) setSelected(true);
     });
   };
+  useLayoutEffect(() => {
+    const from = morphFrom.current;
+    const element = paneRef.current;
+    if (!selected || !pane.mounted || !from || !element) return;
+    morphFrom.current = null;
+    element.getAnimations?.().forEach((animation) => animation.cancel());
+    if (!canMorph(element)) return;
+    element.animate(morphFrames(from, element.getBoundingClientRect()), {
+      duration: MORPH_MS,
+      easing: MORPH_EASING,
+    });
+  }, [selected, pane.mounted]);
   const resize = (event: React.PointerEvent<HTMLDivElement>) => {
     resizeCleanup.current?.();
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -289,7 +313,8 @@ export function SessionBoardView({
         </button>
         {!IS_MAC ? <WindowControls /> : null}
       </div>
-      <div className="flex h-9 shrink-0 items-center gap-1.5 px-2">
+      {/* px-3 matches the board's p-3 so Add Draft lines up with the columns. */}
+      <div className="flex h-9 shrink-0 items-center gap-1.5 px-3">
         {onAddTodo ? (
           <button
             type="button"
@@ -374,7 +399,9 @@ export function SessionBoardView({
             </p>
           ) : null}
           <div className="min-h-0 flex-1">
-            <BoardColumns wrapBelow={COLUMN_MIN_WIDTH}>
+            {/* Columns always fill the board (no per-column resize); the only
+                divider is the one beside the session pane. */}
+            <BoardColumns wrapBelow={COLUMN_MIN_WIDTH} fit>
               {(Object.entries(BOARD_LANES) as [BoardLane, string][])
                 .filter(([key]) => !status || key === status)
                 .map(([key, label]) => {
@@ -388,15 +415,6 @@ export function SessionBoardView({
                       label={label}
                       count={rows.length}
                       fillMin={COLUMN_MIN_WIDTH}
-                      resize={{
-                        width: columnWidth,
-                        liveWidth: liveColumnWidth,
-                        min: COLUMN_RESIZE_MIN,
-                        max: COLUMN_RESIZE_MAX,
-                        onLive: setLiveColumnWidth,
-                        onCommit: commitColumnWidth,
-                        onReset: () => commitColumnWidth(null),
-                      }}
                       actions={
                         key === "done" ? (
                           <button
@@ -496,13 +514,13 @@ export function SessionBoardView({
           />
         ) : null}
         <div
+          ref={paneRef}
+          data-board-pane
           inert={pane.mounted && !selected ? true : undefined}
           className={
             pane.mounted
-              ? `flex min-h-0 min-w-0 flex-1 flex-col transition-[transform,opacity] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] will-change-transform motion-reduce:transition-none ${
-                  pane.shown
-                    ? "translate-x-0 opacity-100"
-                    : "translate-x-full opacity-0"
+              ? `flex min-h-0 min-w-0 flex-1 origin-top-left flex-col overflow-hidden transition-opacity duration-200 motion-reduce:transition-none ${
+                  pane.shown ? "opacity-100" : "opacity-0"
                 }`
               : "hidden"
           }
@@ -517,7 +535,7 @@ export function SessionBoardView({
               type="button"
               aria-label="Close session"
               title="Close session"
-              onClick={() => setSelected(false)}
+              onClick={closePane}
               className="grid size-7 shrink-0 place-items-center rounded-md text-content/55 transition-colors duration-100 hover:bg-content/10 hover:text-content"
             >
               <X aria-hidden className="size-3.5" strokeWidth={1.75} />
@@ -532,4 +550,33 @@ export function SessionBoardView({
       </div>
     </div>
   );
+}
+
+const MORPH_MS = 280;
+const MORPH_EASING = "cubic-bezier(0.2, 0.8, 0.2, 1)";
+
+function canMorph(element: HTMLElement): boolean {
+  if (typeof element.animate !== "function") return false;
+  try {
+    return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Keyframes that grow the pane from a card's box to its own box (FLIP:
+ * the pane is laid out at its final size and starts scaled onto the card).
+ */
+function morphFrames(card: DOMRect, pane: DOMRect): Keyframe[] {
+  const scaleX = pane.width ? card.width / pane.width : 1;
+  const scaleY = pane.height ? card.height / pane.height : 1;
+  return [
+    {
+      transform: `translate(${card.left - pane.left}px, ${card.top - pane.top}px) scale(${scaleX}, ${scaleY})`,
+      opacity: 0.35,
+      borderRadius: "10px",
+    },
+    { transform: "none", opacity: 1, borderRadius: "0px" },
+  ];
 }

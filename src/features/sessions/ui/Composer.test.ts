@@ -206,7 +206,7 @@ describe("Composer question focus", () => {
     );
   }
 
-  it("offers Cloud session in the + menu, with every menu row on the gliding hover", async () => {
+  it("keeps every + menu row on the gliding hover; Cloud moved to Work in", async () => {
     const setActive = vi.fn();
     await act(async () => root.render(createElement(Composer, {
       harness: "claude", model: "claude-sonnet", runtimeMode: "supervised",
@@ -226,10 +226,9 @@ describe("Composer question focus", () => {
     const rows = [...menu.querySelectorAll<HTMLButtonElement>("button")];
     expect(rows.length).toBeGreaterThan(1);
     for (const row of rows) expect(row.hasAttribute("data-shared-hover-item")).toBe(true);
-    const cloud = rows.find((row) => row.textContent?.includes("Cloud session"))!;
-    expect(cloud.getAttribute("aria-pressed")).toBe("false");
-    await act(async () => cloud.click());
-    expect(setActive).toHaveBeenCalledExactlyOnceWith(true);
+    // Where a session runs is chosen in "Work in" beside the branch now.
+    expect(rows.some((row) => row.textContent?.includes("Cloud session"))).toBe(false);
+    expect(setActive).not.toHaveBeenCalled();
   });
 
   it.each([true, false])("routes normal composer Cloud send without a local turn (launch succeeds=%s)", async (succeeds) => {

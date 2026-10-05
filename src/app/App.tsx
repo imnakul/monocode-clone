@@ -619,7 +619,7 @@ import {
 import { PaneTree } from "../features/workspace/ui/PaneTree";
 import { SessionPane } from "../features/sessions/ui/SessionPane";
 import { useSessionBoard } from "../features/session-board/useSessionBoard";
-import { boardRunId, recordBoardOutcome } from "../features/session-board/sessionBoard";
+import { boardRunId, forgetBoardSession, recordBoardOutcome } from "../features/session-board/sessionBoard";
 import {
   loadFileOpeningBehavior,
   loadSessionOpeningBehavior,
@@ -5234,6 +5234,8 @@ function Workspace({
           remoteControlInitialized.current.delete(sessionId);
           setRemoteControlDesired(loadRemoteControlSessions());
           nativeHistoryStore.forget(sessionId);
+          // A deleted chat leaves Session Manager too.
+          void forgetBoardSession(sessionId).catch(() => undefined);
           try {
             await detachProviderConversation(sessionId);
           } catch (error) {
@@ -12362,7 +12364,8 @@ function Workspace({
                   undefined
                 }
               >
-                {!IS_MAC ? (
+                {/* Not inside Session Manager's session pane: that pane is just one chat. */}
+                {!IS_MAC && !boardOpen ? (
                   <MenuBar
                     onNew={onNew}
                     onNewTerminal={onNewTerminal}
@@ -12643,7 +12646,11 @@ function Workspace({
                   onToggleSidebar={onToggleSidebar}
                   onOpenSession={async (sessionId, altKey) => {
                     const session = await ensureOpenSession(sessionId);
-                    if (!session) throw new Error("This session is no longer available. You can remove its card.");
+                    if (!session) {
+                      // Deleted elsewhere: drop its card instead of showing an error.
+                      await forgetBoardSession(sessionId);
+                      return false;
+                    }
                     await onSelectHistorySession(sessionId, { altKey });
                   }}
                 />

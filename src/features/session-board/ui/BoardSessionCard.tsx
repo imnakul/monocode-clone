@@ -1,3 +1,4 @@
+import { newTabClick } from "../../settings/model/openingBehavior";
 import type { MouseEvent, ReactNode } from "react";
 import { projectName } from "../../../shared/lib/paths";
 import {
@@ -67,7 +68,8 @@ export function BoardSessionCard({
   /** Keep the gliding hover on the card whose session is open beside the board. */
   preserveHover: boolean;
   busy: boolean;
-  onOpen: (altKey: boolean) => void;
+  /** `newTab`: the Shift/Alt new-tab click (see `newTabClick`). */
+  onOpen: (newTab: boolean) => void;
   onStart?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
@@ -136,7 +138,7 @@ export function BoardSessionCard({
   const openFromCard = (event: MouseEvent<HTMLDivElement>) => {
     if (event.target instanceof Element && event.target.closest("button"))
       return;
-    onOpen(event.altKey);
+    onOpen(newTabClick(event));
   };
 
   return (
@@ -153,7 +155,7 @@ export function BoardSessionCard({
           type="button"
           data-session-card={card.sessionId}
           title={title}
-          onClick={(event) => onOpen(event.altKey)}
+          onClick={(event) => onOpen(newTabClick(event))}
           className="line-clamp-2 min-w-0 flex-1 rounded-sm text-left text-[13px] font-medium leading-[18px] text-content outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
         >
           {title}

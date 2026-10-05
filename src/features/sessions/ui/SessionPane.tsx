@@ -1,3 +1,5 @@
+import { WorkInPicker } from "../../provider-sessions/ui/WorkInPicker";
+import type { RemoteControlControls } from "../../provider-sessions/ui/RemoteControlButton";
 import { editableSessionTodo } from "../../session-board/sessionTodos";
 import { composeSessionTodo } from "../../session-board/ui/SessionManagerCapture";
 import { ChevronDown, GripVertical, X } from "../../../shared/ui/icons";
@@ -402,12 +404,22 @@ const LocalSessionPane = memo(function LocalSessionPane({
   });
   const showRemoteControl =
     !remote &&
-    !cloudLaunch?.active &&
     !!onRemoteControlChange &&
     session.harness === "claude" &&
     !session.inboxAsk &&
     !session.worktreeRemoved &&
     canHarnessRemoteControl("claude");
+  // Remote Control lives in the composer's "Work in" (not the top strip).
+  const remoteControlControls: RemoteControlControls | undefined =
+    showRemoteControl
+      ? {
+          desired: remoteControlDesired?.has(session.id) ?? false,
+          status: session.remoteControlStatus,
+          url: session.remoteControlUrl,
+          message: session.remoteControlMessage,
+          onChange: (enabled) => onRemoteControlChange?.(session.id, enabled),
+        }
+      : undefined;
   const historyNotice =
     !remote && history.state.status !== "none" && history.state.status !== "loading"
       ? history.state
@@ -822,6 +834,16 @@ const LocalSessionPane = memo(function LocalSessionPane({
       }}
       onEditingLastTurnChange={setEditingLastTurn}
       cloudLaunch={onCloudLaunchOutcome ? cloudLaunch : undefined}
+      workIn={
+        <WorkInPicker
+          started={session.blocks.some(
+            (block) => block.role === "user" && !block.draft,
+          )}
+          enabled={visible && !session.busy}
+          cloud={onCloudLaunchOutcome ? cloudLaunch : undefined}
+          remote={remoteControlControls}
+        />
+      }
     />
   );
 
@@ -897,7 +919,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
         </div>
       ) : null}
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        {visible && (historyNotice || showRemoteControl) ? (
+        {visible && historyNotice ? (
           <SessionProviderStrip
             history={
               historyNotice
@@ -918,18 +940,6 @@ const LocalSessionPane = memo(function LocalSessionPane({
                       historyNotice.loadingEarlier,
                     onShowEarlier: history.showEarlier,
                     onRetry: history.retry,
-                  }
-                : undefined
-            }
-            remoteControl={
-              showRemoteControl
-                ? {
-                    desired: remoteControlDesired?.has(session.id) ?? false,
-                    status: session.remoteControlStatus,
-                    url: session.remoteControlUrl,
-                    message: session.remoteControlMessage,
-                    onChange: (enabled) =>
-                      onRemoteControlChange?.(session.id, enabled),
                   }
                 : undefined
             }

@@ -1,3 +1,4 @@
+import { newTabClick } from "../../settings/model/openingBehavior";
 import { RefreshCw, Search } from "../../../shared/ui/icons";
 import {
   useEffect,
@@ -429,7 +430,7 @@ function FileList({
             aria-selected={highlighted}
             onMouseDown={(e) => e.preventDefault()}
             onMouseEnter={() => onRowEnter(index)}
-            onClick={(event) => onPick(file, event.altKey)}
+            onClick={(event) => onPick(file, newTabClick(event))}
             className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm leading-none ${
               highlighted ? "bg-selection text-content" : "text-content"
             }`}

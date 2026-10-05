@@ -360,8 +360,14 @@ function enqueue(operation: () => Promise<void>): Promise<void> {
   return next;
 }
 async function store(card: BoardCard) {
-  const saved = await invoke<BoardCard>("session_board_upsert", { card });
-  cards = [...cards.filter((row) => row.sessionId !== saved.sessionId), saved];
+  // `automation` is display-only (from the live session); storage rejects
+  // unknown fields, so it is sent without it and put back on the result.
+  const { automation, ...stored } = card;
+  const saved = await invoke<BoardCard>("session_board_upsert", {
+    card: stored,
+  });
+  const merged = automation ? { ...saved, automation } : saved;
+  cards = [...cards.filter((row) => row.sessionId !== merged.sessionId), merged];
 }
 /**
  * Inputs a session was last projected from. A session is skipped while the
@@ -430,6 +436,17 @@ export function recordBoardOutcome(
         reason: reason ? cleanBoardText(reason, 2000) : undefined,
         updatedAt: Date.now(),
       });
+  });
+}
+/**
+ * Removes a deleted chat's card. Session Manager never keeps a card for a
+ * session that can no longer be opened.
+ */
+export function forgetBoardSession(sessionId: string): Promise<void> {
+  return enqueue(async () => {
+    await invoke("session_board_remove", { sessionId });
+    observed.delete(sessionId);
+    cards = cards.filter((card) => card.sessionId !== sessionId);
   });
 }
 export function hideBoardCards(
