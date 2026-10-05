@@ -1,3 +1,9 @@
+## 2026-10-05 00:40 IST — Windows 0.7.0-local4-upstream-sync installer
+- What: Built the current upstream-sync branch at `278e2c6` as an unsigned NSIS installer and archived it without replacing local2 or local3. Only version metadata and build records changed; no feature source, tests, commit, push or installation.
+- Files: `package.json` (line 4), `package-lock.json` (root metadata), `Cargo.toml` (line 7), `Cargo.lock` (monocode version), `src-tauri/tauri.conf.json` (line 4); [build record and logs](../notes/windows-070-local4-upstream-sync-build/README.md).
+- Verified: TypeScript, Rust fmt/check, production frontend, native release and NSIS pass; six version fields agree; unsigned installer metadata and archive/source SHA-256 match. Full suite: 5,549 passed / 3 failed (two known Windows shortcut expectations; one CRLF staging timeout that passes isolated file run, cause unresolved). Lint unavailable; Rust tests/Clippy not rerun because Rust source did not change. Manual desktop checks pending.
+- Commit: uncommitted.
+
 # Changelog 02
 
 ## 2026-10-05 00:22 IST — Preserve UI changes and build handoff in merge
