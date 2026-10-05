@@ -589,6 +589,7 @@ pub fn run() {
             session_board::session_board_list,
             session_board::session_board_upsert,
             session_board::session_board_hide,
+            session_board::session_board_remove,
             checkpoint::session_checkpoint_ensure,
             checkpoint::session_checkpoint_prepare,
             checkpoint::session_checkpoint_capture,

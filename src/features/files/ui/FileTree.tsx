@@ -25,6 +25,7 @@ import {
   wellFormedFileName,
   type NameIssue,
 } from "../model/fileName";
+import { newTabClick } from "../../settings/model/openingBehavior";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import {
   loadShowExcludedFiles,
@@ -1140,7 +1141,7 @@ function TreeNode({ entry, depth }: { entry: FsEntry; depth: number }) {
     if (consumeFileClick()) return;
     onSelect(entry.path);
     if (entry.isDir) onToggle(entry.path);
-    else onOpenFile(entry.path, undefined, { exact: true, ...(event.altKey ? { altKey: true } : {}) });
+    else onOpenFile(entry.path, undefined, { exact: true, ...(newTabClick(event) ? { altKey: true } : {}) });
   };
 
   const siblings = (peekDir(parentPath(entry.path)) ?? [])

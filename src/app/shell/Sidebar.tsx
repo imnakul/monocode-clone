@@ -1,3 +1,7 @@
+import {
+  loadSessionOpeningBehavior,
+  newTabClick,
+} from "../../features/settings/model/openingBehavior";
 import { RemoteControlIndicator } from "../../features/provider-sessions/ui/RemoteControlIndicator";
 import { NO_BRANCH_LABEL } from "../../features/source-control/model/worktrees";
 import {
@@ -1459,7 +1463,13 @@ function SidebarComponent({
   ) => {
     contextSelectionRef.current = false;
     setSessionMenu(null);
-    if (event.shiftKey) {
+    // Shift+click selects a range, except under "Both" with nothing selected,
+    // where it is the new-tab click (Ctrl/Cmd+click then Shift still ranges).
+    const shiftOpensTab =
+      event.shiftKey &&
+      selectedSessionIds.size === 0 &&
+      loadSessionOpeningBehavior() === "both";
+    if (event.shiftKey && !shiftOpensTab) {
       const visibleIds = sessionListNavigationIds(
         sessionListEntries,
         searchNarrowed,
@@ -1495,7 +1505,7 @@ function SidebarComponent({
     }
     setSelectedSessionIds(new Set());
     setDrawerOpen(false);
-    if (event.altKey) onSelectSession(sessionId, { altKey: true });
+    if (newTabClick(event)) onSelectSession(sessionId, { altKey: true });
     else onSelectSession(sessionId);
   };
 
@@ -3615,7 +3625,6 @@ const SessionCard = memo(function SessionCard({
                 <span className="min-w-0 truncate text-[11px] text-content/50">
                   {model}
                 </span>
-                {remoteControl ? <RemoteControlIndicator /> : null}
               </span>
               <span className="flex shrink-0 items-center gap-1.5">
                 {linkedUpdateDot}
@@ -3703,6 +3712,12 @@ const SessionCard = memo(function SessionCard({
                 className="grid size-5 -mr-1 shrink-0 place-items-center text-amber-400"
               >
                 <Zap className="size-3" strokeWidth={1.75} />
+              </span>
+            ) : null}
+            {/* Indicator slot: Remote Control sits beside (or in place of) the automation icon. */}
+            {remoteControl ? (
+              <span className="grid size-5 -mr-1 shrink-0 place-items-center">
+                <RemoteControlIndicator />
               </span>
             ) : null}
             {orchestration ? (

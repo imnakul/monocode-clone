@@ -1080,7 +1080,7 @@ function GeneralPage({
         <Row
           id="file-opening-behavior"
           label="File behaviour"
-          description="Choose whether a file opens in a new tab or reuses the current file tab. Both reuses on a normal click and opens a new tab with Alt+click. Unsaved files are never replaced."
+          description="Choose whether a file opens in a new tab or reuses the current file tab. Both reuses on a normal click and opens a new tab with Shift+click (Alt+click also works). Unsaved files are never replaced."
         >
           <Segmented
             label="File behaviour"
@@ -1092,7 +1092,7 @@ function GeneralPage({
         <Row
           id="session-opening-behavior"
           label="Session behaviour"
-          description="Choose whether a session opens in a new tab or reuses the focused session tab when it is safe. Both reuses on a normal click and opens a new tab with Alt+click."
+          description="Choose whether a session opens in a new tab or reuses the focused session tab when it is safe. Both reuses on a normal click and opens a new tab with Shift+click (Alt+click also works)."
         >
           <Segmented
             label="Session behaviour"

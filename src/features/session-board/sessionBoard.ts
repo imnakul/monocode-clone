@@ -438,6 +438,17 @@ export function recordBoardOutcome(
       });
   });
 }
+/**
+ * Removes a deleted chat's card. Session Manager never keeps a card for a
+ * session that can no longer be opened.
+ */
+export function forgetBoardSession(sessionId: string): Promise<void> {
+  return enqueue(async () => {
+    await invoke("session_board_remove", { sessionId });
+    observed.delete(sessionId);
+    cards = cards.filter((card) => card.sessionId !== sessionId);
+  });
+}
 export function hideBoardCards(
   rows: readonly BoardCard[],
   hidden = true,

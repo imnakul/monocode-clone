@@ -567,6 +567,26 @@ describe("sidebar session rename", () => {
     expect(card().className).not.toContain("hover:bg-content/5");
   });
 
+  it("opens a new tab on Shift+click under Both when nothing is selected", () => {
+    localStorage.setItem("monocode.sessionOpeningBehavior", "both");
+    try {
+      act(() => render());
+      act(() =>
+        card().dispatchEvent(
+          new MouseEvent("click", { bubbles: true, shiftKey: true }),
+        ),
+      );
+      expect(props.onSelectSession).toHaveBeenCalledWith("session-1", {
+        altKey: true,
+      });
+      expect(
+        container.querySelectorAll('[data-session-selected="true"]'),
+      ).toHaveLength(0);
+    } finally {
+      localStorage.removeItem("monocode.sessionOpeningBehavior");
+    }
+  });
+
   it("shows the accent PC icon only on chats with Remote Control turned on", () => {
     act(() => render());
     expect(card().querySelector("[data-remote-control-indicator]")).toBeNull();
