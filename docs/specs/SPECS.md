@@ -17,6 +17,7 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
+| 2026-10-04 23:48:33 | [Draft — Repeatable Windows installer build — delegation runbook](repeatable-windows-installer-build.md) | Reusable lower-cost-agent checklist and copyable prompt: dynamic version, checks, storage/failure stops, archive verification and per-run records. Explicit build invocation approves that run; keep this standing document for reuse. |
 | 2026-10-03 | [Draft — Claude Remote Control for MonoCode sessions — spec](claude-remote-control-plan.md) | Phase 0 manual probe (Nakul, phone) gates Phase 1. Uses the CLI's undocumented stream-json `remote_control` request. Cloud sessions, remote hosts and Codex are follow-ups. |
 | 2026-09-27 02:47:38 | [Draft — Prepare for a break — spec](prepare-for-break.md) | Depends on Native Branch and Claude cold-resume warning. |
 | 2026-09-27 00:57:16 | [Draft — Claude cold-resume warning — spec](claude-cold-resume-warning.md) | Depends on Native Branch. |
@@ -25,7 +26,7 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
-| 2026-10-05 | [Review — Duplicate submission and recent control regression review](submission-duplicate-repair-plan.md) | Single complete prompt submission with Operator/branch/Stop preservation; refresh-safe paging and hidden Claude RC retention. Full web gate passed (5,572 / 512 files), TypeScript and build passed. Local uncommitted changes; manual desktop/phone checks remain. |
+| 2026-10-05 | [Review — Duplicate submission and recent control regression review](submission-duplicate-repair-plan.md) | Single complete prompt submission with Operator/branch/Stop preservation; refresh-safe paging and hidden Claude RC retention. Full web gate passed (5,572 / 512 files), TypeScript and build passed. Source `89cc8e0`; approved publication merge with newer remote `c966e80` passed full checks (5,585 web, 613 Rust / 2 ignored) and build; push pending. Manual desktop/phone checks remain. |
 | 2026-10-04 | [Review — Provider lists, reversible Operator and phone transcript streaming](provider-control-followups-plan.md) | Ten-row paging, one refresh, RC labels, real Operator Off and isolated phone streaming on combined 0.7.0. MonoCode-created cloud only. Full check (5,547 web / 612 Rust), cargo check and build passed; manual phone/desktop checks remain. Session Manager direct-SQL diagnosis documented. Source `da14888` pushed and remote-verified. |
 | 2026-10-04 | [Review — Advanced automation schedules and Operator option](automation-custom-triggers-plan.md) | Custom cron editor/validation/persistence, automation Operator switch and saved-chat status chip on combined original 0.7.0. Full check (5,530 web / 612 Rust) and build passed; manual checks remain. Plugin compatibility research only. |
 | 2026-10-04 | [Review — Provider controls and upstream motion repairs](provider-controls-motion-repair-plan.md) | Normal/quick Cloud, normal-pane RC, retained cloud refresh/errors and shared motion repaired on combined 0.7.0. Full check (5,499 web / 609 Rust) and build passed; manual desktop/provider checks remain. |

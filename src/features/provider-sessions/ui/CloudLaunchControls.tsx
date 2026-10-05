@@ -1,5 +1,4 @@
 import { type ReactElement, type ReactNode } from "react";
-import { SegmentedSwitch } from "../../../shared/ui/SegmentedSwitch";
 import { Cloud } from "../../../shared/ui/icons";
 import { PROVIDER_LABEL } from "../model/conversationSummary";
 import type { NativeProvider } from "../model/providerSessions";
@@ -12,8 +11,8 @@ export type ComposerCloudLaunch = {
   active: boolean;
   canLaunch: boolean;
   disabledReason?: string;
-  /** Toolbar control (the Local | Cloud switch). */
-  control: ReactNode;
+  /** Choose Cloud (true) or Local (false); offered as "Cloud session" in the + menu. */
+  setActive: (active: boolean) => void;
   /** Fields, notes and errors shown above the box while Cloud is chosen. */
   panel: ReactNode;
   /** Resolves true when the task was started; false keeps the draft untouched. */
@@ -24,37 +23,6 @@ export type ComposerCloudLaunch = {
   ) => Promise<boolean>;
   resetToLocal: () => void;
 };
-
-export function CloudExecutionSwitch({
-  value,
-  disabled,
-  disabledReason,
-  onChange,
-}: {
-  value: Execution;
-  disabled: boolean;
-  disabledReason?: string;
-  onChange: (value: Execution) => void;
-}): ReactElement {
-  return (
-    <span
-      data-cloud-execution
-      title={disabledReason}
-      className={disabled ? "pointer-events-none opacity-60" : ""}
-      aria-disabled={disabled || undefined}
-    >
-      <SegmentedSwitch<Execution>
-        ariaLabel="Where this session runs"
-        value={value}
-        onChange={onChange}
-        options={[
-          { id: "local", label: "Local" },
-          { id: "cloud", label: "Cloud", icon: Cloud },
-        ]}
-      />
-    </span>
-  );
-}
 
 const fieldClass =
   "h-7 min-w-0 rounded-md border border-content/10 bg-content/5 px-2 text-[12px] text-content outline-none placeholder:text-content/35 focus-visible:ring-1 focus-visible:ring-accent disabled:opacity-60";

@@ -5,7 +5,10 @@ export type OpeningIntent = {
   pin?: boolean;
   /** Explicit request to open a separate tab. */
   newTab?: boolean;
-  /** Alt+click means new only when the saved behavior is Both. */
+  /**
+   * The new-tab click (Shift+click, or Alt+click) when the saved behavior is
+   * Both. Callers pass `newTabClick(event)`.
+   */
   altKey?: boolean;
 };
 
@@ -56,6 +59,17 @@ export function saveFileOpeningBehavior(value: OpeningBehavior): void {
 
 export function saveSessionOpeningBehavior(value: OpeningBehavior): void {
   save(SESSION_OPENING_BEHAVIOR_KEY, value);
+}
+
+/**
+ * Whether a click asks for a new tab under "Both": Shift+click (Alt+click
+ * also still works, but Windows' Alt key is awkward to hold for this).
+ */
+export function newTabClick(event: {
+  shiftKey?: boolean;
+  altKey?: boolean;
+}): boolean {
+  return !!event.shiftKey || !!event.altKey;
 }
 
 /** Resolve preferences and explicit click intent at the moment an item opens. */

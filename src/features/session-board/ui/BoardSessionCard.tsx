@@ -1,3 +1,4 @@
+import { newTabClick } from "../../settings/model/openingBehavior";
 import type { MouseEvent, ReactNode } from "react";
 import { projectName } from "../../../shared/lib/paths";
 import {
@@ -8,7 +9,9 @@ import {
   Play,
   Square,
   X,
+  Zap,
 } from "../../../shared/ui/icons";
+import { RemoteControlIndicator } from "../../provider-sessions/ui/RemoteControlIndicator";
 import { isHarnessId, resolveModel } from "../../sessions/model/models";
 import {
   sessionDisplayTitle,
@@ -57,6 +60,7 @@ export function BoardSessionCard({
   onEdit,
   onDelete,
   onRemove,
+  remoteControl = false,
 }: {
   card: BoardCard;
   lane: BoardLane;
@@ -64,11 +68,14 @@ export function BoardSessionCard({
   /** Keep the gliding hover on the card whose session is open beside the board. */
   preserveHover: boolean;
   busy: boolean;
-  onOpen: (altKey: boolean) => void;
+  /** `newTab`: the Shift/Alt new-tab click (see `newTabClick`). */
+  onOpen: (newTab: boolean) => void;
   onStart?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
   onRemove: () => void;
+  /** Remote Control is turned on for this chat. */
+  remoteControl?: boolean;
 }): ReactNode {
   const harness = isHarnessId(card.harness) ? card.harness : null;
   // Same labels as the session list: no "Provider · " title prefix, and the
@@ -131,7 +138,7 @@ export function BoardSessionCard({
   const openFromCard = (event: MouseEvent<HTMLDivElement>) => {
     if (event.target instanceof Element && event.target.closest("button"))
       return;
-    onOpen(event.altKey);
+    onOpen(newTabClick(event));
   };
 
   return (
@@ -148,7 +155,7 @@ export function BoardSessionCard({
           type="button"
           data-session-card={card.sessionId}
           title={title}
-          onClick={(event) => onOpen(event.altKey)}
+          onClick={(event) => onOpen(newTabClick(event))}
           className="line-clamp-2 min-w-0 flex-1 rounded-sm text-left text-[13px] font-medium leading-[18px] text-content outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
         >
           {title}
@@ -224,6 +231,17 @@ export function BoardSessionCard({
             </span>
           </span>
         )}
+        {card.automation && lane === "in_progress" ? (
+          <span
+            role="img"
+            aria-label="Automation run"
+            title="Automation run"
+            className="inline-flex shrink-0 text-accent"
+          >
+            <Zap aria-hidden className="size-3" strokeWidth={1.75} />
+          </span>
+        ) : null}
+        {remoteControl && !finished ? <RemoteControlIndicator /> : null}
         <BoardCardTag
           label={tag.label}
           tone={tag.tone}

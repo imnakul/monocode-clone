@@ -47,7 +47,6 @@ import {
 } from "../model/draftCache";
 import type { UserQuestionPrompt } from "../model/userQuestion";
 import type { McpFormPrompt } from "../model/mcpForm";
-import { CloudExecutionSwitch } from "../../provider-sessions/ui/CloudLaunchControls";
 
 function renderAction(
   busy: boolean,
@@ -207,6 +206,31 @@ describe("Composer question focus", () => {
     );
   }
 
+  it("keeps every + menu row on the gliding hover; Cloud moved to Work in", async () => {
+    const setActive = vi.fn();
+    await act(async () => root.render(createElement(Composer, {
+      harness: "claude", model: "claude-sonnet", runtimeMode: "supervised",
+      cwd: "/repo", executionCwd: "/repo",
+      hideProjectPicker: true, hideBranchPicker: true,
+      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(),
+      onRuntimeModeChange: vi.fn(), onSubmit: vi.fn(),
+      cloudLaunch: {
+        active: false, canLaunch: false, launch: vi.fn(async () => true),
+        resetToLocal: vi.fn(), setActive, panel: null,
+      },
+    })));
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('[aria-label="Add files or choose a mode"]')!.click(),
+    );
+    const menu = document.querySelector<HTMLElement>("[data-composer-plus]")!;
+    const rows = [...menu.querySelectorAll<HTMLButtonElement>("button")];
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) expect(row.hasAttribute("data-shared-hover-item")).toBe(true);
+    // Where a session runs is chosen in "Work in" beside the branch now.
+    expect(rows.some((row) => row.textContent?.includes("Cloud session"))).toBe(false);
+    expect(setActive).not.toHaveBeenCalled();
+  });
+
   it.each([true, false])("routes normal composer Cloud send without a local turn (launch succeeds=%s)", async (succeeds) => {
     const launch = vi.fn(async () => succeeds);
     const onSubmit = vi.fn();
@@ -218,10 +242,11 @@ describe("Composer question focus", () => {
       onRuntimeModeChange: vi.fn(), onSubmit,
       cloudLaunch: {
         active: true, canLaunch: true, launch, resetToLocal: vi.fn(), panel: null,
-        control: createElement(CloudExecutionSwitch, { value: "cloud", disabled: false, onChange: vi.fn() }),
+        setActive: vi.fn(),
       },
     })));
-    expect(container.querySelector('[aria-label="Where this session runs"]')).not.toBeNull();
+    // Cloud is chosen from the + menu now; there is no Local | Cloud switch.
+    expect(container.querySelector('[aria-label="Where this session runs"]')).toBeNull();
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send"]')!.click());
     expect(launch).toHaveBeenCalledExactlyOnceWith("Work in cloud", [], false);
     expect(onSubmit).not.toHaveBeenCalled();
@@ -237,7 +262,7 @@ describe("Composer question focus", () => {
       hideProjectPicker: true, hideBranchPicker: true,
       onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(),
       onRuntimeModeChange: vi.fn(), onSubmit,
-      cloudLaunch: { active: true, canLaunch: false, launch, resetToLocal: vi.fn(), control: null, panel: null },
+      cloudLaunch: { active: true, canLaunch: false, launch, resetToLocal: vi.fn(), setActive: vi.fn(), panel: null },
     })));
     expect(container.querySelector<HTMLButtonElement>('[aria-label="Send"]')?.disabled).toBe(true);
     await act(async () => container.querySelector("textarea")!.dispatchEvent(new KeyboardEvent("keydown", {

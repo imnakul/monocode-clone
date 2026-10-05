@@ -152,7 +152,7 @@ it("uses the Session Manager header and toolbar without native selects", async (
     ),
   ).toBe(false);
 });
-it("shares the full width equally between columns with a 256px minimum", async () => {
+it("shares the full width equally between columns, shrinking instead of scrolling", async () => {
   render();
   const columns = [
     ...container.querySelectorAll<HTMLElement>(
@@ -168,7 +168,8 @@ it("shares the full width equally between columns with a 256px minimum", async (
   for (const column of columns) {
     expect(column.classList.contains("flex-1")).toBe(true);
     expect(column.classList.contains("basis-0")).toBe(true);
-    expect(column.style.minWidth).toBe("256px");
+    // Fit mode: no fixed minimum, so the board never scrolls sideways.
+    expect(column.style.minWidth).toBe("0");
     expect(column.classList.contains("w-64")).toBe(false);
   }
   expect(
@@ -178,15 +179,33 @@ it("shares the full width equally between columns with a 256px minimum", async (
 it("keeps the board side at its split width when the session pane is open", async () => {
   render();
   await act(async () => card("running").click());
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  });
   let side: HTMLElement | null = container.querySelector<HTMLElement>(
     "section[aria-label='Draft column']",
   )!.parentElement;
   while (side && !side.style.width) side = side.parentElement;
   expect(side?.style.width).toBe("48%");
-  expect(
-    container.querySelector<HTMLElement>("section[aria-label='Draft column']")!
-      .style.minWidth,
-  ).toBe("256px");
+});
+it("shows the workspace tab strip in the pane header instead of a single title", async () => {
+  props.paneTabs = createElement("div", { "data-test-tabs": "" }, "Tabs");
+  render();
+  await act(async () => card("running").click());
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  const workspace = container.querySelector<HTMLElement>(
+    '[aria-label="Board session workspace"]',
+  )!.parentElement!;
+  expect(workspace.querySelector("[data-test-tabs]")).toBeTruthy();
+});
+it("opens no pane and shows no error when the session was deleted", async () => {
+  props.onOpenSession = vi.fn(async () => false);
+  render();
+  await act(async () => card("running").click());
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(props.onPaneVisible).not.toHaveBeenCalledWith(true);
 });
 it("reports an unavailable session and storage retry without opening an empty pane", async () => {
   props.onOpenSession = vi.fn(async () => {
@@ -207,6 +226,12 @@ it("reports an unavailable session and storage retry without opening an empty pa
 it("hides the session pane without removing its card and supports keyboard resizing", async () => {
   render();
   await act(async () => card("running").click());
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  });
   const divider = container.querySelector<HTMLElement>(
     '[aria-label="Board and session divider"]',
   )!;
@@ -219,15 +244,17 @@ it("hides the session pane without removing its card and supports keyboard resiz
   expect(localStorage.getItem("monocode.boardWidth")).toBe("43");
   act(() =>
     [...container.querySelectorAll("button")]
-      .find((button) => button.textContent === "Hide session pane")!
+      .find((button) => button.getAttribute("aria-label") === "Close session")!
       .click(),
   );
-  // The pane slides out first (still mounted, not interactive), then hides.
+  // One close icon for the pane; no "Hide session pane" text in the toolbar.
+  expect(container.textContent).not.toContain("Hide session pane");
+  // It slides out while still mounted and not interactive, then hides.
   const host = container.querySelector<HTMLElement>(
     '[aria-label="Board session workspace"]',
-  )!;
+  )!.parentElement!;
   expect(host.hasAttribute("inert")).toBe(true);
-  expect(host.className).toContain("translate-x-full");
+  expect(host.className).toContain("opacity-0");
   expect(props.onPaneVisible).toHaveBeenLastCalledWith(true);
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 260));
@@ -306,36 +333,6 @@ it("keeps the selected Windows project when its display path changes slash style
   expect(container.querySelector('[data-board-card="other"]')).toBeNull();
 });
 
-it("fills by default, resizes every column to a fixed width, persists it and resets on double click", async () => {
-  render();
-  const todo = container.querySelector<HTMLElement>(
-    '[aria-label="Draft column"]',
-  )!;
-  expect(todo.className).toContain("flex-1");
-  const handle = container.querySelector<HTMLElement>(
-    '[aria-label="Resize Draft column"]',
-  )!;
-  act(() =>
-    handle.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
-    ),
-  );
-  act(() =>
-    handle.dispatchEvent(
-      new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true }),
-    ),
-  );
-  expect(localStorage.getItem("monocode.sessionBoard.columnWidth")).toBe("272");
-  expect(
-    container.querySelector<HTMLElement>('[aria-label="Done column"]')!.style
-      .flexBasis,
-  ).toBe("272px");
-  act(() =>
-    handle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })),
-  );
-  expect(localStorage.getItem("monocode.sessionBoard.columnWidth")).toBeNull();
-  expect(todo.className).toContain("flex-1");
-});
 
 it("draws session cards on the translucent board surface, not an opaque one", () => {
   render();
@@ -479,18 +476,13 @@ it("keeps the time and the card actions in one slot so they never overlap", () =
   expect(button("Delete Todo Session prepared")).toBeTruthy();
 });
 
-it("shrinks a saved column width to fit the board instead of overflowing it", () => {
+it("has no per-column resize handles and ignores an old saved column width", () => {
   localStorage.setItem("monocode.sessionBoard.columnWidth", "520");
   render();
-  const done = container.querySelector<HTMLElement>(
-    '[aria-label="Done column"]',
-  )!;
-  // Preferred width, never a floor: it may shrink down to the resize minimum.
-  expect(done.style.flexBasis).toBe("520px");
-  expect(done.style.width).toBe("");
-  expect(done.style.minWidth).toBe("220px");
-  expect(done.className).toContain("shrink");
-  expect(done.className).not.toContain("flex-none");
+  expect(container.querySelector('[aria-label^="Resize "]')).toBeNull();
+  const done = container.querySelector<HTMLElement>('[aria-label="Done column"]')!;
+  expect(done.className).toContain("flex-1");
+  expect(done.style.flexBasis).toBe("");
 });
 it("shows the session list title and model name, not the stored prefix and raw id", () => {
   props.cards = [
@@ -536,4 +528,21 @@ it("reflows four columns into an even 2×2 grid when the board is too narrow", (
   } finally {
     if (width) Object.defineProperty(HTMLElement.prototype, "clientWidth", width);
   }
+});
+
+it("slides the session pane in and out like the other side panes, with no card morph", async () => {
+  render();
+  await act(async () => card("running").click());
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  const pane = container.querySelector<HTMLElement>("[data-board-pane]")!;
+  expect(pane.className).toContain("transition-[opacity,transform]");
+  expect(pane.className).toContain("translate-x-0");
+  expect(pane.style.transform).toBe("");
+  act(() =>
+    pane.querySelector<HTMLButtonElement>('[aria-label="Close session"]')!.click(),
+  );
+  expect(pane.className).toContain("translate-x-full");
+  expect(pane.hasAttribute("inert")).toBe(true);
 });

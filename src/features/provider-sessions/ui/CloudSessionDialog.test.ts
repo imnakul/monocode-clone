@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { CloudSessionBody, type CloudCapabilityView } from "./CloudSessionDialog";
-import { CloudLaunchPanel, CloudExecutionSwitch } from "./CloudLaunchControls";
+import { CloudLaunchPanel } from "./CloudLaunchControls";
 import { ProviderConversationList } from "./ProviderConversationList";
 import { emptyProviderListState } from "../model/conversationStore";
 import { cloudActionEntries } from "../model/cloudView";
@@ -140,13 +140,6 @@ describe("Cloud launch controls", () => {
     expect(failed).toContain("Enter your Codex cloud environment ID.");
   });
 
-  it("renders a labelled Local | Cloud switch", () => {
-    const html = renderToStaticMarkup(createElement(CloudExecutionSwitch, { value: "cloud", disabled: false, onChange: vi.fn() }));
-    expect(html).toContain("Where this session runs");
-    expect(html).toContain("Local");
-    expect(html).toContain("Cloud");
-    expect(html).toContain('aria-selected="true"');
-  });
 });
 
 describe("cloud tasks in the provider list", () => {

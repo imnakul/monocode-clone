@@ -619,7 +619,7 @@ import {
 import { PaneTree } from "../features/workspace/ui/PaneTree";
 import { SessionPane } from "../features/sessions/ui/SessionPane";
 import { useSessionBoard } from "../features/session-board/useSessionBoard";
-import { boardRunId, recordBoardOutcome } from "../features/session-board/sessionBoard";
+import { boardRunId, forgetBoardSession, recordBoardOutcome } from "../features/session-board/sessionBoard";
 import {
   loadFileOpeningBehavior,
   loadSessionOpeningBehavior,
@@ -5235,6 +5235,8 @@ function Workspace({
           remoteControlInitialized.current.delete(sessionId);
           setRemoteControlDesired(loadRemoteControlSessions());
           nativeHistoryStore.forget(sessionId);
+          // A deleted chat leaves Session Manager too.
+          void forgetBoardSession(sessionId).catch(() => undefined);
           try {
             await detachProviderConversation(sessionId);
           } catch (error) {
@@ -8521,6 +8523,15 @@ function Workspace({
     } = await todoManager.read(id);
     setTodoComposer({ id, launch, editing: true, revision });
   };
+
+  // Stable for the memoized panes; always calls the latest editSessionTodo.
+  const editSessionTodoRef = useRef(editSessionTodo);
+  editSessionTodoRef.current = editSessionTodo;
+  const onEditOpenDraft = useCallback((sessionId: string) => {
+    void editSessionTodoRef.current(sessionId).catch((error: unknown) =>
+      console.warn("Could not open the draft for editing:", error),
+    );
+  }, []);
 
   const appReceipts = useRef(
     new Map<string, { signature: string; promise: Promise<unknown> }>(),
@@ -12106,6 +12117,7 @@ function Workspace({
     onNewTerminal: onNewTerminalInSession,
     remoteControlDesired,
     onRemoteControlChange: onChangeRemoteControl,
+    onEditDraft: onEditOpenDraft,
     onOperatorDisable: onDisableOperator,
     onCloudLaunchOutcome,
     onReviewFix,
@@ -12157,6 +12169,26 @@ function Workspace({
     />
   );
 
+  // Session Manager's pane: only the tab strip, so the "New tab" setting is
+  // visible there too (no window buttons, menus or navigation).
+  const boardPaneTabs = boardOpen ? (
+    <TitleBar
+      embedded
+      tabs={titleTabs}
+      activeId={activeTabId}
+      cwd={sidebarCwd}
+      onToggleSidebar={onToggleSidebar}
+      onSelect={activateTab}
+      onNew={onNew}
+      onClose={onCloseTitleTab}
+      onCloseMany={onCloseTabs}
+      onArchiveTab={onArchiveTitleTab}
+      onDeleteTab={onDeleteTitleTab}
+      onReorder={onReorderTabs}
+      onPinFile={onPinFile}
+    />
+  ) : null;
+
   return (
     <OrchestrationActions.Provider value={orchestrationActions}>
       <OrchestrationWorkers.Provider value={orchestrationWorkers}>
@@ -12183,6 +12215,7 @@ function Workspace({
           ) : null}
           <div className="flex min-h-0 min-w-0 flex-1">
             <Sidebar
+              remoteControlSessionIds={remoteControlDesired}
               cwd={sidebarCwd}
               gitCwd={gitCwd}
               worktreeTabStats={worktreeTabStats}
@@ -12342,7 +12375,8 @@ function Workspace({
                   undefined
                 }
               >
-                {!IS_MAC ? (
+                {/* Not inside Session Manager's session pane: that pane is just one chat. */}
+                {!IS_MAC && !boardOpen ? (
                   <MenuBar
                     onNew={onNew}
                     onNewTerminal={onNewTerminal}
@@ -12377,7 +12411,8 @@ function Workspace({
                     }}
                   />
                 ) : null}
-                {compactTitleBar ? null : workspaceTitleBar}
+                {/* Beside Session Manager the pane has its own slim header. */}
+                {compactTitleBar || boardOpen ? null : workspaceTitleBar}
 
                 <main className="relative flex min-h-0 min-w-0 flex-1">
                   <div
@@ -12603,6 +12638,8 @@ function Workspace({
               ) : null}
               {boardOpen ? (
                 <SessionBoardView
+                  paneTabs={boardPaneTabs}
+                  remoteControlSessionIds={remoteControlDesired}
                   cwd={projectCwd}
                   recents={recents}
                   cards={sessionBoard.cards}
@@ -12621,7 +12658,11 @@ function Workspace({
                   onToggleSidebar={onToggleSidebar}
                   onOpenSession={async (sessionId, altKey) => {
                     const session = await ensureOpenSession(sessionId);
-                    if (!session) throw new Error("This session is no longer available. You can remove its card.");
+                    if (!session) {
+                      // Deleted elsewhere: drop its card instead of showing an error.
+                      await forgetBoardSession(sessionId);
+                      return false;
+                    }
                     await onSelectHistorySession(sessionId, { altKey });
                   }}
                 />

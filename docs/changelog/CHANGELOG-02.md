@@ -1,4 +1,58 @@
+## 2026-10-05 — Session Manager pane: simple slide instead of card morph
+- What: Removed the expand-from-card / collapse-into-card animation. The session pane now slides and fades in and out (200ms) like the Tasks peek pane and other side panes; the board takes its split width at once.
+- Files: `src/features/session-board/ui/SessionBoardView.tsx`
+- Verified: TypeScript, full web suite (5,560 tests), build | manual: desktop open/close feel
+- Commit: see git log ("Session Manager pane: simple slide…")
+
+## 2026-10-05 — Session Manager pane: one-motion open/close, workspace tabs
+- What: Opening a session from Session Manager is now one motion: the board narrows while the card grows into the pane, and closing reverses it (no separate expand then sidebar slide). The pane header shows the workspace tab strip (tabs only, no window buttons), so the session opening preference (new tab / same tab) is visible there too.
+- Files: `src/features/session-board/ui/SessionBoardView.tsx` (`motion`, `paneTabs`); `src/app/shell/TitleBar.tsx` (`embedded`); `src/app/App.tsx` (`boardPaneTabs`)
+- Verified: TypeScript, full web suite (5,560 tests), build | manual: desktop open/close feel and tab strip in the pane
+- Commit: see git log ("Session Manager pane: one motion…")
+
+## 2026-10-05 00:40 IST — Windows 0.7.0-local4-upstream-sync installer
+- What: Built the current upstream-sync branch at `278e2c6` as an unsigned NSIS installer and archived it without replacing local2 or local3. Only version metadata and build records changed; no feature source, tests, commit, push or installation.
+- Files: `package.json` (line 4), `package-lock.json` (root metadata), `Cargo.toml` (line 7), `Cargo.lock` (monocode version), `src-tauri/tauri.conf.json` (line 4); [build record and logs](../notes/windows-070-local4-upstream-sync-build/README.md).
+- Verified: TypeScript, Rust fmt/check, production frontend, native release and NSIS pass; six version fields agree; unsigned installer metadata and archive/source SHA-256 match. Full suite: 5,549 passed / 3 failed (two known Windows shortcut expectations; one CRLF staging timeout that passes isolated file run, cause unresolved). Lint unavailable; Rust tests/Clippy not rerun because Rust source did not change. Manual desktop checks pending.
+- Commit: uncommitted.
+
 # Changelog 02
+
+
+## 2026-10-05 — Session Manager fixes, Work in picker, Shift+click new tab
+- What: Fixed the Session Manager save error (`unknown field automation`, from the previous change). Columns always fill the board (no per-column resize) and Add Draft lines up with them. Cards of deleted chats are removed (on delete, on open, and on load after a one-minute grace) instead of erroring. The board's session pane has no menu bar, grows out of the clicked card and shrinks back into it. "Both" opening uses Shift+click for a new tab (Alt+click still works; in the Sessions list Shift extends a Ctrl/Cmd selection). The Remote Control icon sits in the sidebar card's indicator slot beside the automation icon. The top-right Remote Control icon is gone: new chats get a "Work in" picker beside the branch (This computer / Cloud / Remote), shown as a fixed indicator once the chat starts (Remote still opens its menu). Cloud left the chat composer's + menu.
+- Files: `src/features/session-board/sessionBoard.ts` (`forgetBoardSession`, display-only `automation`); `src-tauri/src/session_board.rs` (`session_board_remove`, `prune_missing_sessions`), `lib.rs`; `src/features/session-board/ui/SessionBoardView.tsx`, `BoardSessionCard.tsx`; `src/app/App.tsx`; `src/features/settings/model/openingBehavior.ts` (`newTabClick`), `src/app/shell/Sidebar.tsx`, `src/features/files/ui/FileTree.tsx`, `FilePicker.tsx`, `src/features/search/ui/SearchView.tsx`, `SettingsView.tsx` copy; `src/features/provider-sessions/ui/WorkInPicker.tsx`, `RemoteControlButton.tsx` (new), `SessionProviderStrip.tsx`; `src/features/sessions/ui/SessionPane.tsx`, `Composer.tsx`; `src/shared/ui/icons.tsx` (`Laptop`); tests
+- Verified: tsc ✅ tests ✅ (5,559) build ✅ cargo fmt ✅ clippy ✅ cargo test session_board ✅ | manual: checklist in the reply
+- Commit: see git log for this entry
+## 2026-10-05 00:22 IST — Preserve UI changes and build handoff in merge
+- What: Resolved the single changelog conflict between local `07952d9` and incoming `d6f0ad8` by keeping both the reusable build handoff and Edit on opened drafts entries, as requested. Incoming UI/test/local-feature files remain identical to the remote commit; the local runbook and spec index remain identical to the local documentation commit. Nakul explicitly authorized the merge commit despite the documented red full-suite gate; push was not authorized.
+- Files: `docs/changelog/CHANGELOG-02.md` (conflict markers removed; both entries retained).
+- Verified: Exact source/document comparisons, TypeScript, transcript tests (36), production build and staged diff check pass; no unresolved paths remain. Pre-commit full web suite: 5,548 passed / 4 failed (two known Windows shortcut expectations and two Quick Composer attachment assertions). Attachment tests pass in isolation; those files are unchanged from HEAD and outside this merge. Full-suite gate remains red; no tests changed or weakened. Logs: `.git/merge-web-check.log`, `.git/merge-attachments-check.log`, `.git/merge-typecheck.log`. Existing CSS-highlight/chunk-size warnings remain; lint unavailable. Manual: open an unsent local draft, Edit, save, then Send.
+- Commit: merge commit containing this entry (see git log).
+
+## 2026-10-04 23:48 IST — Reusable Windows build handoff
+- What: Saved a repeatable installer-build runbook and copyable prompt for a lower-cost agent. Includes dynamic version selection, storage hard stops, sequential checks, exact known-failure handling, checksum/archive verification, preserving existing work and separate manual desktop checks.
+- Files: `docs/specs/repeatable-windows-installer-build.md`; `docs/specs/SPECS.md` (Draft row).
+- Verified: Compared against the local2/local3 build records and current manifests/scripts; documentation-only diff check. No build or source changes in this task.
+- Commit: uncommitted.
+
+
+## 2026-10-04 — Edit on opened drafts
+- What: An unsent draft opened from the project Sessions list (or anywhere in the workspace) shows Remove, Edit and Send; Edit opens the same Edit Draft composer as Session Manager. Only whole-draft local sessions that can still be edited get it.
+- Files: `src/features/sessions/ui/AgentTranscript.tsx` (`onEditDraft`, Edit button); `src/features/sessions/ui/SessionPane.tsx`; `src/features/workspace/ui/PaneTree.tsx`; `src/app/App.tsx` (`onEditOpenDraft`); test `AgentTranscript.test.ts`
+- Verified: tsc ✅ tests ✅ build ✅ | manual: open a draft from Sessions → Drafts, Edit, save, Send
+- Commit: see git log for this entry
+## 2026-10-04 23:20 IST — Windows 0.7.0 local3 installer
+- What: Rebuilt the unchanged current branch at `728ab243` as `0.7.0-local3-upstream-sync`, using the next local counter. Archived the unsigned NSIS installer alongside local2; earlier installers preserved. No feature changes, commit, push or installation; pre-existing Cargo.toml bytes preserved.
+- Files: `package.json` (line 4), `package-lock.json` (root metadata), `Cargo.toml` (line 7), `Cargo.lock` (monocode version), `src-tauri/tauri.conf.json` (line 4); [build record and logs](../notes/windows-070-local3-build/README.md).
+- Verified: TypeScript, Rust fmt/check, production frontend, native release and NSIS pass; installer version fields and archive/source SHA-256 match; diff check passes. Full web suite: 5,544 passed / 3 failed (two known Windows shortcuts plus a CRLF Git staging timeout); isolated CRLF file passes all 4 tests. Timeout cause unresolved; full-suite gate remains red. Lint unavailable; Rust tests/Clippy not rerun (no Rust source changes). Manual: installation/version, launch/window/history/providers and recent-feature spec checklists.
+- Commit: uncommitted.
+
+## 2026-10-04 23:15 IST — Windows 0.7.0 local2 installer
+- What: Built the current `nakul/windows-support-upstream-0.7.0` branch at `728ab243` as `0.7.0-local2-upstream-sync`, assuming the next local build counter. Archived the unsigned NSIS installer in `E:\Developing\Installable versions`; earlier installers preserved. No feature changes, commit, push or installation. Preserved the original bytes of the pre-existing content-identical Cargo.toml modification.
+- Files: `package.json` (line 4), `package-lock.json` (root version metadata), `Cargo.toml` (line 7), `Cargo.lock` (monocode version), `src-tauri/tauri.conf.json` (line 4); [build record and logs](../notes/windows-070-local2-build/README.md).
+- Verified: TypeScript, Rust fmt/check, production frontend and NSIS build pass; archive/source SHA-256 matches; FileVersion/ProductVersion match. Web tests: 5,545 passed / 2 documented existing Windows shortcut expectation failures. Full test gate remains red; tests unchanged. Lint unavailable; Rust tests/Clippy not rerun (no Rust source changes). Manual: install/version, launch/window controls/history/providers and existing recent-feature spec checklists.
+- Commit: uncommitted.
 
 Newest first. One short entry per change (format in `docs/WORKING-AGREEMENT.md` → Records).
 Entries dated 2026-10-02 to 2026-10-03 were backfilled from commits made in cloud sessions
@@ -9,8 +63,14 @@ that did not have the docs; file lists name the main files only.
 - What: The shared App submission path sent every successful prompt twice. Prepare the full Operator prompt before a single branch-aware send, preserve native fork/summary recovery, and stop stale dispatch/completion after cancellation. Prevent Show more from racing a provider refresh. Keep hidden opted-in/connecting/on Claude RC chats and active phone turns attached instead of killing their process on tab closure; disabling RC restores ordinary cleanup.
 - Files: `src/app/App.tsx` (submission and detach wiring); `src/app/model/localTurnSubmission.test.ts` (executes production dispatch); `src/app/hooks/useIdleSessionDetach.ts` and hook regressions; provider `conversationStore.ts`, `ProviderConversationList.tsx` and tests; L-62/L-64/L-66 records; `docs/specs/submission-duplicate-repair-plan.md`.
 - Verified: fresh full npm run check:web ✅ (5,572 tests / 512 files and strict TypeScript), production build ✅, diff check ✅. Before/after regressions reproduce duplicate sends, paging overlap and hidden RC detachment. Focused recent-feature checks: 311 passed; final four repaired areas: 64 passed. First broad run had four red RC regressions while their fix was in progress; all four now pass in the fresh complete suite. Existing non-fatal test React act/DNS and build chunk-size warnings remain. Manual desktop/phone checks are in the spec. No Rust source or installer changes.
-- Commit: uncommitted (same local 0.7.0 branch; no push requested).
+- Commit: `89cc8e0` (tested source). User approved preserving both documentation sides with newer remote `c966e80`; publication merge retains its UI, Session Manager, local4 version and build records. Combined full npm run check passed (5,585 web / 514 files, TypeScript, fmt/Clippy, 613 Rust passed / 2 ignored), and production build passed; separate cargo check and diff checks passed; commit/push verification pending.
 
+
+## 2026-10-04 — Remote Control PC icon, Cloud in the + menu, Session Manager icons and pane close
+- What: The + menu rows in the chat and floating composers all glide; "Cloud session" replaces the Local / Cloud switch. Remote Control is a PC icon (accent when on) in the chat, on project Sessions cards, provider conversation rows and Session Manager cards, hidden when off. Session Manager cards show the Automations icon for running automation sessions. The board's session pane drops the workspace tab strip and window buttons for a title plus one Close session icon; the "Hide session pane" text is gone.
+- Files: `src/features/provider-sessions/ui/RemoteControlIndicator.tsx` (new), `SessionProviderStrip.tsx`, `ProviderConversationList.tsx`, `CloudLaunchControls.tsx`, `useCloudLaunch.tsx`; `src/features/sessions/ui/Composer.tsx`, `SessionCard.tsx` (`badge`); `src/features/quick-composer/ui/QuickComposer.tsx`; `src/app/shell/Sidebar.tsx`; `src/app/App.tsx`; `src/features/session-board/sessionBoard.ts`, `ui/BoardSessionCard.tsx`, `ui/SessionBoardView.tsx`; `src/shared/ui/icons.tsx` (`Computer`); tests updated/added
+- Verified: tsc ✅ tests ✅ (5,551) build ✅ | manual: + menus glide; Cloud session toggles the cloud panel; PC icon colours; Session Manager pane close
+- Commit: see git log for this entry
 ## 2026-10-04 — Provider paging, reversible Operator and live phone transcript routing
 - What: Provider folders initially show ten local chats across accounts; Show more adds ten and refresh preserves expansion. Removed folder-inline refresh, kept automatic/list refresh, and added confirmed/saved-intent Claude RC labels. Retained cloud icons stay scoped to MonoCode-created tasks. Operator cross/menu Off now revokes app access and saves an ordered marker after active work; ordinary follow-ups stay off until explicitly re-enabled. Claude phone turns stream through their own saved boundary with replay protection and independent completion. Session Manager diagnosis: direct SQLite histories lack run receipts; pinning is unrelated. CLI/instructions now require supported launch APIs.
 - Files: provider `conversationStore.ts`, `conversationRemoteControl.ts`, `history.ts`, `ProviderConversationList.tsx`; `ProviderRail.tsx`; composer/Operator/storage/pane wiring; `src/app/App.tsx` (session event route, access revoke/submit gates, agent guidance); `src/integrations/harness/core/apply.ts`, `types.ts`, `providers/claude/claude.ts` (phone envelopes, batching, state isolation); `src-tauri/src/control.rs`, `control_cli.rs`, `lib.rs`; regression tests and L-62/L-64/L-66 records.

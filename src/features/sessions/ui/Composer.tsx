@@ -336,6 +336,8 @@ type Props = {
   onEditingLastTurnChange?: (editing: boolean) => void;
   /** Local | Cloud choice for a new session; Cloud launches instead of sending a local turn. */
   cloudLaunch?: ComposerCloudLaunch;
+  /** "Work in" (This computer / Cloud / Remote) shown after the branch. */
+  workIn?: ReactNode;
   children?: ReactNode;
 };
 
@@ -684,6 +686,7 @@ export function Composer({
   onRecallLastTurnReady,
   onEditingLastTurnChange,
   cloudLaunch,
+  workIn,
   onOperatorDisable,
   externalTurnActive = false,
   children,
@@ -2513,6 +2516,7 @@ export function Composer({
                   />
                 </>
               )}
+              {workIn}
               <div className="ml-auto flex shrink-0 items-center">
                 <ContextMeter
                   sessionId={sessionId}
@@ -2707,6 +2711,7 @@ export function Composer({
                         setPlusOpen(false);
                         ref.current?.focus();
                       }}
+                      data-shared-hover-item
                       className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
                     >
                       <AiIdea className="mt-0.5 size-4 shrink-0 text-yellow-300/80" />
@@ -2746,6 +2751,7 @@ export function Composer({
                         setPlusOpen(false);
                         ref.current?.focus();
                       }}
+                      data-shared-hover-item
                       className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
                     >
                       <CursorMagicSelection className="mt-0.5 size-4 shrink-0 text-sky-300/80" />
@@ -2778,6 +2784,7 @@ export function Composer({
                         setPlusOpen(false);
                         ref.current?.focus();
                       }}
+                      data-shared-hover-item
                       className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
                     >
                       <Share className="mt-0.5 size-4 shrink-0 text-fuchsia-300/65" />
@@ -2811,6 +2818,7 @@ export function Composer({
                         setPlusOpen(false);
                         ref.current?.focus();
                       }}
+                      data-shared-hover-item
                       className="flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left text-content hover:bg-content/10"
                     >
                       <CircleDashed className="mt-0.5 size-4 shrink-0 text-content/60" />
@@ -2926,7 +2934,6 @@ export function Composer({
                     onClose={() => ref.current?.focus()}
                   />
                 ) : null}
-                {cloudLaunch?.control}
               </div>
             </div>
 

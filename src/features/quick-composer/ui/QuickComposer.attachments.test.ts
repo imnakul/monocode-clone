@@ -57,7 +57,7 @@ function button(label: string) {
   )!;
 }
 async function attach() {
-  act(() => button("Add attachment").click());
+  act(() => button("Add files or choose a mode").click());
   await act(async () => {
     button("Choose files…").click();
   });

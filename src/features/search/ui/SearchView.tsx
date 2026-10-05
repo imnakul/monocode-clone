@@ -1,3 +1,4 @@
+import { newTabClick } from "../../settings/model/openingBehavior";
 import { Folder, LoaderCircle, MessageSquare, Search } from "../../../shared/ui/icons";
 import {
   useEffect,
@@ -573,7 +574,7 @@ function ResultList({
             aria-selected={highlighted}
             onMouseDown={(event) => event.preventDefault()}
             onMouseEnter={() => onRowEnter(index)}
-            onClick={(event) => onOpen(hit, event.altKey)}
+            onClick={(event) => onOpen(hit, newTabClick(event))}
             className={`flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] leading-none ${
               highlighted ? "bg-selection text-content" : "text-content"
             }`}

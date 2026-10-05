@@ -12,6 +12,7 @@ import {
 } from "../../files/ui/ExplorerMenu";
 import { HarnessIcon } from "../../sessions/ui/HarnessIcon";
 import { SessionCard } from "../../sessions/ui/SessionCard";
+import { RemoteControlIndicator } from "./RemoteControlIndicator";
 import {
   SessionListItem,
   type SessionInsertMotion,
@@ -342,9 +343,11 @@ export function ProviderConversationList({
                   done={false}
                   needsApproval={false}
                   now={now}
-                  statusDetail={rc ? (
-                    <span title={rc.detail} aria-label={`Remote Control: ${rc.label}`} className="shrink-0 text-[10px] text-content/55">RC {rc.label}</span>
-                  ) : undefined}
+                  badge={
+                    rc && rc.label !== "Off" ? (
+                      <RemoteControlIndicator label={rc.label} detail={rc.detail} />
+                    ) : undefined
+                  }
                   onSelect={() => onOpen(row)}
                   onArchive={() => onArchive(row, !row.archived)}
                   onContextMenu={(event) => onRowContextMenu(row.key, event)}

@@ -11,7 +11,6 @@ import {
 } from "../model/cloudSessions";
 import type { NativeProvider } from "../model/providerSessions";
 import {
-  CloudExecutionSwitch,
   CloudLaunchPanel,
   type ComposerCloudLaunch,
   type Execution,
@@ -168,14 +167,11 @@ export function useCloudLaunch(input: {
       ...(disabledReason ? { disabledReason } : {}),
       resetToLocal: () => setExecution("local"),
       launch,
-      control: createElement(CloudExecutionSwitch, {
-        value: execution,
-        disabled: pending,
-        onChange: (value: Execution) => {
-          setError(null);
-          setExecution(value);
-        },
-      }),
+      setActive: (next: boolean): void => {
+        if (pending) return;
+        setError(null);
+        setExecution(next ? "cloud" : "local");
+      },
       panel: active
         ? createElement(CloudLaunchPanel, {
             provider,

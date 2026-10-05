@@ -2,7 +2,7 @@ use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::session_store::{validate_id, SessionStore};
+use crate::session_store::{now_millis, validate_id, SessionStore};
 
 const SESSION_ID_MAX: usize = 256;
 const RUN_ID_MAX: usize = 512;
@@ -67,7 +67,51 @@ pub(crate) fn ensure_session_board_table(conn: &Connection) -> rusqlite::Result<
 #[tauri::command(async)]
 pub fn session_board_list(store: State<'_, SessionStore>) -> Result<Vec<SessionBoardCard>, String> {
     let mut conn = store.lock_conn()?;
+    prune_missing_sessions(&conn, now_millis()).map_err(|error| error.to_string())?;
     list_current_cards(&mut conn).map_err(|error| error.to_string())
+}
+
+/// Drops the card of a deleted chat (Session Manager never shows a session
+/// that cannot be opened). Removing a card that does not exist is harmless.
+#[tauri::command(async)]
+pub fn session_board_remove(
+    store: State<'_, SessionStore>,
+    session_id: String,
+) -> Result<(), String> {
+    validate_id(&session_id, "session")?;
+    let conn = store.lock_conn()?;
+    conn.execute(
+        "DELETE FROM session_board_cards WHERE session_id = ?1",
+        params![session_id],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// A brand-new chat can show a card a moment before its first save, so only
+/// cards untouched for a minute whose session row is gone are removed.
+const MISSING_SESSION_GRACE_MS: i64 = 60_000;
+
+fn prune_missing_sessions(conn: &Connection, now: i64) -> rusqlite::Result<usize> {
+    let cards = list_cards(conn)?;
+    let mut removed = 0;
+    for card in cards {
+        if card.updated_at > now - MISSING_SESSION_GRACE_MS {
+            continue;
+        }
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sessions WHERE id = ?1)",
+            params![card.session_id],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            removed += conn.execute(
+                "DELETE FROM session_board_cards WHERE session_id = ?1",
+                params![card.session_id],
+            )?;
+        }
+    }
+    Ok(removed)
 }
 
 #[tauri::command(async)]
@@ -344,6 +388,30 @@ mod tests {
             updated_at: 123,
             hidden_run_id: None,
         }
+    }
+
+    #[test]
+    fn prunes_cards_of_deleted_sessions_after_a_grace_period() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let mut conn = store.lock_conn().unwrap();
+        conn.execute(
+            "INSERT INTO sessions (id,cwd,harness,model,runtime_mode,title,blocks_json,created_at,updated_at)
+             VALUES ('alive','/work','claude','model','default','Alive','[]',1,1)",
+            [],
+        )
+        .unwrap();
+        for id in ["alive", "deleted", "fresh"] {
+            let mut entry = card(id, "run-1", SessionBoardStatus::Done);
+            if id == "fresh" {
+                entry.updated_at = 1_000_000;
+            }
+            upsert_card(&mut conn, entry).unwrap();
+        }
+        // "fresh" is newer than the grace period; "deleted" has no session row.
+        assert_eq!(prune_missing_sessions(&conn, 1_030_000).unwrap(), 1);
+        assert!(get_card(&conn, "deleted").unwrap().is_none());
+        assert!(get_card(&conn, "alive").unwrap().is_some());
+        assert!(get_card(&conn, "fresh").unwrap().is_some());
     }
 
     fn table_exists(conn: &Connection) -> bool {

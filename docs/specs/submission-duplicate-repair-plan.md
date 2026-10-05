@@ -90,4 +90,31 @@ The first broad run had exactly four red hidden-RC regressions (5,568 passed);
 all four passed after the fix, including in the fresh complete suite. Existing
 test stderr includes React act/DNS warnings; they did not fail tests. Build
 reports the existing chunk-size warning. No Rust source changes.
-Source changes are local and uncommitted; no push/installer requested.
+Initial verification preceded publication. The tested source is committed as
+`89cc8e0`; publication is now authorized and tracked below. No installer requested.
+
+## Publication reconciliation — 2026-10-05
+
+User authorized commit/push, then explicitly approved preserving both sides
+of documentation conflicts. Source commit: `89cc8e0`. The remote advanced from
+`728ab243` to `c966e80` with UI, Session Manager and Windows local4 records.
+The source merges cleanly; conflicts are only LOCAL-FEATURES.md (our L-66
+updates versus the remote L-67 addition) and CHANGELOG-02.md (new entries).
+
+Preserve the remote's new features/version/history and our three repairs.
+Keep the updated L-66 row plus L-67, and retain both changelog entries. Run
+the combined full web/Rust gates and production build before committing the
+merge. Fetch/recheck remote and push normally; never force-push.
+
+- [x] Resolve the two documentation conflicts as approved.
+- [x] Validate combined source with full gates and build.
+- [ ] Commit merge, push and verify remote identity/ancestry.
+
+The two unrelated untracked upstream notes remain hands-off. Native manual
+checks remain the follow-up above; no installer is part of this publication.
+
+Combined publication gates: full npm run check passed (5,585 web tests /
+514 files, strict TypeScript, Rust fmt/Clippy, 613 Rust passed / 2 ignored).
+Production build passed. Separate cargo check passed; diff checks are clean. The remote
+local4 version and all incoming source/UI records are preserved; relative to
+remote c966e80, only the repairs, regressions and their records differ.

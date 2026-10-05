@@ -1,8 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { OverlayNav } from "../../../app/shell/TitleBar";
 import { WindowControls } from "../../../app/shell/WindowControls";
 import { IS_MAC } from "../../../platform/tauri/platform";
-import { MessageMultiple, Plus, Search } from "../../../shared/ui/icons";
+import { MessageMultiple, Plus, Search, X } from "../../../shared/ui/icons";
+import { isHarnessId } from "../../sessions/model/models";
+import { sessionDisplayTitle } from "../../sessions/model/session";
 import {
   BoardColumn,
   BoardColumns,
@@ -31,30 +39,6 @@ import { BoardSessionCard } from "./BoardSessionCard";
 import { usePresence } from "../../../shared/hooks/usePresence";
 
 const COLUMN_MIN_WIDTH = 256;
-const COLUMN_RESIZE_MIN = 220;
-const COLUMN_RESIZE_MAX = 560;
-const COLUMN_WIDTH_KEY = "monocode.sessionBoard.columnWidth";
-
-/** Fixed session column width, or null to fill the board. */
-function loadColumnWidth(): number | null {
-  try {
-    const value = Number(localStorage.getItem(COLUMN_WIDTH_KEY));
-    return Number.isFinite(value) && value > 0
-      ? Math.min(COLUMN_RESIZE_MAX, Math.max(COLUMN_RESIZE_MIN, value))
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveColumnWidth(width: number | null) {
-  try {
-    if (width === null) localStorage.removeItem(COLUMN_WIDTH_KEY);
-    else localStorage.setItem(COLUMN_WIDTH_KEY, String(width));
-  } catch {
-    /* storage unavailable: the width just won't persist */
-  }
-}
 export function SessionBoardView({
   cards,
   cwd,
@@ -73,6 +57,8 @@ export function SessionBoardView({
   onEditTodo,
   onStartTodo,
   onDeleteTodo,
+  remoteControlSessionIds,
+  paneTabs,
 }: {
   cards: readonly BoardCard[];
   cwd?: string;
@@ -80,7 +66,8 @@ export function SessionBoardView({
   loading: boolean;
   error: string | null;
   activeSessionId?: string;
-  onOpenSession: (sessionId: string, altKey?: boolean) => Promise<void>;
+  /** Resolves false when the session no longer exists (its card is dropped). */
+  onOpenSession: (sessionId: string, altKey?: boolean) => Promise<boolean | void>;
   onClose: () => void;
   onPaneVisible: (visible: boolean) => void;
   onWorkspaceHost: (host: HTMLElement | null) => void;
@@ -91,6 +78,10 @@ export function SessionBoardView({
   onEditTodo?: (id: string) => Promise<void>;
   onStartTodo?: (id: string) => Promise<void>;
   onDeleteTodo?: (id: string) => Promise<void>;
+  /** Chats with Remote Control turned on; their cards show a PC icon. */
+  remoteControlSessionIds?: ReadonlySet<string>;
+  /** The workspace tab strip for the pane (shows extra tabs under "New tab"). */
+  paneTabs?: ReactNode;
 }) {
   const [query, setQuery] = useState("");
   const [project, setProject] = useState("");
@@ -100,12 +91,6 @@ export function SessionBoardView({
   const pane = usePresence(selected);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [columnWidth, setColumnWidth] = useState(loadColumnWidth);
-  const [liveColumnWidth, setLiveColumnWidth] = useState<number | null>(null);
-  const commitColumnWidth = (next: number | null) => {
-    setColumnWidth(next);
-    saveColumnWidth(next);
-  };
   const [width, setWidth] = useState(() => {
     try {
       return Math.max(
@@ -148,6 +133,12 @@ export function SessionBoardView({
     return [...paths.values()];
   }, [cards, recents, cwd]);
   const boardCards = visibleBoardCards(cards);
+  const paneCard = cards.find((card) => card.sessionId === activeSessionId);
+  const paneTitle = paneCard
+    ? isHarnessId(paneCard.harness)
+      ? sessionDisplayTitle(paneCard.title, paneCard.harness)
+      : paneCard.title
+    : "Session";
   const needle = query.trim().toLowerCase();
   const matchesProject = (card: BoardCard) =>
     !project || pathKey(project) === pathKey(card.cwd);
@@ -210,7 +201,9 @@ export function SessionBoardView({
   };
   const open = async (card: BoardCard, altKey?: boolean) => {
     await runAction(async () => {
-      await onOpenSession(card.sessionId, altKey);
+      // False means the session is gone (its card was removed): no pane.
+      const opened = await onOpenSession(card.sessionId, altKey);
+      if (opened === false) return;
       setSelected(true);
     });
   };
@@ -278,7 +271,8 @@ export function SessionBoardView({
         </button>
         {!IS_MAC ? <WindowControls /> : null}
       </div>
-      <div className="flex h-9 shrink-0 items-center gap-1.5 px-2">
+      {/* px-3 matches the board's p-3 so Add Draft lines up with the columns. */}
+      <div className="flex h-9 shrink-0 items-center gap-1.5 px-3">
         {onAddTodo ? (
           <button
             type="button"
@@ -335,15 +329,6 @@ export function SessionBoardView({
             Reset
           </button>
         ) : null}
-        {selected ? (
-          <button
-            type="button"
-            className="ml-auto h-7 shrink-0 rounded-md px-2.5 text-[12px] text-content/70 hover:bg-content/10 hover:text-content"
-            onClick={() => setSelected(false)}
-          >
-            Hide session pane
-          </button>
-        ) : null}
       </div>
       {error || actionError ? (
         <div role="alert" className="p-2 text-xs text-red-400">
@@ -356,7 +341,10 @@ export function SessionBoardView({
           </button>
         </div>
       ) : null}
-      <div ref={body} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div
+        ref={body}
+        className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
+      >
         <div
           className="flex min-h-0 min-w-0 flex-col"
           style={{ width: pane.mounted ? `${width}%` : "100%" }}
@@ -372,7 +360,9 @@ export function SessionBoardView({
             </p>
           ) : null}
           <div className="min-h-0 flex-1">
-            <BoardColumns wrapBelow={COLUMN_MIN_WIDTH}>
+            {/* Columns always fill the board (no per-column resize); the only
+                divider is the one beside the session pane. */}
+            <BoardColumns wrapBelow={COLUMN_MIN_WIDTH} fit>
               {(Object.entries(BOARD_LANES) as [BoardLane, string][])
                 .filter(([key]) => !status || key === status)
                 .map(([key, label]) => {
@@ -386,15 +376,6 @@ export function SessionBoardView({
                       label={label}
                       count={rows.length}
                       fillMin={COLUMN_MIN_WIDTH}
-                      resize={{
-                        width: columnWidth,
-                        liveWidth: liveColumnWidth,
-                        min: COLUMN_RESIZE_MIN,
-                        max: COLUMN_RESIZE_MAX,
-                        onLive: setLiveColumnWidth,
-                        onCommit: commitColumnWidth,
-                        onReset: () => commitColumnWidth(null),
-                      }}
                       actions={
                         key === "done" ? (
                           <button
@@ -421,6 +402,10 @@ export function SessionBoardView({
                             key={card.sessionId}
                             card={card}
                             lane={key}
+                            remoteControl={
+                              remoteControlSessionIds?.has(card.sessionId) ??
+                              false
+                            }
                             now={now}
                             busy={busy}
                             preserveHover={
@@ -490,19 +475,46 @@ export function SessionBoardView({
           />
         ) : null}
         <div
-          ref={onWorkspaceHost}
+          data-board-pane
           inert={pane.mounted && !selected ? true : undefined}
           className={
             pane.mounted
-              ? `flex min-h-0 min-w-0 flex-1 flex-col transition-[transform,opacity] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] will-change-transform motion-reduce:transition-none ${
+              ? `flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] will-change-transform motion-reduce:transition-none ${
                   pane.shown
                     ? "translate-x-0 opacity-100"
                     : "translate-x-full opacity-0"
                 }`
               : "hidden"
           }
-          aria-label="Board session workspace"
-        />
+        >
+          {/* Tabs only (no window buttons or menus) and a single close; the
+              board stays open. */}
+          <div
+            className={`flex h-9 shrink-0 items-center gap-2 border-b border-stroke pr-1.5 ${
+              paneTabs ? "pl-0" : "pl-3"
+            }`}
+          >
+            {paneTabs ?? (
+              <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-content/80">
+                {paneTitle}
+              </span>
+            )}
+            <button
+              type="button"
+              aria-label="Close session"
+              title="Close session"
+              onClick={() => setSelected(false)}
+              className="grid size-7 shrink-0 place-items-center rounded-md text-content/55 transition-colors duration-100 hover:bg-content/10 hover:text-content"
+            >
+              <X aria-hidden className="size-3.5" strokeWidth={1.75} />
+            </button>
+          </div>
+          <div
+            ref={onWorkspaceHost}
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
+            aria-label="Board session workspace"
+          />
+        </div>
       </div>
     </div>
   );
