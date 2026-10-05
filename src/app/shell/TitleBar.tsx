@@ -111,6 +111,11 @@ type Props = {
   onPinFile?: (fileId: string) => void;
   recents?: RecentProject[];
   onSelectProject?: (path: string) => void;
+  /**
+   * Just the tab strip, for Session Manager's session pane: no window
+   * buttons, navigation, sidebar toggles or project picker, and no drag region.
+   */
+  embedded?: boolean;
 };
 
 function sessionMeta(tab: Tab): string {
@@ -650,6 +655,7 @@ function TitleBarComponent({
   onPinFile,
   recents = [],
   onSelectProject,
+  embedded = false,
 }: Props) {
   const tabIds = tabs.map((tab) => tab.id);
   const { displayed, setTabNode, finishMotion } = useTabCloseMotion(tabs);
@@ -879,7 +885,7 @@ function TitleBarComponent({
       Boolean(onOpenInbox || onOpenNotes || onOpenTasks || onOpenKanban || onOpenSettings)) ||
     (railClosed && !projectless);
   const trailingControls =
-    showTrailingActions || !IS_MAC ? (
+    !embedded && (showTrailingActions || !IS_MAC) ? (
       <div className="flex h-full shrink-0 items-stretch">
         {showTrailingActions ? (
           <div className="flex items-center gap-0.5 px-2">
@@ -925,12 +931,17 @@ function TitleBarComponent({
   // exempts buttons, links and inputs on its own.
   return (
     <header
-      className={`flex h-10 shrink-0 select-none items-stretch border-b border-stroke${
-        compactRail ? " body-glass" : ""
-      }`}
-      data-tauri-drag-region="deep"
+      className={
+        embedded
+          ? "flex h-9 min-w-0 flex-1 shrink-0 select-none items-stretch"
+          : `flex h-10 shrink-0 select-none items-stretch border-b border-stroke${
+              compactRail ? " body-glass" : ""
+            }`
+      }
+      data-title-bar-embedded={embedded ? "" : undefined}
+      data-tauri-drag-region={embedded ? undefined : "deep"}
     >
-      {compactRail ? (
+      {compactRail && !embedded ? (
         <div
           data-compact-title-nav
           className="flex shrink-0 items-center pl-[70px]"
@@ -945,7 +956,7 @@ function TitleBarComponent({
       ) : null}
       {/* Both the rail and the sidebar step aside without a project, so the
           title bar takes over the traffic lights and the rail toggle. */}
-      {projectless && railClosed && !compactRail ? (
+      {projectless && railClosed && !compactRail && !embedded ? (
         <>
           <div className="w-[78px] shrink-0" />
           <div className="flex shrink-0 items-center px-1.5">
@@ -958,7 +969,7 @@ function TitleBarComponent({
           </div>
         </>
       ) : null}
-      {!sessionSidebarOpen && !projectless && onToggleSessionSidebar ? (
+      {!sessionSidebarOpen && !projectless && onToggleSessionSidebar && !embedded ? (
         <div className="flex shrink-0 items-center px-1.5">
           {IS_MAC && railClosed && !compactRail ? (
             <div className="w-[70px] shrink-0" />
@@ -971,7 +982,7 @@ function TitleBarComponent({
           </IconButton>
         </div>
       ) : null}
-      {showProjectButton && onSelectProject ? (
+      {showProjectButton && onSelectProject && !embedded ? (
         <CwdPicker
           cwd={cwd}
           recents={recents}
@@ -986,7 +997,7 @@ function TitleBarComponent({
 
       <div
         className={`flex min-w-0 flex-1 items-stretch${
-          showProjectButton ? " border-l border-stroke" : ""
+          showProjectButton && !embedded ? " border-l border-stroke" : ""
         }`}
       >
         <div
@@ -1085,7 +1096,7 @@ function TitleBarComponent({
           ) : null}
         </div>
 
-        {!IS_MAC && !IS_WIN ? (
+        {embedded ? null : !IS_MAC && !IS_WIN ? (
           <div className="flex min-w-0 flex-1 items-center justify-center px-4">
             <span className="pointer-events-none truncate text-[11.5px] font-medium text-content/40 select-none">
               {systemTitle}

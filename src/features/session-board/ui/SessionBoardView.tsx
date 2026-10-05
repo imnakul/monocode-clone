@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { OverlayNav } from "../../../app/shell/TitleBar";
 import { WindowControls } from "../../../app/shell/WindowControls";
 import { IS_MAC } from "../../../platform/tauri/platform";
@@ -52,6 +59,7 @@ export function SessionBoardView({
   onStartTodo,
   onDeleteTodo,
   remoteControlSessionIds,
+  paneTabs,
 }: {
   cards: readonly BoardCard[];
   cwd?: string;
@@ -73,6 +81,8 @@ export function SessionBoardView({
   onDeleteTodo?: (id: string) => Promise<void>;
   /** Chats with Remote Control turned on; their cards show a PC icon. */
   remoteControlSessionIds?: ReadonlySet<string>;
+  /** The workspace tab strip for the pane (shows extra tabs under "New tab"). */
+  paneTabs?: ReactNode;
 }) {
   const [query, setQuery] = useState("");
   const [project, setProject] = useState("");
@@ -83,8 +93,11 @@ export function SessionBoardView({
   // The pane grows out of the card that opened it and shrinks back into it.
   const paneRef = useRef<HTMLDivElement>(null);
   const morphFrom = useRef<DOMRect | null>(null);
-  const closing = useRef(false);
   const openedCard = useRef<string | undefined>(undefined);
+  // While the pane opens or closes it sits absolutely at its final place so
+  // the board can resize under it in the same motion as the card morph.
+  const [motion, setMotion] = useState<"opening" | "closing" | null>(null);
+  const boardSide = useRef<HTMLDivElement>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [width, setWidth] = useState(() => {
@@ -203,25 +216,50 @@ export function SessionBoardView({
     return element ? element.getBoundingClientRect() : null;
   };
   const closePane = (): void => {
+    if (motion === "closing") return;
     const element = paneRef.current;
     // Shrink into the card of the session shown now (or the one that opened it).
-    const target = cardRect(activeSessionId) ?? cardRect(openedCard.current);
-    if (closing.current) return;
-    if (!element || !target || !canMorph(element)) {
+    const card = cardRect(activeSessionId) ?? cardRect(openedCard.current);
+    const bodyRect = body.current?.getBoundingClientRect();
+    const sideRect = boardSide.current?.getBoundingClientRect();
+    if (!element || !canMorph(element)) {
       setSelected(false);
       return;
     }
-    closing.current = true;
-    const animation = element.animate(
-      morphFrames(target, element.getBoundingClientRect()).reverse(),
-      { duration: MORPH_MS, easing: MORPH_EASING, fill: "forwards" },
-    );
+    const paneRect = element.getBoundingClientRect();
+    // The board widens back to full width during the close, so aim at where
+    // the card will be then (columns scale with the board's width).
+    const scale =
+      bodyRect && sideRect && sideRect.width > 0
+        ? bodyRect.width / sideRect.width
+        : 1;
+    const target =
+      card && bodyRect
+        ? new DOMRect(
+            bodyRect.left + (card.left - bodyRect.left) * scale,
+            card.top,
+            card.width * scale,
+            card.height,
+          )
+        : null;
+    setMotion("closing");
+    const animation = target
+      ? element.animate(morphFrames(target, paneRect).reverse(), {
+          duration: MORPH_MS,
+          easing: MORPH_EASING,
+          fill: "forwards",
+        })
+      : element.animate([{ opacity: 1 }, { opacity: 0 }], {
+          duration: MORPH_MS,
+          easing: MORPH_EASING,
+          fill: "forwards",
+        });
     let finished = false;
     const done = (): void => {
       if (finished) return;
       finished = true;
-      closing.current = false;
       setSelected(false);
+      setMotion(null);
     };
     animation.onfinish = done;
     animation.oncancel = done;
@@ -234,21 +272,31 @@ export function SessionBoardView({
     await runAction(async () => {
       // False means the session is gone (its card was removed): no pane.
       const opened = await onOpenSession(card.sessionId, altKey);
-      if (opened !== false) setSelected(true);
+      if (opened === false) return;
+      if (!selected) setMotion("opening");
+      setSelected(true);
     });
   };
+  // Start on `shown` (two frames after mount): the session's content is in
+  // the pane by then, so the card grows into the finished pane in one motion,
+  // together with the board narrowing beside it.
   useLayoutEffect(() => {
-    const from = morphFrom.current;
     const element = paneRef.current;
-    if (!selected || !pane.mounted || !from || !element) return;
+    if (!selected || !pane.shown || !element) return;
+    const from = morphFrom.current;
     morphFrom.current = null;
     element.getAnimations?.().forEach((animation) => animation.cancel());
-    if (!canMorph(element)) return;
-    element.animate(morphFrames(from, element.getBoundingClientRect()), {
-      duration: MORPH_MS,
-      easing: MORPH_EASING,
-    });
-  }, [selected, pane.mounted]);
+    // Not tied to this effect's cleanup: a re-render must not keep the pane
+    // in its moving layout.
+    window.setTimeout(() => setMotion(null), MORPH_MS + 20);
+    if (canMorph(element))
+      element.animate(
+        from
+          ? morphFrames(from, element.getBoundingClientRect())
+          : [{ opacity: 0 }, { opacity: 1 }],
+        { duration: MORPH_MS, easing: MORPH_EASING },
+      );
+  }, [selected, pane.shown]);
   const resize = (event: React.PointerEvent<HTMLDivElement>) => {
     resizeCleanup.current?.();
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -383,10 +431,21 @@ export function SessionBoardView({
           </button>
         </div>
       ) : null}
-      <div ref={body} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div
+        ref={body}
+        className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
+      >
         <div
-          className="flex min-h-0 min-w-0 flex-col"
-          style={{ width: pane.mounted ? `${width}%` : "100%" }}
+          ref={boardSide}
+          className={`flex min-h-0 min-w-0 flex-col ${
+            motion
+              ? "transition-[width] duration-[280ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:transition-none"
+              : ""
+          }`}
+          style={{
+            width:
+              pane.shown && motion !== "closing" ? `${width}%` : "100%",
+          }}
         >
           {loading ? (
             <p className="px-4 pt-3 text-[12px] text-content/50">
@@ -489,7 +548,7 @@ export function SessionBoardView({
             </BoardColumns>
           </div>
         </div>
-        {pane.mounted ? (
+        {pane.mounted && !motion ? (
           <div
             role="separator"
             aria-label="Board and session divider"
@@ -517,20 +576,37 @@ export function SessionBoardView({
           ref={paneRef}
           data-board-pane
           inert={pane.mounted && !selected ? true : undefined}
+          style={
+            motion
+              ? {
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  right: 0,
+                  width: `calc(${100 - width}% - 6px)`,
+                }
+              : undefined
+          }
           className={
             pane.mounted
-              ? `flex min-h-0 min-w-0 flex-1 origin-top-left flex-col overflow-hidden transition-opacity duration-200 motion-reduce:transition-none ${
+              ? `flex min-h-0 min-w-0 flex-1 origin-top-left flex-col overflow-hidden ${
                   pane.shown ? "opacity-100" : "opacity-0"
                 }`
               : "hidden"
           }
         >
-          {/* The pane shows one session: no tab strip or window buttons here,
-              just its title and a single close (the board stays open). */}
-          <div className="flex h-9 shrink-0 items-center gap-2 border-b border-stroke pl-3 pr-1.5">
-            <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-content/80">
-              {paneTitle}
-            </span>
+          {/* Tabs only (no window buttons or menus) and a single close; the
+              board stays open. */}
+          <div
+            className={`flex h-9 shrink-0 items-center gap-2 border-b border-stroke pr-1.5 ${
+              paneTabs ? "pl-0" : "pl-3"
+            }`}
+          >
+            {paneTabs ?? (
+              <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-content/80">
+                {paneTitle}
+              </span>
+            )}
             <button
               type="button"
               aria-label="Close session"

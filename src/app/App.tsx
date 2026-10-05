@@ -12178,6 +12178,26 @@ function Workspace({
     />
   );
 
+  // Session Manager's pane: only the tab strip, so the "New tab" setting is
+  // visible there too (no window buttons, menus or navigation).
+  const boardPaneTabs = boardOpen ? (
+    <TitleBar
+      embedded
+      tabs={titleTabs}
+      activeId={activeTabId}
+      cwd={sidebarCwd}
+      onToggleSidebar={onToggleSidebar}
+      onSelect={activateTab}
+      onNew={onNew}
+      onClose={onCloseTitleTab}
+      onCloseMany={onCloseTabs}
+      onArchiveTab={onArchiveTitleTab}
+      onDeleteTab={onDeleteTitleTab}
+      onReorder={onReorderTabs}
+      onPinFile={onPinFile}
+    />
+  ) : null;
+
   return (
     <OrchestrationActions.Provider value={orchestrationActions}>
       <OrchestrationWorkers.Provider value={orchestrationWorkers}>
@@ -12627,6 +12647,7 @@ function Workspace({
               ) : null}
               {boardOpen ? (
                 <SessionBoardView
+                  paneTabs={boardPaneTabs}
                   remoteControlSessionIds={remoteControlDesired}
                   cwd={projectCwd}
                   recents={recents}

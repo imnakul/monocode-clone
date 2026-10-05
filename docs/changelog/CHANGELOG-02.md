@@ -1,3 +1,9 @@
+## 2026-10-05 — Session Manager pane: one-motion open/close, workspace tabs
+- What: Opening a session from Session Manager is now one motion: the board narrows while the card grows into the pane, and closing reverses it (no separate expand then sidebar slide). The pane header shows the workspace tab strip (tabs only, no window buttons), so the session opening preference (new tab / same tab) is visible there too.
+- Files: `src/features/session-board/ui/SessionBoardView.tsx` (`motion`, `paneTabs`); `src/app/shell/TitleBar.tsx` (`embedded`); `src/app/App.tsx` (`boardPaneTabs`)
+- Verified: TypeScript, full web suite (5,560 tests), build | manual: desktop open/close feel and tab strip in the pane
+- Commit: see git log ("Session Manager pane: one motion…")
+
 ## 2026-10-05 00:40 IST — Windows 0.7.0-local4-upstream-sync installer
 - What: Built the current upstream-sync branch at `278e2c6` as an unsigned NSIS installer and archived it without replacing local2 or local3. Only version metadata and build records changed; no feature source, tests, commit, push or installation.
 - Files: `package.json` (line 4), `package-lock.json` (root metadata), `Cargo.toml` (line 7), `Cargo.lock` (monocode version), `src-tauri/tauri.conf.json` (line 4); [build record and logs](../notes/windows-070-local4-upstream-sync-build/README.md).

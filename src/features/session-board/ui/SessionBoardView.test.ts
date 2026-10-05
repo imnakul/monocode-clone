@@ -179,11 +179,27 @@ it("shares the full width equally between columns, shrinking instead of scrollin
 it("keeps the board side at its split width when the session pane is open", async () => {
   render();
   await act(async () => card("running").click());
+  // The pane opens in one motion (board narrows while the card grows).
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  });
   let side: HTMLElement | null = container.querySelector<HTMLElement>(
     "section[aria-label='Draft column']",
   )!.parentElement;
   while (side && !side.style.width) side = side.parentElement;
   expect(side?.style.width).toBe("48%");
+});
+it("shows the workspace tab strip in the pane header instead of a single title", async () => {
+  props.paneTabs = createElement("div", { "data-test-tabs": "" }, "Tabs");
+  render();
+  await act(async () => card("running").click());
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  const workspace = container.querySelector<HTMLElement>(
+    '[aria-label="Board session workspace"]',
+  )!.parentElement!;
+  expect(workspace.querySelector("[data-test-tabs]")).toBeTruthy();
 });
 it("opens no pane and shows no error when the session was deleted", async () => {
   props.onOpenSession = vi.fn(async () => false);
@@ -211,6 +227,13 @@ it("reports an unavailable session and storage retry without opening an empty pa
 it("hides the session pane without removing its card and supports keyboard resizing", async () => {
   render();
   await act(async () => card("running").click());
+  // The pane opens in one motion (board narrows while the card grows).
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  });
   const divider = container.querySelector<HTMLElement>(
     '[aria-label="Board and session divider"]',
   )!;
@@ -524,6 +547,9 @@ it("grows the session pane out of the clicked card and shrinks it back on close"
   try {
     render();
     await act(async () => card("running").click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
     const pane = container.querySelector<HTMLElement>("[data-board-pane]")!;
     expect(animate).toHaveBeenCalledTimes(1);
     const [opening] = animate.mock.calls[0] as unknown as [Keyframe[]];
