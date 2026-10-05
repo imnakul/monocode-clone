@@ -108,7 +108,7 @@ merge. Fetch/recheck remote and push normally; never force-push.
 
 - [x] Resolve the two documentation conflicts as approved.
 - [x] Validate combined source with full gates and build.
-- [ ] Commit merge, push and verify remote identity/ancestry.
+- [x] Commit merge, push and verify remote identity/ancestry.
 
 The two unrelated untracked upstream notes remain hands-off. Native manual
 checks remain the follow-up above; no installer is part of this publication.
@@ -118,3 +118,10 @@ Combined publication gates: full npm run check passed (5,585 web tests /
 Production build passed. Separate cargo check passed; diff checks are clean. The remote
 local4 version and all incoming source/UI records are preserved; relative to
 remote c966e80, only the repairs, regressions and their records differ.
+
+Publication verified: merge `150e79c297bf46036b94727879a795085972bc04`
+was pushed normally to origin/nakul/windows-support-upstream-0.7.0. Remote
+ls-remote matched local HEAD; both fix `89cc8e0` and incoming `c966e80` are
+ancestors. Only the two pre-existing untracked upstream notes remain. This
+documentation-only checkpoint records publication; source checks above remain
+valid because no source changed after validation.
