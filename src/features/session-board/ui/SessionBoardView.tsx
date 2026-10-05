@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -90,14 +89,6 @@ export function SessionBoardView({
   const [selected, setSelected] = useState(false);
   // The session pane slides in and out; it stays mounted while leaving.
   const pane = usePresence(selected);
-  // The pane grows out of the card that opened it and shrinks back into it.
-  const paneRef = useRef<HTMLDivElement>(null);
-  const morphFrom = useRef<DOMRect | null>(null);
-  const openedCard = useRef<string | undefined>(undefined);
-  // While the pane opens or closes it sits absolutely at its final place so
-  // the board can resize under it in the same motion as the card morph.
-  const [motion, setMotion] = useState<"opening" | "closing" | null>(null);
-  const boardSide = useRef<HTMLDivElement>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [width, setWidth] = useState(() => {
@@ -208,95 +199,14 @@ export function SessionBoardView({
       setBusy(false);
     }
   };
-  const cardRect = (sessionId?: string): DOMRect | null => {
-    if (!sessionId) return null;
-    const element = body.current?.querySelector<HTMLElement>(
-      `[data-board-card="${CSS.escape(sessionId)}"]`,
-    );
-    return element ? element.getBoundingClientRect() : null;
-  };
-  const closePane = (): void => {
-    if (motion === "closing") return;
-    const element = paneRef.current;
-    // Shrink into the card of the session shown now (or the one that opened it).
-    const card = cardRect(activeSessionId) ?? cardRect(openedCard.current);
-    const bodyRect = body.current?.getBoundingClientRect();
-    const sideRect = boardSide.current?.getBoundingClientRect();
-    if (!element || !canMorph(element)) {
-      setSelected(false);
-      return;
-    }
-    const paneRect = element.getBoundingClientRect();
-    // The board widens back to full width during the close, so aim at where
-    // the card will be then (columns scale with the board's width).
-    const scale =
-      bodyRect && sideRect && sideRect.width > 0
-        ? bodyRect.width / sideRect.width
-        : 1;
-    const target =
-      card && bodyRect
-        ? new DOMRect(
-            bodyRect.left + (card.left - bodyRect.left) * scale,
-            card.top,
-            card.width * scale,
-            card.height,
-          )
-        : null;
-    setMotion("closing");
-    const animation = target
-      ? element.animate(morphFrames(target, paneRect).reverse(), {
-          duration: MORPH_MS,
-          easing: MORPH_EASING,
-          fill: "forwards",
-        })
-      : element.animate([{ opacity: 1 }, { opacity: 0 }], {
-          duration: MORPH_MS,
-          easing: MORPH_EASING,
-          fill: "forwards",
-        });
-    let finished = false;
-    const done = (): void => {
-      if (finished) return;
-      finished = true;
-      setSelected(false);
-      setMotion(null);
-    };
-    animation.onfinish = done;
-    animation.oncancel = done;
-    // Never leave the pane stuck if the animation never reports back.
-    window.setTimeout(done, MORPH_MS + 80);
-  };
   const open = async (card: BoardCard, altKey?: boolean) => {
-    if (!selected) morphFrom.current = cardRect(card.sessionId);
-    openedCard.current = card.sessionId;
     await runAction(async () => {
       // False means the session is gone (its card was removed): no pane.
       const opened = await onOpenSession(card.sessionId, altKey);
       if (opened === false) return;
-      if (!selected) setMotion("opening");
       setSelected(true);
     });
   };
-  // Start on `shown` (two frames after mount): the session's content is in
-  // the pane by then, so the card grows into the finished pane in one motion,
-  // together with the board narrowing beside it.
-  useLayoutEffect(() => {
-    const element = paneRef.current;
-    if (!selected || !pane.shown || !element) return;
-    const from = morphFrom.current;
-    morphFrom.current = null;
-    element.getAnimations?.().forEach((animation) => animation.cancel());
-    // Not tied to this effect's cleanup: a re-render must not keep the pane
-    // in its moving layout.
-    window.setTimeout(() => setMotion(null), MORPH_MS + 20);
-    if (canMorph(element))
-      element.animate(
-        from
-          ? morphFrames(from, element.getBoundingClientRect())
-          : [{ opacity: 0 }, { opacity: 1 }],
-        { duration: MORPH_MS, easing: MORPH_EASING },
-      );
-  }, [selected, pane.shown]);
   const resize = (event: React.PointerEvent<HTMLDivElement>) => {
     resizeCleanup.current?.();
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -436,16 +346,8 @@ export function SessionBoardView({
         className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
       >
         <div
-          ref={boardSide}
-          className={`flex min-h-0 min-w-0 flex-col ${
-            motion
-              ? "transition-[width] duration-[280ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:transition-none"
-              : ""
-          }`}
-          style={{
-            width:
-              pane.shown && motion !== "closing" ? `${width}%` : "100%",
-          }}
+          className="flex min-h-0 min-w-0 flex-col"
+          style={{ width: pane.mounted ? `${width}%` : "100%" }}
         >
           {loading ? (
             <p className="px-4 pt-3 text-[12px] text-content/50">
@@ -548,7 +450,7 @@ export function SessionBoardView({
             </BoardColumns>
           </div>
         </div>
-        {pane.mounted && !motion ? (
+        {pane.mounted ? (
           <div
             role="separator"
             aria-label="Board and session divider"
@@ -573,24 +475,14 @@ export function SessionBoardView({
           />
         ) : null}
         <div
-          ref={paneRef}
           data-board-pane
           inert={pane.mounted && !selected ? true : undefined}
-          style={
-            motion
-              ? {
-                  position: "absolute",
-                  top: 0,
-                  bottom: 0,
-                  right: 0,
-                  width: `calc(${100 - width}% - 6px)`,
-                }
-              : undefined
-          }
           className={
             pane.mounted
-              ? `flex min-h-0 min-w-0 flex-1 origin-top-left flex-col overflow-hidden ${
-                  pane.shown ? "opacity-100" : "opacity-0"
+              ? `flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] will-change-transform motion-reduce:transition-none ${
+                  pane.shown
+                    ? "translate-x-0 opacity-100"
+                    : "translate-x-full opacity-0"
                 }`
               : "hidden"
           }
@@ -611,7 +503,7 @@ export function SessionBoardView({
               type="button"
               aria-label="Close session"
               title="Close session"
-              onClick={closePane}
+              onClick={() => setSelected(false)}
               className="grid size-7 shrink-0 place-items-center rounded-md text-content/55 transition-colors duration-100 hover:bg-content/10 hover:text-content"
             >
               <X aria-hidden className="size-3.5" strokeWidth={1.75} />
@@ -626,33 +518,4 @@ export function SessionBoardView({
       </div>
     </div>
   );
-}
-
-const MORPH_MS = 280;
-const MORPH_EASING = "cubic-bezier(0.2, 0.8, 0.2, 1)";
-
-function canMorph(element: HTMLElement): boolean {
-  if (typeof element.animate !== "function") return false;
-  try {
-    return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  } catch {
-    return true;
-  }
-}
-
-/**
- * Keyframes that grow the pane from a card's box to its own box (FLIP:
- * the pane is laid out at its final size and starts scaled onto the card).
- */
-function morphFrames(card: DOMRect, pane: DOMRect): Keyframe[] {
-  const scaleX = pane.width ? card.width / pane.width : 1;
-  const scaleY = pane.height ? card.height / pane.height : 1;
-  return [
-    {
-      transform: `translate(${card.left - pane.left}px, ${card.top - pane.top}px) scale(${scaleX}, ${scaleY})`,
-      opacity: 0.35,
-      borderRadius: "10px",
-    },
-    { transform: "none", opacity: 1, borderRadius: "0px" },
-  ];
 }

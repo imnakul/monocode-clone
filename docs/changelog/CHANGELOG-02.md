@@ -1,3 +1,9 @@
+## 2026-10-05 — Session Manager pane: simple slide instead of card morph
+- What: Removed the expand-from-card / collapse-into-card animation. The session pane now slides and fades in and out (200ms) like the Tasks peek pane and other side panes; the board takes its split width at once.
+- Files: `src/features/session-board/ui/SessionBoardView.tsx`
+- Verified: TypeScript, full web suite (5,560 tests), build | manual: desktop open/close feel
+- Commit: see git log ("Session Manager pane: simple slide…")
+
 ## 2026-10-05 — Session Manager pane: one-motion open/close, workspace tabs
 - What: Opening a session from Session Manager is now one motion: the board narrows while the card grows into the pane, and closing reverses it (no separate expand then sidebar slide). The pane header shows the workspace tab strip (tabs only, no window buttons), so the session opening preference (new tab / same tab) is visible there too.
 - Files: `src/features/session-board/ui/SessionBoardView.tsx` (`motion`, `paneTabs`); `src/app/shell/TitleBar.tsx` (`embedded`); `src/app/App.tsx` (`boardPaneTabs`)

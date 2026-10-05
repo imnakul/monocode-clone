@@ -179,7 +179,6 @@ it("shares the full width equally between columns, shrinking instead of scrollin
 it("keeps the board side at its split width when the session pane is open", async () => {
   render();
   await act(async () => card("running").click());
-  // The pane opens in one motion (board narrows while the card grows).
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 400));
   });
@@ -227,7 +226,6 @@ it("reports an unavailable session and storage retry without opening an empty pa
 it("hides the session pane without removing its card and supports keyboard resizing", async () => {
   render();
   await act(async () => card("running").click());
-  // The pane opens in one motion (board narrows while the card grows).
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
   });
@@ -251,11 +249,7 @@ it("hides the session pane without removing its card and supports keyboard resiz
   );
   // One close icon for the pane; no "Hide session pane" text in the toolbar.
   expect(container.textContent).not.toContain("Hide session pane");
-  // It shrinks back into its card first (at most the morph length), then
-  // fades out while still mounted and not interactive, then hides.
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 400));
-  });
+  // It slides out while still mounted and not interactive, then hides.
   const host = container.querySelector<HTMLElement>(
     '[aria-label="Board session workspace"]',
   )!.parentElement!;
@@ -536,34 +530,19 @@ it("reflows four columns into an even 2×2 grid when the board is too narrow", (
   }
 });
 
-it("grows the session pane out of the clicked card and shrinks it back on close", async () => {
-  const animate = vi.fn(() => {
-    const animation = { onfinish: null as null | (() => void), oncancel: null };
-    queueMicrotask(() => animation.onfinish?.());
-    return animation;
+it("slides the session pane in and out like the other side panes, with no card morph", async () => {
+  render();
+  await act(async () => card("running").click());
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
   });
-  const original = HTMLElement.prototype.animate;
-  HTMLElement.prototype.animate = animate as unknown as typeof original;
-  try {
-    render();
-    await act(async () => card("running").click());
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    });
-    const pane = container.querySelector<HTMLElement>("[data-board-pane]")!;
-    expect(animate).toHaveBeenCalledTimes(1);
-    const [opening] = animate.mock.calls[0] as unknown as [Keyframe[]];
-    expect(String(opening[0].transform)).toContain("scale(");
-    expect(opening[1].transform).toBe("none");
-    await act(async () => {
-      pane.querySelector<HTMLButtonElement>('[aria-label="Close session"]')!.click();
-      await Promise.resolve();
-    });
-    expect(animate).toHaveBeenCalledTimes(2);
-    const [closingFrames] = animate.mock.calls[1] as unknown as [Keyframe[]];
-    expect(closingFrames[0].transform).toBe("none");
-    expect(pane.hasAttribute("inert")).toBe(true);
-  } finally {
-    HTMLElement.prototype.animate = original;
-  }
+  const pane = container.querySelector<HTMLElement>("[data-board-pane]")!;
+  expect(pane.className).toContain("transition-[opacity,transform]");
+  expect(pane.className).toContain("translate-x-0");
+  expect(pane.style.transform).toBe("");
+  act(() =>
+    pane.querySelector<HTMLButtonElement>('[aria-label="Close session"]')!.click(),
+  );
+  expect(pane.className).toContain("translate-x-full");
+  expect(pane.hasAttribute("inert")).toBe(true);
 });
