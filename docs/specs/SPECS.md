@@ -51,6 +51,8 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
+| 2026-10-06 | [Todo — Task Manager week strip, focus days, Settings-style board columns](task-week-strip-plan.md) | Strip 3·today·3 + All with gliding hover and sliding weeks; Focus = Today; focusDays history (recorded when a day passes in focus); "Focus on" submenu; timeline in task details; board columns use the Settings card surface (no blur). |
+
 
 ## Progress
 
