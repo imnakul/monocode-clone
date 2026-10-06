@@ -103,3 +103,11 @@ Primary recovery archive/stash and read-only merge-tree previews are recorded
 in [the tracking spec](../specs/upstream-0.8.0-sync-plan.md). Preserve both
 parent histories; no force push. Native Windows UI, provider-account round
 trips and phone RC are separate human checks under AGENTS.md.
+
+
+## Implementation follow-through
+
+All six approved groups are implemented and the full automated merge gate
+passed. The original forecast above is retained as intake history. Current
+file decisions, tests and publication are in the [merge record](archive/upstream-merge-2026-10-06-080.md)
+and [tracking spec](../specs/upstream-0.8.0-sync-plan.md).

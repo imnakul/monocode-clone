@@ -1,7 +1,16 @@
 import { isBoardStatus } from "../../session-board/sessionBoard";
 import type { sessionTodoManager } from "../../session-board/sessionTodos";
 import { parseQuickAttachments } from "../../quick-composer/model/quickAttachments";
-import { filterTasks, localDay, parseTaskStatus, taskStatus, type Task, type TaskUpsert, type TaskChanges, type TaskFilters } from "../../tasks";
+import {
+  filterTasks,
+  localDay,
+  parseTaskStatus,
+  taskStatus,
+  type Task,
+  type TaskUpsert,
+  type TaskChanges,
+  type TaskFilters,
+} from "../../tasks";
 import { isHarnessAvailable } from "../../../integrations/harness/core/availability";
 import { looksLikeProject } from "../../projects/model/recents";
 import {
@@ -32,10 +41,46 @@ import {
 } from "../../notes";
 import type { QuickLaunch } from "../../quick-composer/model/quickComposer";
 import type { Worktree, Worktrees } from "../../source-control/model/worktrees";
-import { pathKey } from "../../../shared/lib/paths";
+import { pathKey, projectName } from "../../../shared/lib/paths";
 import type { SplitDir } from "../../workspace/model/layout";
 import { consumeOperatorCommand } from "../../sessions/model/operatorCommand";
-import { sessionConversationPage } from "./sessionConversation";
+import {
+  sessionConversationPage,
+  type SessionReadOptions,
+} from "./sessionConversation";
+import {
+  CARD_FIELDS,
+  parseCard,
+  type MonoCard,
+} from "../../monos/model/monoCards";
+import {
+  HABITS_MAX,
+  checkHabitsNow,
+  habitRunningSince,
+  habitSchedule,
+  habitScheduleLabel,
+  newHabit,
+  nextHabitRunAt,
+  type Habit,
+} from "../../monos/model/monoHabits";
+import {
+  memoryWithinBudget,
+  MonoFileConflict,
+  type AgentFilePath,
+  type MonoFiles,
+} from "../../monos/model/monoFiles";
+import {
+  addMemoryEntry,
+  archiveMemoryEntries,
+  fitMemoryBudget,
+  memoryDate,
+  memoryEntry,
+  removeMemoryEntry,
+  searchMemory,
+  sinceDate,
+  supersedeMemoryEntry,
+  topicName,
+} from "../../monos/model/monoMemory";
 
 export type AppSessionListing = {
   id: string;
@@ -56,13 +101,19 @@ export type AgentAppHost = {
     launch: QuickLaunch,
     id: string,
     placement?: AppSessionPlacement,
+    notifyMonoId?: string,
   ): Promise<void>;
   sessions(cwd: string): Promise<AppSessionListing[]>;
   session(id: string): Promise<Session | null>;
+  readConversation?(
+    session: Session,
+    options: SessionReadOptions,
+  ): Promise<ReturnType<typeof sessionConversationPage>>;
   send(
     id: string,
     prompt: string,
     requestId: string,
+    notifyMonoId?: string,
   ): Promise<{ alreadySubmitted: boolean }>;
   draft(
     id: string,
@@ -85,21 +136,75 @@ export type AgentAppHost = {
   notes(): Promise<Note[]>;
   note(id: string): Promise<Note | null>;
   saveNote(note: NoteUpsert): Promise<Note>;
+  /** Whether the session is a Mono's own conversation, which owns memory. */
+  isMono(sessionId: string): boolean;
+  /**
+   * The Mono a session works for: its own conversation or one of its habit
+   * runs. Its projects are the ones it may name with "project".
+   */
+  monoOf?(
+    sessionId: string,
+  ): { id: string; projects: readonly string[] } | undefined;
+  /** A hidden run of one of a Mono's habits: it may remember, not schedule. */
+  isHabitRun?(sessionId: string): boolean;
+  /** Puts a card in the Mono's chat, or holds it for a habit run's report. */
+  postCard?(sourceSessionId: string, card: MonoCard): void;
+  habits?: {
+    load(monoId: string): Promise<Habit[]>;
+    update<T>(
+      monoId: string,
+      change: (habits: Habit[]) => { habits: Habit[]; result: T },
+    ): Promise<T>;
+  };
+  agentFiles(monoId: string): Promise<MonoFiles>;
+  readAgentFile(
+    monoId: string,
+    path: AgentFilePath,
+  ): Promise<{ text: string | null; hash: string }>;
+  /** Throws `MonoFileConflict` when the file moved past `hash`. */
+  writeAgentFile(
+    monoId: string,
+    path: AgentFilePath,
+    text: string,
+    hash: string,
+  ): Promise<string>;
+  /** The clock entries are dated by; tests pin it. */
+  now?(): Date;
 };
 
 const FIELDS = new Map<string, readonly string[]>([
-  ["session_manager.list", ["status", "projectCwd", "query", "limit", "offset"]],
+  [
+    "session_manager.list",
+    ["status", "projectCwd", "query", "limit", "offset"],
+  ],
   ["session_manager.read", ["id"]],
-  ["session_manager.write", ["id", "title", "projectCwd", "prompt", "harness", "model", "modelSettings", "effort", "runtimeMode", "attachments", "workspaceMode", "worktreeBase", "worktreeCwd"]],
+  [
+    "session_manager.write",
+    [
+      "id",
+      "title",
+      "projectCwd",
+      "prompt",
+      "harness",
+      "model",
+      "modelSettings",
+      "effort",
+      "runtimeMode",
+      "attachments",
+      "workspaceMode",
+      "worktreeBase",
+      "worktreeCwd",
+    ],
+  ],
   ["session_manager.start", ["id"]],
   ["session_manager.delete", ["id"]],
   ["session_manager.remove", ["id", "runId"]],
   ["session_manager.clear", ["status", "projectCwd"]],
   ["models.list", []],
-  ["sessions.list", []],
-  ["sessions.read", ["sessionId", "before", "limit", "maxChars"]],
-  ["sessions.send", ["sessionId", "prompt"]],
-  ["sessions.draft", ["sessionId", "prompt"]],
+  ["sessions.list", ["project"]],
+  ["sessions.read", ["sessionId", "before", "limit", "maxChars", "project"]],
+  ["sessions.send", ["sessionId", "prompt", "project", "notifyOnComplete"]],
+  ["sessions.draft", ["sessionId", "prompt", "project"]],
   [
     "sessions.start",
     [
@@ -116,19 +221,62 @@ const FIELDS = new Map<string, readonly string[]>([
       "worktreeCwd",
       "placement",
       "besideSessionId",
+      "project",
+      "notifyOnComplete",
     ],
   ],
-  ["worktrees.list", []],
-  ["worktrees.create", ["branch", "base", "existing"]],
-  ["folders.list", []],
-  ["folders.move", ["sessionId", "folderId", "newFolderName"]],
-  ["tasks.list", ["status", "statuses", "tags", "tagMatch", "projectCwd", "query", "archived", "focus", "limit", "offset"]],
+  ["worktrees.list", ["project"]],
+  ["worktrees.create", ["branch", "base", "existing", "project"]],
+  ["folders.list", ["project"]],
+  ["folders.move", ["sessionId", "folderId", "newFolderName", "project"]],
+  [
+    "tasks.list",
+    [
+      "status",
+      "statuses",
+      "tags",
+      "tagMatch",
+      "projectCwd",
+      "query",
+      "archived",
+      "focus",
+      "limit",
+      "offset",
+    ],
+  ],
   ["tasks.read", ["id"]],
-  ["tasks.write", ["id", "title", "body", "status", "tags", "projectCwd", "sourceSessionId", "sourceBlockId", "focusDate", "archived"]],
+  [
+    "tasks.write",
+    [
+      "id",
+      "title",
+      "body",
+      "status",
+      "tags",
+      "projectCwd",
+      "sourceSessionId",
+      "sourceBlockId",
+      "focusDate",
+      "archived",
+    ],
+  ],
   ["tasks.delete", ["id"]],
   ["notes.list", ["limit", "offset"]],
   ["notes.read", ["id"]],
   ["notes.write", ["id", "title", "body", "tags"]],
+  ["soul.read", []],
+  ["soul.update", ["text", "expectedHash"]],
+  ["memory.read", ["topic"]],
+  ["memory.search", ["query", "since"]],
+  ["memory.add", ["fact", "topic", "until"]],
+  ["memory.replace", ["find", "fact", "topic", "until"]],
+  ["memory.remove", ["find", "topic"]],
+  ["habits.list", []],
+  ["habits.add", ["name", "instructions", "schedule"]],
+  ["habits.update", ["id", "name", "instructions", "schedule", "enabled"]],
+  ["habits.run", ["id"]],
+  ["habits.remove", ["id"]],
+  ["chat.card", [...CARD_FIELDS]],
 ]);
 
 function fields(action: string, input: Record<string, unknown>) {
@@ -152,6 +300,27 @@ function agentPrompt(value: unknown): string {
   if (consumeOperatorCommand(prompt).matched)
     throw new Error("App calls cannot enable /operator in another session");
   return prompt;
+}
+
+function completionRecipient(
+  source: Session,
+  input: Record<string, unknown>,
+  host: AgentAppHost,
+  defaultForMono = false,
+): string | undefined {
+  const requested = input.notifyOnComplete;
+  if (requested !== undefined && typeof requested !== "boolean")
+    throw new Error("notifyOnComplete must be a boolean");
+  const isMono = host.isMono(source.id);
+  if (!(requested ?? (defaultForMono && isMono && !input.draft)))
+    return undefined;
+  if (!isMono)
+    throw new Error(
+      "Completion notifications are only available in a Mono's chat",
+    );
+  if (input.draft === true)
+    throw new Error("An unsent draft cannot send a completion notification");
+  return source.id;
 }
 
 function optionalString(
@@ -188,23 +357,103 @@ function taskId(value: unknown): string {
 function taskProject(value: unknown): string | null {
   if (value === null) return null;
   const path = requiredString(value, "projectCwd", 4096);
-  if (new TextEncoder().encode(path).length > 4096 || /[\u0000-\u001f\u007f]/.test(path) || !looksLikeProject(path))
+  if (
+    new TextEncoder().encode(path).length > 4096 ||
+    /[\u0000-\u001f\u007f]/.test(path) ||
+    !looksLikeProject(path)
+  )
     throw new Error("projectCwd must be a project path, or null for Personal");
   return path;
 }
 
-function requireProject(source: Session): string {
-  if (!looksLikeProject(source.cwd))
-    throw new Error("Choose a project folder in this session first");
-  return source.cwd;
+/**
+ * The project an action works in. A session works in its own; a Mono works on
+ * several, so it names one with "project" (its path or name), and may leave it
+ * out when it has one project or is in one of its own.
+ */
+function requireProject(
+  source: Session,
+  input: Record<string, unknown>,
+  host: AgentAppHost,
+): string {
+  const mono = host.monoOf?.(source.id);
+  const named = optionalString(input.project, "project", 4096);
+  if (!mono) {
+    if (named) throw new Error("project is only for a Mono");
+    if (!looksLikeProject(source.cwd))
+      throw new Error("Choose a project folder in this session first");
+    return source.cwd;
+  }
+  const choices = () =>
+    mono.projects.length
+      ? mono.projects.map((path) => `${projectName(path)} (${path})`).join(", ")
+      : "none yet; the user adds them from your details panel";
+  if (named) {
+    const byPath = mono.projects.find(
+      (path) => pathKey(path) === pathKey(named),
+    );
+    const byName = mono.projects.filter((path) => projectName(path) === named);
+    const match = byPath ?? (byName.length === 1 ? byName[0] : undefined);
+    if (!match)
+      throw new Error(`Not one of your projects. Yours: ${choices()}`);
+    return match;
+  }
+  const own = mono.projects.find(
+    (path) => pathKey(path) === pathKey(source.cwd),
+  );
+  if (own) return own;
+  if (mono.projects.length === 1) return mono.projects[0];
+  throw new Error(`Pass "project" to choose one. Yours: ${choices()}`);
+}
+
+/** A Mono's chat lives outside its projects; project access follows its roster. */
+export function canAccessAgentAppProject(
+  source: Session,
+  cwd: string,
+  monoProjects?: readonly string[],
+): boolean {
+  return (monoProjects ?? [source.cwd]).some(
+    (project) => pathKey(project) === pathKey(cwd),
+  );
+}
+
+function assertMonoProjectAccess(
+  source: Session,
+  cwd: string | null | undefined,
+  host: AgentAppHost,
+): void {
+  const mono = host.monoOf?.(source.id);
+  if (mono && (!cwd || !canAccessAgentAppProject(source, cwd, mono.projects))) {
+    throw new Error("This project is not assigned to your Mono");
+  }
+}
+
+function defaultAssignedProject(source: Session, host: AgentAppHost): string {
+  const mono = host.monoOf?.(source.id);
+  if (!mono) {
+    if (!looksLikeProject(source.cwd))
+      throw new Error("Choose a project folder in this session first");
+    return source.cwd;
+  }
+  const own = mono.projects.find(
+    (path) => pathKey(path) === pathKey(source.cwd),
+  );
+  if (own) return own;
+  if (mono.projects.length === 1) return mono.projects[0];
+  throw new Error(
+    mono.projects.length
+      ? 'Pass "projectCwd" to choose one of your projects.'
+      : "Your Mono has no assigned projects",
+  );
 }
 
 async function projectSession(
   source: Session,
   id: string,
+  input: Record<string, unknown>,
   host: AgentAppHost,
 ): Promise<Session> {
-  const cwd = requireProject(source);
+  const cwd = requireProject(source, input, host);
   if (!(await host.sessions(cwd)).some((session) => session.id === id))
     throw new Error("Session was not found in this project");
   const target = await host.session(id);
@@ -227,8 +476,9 @@ export function notePreview(body: string): string {
 function startLaunch(
   source: Session,
   input: Record<string, unknown>,
+  host: AgentAppHost,
 ): QuickLaunch {
-  const cwd = requireProject(source);
+  const cwd = requireProject(source, input, host);
   const prompt = agentPrompt(input.prompt);
   const draft = input.draft ?? false;
   if (typeof draft !== "boolean") throw new Error("draft must be a boolean");
@@ -293,6 +543,9 @@ function startLaunch(
   const worktreeCwd = optionalString(input.worktreeCwd, "worktreeCwd");
   if (worktreeCwd && workspaceMode !== "current")
     throw new Error("worktreeCwd requires workspaceMode current");
+  const currentWorktree =
+    worktreeCwd ||
+    (pathKey(cwd) === pathKey(source.cwd) ? source.worktreeCwd : undefined);
   return {
     cwd,
     prompt,
@@ -306,13 +559,357 @@ function startLaunch(
       ...(requestedSettings as Record<string, string>),
     }),
     runtimeMode: runtimeMode as Session["runtimeMode"],
-    reveal,
+    // A Mono delegates work without navigating the user out of their chat.
+    reveal: host.isMono(source.id) ? false : reveal,
     workspaceMode,
-    ...(workspaceMode === "current" && (worktreeCwd || source.worktreeCwd)
-      ? { worktreeCwd: worktreeCwd || source.worktreeCwd }
+    ...(workspaceMode === "current" && currentWorktree
+      ? { worktreeCwd: currentWorktree }
       : {}),
     ...(worktreeBase ? { worktreeBase } : {}),
   };
+}
+
+function memoryPath(topic: unknown): AgentFilePath {
+  return topic === undefined
+    ? "MEMORY.md"
+    : `memory/${topicName(requiredString(topic, "topic", 80))}.md`;
+}
+
+async function handleSoul(
+  source: Session,
+  action: string,
+  input: Record<string, unknown>,
+  host: AgentAppHost,
+): Promise<unknown> {
+  const monoId = host.isMono(source.id)
+    ? host.monoOf?.(source.id)?.id
+    : undefined;
+  if (!monoId)
+    throw new Error("Only a Mono's own conversation can manage its soul");
+  if (action === "soul.read") {
+    const files = await host.agentFiles(monoId);
+    return { file: "SOUL.md", text: files.soul, hash: files.soulHash };
+  }
+  if (typeof input.text !== "string" || input.text.length > 240_000)
+    throw new Error("text must be a string under 240000 characters");
+  const expectedHash = requiredString(input.expectedHash, "expectedHash", 128);
+  try {
+    const hash = await host.writeAgentFile(
+      monoId,
+      "SOUL.md",
+      input.text,
+      expectedHash,
+    );
+    return { file: "SOUL.md", updated: true, hash };
+  } catch (error) {
+    if (error instanceof MonoFileConflict)
+      throw new Error(
+        "SOUL.md changed since you read it. Run soul.read and reapply the user's requested changes to the current text before calling soul.update again.",
+      );
+    throw error;
+  }
+}
+
+/**
+ * Read, change and write one memory file over the version it read, again
+ * from the top when the user saved the same file in between.
+ */
+async function editAgentFile<T>(
+  host: AgentAppHost,
+  monoId: string,
+  path: AgentFilePath,
+  edit: (text: string) => { text: string; result: T },
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    const current = await host.readAgentFile(monoId, path);
+    const fallback =
+      current.text == null && path !== "MEMORY.md"
+        ? `# ${path.slice("memory/".length, -".md".length)}\n\n`
+        : "";
+    const next = edit(current.text ?? fallback);
+    try {
+      if (next.text !== (current.text ?? ""))
+        await host.writeAgentFile(monoId, path, next.text, current.hash);
+      return next.result;
+    } catch (error) {
+      if (!(error instanceof MonoFileConflict) || attempt >= 2) throw error;
+    }
+  }
+}
+
+/**
+ * Keeps MEMORY.md within what loads. The archive is written first, so a line
+ * is never out of one file without already being in the other. If the user
+ * saved MEMORY.md in between, the trim waits for the next write.
+ */
+async function keepMemoryInBudget(
+  host: AgentAppHost,
+  monoId: string,
+  keep: string,
+  date: string,
+): Promise<string[]> {
+  const memory = await host.readAgentFile(monoId, "MEMORY.md");
+  const fitted = fitMemoryBudget(memory.text ?? "", keep, date);
+  if (!fitted.moved.length) return [];
+  await editAgentFile(host, monoId, "memory/archive.md", (archive) => ({
+    text: archiveMemoryEntries(archive, fitted.moved, date),
+    result: undefined,
+  }));
+  try {
+    await host.writeAgentFile(monoId, "MEMORY.md", fitted.text, memory.hash);
+  } catch (error) {
+    if (!(error instanceof MonoFileConflict)) throw error;
+    return [];
+  }
+  return fitted.moved;
+}
+
+async function handleMemory(
+  source: Session,
+  action: string,
+  input: Record<string, unknown>,
+  host: AgentAppHost,
+): Promise<unknown> {
+  const monoId = host.monoOf?.(source.id)?.id;
+  if (!monoId) throw new Error("Memory belongs to the Mono's conversation");
+  const path = memoryPath(input.topic);
+  const date = memoryDate(host.now?.() ?? new Date());
+  const until = optionalString(input.until, "until", 10);
+  const report = async (result: Record<string, unknown>, keep?: string) => {
+    const moved =
+      path === "MEMORY.md" && keep
+        ? await keepMemoryInBudget(host, monoId, keep, date)
+        : [];
+    return {
+      file: path,
+      ...result,
+      ...(moved.length
+        ? { movedToArchive: moved.length, moved: moved.slice(0, 5) }
+        : {}),
+    };
+  };
+  switch (action) {
+    case "memory.search": {
+      const query =
+        input.query === undefined
+          ? ""
+          : requiredString(input.query, "query", 500);
+      const since =
+        input.since === undefined
+          ? undefined
+          : sinceDate(
+              requiredString(input.since, "since", 20),
+              host.now?.() ?? new Date(),
+            );
+      const files = await host.agentFiles(monoId);
+      const paths: AgentFilePath[] = [
+        "MEMORY.md",
+        ...files.topics.map((topic) => `memory/${topic}.md` as const),
+        "memory/archive.md",
+      ];
+      const texts = await Promise.all(
+        paths.map(async (file) => ({
+          file,
+          text:
+            file === "MEMORY.md"
+              ? files.memory
+              : ((await host.readAgentFile(monoId, file)).text ?? ""),
+        })),
+      );
+      const hits = searchMemory(texts, query, { since });
+      return hits.length
+        ? { hits }
+        : {
+            hits,
+            note: "Nothing in memory matches. It may never have been saved.",
+          };
+    }
+    case "memory.read": {
+      if (path !== "MEMORY.md") {
+        const topic = await host.readAgentFile(monoId, path);
+        if (topic.text == null) throw new Error("No such memory topic");
+        return { file: path, text: topic.text };
+      }
+      const files = await host.agentFiles(monoId);
+      const budget = memoryWithinBudget(files.memory);
+      return {
+        file: path,
+        text: files.memory,
+        lines: budget.lines,
+        notLoaded: budget.droppedLines,
+        topics: files.topics,
+      };
+    }
+    case "memory.add": {
+      const entry = memoryEntry(
+        requiredString(input.fact, "fact"),
+        date,
+        until,
+      );
+      const added = await editAgentFile(host, monoId, path, (text) => {
+        const next = addMemoryEntry(text, entry);
+        return { text: next.text, result: next.added };
+      });
+      return added
+        ? report({ added: entry }, entry)
+        : { file: path, alreadyRemembered: true };
+    }
+    case "memory.replace": {
+      const find = requiredString(input.find, "find", 2000);
+      const entry = memoryEntry(
+        requiredString(input.fact, "fact"),
+        date,
+        until,
+      );
+      await editAgentFile(host, monoId, path, (text) => ({
+        text: supersedeMemoryEntry(text, find, entry, date),
+        result: undefined,
+      }));
+      return report({ superseded: find, added: entry }, entry);
+    }
+    case "memory.remove": {
+      const find = requiredString(input.find, "find", 2000);
+      const removed = await editAgentFile(host, monoId, path, (text) => {
+        const next = removeMemoryEntry(text, find);
+        return { text: next.text, result: next.removed };
+      });
+      return { file: path, removed };
+    }
+  }
+  throw new Error(`Unknown app action: ${action}`);
+}
+
+function habitView(habit: Habit) {
+  return {
+    id: habit.id,
+    name: habit.name,
+    instructions: habit.instructions,
+    schedule: habitScheduleLabel(habit.schedule),
+    enabled: habit.enabled,
+    nextRun: habit.enabled ? new Date(habit.nextRunAt).toLocaleString() : null,
+    ...(habitRunningSince(habit.id) != null ? { running: true } : {}),
+    ...(habit.lastRunAt
+      ? {
+          lastRun: new Date(habit.lastRunAt).toLocaleString(),
+          lastOutcome: habit.lastOutcome,
+          ...(habit.lastError ? { lastError: habit.lastError } : {}),
+        }
+      : {}),
+  };
+}
+
+async function handleHabits(
+  source: Session,
+  action: string,
+  input: Record<string, unknown>,
+  host: AgentAppHost,
+): Promise<unknown> {
+  const habits = host.habits;
+  // A habit's own run cannot schedule more runs.
+  const monoId = host.isMono(source.id)
+    ? host.monoOf?.(source.id)?.id
+    : undefined;
+  if (!habits || !monoId)
+    throw new Error("Only a Mono's own conversation can manage its habits");
+  const now = host.now?.() ?? new Date();
+  const find = (list: Habit[]) => {
+    const id = requiredString(input.id, "id", 128);
+    const habit = list.find((entry) => entry.id === id);
+    if (!habit) throw new Error("No habit with that id; run habits.list");
+    return habit;
+  };
+  switch (action) {
+    case "habits.list":
+      return { habits: (await habits.load(monoId)).map(habitView) };
+    case "habits.add": {
+      const name = requiredString(input.name, "name", 80);
+      const instructions = requiredString(
+        input.instructions,
+        "instructions",
+        4_000,
+      );
+      const schedule = habitSchedule(input.schedule);
+      const habit = await habits.update(monoId, (list) => {
+        if (list.length >= HABITS_MAX)
+          throw new Error(`A Mono can have at most ${HABITS_MAX} habits`);
+        const created = newHabit(
+          { name, instructions, schedule },
+          now.getTime(),
+        );
+        return { habits: [...list, created], result: created };
+      });
+      return { habit: habitView(habit) };
+    }
+    case "habits.update": {
+      const patch = {
+        ...(input.name === undefined
+          ? {}
+          : { name: requiredString(input.name, "name", 80) }),
+        ...(input.instructions === undefined
+          ? {}
+          : {
+              instructions: requiredString(
+                input.instructions,
+                "instructions",
+                4_000,
+              ),
+            }),
+        ...(input.schedule === undefined
+          ? {}
+          : { schedule: habitSchedule(input.schedule) }),
+      };
+      if (input.enabled !== undefined && typeof input.enabled !== "boolean")
+        throw new Error("enabled must be true or false");
+      const habit = await habits.update(monoId, (list) => {
+        const current = find(list);
+        const next: Habit = {
+          ...current,
+          ...patch,
+          ...(input.enabled === undefined
+            ? {}
+            : { enabled: input.enabled as boolean }),
+        };
+        // A new schedule, or turning it back on, counts from now.
+        if (patch.schedule || (next.enabled && !current.enabled))
+          next.nextRunAt = nextHabitRunAt(next.schedule, now.getTime());
+        return {
+          habits: list.map((entry) => (entry.id === next.id ? next : entry)),
+          result: next,
+        };
+      });
+      return { habit: habitView(habit) };
+    }
+    case "habits.run": {
+      const running = habitRunningSince(requiredString(input.id, "id", 128));
+      if (running != null)
+        throw new Error(
+          `That habit is already running (started ${new Date(running).toLocaleTimeString()}); its result will be posted here when it ends`,
+        );
+      const habit = await habits.update(monoId, (list) => {
+        const next = { ...find(list), runRequested: true };
+        return {
+          habits: list.map((entry) => (entry.id === next.id ? next : entry)),
+          result: next,
+        };
+      });
+      checkHabitsNow();
+      return {
+        habit: habitView(habit),
+        note: "It starts now, on its own. Whatever it finds is posted to this chat, or nothing if there is nothing to say.",
+      };
+    }
+    case "habits.remove": {
+      const removed = await habits.update(monoId, (list) => {
+        const habit = find(list);
+        return {
+          habits: list.filter((entry) => entry.id !== habit.id),
+          result: habit,
+        };
+      });
+      return { removed: removed.name };
+    }
+  }
+  throw new Error(`Unknown app action: ${action}`);
 }
 
 export async function handleAgentApp(
@@ -323,21 +920,47 @@ export async function handleAgentApp(
   host: AgentAppHost,
 ): Promise<unknown> {
   fields(action, input);
+  if (action.startsWith("soul."))
+    return handleSoul(source, action, input, host);
+  if (action.startsWith("memory."))
+    return handleMemory(source, action, input, host);
+  if (action.startsWith("habits."))
+    return handleHabits(source, action, input, host);
+  if (action === "chat.card") {
+    if (
+      !host.postCard ||
+      !(host.isMono(source.id) || host.isHabitRun?.(source.id))
+    )
+      throw new Error("Only a Mono can put cards in its chat");
+    const card = parseCard(input);
+    host.postCard(source.id, card);
+    return {
+      posted: card.type,
+      note: host.isMono(source.id)
+        ? "It shows in the chat where you are in your reply."
+        : "It goes out with your report, after its text; if you stay quiet, it is dropped.",
+    };
+  }
   switch (action) {
     case "session_manager.list": {
-      if (!host.sessionManager) throw new Error("Session Manager is unavailable");
+      if (!host.sessionManager)
+        throw new Error("Session Manager is unavailable");
       const status =
         input.status === undefined
           ? undefined
           : requiredString(input.status, "status", 30);
       if (status !== undefined && !isBoardStatus(status))
         throw new Error("Unknown Session Manager status");
-      const projectCwd =
+      let projectCwd =
         input.projectCwd === undefined
           ? undefined
           : taskProject(input.projectCwd);
       if (projectCwd === null)
         throw new Error("Session Manager Todos require a project");
+      if (host.monoOf?.(source.id)) {
+        projectCwd ??= defaultAssignedProject(source, host);
+        assertMonoProjectAccess(source, projectCwd, host);
+      }
       const query =
         input.query === undefined
           ? undefined
@@ -352,7 +975,11 @@ export async function handleAgentApp(
         (offset as number) < 0
       )
         throw new Error("Use limit 1–100 and a non-negative offset");
-      const cards = await host.sessionManager.list({ status, projectCwd, query });
+      const cards = await host.sessionManager.list({
+        status,
+        projectCwd,
+        query,
+      });
       return {
         total: cards.length,
         offset,
@@ -362,23 +989,33 @@ export async function handleAgentApp(
         ),
       };
     }
-    case "session_manager.read":
-      if (!host.sessionManager) throw new Error("Session Manager is unavailable");
-      return host.sessionManager.read(taskId(input.id));
+    case "session_manager.read": {
+      if (!host.sessionManager)
+        throw new Error("Session Manager is unavailable");
+      const card = await host.sessionManager.read(taskId(input.id));
+      if (card) assertMonoProjectAccess(source, card.cwd, host);
+      return card;
+    }
     case "session_manager.write": {
-      if (!host.sessionManager) throw new Error("Session Manager is unavailable");
+      if (!host.sessionManager)
+        throw new Error("Session Manager is unavailable");
       const id = input.id === undefined ? undefined : taskId(input.id);
       if (id && Object.keys(input).length === 1)
         throw new Error("Supply fields to update a Todo");
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(requestId))
         throw new Error("Invalid request ID");
       const existing = id ? await host.sessionManager.read(id) : undefined;
-      const projectCwd =
+      if (existing) assertMonoProjectAccess(source, existing.cwd, host);
+      let projectCwd =
         input.projectCwd === undefined
-          ? (existing?.cwd ?? requireProject(source))
+          ? (existing?.cwd ?? undefined)
           : taskProject(input.projectCwd);
-      if (!projectCwd) throw new Error("Session Manager Todos require a project");
-      const prompt = input.prompt === undefined ? existing?.prompt : input.prompt;
+      projectCwd ??= existing?.cwd ?? defaultAssignedProject(source, host);
+      if (projectCwd) assertMonoProjectAccess(source, projectCwd, host);
+      if (!projectCwd)
+        throw new Error("Session Manager Todos require a project");
+      const prompt =
+        input.prompt === undefined ? existing?.prompt : input.prompt;
       const attachments = parseQuickAttachments(
         input.attachments === undefined
           ? existing?.attachments
@@ -435,17 +1072,21 @@ export async function handleAgentApp(
                 ? source.worktreeCwd
                 : undefined,
           };
-      const launch = startLaunch(template, {
-        prompt: prompt.trim() ? prompt : "Attached files",
-        harness: input.harness ?? existing?.harness,
-        model: input.model ?? existing?.model,
-        modelSettings: input.modelSettings ?? existing?.modelSettings,
-        effort: input.effort,
-        runtimeMode: input.runtimeMode ?? existing?.runtimeMode,
-        workspaceMode: mode,
-        ...(base ? { worktreeBase: base } : {}),
-        ...(tree ? { worktreeCwd: tree } : {}),
-      });
+      const launch = startLaunch(
+        template,
+        {
+          prompt: prompt.trim() ? prompt : "Attached files",
+          harness: input.harness ?? existing?.harness,
+          model: input.model ?? existing?.model,
+          modelSettings: input.modelSettings ?? existing?.modelSettings,
+          effort: input.effort,
+          runtimeMode: input.runtimeMode ?? existing?.runtimeMode,
+          workspaceMode: mode,
+          ...(base ? { worktreeBase: base } : {}),
+          ...(tree ? { worktreeCwd: tree } : {}),
+        },
+        host,
+      );
       launch.prompt = prompt;
       launch.attachments = attachments;
       if (existing?.intent) launch.intent = existing.intent;
@@ -475,29 +1116,47 @@ export async function handleAgentApp(
       );
     }
     case "session_manager.start": {
-      if (!host.sessionManager) throw new Error("Session Manager is unavailable");
+      if (!host.sessionManager)
+        throw new Error("Session Manager is unavailable");
       const id = taskId(input.id);
+      const card = await host.sessionManager.read(id);
+      if (card) assertMonoProjectAccess(source, card.cwd, host);
       return host.sessionManager.start(id, true);
     }
-    case "session_manager.delete":
-      if (!host.sessionManager) throw new Error("Session Manager is unavailable");
-      return host.sessionManager.delete(taskId(input.id));
-    case "session_manager.remove":
-      if (!host.sessionManager) throw new Error("Session Manager is unavailable");
+    case "session_manager.delete": {
+      if (!host.sessionManager)
+        throw new Error("Session Manager is unavailable");
+      const id = taskId(input.id);
+      const card = await host.sessionManager.read(id);
+      if (card) assertMonoProjectAccess(source, card.cwd, host);
+      return host.sessionManager.delete(id);
+    }
+    case "session_manager.remove": {
+      if (!host.sessionManager)
+        throw new Error("Session Manager is unavailable");
+      const id = taskId(input.id);
+      const card = await host.sessionManager.read(id);
+      if (card) assertMonoProjectAccess(source, card.cwd, host);
       return host.sessionManager.remove(
-        taskId(input.id),
+        id,
         requiredString(input.runId, "runId", 512),
       );
+    }
     case "session_manager.clear": {
-      if (!host.sessionManager) throw new Error("Session Manager is unavailable");
+      if (!host.sessionManager)
+        throw new Error("Session Manager is unavailable");
       if (input.status !== "done" && input.status !== "stopped")
         throw new Error("Only done or stopped columns can be cleared");
-      const project =
+      let project =
         input.projectCwd === undefined
           ? undefined
           : taskProject(input.projectCwd);
       if (project === null)
         throw new Error("Use a project path or omit projectCwd");
+      if (host.monoOf?.(source.id)) {
+        project ??= defaultAssignedProject(source, host);
+        assertMonoProjectAccess(source, project, host);
+      }
       return host.sessionManager.clear(input.status, project);
     }
     case "models.list":
@@ -517,36 +1176,48 @@ export async function handleAgentApp(
           })),
         })),
       };
-    case "sessions.list":
-      return {
-        cwd: requireProject(source),
-        sessions: await host.sessions(source.cwd),
-      };
+    case "sessions.list": {
+      const cwd = requireProject(source, input, host);
+      return { cwd, sessions: await host.sessions(cwd) };
+    }
     case "sessions.read": {
       const id = requiredString(input.sessionId, "sessionId", 256);
-      const target = await projectSession(source, id, host);
-      return sessionConversationPage(target, {
+      const target =
+        id === source.id && host.isMono?.(id)
+          ? source
+          : await projectSession(source, id, input, host);
+      const options = {
         before: optionalString(input.before, "before", 256),
         limit: input.limit as number | undefined,
         maxChars: input.maxChars as number | undefined,
-      });
+      };
+      return host.readConversation
+        ? host.readConversation(target, options)
+        : sessionConversationPage(target, options);
     }
     case "sessions.send": {
       const id = requiredString(input.sessionId, "sessionId", 256);
       const prompt = agentPrompt(input.prompt);
+      const notifyMonoId = completionRecipient(source, input, host);
       if (id === source.id)
         throw new Error(
           "Use the current conversation to continue this session",
         );
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(requestId))
         throw new Error("Invalid request ID");
-      await projectSession(source, id, host);
+      await projectSession(source, id, input, host);
       const result = await host.send(
         id,
         prompt,
         `app-${source.id}-${requestId}`,
+        ...(notifyMonoId ? [notifyMonoId] : []),
       );
-      return { sessionId: id, submitted: true, ...result };
+      return {
+        sessionId: id,
+        submitted: true,
+        ...result,
+        ...(notifyMonoId ? { notifyOnComplete: true } : {}),
+      };
     }
     case "sessions.draft": {
       const id = requiredString(input.sessionId, "sessionId", 256);
@@ -555,7 +1226,7 @@ export async function handleAgentApp(
         throw new Error("Use the composer to save a draft in this session");
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(requestId))
         throw new Error("Invalid request ID");
-      await projectSession(source, id, host);
+      await projectSession(source, id, input, host);
       const result = await host.draft(
         id,
         prompt,
@@ -568,7 +1239,8 @@ export async function handleAgentApp(
         throw new Error(
           "request ID must use letters, digits, underscores or hyphens",
         );
-      const launch = startLaunch(source, input);
+      const launch = startLaunch(source, input, host);
+      const notifyMonoId = completionRecipient(source, input, host, true);
       if (input.worktreeCwd !== undefined) {
         const chosen = (await host.worktrees(launch.cwd)).worktrees.find(
           (tree) =>
@@ -596,10 +1268,14 @@ export async function handleAgentApp(
             source.id);
       const id = `app-${source.id}-${requestId}`;
       if (besideSessionId)
-        await host.start(launch, id, {
-          direction: placement as SplitDir,
-          besideSessionId,
-        });
+        await host.start(
+          launch,
+          id,
+          { direction: placement as SplitDir, besideSessionId },
+          ...(notifyMonoId ? [notifyMonoId] : []),
+        );
+      else if (notifyMonoId)
+        await host.start(launch, id, undefined, notifyMonoId);
       else await host.start(launch, id);
       return {
         id,
@@ -608,12 +1284,13 @@ export async function handleAgentApp(
         model: launch.model,
         submitted: !launch.draft,
         draft: !!launch.draft,
+        ...(notifyMonoId ? { notifyOnComplete: true } : {}),
       };
     }
     case "worktrees.list":
-      return host.worktrees(requireProject(source));
+      return host.worktrees(requireProject(source, input, host));
     case "worktrees.create": {
-      const cwd = requireProject(source);
+      const cwd = requireProject(source, input, host);
       const branch = requiredString(input.branch, "branch", 400);
       const existing = input.existing ?? false;
       if (typeof existing !== "boolean")
@@ -624,7 +1301,7 @@ export async function handleAgentApp(
       return host.createWorktree(cwd, branch, base ?? "HEAD", existing);
     }
     case "folders.list": {
-      const cwd = requireProject(source);
+      const cwd = requireProject(source, input, host);
       return {
         cwd,
         folders: loadSessionFolders(cwd).map(({ id, name, sessionIds }) => ({
@@ -635,7 +1312,7 @@ export async function handleAgentApp(
       };
     }
     case "folders.move": {
-      const cwd = requireProject(source);
+      const cwd = requireProject(source, input, host);
       const sessionId = requiredString(input.sessionId, "sessionId", 256);
       const folderId = optionalString(input.folderId, "folderId", 256);
       const newFolderName = optionalString(
@@ -668,10 +1345,13 @@ export async function handleAgentApp(
       if (input.status !== undefined && input.statuses !== undefined)
         throw new Error("Use status or statuses, not both");
       const filters: TaskFilters = {};
-      if (input.status !== undefined) filters.statuses = [taskStatus(input.status)];
+      if (input.status !== undefined)
+        filters.statuses = [taskStatus(input.status)];
       if (input.statuses !== undefined) {
         if (!Array.isArray(input.statuses) || input.statuses.length > 7)
-          throw new Error("statuses must be an array of up to seven task statuses");
+          throw new Error(
+            "statuses must be an array of up to seven task statuses",
+          );
         filters.statuses = input.statuses.map(taskStatus);
       }
       if (input.tags !== undefined) filters.tags = noteTags(input.tags);
@@ -680,39 +1360,76 @@ export async function handleAgentApp(
           throw new Error("tagMatch must be all or any");
         filters.tagMatch = input.tagMatch;
       }
-      if (input.projectCwd !== undefined) filters.projectCwd = taskProject(input.projectCwd);
+      if (input.projectCwd !== undefined) {
+        const projectCwd = taskProject(input.projectCwd);
+        if (projectCwd === null && host.monoOf?.(source.id))
+          throw new Error("Mono task access requires an assigned project");
+        if (projectCwd) assertMonoProjectAccess(source, projectCwd, host);
+        filters.projectCwd = projectCwd;
+      }
       if (input.query !== undefined) {
         if (typeof input.query !== "string" || input.query.length > 1000)
           throw new Error("query must be a string under 1000 characters");
         filters.query = input.query;
       }
       if (input.archived !== undefined) {
-        if (input.archived !== true && input.archived !== false && input.archived !== "all")
+        if (
+          input.archived !== true &&
+          input.archived !== false &&
+          input.archived !== "all"
+        )
           throw new Error('archived must be true, false or "all"');
         filters.archived = input.archived;
       }
       if (input.focus !== undefined) {
-        if (typeof input.focus !== "boolean") throw new Error("focus must be true or false");
+        if (typeof input.focus !== "boolean")
+          throw new Error("focus must be true or false");
         if (input.focus) filters.day = localDay();
       }
-      const limit = input.limit ?? 30, offset = input.offset ?? 0;
-      if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 100)
+      const limit = input.limit ?? 30,
+        offset = input.offset ?? 0;
+      if (
+        !Number.isInteger(limit) ||
+        (limit as number) < 1 ||
+        (limit as number) > 100
+      )
         throw new Error("limit must be an integer from 1 to 100");
       if (!Number.isInteger(offset) || (offset as number) < 0)
         throw new Error("offset must be a non-negative integer");
-      const rows = filterTasks(await host.tasks(), filters);
-      return { total: rows.length, offset, tasks: rows.slice(offset as number, (offset as number) + (limit as number))
-        .map(({ body, ...task }) => ({ ...task, preview: notePreview(body) })) };
+      let rows = filterTasks(await host.tasks(), filters);
+      const mono = host.monoOf?.(source.id);
+      if (mono && input.projectCwd === undefined) {
+        rows = rows.filter(
+          (task) =>
+            !!task.projectCwd &&
+            canAccessAgentAppProject(source, task.projectCwd, mono.projects),
+        );
+      }
+      return {
+        total: rows.length,
+        offset,
+        tasks: rows
+          .slice(offset as number, (offset as number) + (limit as number))
+          .map(({ body, ...task }) => ({
+            ...task,
+            preview: notePreview(body),
+          })),
+      };
     }
     case "tasks.read": {
       if (!host.task) throw new Error("Tasks are unavailable in this app");
       const task = await host.task(taskId(input.id));
       if (!task) throw new Error("Task was not found");
+      assertMonoProjectAccess(source, task.projectCwd, host);
       return task;
     }
     case "tasks.delete": {
-      if (!host.deleteTask) throw new Error("Tasks are unavailable in this app");
+      if (!host.deleteTask || !host.task)
+        throw new Error("Tasks are unavailable in this app");
       const id = taskId(input.id);
+      const task = await host.task(id);
+      if (!task) throw new Error("Task was not found");
+      assertMonoProjectAccess(source, task.projectCwd, host);
       await host.deleteTask(id);
       return { id, deleted: true };
     }
@@ -720,8 +1437,12 @@ export async function handleAgentApp(
       if (!host.task || !host.saveTask || !host.updateTask)
         throw new Error("Tasks are unavailable in this app");
       const id = input.id === undefined ? undefined : taskId(input.id);
+      const existing = id ? await host.task(id) : undefined;
+      if (id && !existing) throw new Error("Task was not found");
+      if (existing) assertMonoProjectAccess(source, existing.projectCwd, host);
       const changes: TaskChanges = {};
-      if (input.title !== undefined) changes.title = requiredString(input.title, "title", 200);
+      if (input.title !== undefined)
+        changes.title = requiredString(input.title, "title", 200);
       if (input.body !== undefined) changes.body = noteBody(input.body);
       if (input.status !== undefined) {
         // Retired names still work: draft → todo, deferred → archived todo.
@@ -730,31 +1451,49 @@ export async function handleAgentApp(
         if (parsed.archive) changes.archived = true;
       }
       if (input.archived !== undefined) {
-        if (typeof input.archived !== "boolean") throw new Error("archived must be true or false");
+        if (typeof input.archived !== "boolean")
+          throw new Error("archived must be true or false");
         changes.archived = input.archived;
       }
       if (input.focusDate !== undefined) {
-        if (input.focusDate !== null && (typeof input.focusDate !== "string" || !/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(input.focusDate)))
+        if (
+          input.focusDate !== null &&
+          (typeof input.focusDate !== "string" ||
+            !/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(
+              input.focusDate,
+            ))
+        )
           throw new Error("focusDate must be YYYY-MM-DD or null");
         changes.focusDate = input.focusDate;
         changes.today = localDay();
       }
       if (input.tags !== undefined) changes.tags = noteTags(input.tags);
-      if (input.projectCwd !== undefined) changes.projectCwd = taskProject(input.projectCwd);
-      if (input.sourceSessionId !== undefined) changes.sourceSessionId = input.sourceSessionId === null ? null : taskId(input.sourceSessionId);
+      if (input.projectCwd !== undefined) {
+        changes.projectCwd = taskProject(input.projectCwd);
+        assertMonoProjectAccess(source, changes.projectCwd, host);
+      }
+      if (input.sourceSessionId !== undefined)
+        changes.sourceSessionId =
+          input.sourceSessionId === null ? null : taskId(input.sourceSessionId);
       if (input.sourceBlockId === null) changes.sourceBlockId = null;
       else if (input.sourceBlockId !== undefined) {
         const block = requiredString(input.sourceBlockId, "sourceBlockId", 512);
-        if (new TextEncoder().encode(block).length > 512 || /[\u0000-\u001f\u007f]/.test(block)) throw new Error("Invalid sourceBlockId");
+        if (
+          new TextEncoder().encode(block).length > 512 ||
+          /[\u0000-\u001f\u007f]/.test(block)
+        )
+          throw new Error("Invalid sourceBlockId");
         changes.sourceBlockId = block;
       }
       if (id) {
-        if (!Object.keys(changes).length) throw new Error("Supply fields to update a task");
+        if (!Object.keys(changes).length)
+          throw new Error("Supply fields to update a task");
         return host.updateTask(id, changes);
       }
       if (changes.title === undefined && changes.body === undefined)
         throw new Error("Supply title or body to create a task");
-      if (!/^[A-Za-z0-9_-]{1,128}$/.test(requestId)) throw new Error("Invalid request ID");
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(requestId))
+        throw new Error("Invalid request ID");
       const created: TaskUpsert = {
         id: `app-${source.id}-${requestId}`,
         title: changes.title ?? noteTitle(changes.body ?? ""),
@@ -762,21 +1501,36 @@ export async function handleAgentApp(
         status: changes.status ?? "todo",
         tags: changes.tags ?? [],
         focusDays: [],
-        projectCwd: changes.projectCwd === null ? undefined : changes.projectCwd ?? (looksLikeProject(source.cwd) ? source.cwd : undefined),
-        sourceSessionId: changes.sourceSessionId === null ? undefined : changes.sourceSessionId ?? source.id,
+        projectCwd:
+          changes.projectCwd === null
+            ? undefined
+            : (changes.projectCwd ??
+              (host.monoOf?.(source.id)
+                ? defaultAssignedProject(source, host)
+                : looksLikeProject(source.cwd)
+                  ? source.cwd
+                  : undefined)),
+        sourceSessionId:
+          changes.sourceSessionId === null
+            ? undefined
+            : (changes.sourceSessionId ?? source.id),
         sourceBlockId: changes.sourceBlockId ?? undefined,
         ...(changes.focusDate ? { focusDate: changes.focusDate } : {}),
         ...(changes.archived ? { archived: true } : {}),
       };
-      const existing = await host.task(created.id);
-      if (existing) {
+      const createdExisting = await host.task(created.id);
+      if (createdExisting) {
         const { archived, ...fields } = created;
         if (
-          Object.entries(fields).some(([key, value]) => JSON.stringify(existing[key as keyof Task]) !== JSON.stringify(value)) ||
-          Boolean(archived) !== (existing.archivedAt !== undefined)
+          Object.entries(fields).some(
+            ([key, value]) =>
+              JSON.stringify(createdExisting[key as keyof Task]) !==
+              JSON.stringify(value),
+          ) ||
+          Boolean(archived) !== (createdExisting.archivedAt !== undefined)
         )
           throw new Error("Request ID was already used for another task");
-        return existing;
+        return createdExisting;
       }
       return host.saveTask(created);
     }

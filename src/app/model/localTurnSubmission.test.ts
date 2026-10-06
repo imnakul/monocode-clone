@@ -6,6 +6,7 @@ import { planBranch } from "../../features/sessions/model/branchPlan";
 import {
   HARNESSES,
   newSession,
+  sessionWorkCwd,
   type Session,
 } from "../../features/sessions/model/session";
 import { applyHarnessEvent } from "../../integrations/harness/core/apply";
@@ -73,7 +74,9 @@ function productionDispatch(): (
     const { current, sessionId, turnPrompt, wrap, rawCommand, earlier, operatorCommand,
       orchestrator, inboxAskPrompt, wrapHandoffPrompt, CONTINUE_PROMPT, invoke,
       shellPath, sendBranchTurn, turnGen, gen, flushHarnessEvents, sessionsRef,
-      getSession, setSessions, sendTurn, prepared, acceptEditedResend } = bindings;
+      getSession, setSessions, sendTurn, prepared, acceptEditedResend,
+      monoRotation, mono, monoFirstTurn, monoForSession } = bindings;
+    let measureMonoBaseline = false;
     return (async () => { ${section} })();
   `,
     {
@@ -137,6 +140,10 @@ function setup(
     },
   );
   const bindings: Record<string, unknown> = {
+    monoRotation: undefined,
+    mono: false,
+    monoFirstTurn: false,
+    monoForSession: (): undefined => undefined,
     current,
     sessionId: current.id,
     turnPrompt: "Check the task",
@@ -279,4 +286,97 @@ describe("App's production local submission", () => {
     expect(flow.sendTurn).not.toHaveBeenCalled();
     expect(flow.acceptEditedResend).not.toHaveBeenCalled();
   });
+});
+
+/** Exercise the native preparation boundary from App itself: validating a
+ * provider store may settle after the user has pressed Stop. */
+function nativePreparationDispatch(
+  bindings: Record<string, unknown>,
+): Promise<void> {
+  const source = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
+  const tree = ts.createSourceFile(
+    "App.tsx",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  let expression = "";
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === "sendTurn" &&
+      node.initializer?.getText(tree).includes("prepareNativeInput")
+    )
+      expression = node.initializer.getText(tree);
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  if (!expression)
+    throw new Error("Could not locate native preparation dispatch");
+  const body = ts.transpileModule(
+    `
+    const { current, sessionId, prepared, prepareNativeInput, providerAccountId,
+      intent, operatorAccess, orchestrator, editedResend, acceptEditedResend,
+      options, turnGen, gen, sendHarnessTurn, sessionWorkCwd } = bindings;
+    return (${expression})("Check once");
+  `,
+    {
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.None,
+      },
+    },
+  ).outputText;
+  return (
+    new Function("bindings", body) as (
+      bindings: Record<string, unknown>,
+    ) => Promise<void>
+  )({ ...bindings, sessionWorkCwd });
+}
+it("does not launch a native resume if Stop arrives during source validation", async () => {
+  const current = newSession("codex", "/repo");
+  const turnGen = { current: new Map([[current.id, 1]]) };
+  const sendHarnessTurn = vi.fn();
+  await nativePreparationDispatch({
+    current,
+    sessionId: current.id,
+    prepared: [],
+    providerAccountId: "default",
+    intent: "default",
+    operatorAccess: false,
+    orchestrator: { run: () => undefined },
+    editedResend: false,
+    options: undefined,
+    gen: 1,
+    turnGen,
+    sendHarnessTurn,
+    prepareNativeInput: async (): Promise<unknown> => {
+      turnGen.current.set(current.id, 2);
+      return { nativeResume: { nativeId: "same-conversation" } };
+    },
+  });
+  expect(sendHarnessTurn).not.toHaveBeenCalled();
+});
+it("forwards the validated native input exactly once when the generation remains current", async () => {
+  const current = newSession("codex", "/repo");
+  const nativeInput = { nativeResume: { nativeId: "same-conversation" } };
+  const sendHarnessTurn = vi.fn();
+  await nativePreparationDispatch({
+    current,
+    sessionId: current.id,
+    prepared: [],
+    providerAccountId: "default",
+    intent: "default",
+    operatorAccess: false,
+    orchestrator: { run: () => undefined },
+    editedResend: false,
+    options: undefined,
+    gen: 1,
+    turnGen: { current: new Map([[current.id, 1]]) },
+    sendHarnessTurn,
+    prepareNativeInput: async (): Promise<unknown> => nativeInput,
+  });
+  expect(sendHarnessTurn).toHaveBeenCalledExactlyOnceWith(nativeInput);
 });

@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -16,11 +17,16 @@ import {
   parseNativeSessionInput,
   resolveNativeSession,
 } from "../model/nativeSessionInput";
-import type {
-  NativeProvider,
-  ProviderConversation,
+import {
+  listProviderConversations,
+  setProviderConversationArchived,
+  type NativeProvider,
+  type ProviderConversation,
 } from "../model/providerSessions";
-import { PROVIDER_LABEL } from "../model/conversationSummary";
+import { PROVIDER_LABEL, folderName } from "../model/conversationSummary";
+import { ProviderConversationStore } from "../model/conversationStore";
+import { ProviderConversationList } from "./ProviderConversationList";
+import { loadRecents } from "../../projects/model/recents";
 
 type Props = {
   providers: readonly NativeProvider[];
@@ -42,6 +48,40 @@ export function AddNativeSessionDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submitting = useRef(false);
+  const [query, setQuery] = useState("");
+  const [projectCwd, setProjectCwd] = useState("");
+  const [openingKey, setOpeningKey] = useState<string | null>(null);
+  const [request, setRequest] = useState<{
+    provider: NativeProvider;
+    accountId: string;
+    query: string;
+    projectCwd: string;
+  } | null>(null);
+  const store = useMemo(
+    () =>
+      new ProviderConversationStore({
+        accounts: () => [request?.accountId ?? "default"],
+        list: (selected, options) =>
+          listProviderConversations(selected, {
+            ...options,
+            query: request?.query,
+            projectCwd: request?.projectCwd,
+          }),
+      }),
+    [request],
+  );
+  const lists = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getSnapshot,
+  );
+  const activeRequest =
+    request?.provider === provider && request.accountId === accountId;
+  useEffect(() => {
+    store.setProviders(request ? [request.provider] : []);
+    return () => store.setProviders([]);
+  }, [store, request]);
+  const projects = useMemo(() => loadRecents(), []);
   const accountSnapshot = useSyncExternalStore(
     subscribeProviderAccounts,
     () => JSON.stringify(providerAccounts(provider)),
@@ -53,6 +93,58 @@ export function AddNativeSessionDialog({
   );
   const close = (): void => {
     if (!submitting.current) onClose();
+  };
+  const find = (): void => {
+    if (submitting.current) return;
+    if (
+      !providers.includes(provider) ||
+      !accounts.some((account) => account.id === accountId)
+    ) {
+      setError("Choose an enabled provider and available account first.");
+      return;
+    }
+    setError(null);
+    setRequest({ provider, accountId, query: query.trim(), projectCwd });
+  };
+  const resumeRow = async (row: ProviderConversation): Promise<void> => {
+    if (submitting.current) return;
+    if (
+      row.provider !== provider ||
+      row.providerAccountId !== accountId ||
+      !providers.includes(provider) ||
+      !accounts.some((account) => account.id === accountId)
+    ) {
+      setError(
+        "This conversation belongs to a different or removed provider account. Find again.",
+      );
+      return;
+    }
+    submitting.current = true;
+    setBusy(true);
+    setOpeningKey(row.key);
+    setError(null);
+    try {
+      await onResume(row);
+      onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+      setOpeningKey(null);
+    }
+  };
+  const archive = async (
+    row: ProviderConversation,
+    archived: boolean,
+  ): Promise<void> => {
+    if (submitting.current) return;
+    try {
+      await setProviderConversationArchived(row.key, archived);
+      await store.refresh(provider);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
   };
   const submit = async (): Promise<void> => {
     if (submitting.current) return;
@@ -84,9 +176,10 @@ export function AddNativeSessionDialog({
   return (
     <Modal
       title="Add session"
-      description="Resume a local Claude Code or Codex conversation"
+      description="Choose a provider, find its local conversations, and resume one"
       onClose={close}
       size="md"
+      fitViewport
     >
       <form
         className="flex flex-col gap-3 px-4 pb-4 pt-3"
@@ -110,6 +203,7 @@ export function AddNativeSessionDialog({
               if (value !== "claude" && value !== "codex") return;
               setProvider(value);
               setAccountId("default");
+              setRequest(null);
               setError(null);
             }}
           />
@@ -124,30 +218,104 @@ export function AddNativeSessionDialog({
             searchable={false}
             onChange={(value) => {
               setAccountId(value);
+              setRequest(null);
               setError(null);
             }}
           />
         </div>
-        <label className="flex flex-col gap-1.5 text-[12px] text-content/70">
-          Session ID or resume command
-          <input
-            value={input}
-            onChange={(event) => {
-              setInput(event.target.value);
-              setError(null);
-            }}
+        <div className="flex items-end gap-2">
+          <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-[12px] text-content/70">
+            Search conversations
+            <input
+              aria-label="Search conversations"
+              value={query}
+              disabled={busy}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  find();
+                }
+              }}
+              placeholder="Session name, first message, folder or ID"
+              className="w-full rounded-md border border-content/15 bg-content/5 px-3 py-2 text-[13px] text-content outline-none focus:border-accent"
+            />
+          </label>
+          <SearchableSelect
+            label="Project"
+            value={projectCwd}
             disabled={busy}
-            autoComplete="off"
-            spellCheck={false}
-            maxLength={1024}
-            placeholder={
-              provider === "claude"
-                ? "claude --resume <session-id>"
-                : "codex resume <session-id>"
-            }
-            className="w-full rounded-md border border-content/15 bg-content/5 px-3 py-2 text-[13px] text-content outline-none focus:border-accent disabled:opacity-50"
+            options={[
+              { value: "", label: "All projects" },
+              ...projects.map((project) => ({
+                value: project.path,
+                label: folderName(project.path),
+                description: project.path,
+              })),
+            ]}
+            onChange={setProjectCwd}
           />
-        </label>
+          <SecondaryButton
+            onClick={find}
+            disabled={busy || providers.length === 0}
+          >
+            Find
+          </SecondaryButton>
+        </div>
+        {activeRequest ? (
+          <div
+            className="h-72 min-h-0 overflow-hidden rounded-md border border-content/10"
+            inert={busy || undefined}
+          >
+            <ProviderConversationList
+              provider={provider}
+              state={lists[provider]}
+              showArchived={store.getIncludeArchived()}
+              openingKey={openingKey}
+              actionError={null}
+              onDismissActionError={() => setError(null)}
+              onShowArchivedChange={(value) => store.setIncludeArchived(value)}
+              onRefresh={() => {
+                if (!submitting.current) void store.refresh(provider);
+              }}
+              onLoadMore={() => {
+                if (!submitting.current) void store.loadMore(provider);
+              }}
+              onOpen={(row) => {
+                void resumeRow(row);
+              }}
+              onArchive={(row, archived) => {
+                void archive(row, archived);
+              }}
+            />
+          </div>
+        ) : null}
+        <details className="text-[12px] text-content/55">
+          <summary className="cursor-pointer">
+            Or paste a session ID or resume command
+          </summary>
+          <label className="mt-2 flex flex-col gap-1.5 text-[12px] text-content/70">
+            Session ID or resume command
+            <input
+              aria-label="Session ID or resume command"
+              value={input}
+              onChange={(event) => {
+                setInput(event.target.value);
+                setError(null);
+              }}
+              disabled={busy}
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={1024}
+              placeholder={
+                provider === "claude"
+                  ? "claude --resume <session-id>"
+                  : "codex resume <session-id>"
+              }
+              className="w-full rounded-md border border-content/15 bg-content/5 px-3 py-2 text-[13px] text-content outline-none focus:border-accent disabled:opacity-50"
+            />
+          </label>
+        </details>
         <p className="text-[12px] leading-relaxed text-content/55">
           Uses the original session and context, without a summary transfer. The
           session must exist on this computer in the selected account. Finish or

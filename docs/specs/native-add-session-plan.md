@@ -201,3 +201,47 @@ all incoming/native-session source SHA-256 checks passed. Separate signed-in
 Windows tests remain pending. User approved creating 0.8.0 from this published
 base next. Recovery archive/stash is retained; two unrelated untracked
 upstream-sync documents were excluded and remain untouched.
+
+## 2026-10-06 follow-up — Find native conversations
+
+User requested an explicit Find picker instead of requiring a pasted session
+ID or restoring automatic provider folders. Implement on the active
+`nakul/windows-support-upstream-0.8.0` branch after shared merge repair.
+
+- Use the existing Add session Modal, provider/account selectors, session list
+  rows, search/filter controls and Show more button. Choose Claude Code/Codex,
+  click Find, then select a conversation and resume its exact native ID.
+- Discover read-only from the selected account's local provider session files,
+  the same source used by native resume pickers. Do not start an interactive
+  `claude --resume`/`codex resume` process just to list chats: those commands
+  can claim the native writer. Native resume itself remains unchanged.
+- Show provider title where available, otherwise a useful first user message;
+  never invent a title from an assistant reply or show an internal wrapper.
+  Show project and correct local activity age with absolute timestamp tooltip.
+- Keep search/project/archive filters supported by the current discovery API,
+  ten-row initial paging and request-staleness/error handling. Show missing
+  folders/accounts and read errors honestly; no scan until Find is clicked.
+- Preserve same account/project identity checks, existing-live identity reuse,
+  busy guards, display-only history and no fresh-chat/summary fallback.
+- Test discovery title/time handling, explicit Find, filtering/paging, stale
+  provider/account responses and one native resume per selection. Human Windows
+  checklist: recognizable names/ages against native provider picker, select an
+  older chat, resume once, then close the writer before returning via provider app.
+
+Status: implemented on the 0.8.0 branch; final merge gate passed (6,268 web,
+661 Rust with two ignored, TypeScript, format and Clippy), and cargo check/build
+passed. Publication is tracked in the upstream sync spec. Uses the existing list and modal. Find
+starts no native process; full-result name/ID/folder search and project
+filtering run before paging, with archived visibility in the existing list
+filter. Provider/account changes invalidate prior results. Native timestamps
+stay in seconds until the existing card formatter converts them once; Codex
+metadata with updated_at_ms is normalized on read. No migration, seed prompt
+or fresh-session fallback was added.
+
+Verification: nine dialog tests cover manual ID, explicit Find, pagination,
+stale reads, discovery failures and wrong-account selection. Native Rust
+discovery has eighteen tests, including full-result filtering, original
+names, Windows project identity and millisecond metadata. Shared App dispatch
+regressions now also cover Stop during source validation. Human Windows
+checks remain separate: compare names and ages with CLI pickers, resume an
+older chat once, and close the active writer before returning via provider app.

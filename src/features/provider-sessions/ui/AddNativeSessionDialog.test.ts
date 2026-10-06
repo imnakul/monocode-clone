@@ -77,7 +77,9 @@ async function render(
   );
 }
 async function type(text: string): Promise<void> {
-  const input = container.querySelector<HTMLInputElement>("input")!;
+  const input = container.querySelector<HTMLInputElement>(
+    '[aria-label="Session ID or resume command"]',
+  )!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype,
@@ -168,5 +170,148 @@ describe("Add session", () => {
     await act(async () => finish(row));
     expect(resume).toHaveBeenCalledOnce();
     expect(close).toHaveBeenCalledOnce();
+  });
+});
+
+async function clickButton(label: string): Promise<void> {
+  await act(async () =>
+    [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === label)!
+      .click(),
+  );
+}
+async function search(text: string): Promise<void> {
+  await act(async () => {
+    const input = container.querySelector<HTMLInputElement>(
+      '[aria-label="Search conversations"]',
+    )!;
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(input, text);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+describe("Find native sessions", () => {
+  it("does not scan on opening and finds named chats on demand without submitting a prompt", async () => {
+    await render();
+    expect(invoke).not.toHaveBeenCalled();
+    await search("Original");
+    vi.mocked(invoke).mockResolvedValueOnce({
+      conversations: [row],
+      diagnostics: [],
+      nextOffset: null,
+    });
+    await clickButton("Find");
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("provider_sessions_find", {
+      provider: "claude",
+      accountId: "default",
+      request: {
+        includeArchived: false,
+        limit: 10,
+        offset: 0,
+        query: "Original",
+        projectCwd: "",
+      },
+    });
+    expect(container.textContent).toContain("Original");
+    expect(resume).not.toHaveBeenCalled();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-session-card]")!
+        .click(),
+    );
+    expect(resume).toHaveBeenCalledExactlyOnceWith(row);
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it("pages 10 at a time and retains the selected search filter", async () => {
+    await render(["codex"]);
+    await search("landing");
+    vi.mocked(invoke).mockResolvedValueOnce({
+      conversations: Array.from({ length: 10 }, (_, index) => ({
+        ...row,
+        provider: "codex",
+        key: `key-${index}`,
+        nativeId: `id-${index}`,
+        title: `Landing ${index}`,
+      })),
+      diagnostics: [],
+      nextOffset: 10,
+    });
+    await clickButton("Find");
+    vi.mocked(invoke).mockResolvedValueOnce({
+      conversations: [
+        {
+          ...row,
+          provider: "codex",
+          key: "older",
+          title: "Older landing task",
+        },
+      ],
+      diagnostics: [],
+      nextOffset: null,
+    });
+    await clickButton("Show more");
+    expect(invoke).toHaveBeenLastCalledWith("provider_sessions_find", {
+      provider: "codex",
+      accountId: "default",
+      request: {
+        includeArchived: false,
+        limit: 10,
+        offset: 10,
+        query: "landing",
+        projectCwd: "",
+      },
+    });
+    expect(container.textContent).toContain("Older landing task");
+    expect(resume).not.toHaveBeenCalled();
+  });
+  it("drops an older Find response after another search", async () => {
+    let finish: (value: unknown) => void = () => undefined;
+    await render();
+    vi.mocked(invoke).mockImplementationOnce(
+      async () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await clickButton("Find");
+    await search("new");
+    vi.mocked(invoke).mockResolvedValueOnce({
+      conversations: [{ ...row, key: "new", title: "New task" }],
+      diagnostics: [],
+      nextOffset: null,
+    });
+    await clickButton("Find");
+    await act(async () =>
+      finish({
+        conversations: [{ ...row, title: "Stale task" }],
+        diagnostics: [],
+        nextOffset: null,
+      }),
+    );
+    expect(container.textContent).toContain("New task");
+    expect(container.textContent).not.toContain("Stale task");
+  });
+  it("shows discovery failures and blocks a wrong-account row", async () => {
+    await render();
+    vi.mocked(invoke).mockRejectedValueOnce(
+      new Error("Provider store is unavailable"),
+    );
+    await clickButton("Find");
+    expect(container.textContent).toContain("Provider store is unavailable");
+    vi.mocked(invoke).mockResolvedValueOnce({
+      conversations: [{ ...row, providerAccountId: "other" }],
+      diagnostics: [],
+      nextOffset: null,
+    });
+    await clickButton("Find");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-session-card]")!
+        .click(),
+    );
+    expect(container.textContent).toContain("different or removed");
+    expect(resume).not.toHaveBeenCalled();
   });
 });

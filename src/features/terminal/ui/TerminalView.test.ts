@@ -25,6 +25,7 @@ const pty = vi.hoisted(() => ({
   getPtyStatus: vi.fn(async () => ({ foreground: null })),
 }));
 vi.mock("../../../platform/tauri/pty", () => pty);
+const xterm = vi.hoisted(() => ({ options: [] as { fontFamily?: string }[] }));
 vi.mock("../model/terminalLayout", () => ({
   fitTerminal: () => null,
   applyTerminalChrome: () => {},
@@ -32,6 +33,9 @@ vi.mock("../model/terminalLayout", () => ({
 }));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
+    constructor(options: { fontFamily?: string }) {
+      xterm.options.push(options);
+    }
     cols = 80;
     rows = 24;
     options = {};
@@ -58,7 +62,6 @@ import { TerminalView } from "./TerminalView";
 
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
-
 beforeEach(() => {
   resetTerminalLifecycle();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -79,6 +82,7 @@ afterEach(async () => {
     root.unmount();
   });
   host.remove();
+  xterm.options.length = 0;
   resetTerminalLifecycle();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
@@ -243,4 +247,20 @@ it("does not block a different terminal id behind teardown", async () => {
   expect(pty.spawnPty).toHaveBeenCalledTimes(2);
   expect(pty.spawnPty).toHaveBeenLastCalledWith("second", "/tmp", 80, 24);
   finishKill();
+});
+
+it("uses the terminal-specific font stack", async () => {
+  startTerminal("font");
+  const stack = '"Test Nerd Font", monospace';
+  document.documentElement.style.setProperty("--font-terminal", stack);
+  try {
+    await act(async () => {
+      root.render(
+        createElement(TerminalView, { id: "font", cwd: "/tmp", active: true }),
+      );
+    });
+    expect(xterm.options[0]?.fontFamily).toBe(stack);
+  } finally {
+    document.documentElement.style.removeProperty("--font-terminal");
+  }
 });

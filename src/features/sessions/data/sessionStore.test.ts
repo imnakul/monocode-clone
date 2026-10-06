@@ -149,6 +149,41 @@ describe("native branch persistence", () => {
   });
 });
 
+it("fingerprints queued message edits, ordering, errors and pause state", () => {
+  const session = newSession("codex", "/tmp");
+  const first = { id: "first", text: "One", attachments: [] };
+  const second = { id: "second", text: "Two", attachments: [] };
+  session.queuedMessages = [first, second];
+  const original = persistFingerprint(session);
+  expect(
+    persistFingerprint({
+      ...session,
+      queuedMessages: [...session.queuedMessages],
+    }),
+  ).toBe(original);
+  expect(persistFingerprint({ ...session, queueStatus: "paused" })).not.toBe(
+    original,
+  );
+  expect(
+    persistFingerprint({ ...session, queuedMessages: [second, first] }),
+  ).not.toBe(original);
+  expect(
+    persistFingerprint({
+      ...session,
+      queuedMessages: [{ ...first, error: "Offline" }, second],
+    }),
+  ).not.toBe(original);
+  expect(
+    persistFingerprint({
+      ...session,
+      queuedMessages: [{ ...first, text: "Edited" }, second],
+    }),
+  ).not.toBe(original);
+  expect(persistFingerprint({ ...session, queuedMessages: [second] })).not.toBe(
+    original,
+  );
+});
+
 it("keeps host-owned transcripts out of local session storage", () => {
   const session = newSession("codex", "remote://env/home/me/repo");
   session.blocks = [{ id: "turn", role: "user", text: "Continue" }];

@@ -133,6 +133,7 @@ export function dequeueQueuedMessage(
  */
 export function canDispatchQueuedHead(session: Session): boolean {
   if (session.busy) return false;
+  if (session.worktreePreparing || session.worktreeRemoved) return false;
   if (session.usageLimit) return false;
   if (
     session.queueStatus === "paused" ||
@@ -150,6 +151,32 @@ export function canDispatchQueuedHead(session: Session): boolean {
   return true;
 }
 
+/** Monos deliver one waiting follow-up at a time after the provider is ready. */
+export function canSteerQueuedHead(session: Session): boolean {
+  const head = queuedHead(session);
+  return (
+    !!head &&
+    !head.monoSessionCompletion &&
+    !!session.busy &&
+    !!session.turnReady &&
+    !session.worktreePreparing &&
+    !session.worktreeRemoved &&
+    !session.pendingSwitch &&
+    !session.usageLimit &&
+    !(
+      session.pendingQuestion && session.pendingQuestion.autoResolveAt == null
+    ) &&
+    session.queueStatus !== "paused" &&
+    session.queueStatus !== "held" &&
+    session.queueStatus !== "steering" &&
+    session.queueStatus !== "resuming" &&
+    !isEditingQueuedHead(session) &&
+    !isPreparingHandoff(session) &&
+    head.intent !== "plan" &&
+    head.intent !== "orchestrate"
+  );
+}
+
 /** Resolve a queued row for auto-dispatch (head, idle) or an explicit Steer. */
 export function queuedMessageForSubmit(
   session: Session,
@@ -160,7 +187,7 @@ export function queuedMessageForSubmit(
     (entry) => entry.id === messageId,
   );
   if (!message) return undefined;
-  if (mode === "steer") return message;
+  if (mode === "steer") return message.monoSessionCompletion ? undefined : message;
   if (queuedHead(session)?.id !== messageId) return undefined;
   if (!canDispatchQueuedHead(session)) return undefined;
   return message;

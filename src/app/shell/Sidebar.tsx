@@ -51,6 +51,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -73,7 +74,10 @@ import { copyText } from "../../platform/tauri/clipboard";
 import type { OpenFileFn } from "../../features/search/model/search";
 import { sessionDisplayTitle } from "../../features/sessions/model/session";
 import { ParticleText } from "../../shared/ui/ParticleText";
-import { SessionListItem, type SessionInsertMotion } from "../../features/sessions/ui/SessionListItem";
+import {
+  SessionListItem,
+  type SessionInsertMotion,
+} from "../../features/sessions/ui/SessionListItem";
 import { nextUnseenFinishedSessions } from "../../features/sessions/model/sessionDone";
 import { orchestrationTaskLabel } from "../../features/orchestration/model/orchestrationSummary";
 import {
@@ -173,7 +177,6 @@ import { ProjectRail } from "./ProjectRail";
 import type { ProviderRailEntry } from "./ProviderRail";
 import type { NativeProvider } from "../../features/provider-sessions/model/providerSessions";
 import { InboxNotificationMenu } from "../../features/inbox/ui/InboxNotificationMenu";
-import { prefetchGithubWorkItem } from "../../features/inbox/model/githubTasks";
 import { RailAction } from "./RailAction";
 import { TerminalSpinner } from "../../features/sessions/ui/TerminalSpinner";
 import { DevModeSlot, IconButton, TabVisitNav } from "./TitleBar";
@@ -196,13 +199,27 @@ import { GithubStarPrompt } from "./GithubStarPrompt";
 import { ChatPanel } from "../../features/sessions/ui/ChatPanel";
 import { SharedHoverHighlight } from "../../features/sessions/ui/SharedHoverHighlight";
 import {
+  isMonoSession,
+  listMonos,
+  monoLook,
+  monosSnapshot,
+  subscribeMonos,
+} from "../../features/monos/model/mono";
+import type { PickerMonos } from "../../features/projects/ui/SearchableProjectPicker";
+import { isHabitRun } from "../../features/monos/model/monoHabits";
+import type { MonoRailProps } from "./MonoRailSection";
+import {
   refreshRemoteProjectSessions,
   remoteRequest,
   remotePendingWorktree,
   remoteSessionFor,
   useRemoteProjectSessions,
 } from "../../features/connections/model/connections";
-import { parseRemotePath, remotePath, remoteProjectFor } from "../../features/connections/model/remoteProjects";
+import {
+  parseRemotePath,
+  remotePath,
+  remoteProjectFor,
+} from "../../features/connections/model/remoteProjects";
 
 const MIN_WIDTH = 260;
 const MAX_WIDTH = 560;
@@ -260,7 +277,11 @@ type Props = {
   /** First listing for this project has not arrived yet. */
   pending: boolean;
   onSelectSession: (sessionId: string, intent?: { altKey?: boolean }) => void;
-  onSelectRemoteSession?: (project: string, sessionId: string, intent?: { altKey?: boolean }) => void;
+  onSelectRemoteSession?: (
+    project: string,
+    sessionId: string,
+    intent?: { altKey?: boolean },
+  ) => void;
   onRemoteSessionDeleted?: (sessionId: string) => void;
   onSessionNavigationOrder?: (ids: readonly string[]) => void;
   onPrefetchSession?: (sessionId: string) => void;
@@ -369,6 +390,10 @@ type Props = {
   onSelectProvider?: (provider: NativeProvider) => void;
   onAddSession?: () => void;
   providerPanel?: ReactNode;
+  /** The Monos on the rail; absent while Monos are off. */
+  monos?: MonoRailProps;
+  /** A Mono fills the main area, which has no project sidebar. */
+  monoViewActive?: boolean;
 };
 
 function SidebarComponent({
@@ -479,6 +504,8 @@ function SidebarComponent({
   onSelectProvider,
   onAddSession,
   providerPanel,
+  monos,
+  monoViewActive = false,
 }: Props) {
   const remoteProject = isRemoteProjectPath(cwd);
   const tab: SidebarTabId = requestedTab;
@@ -486,7 +513,12 @@ function SidebarComponent({
   const hostProject = remoteProject ? remoteProjectFor(cwd) : undefined;
   const remoteChange = async (
     sessionId: string,
-    patch: { title?: string; archived?: boolean; pinned?: boolean; linkedWorkItem?: LinkedWorkItem | null },
+    patch: {
+      title?: string;
+      archived?: boolean;
+      pinned?: boolean;
+      linkedWorkItem?: LinkedWorkItem | null;
+    },
   ) => {
     if (!remote.machine || !hostProject) {
       window.alert("Connect this project's machine to change its sessions.");
@@ -509,9 +541,12 @@ function SidebarComponent({
       window.alert("Connect this project's machine to delete its sessions.");
       return;
     }
-    if (!window.confirm(
-      `Delete ${sessionIds.length === 1 ? "this conversation" : `${sessionIds.length} conversations`}? This can’t be undone.`,
-    )) return;
+    if (
+      !window.confirm(
+        `Delete ${sessionIds.length === 1 ? "this conversation" : `${sessionIds.length} conversations`}? This can’t be undone.`,
+      )
+    )
+      return;
     try {
       for (const sessionId of sessionIds) {
         await remoteRequest(remote.machine.id, "sessions.delete", {
@@ -527,23 +562,34 @@ function SidebarComponent({
     }
   };
   const onSelectSession = remoteProject
-    ? (sessionId: string, intent?: { altKey?: boolean }) => onSelectRemoteSession?.(cwd, sessionId, intent)
+    ? (sessionId: string, intent?: { altKey?: boolean }) =>
+        onSelectRemoteSession?.(cwd, sessionId, intent)
     : onSelectLocalSession;
   const onPrefetchSession = remoteProject ? undefined : onPrefetchLocalSession;
-  const onPlaceSessionOnPane = remoteProject ? undefined : onPlaceLocalSessionOnPane;
+  const onPlaceSessionOnPane = remoteProject
+    ? undefined
+    : onPlaceLocalSessionOnPane;
   const onRenameSession = remoteProject
-    ? (sessionId: string, title: string) => { void remoteChange(sessionId, { title }); }
+    ? (sessionId: string, title: string) => {
+        void remoteChange(sessionId, { title });
+      }
     : onRenameLocalSession;
   const onArchiveSession = remoteProject
-    ? (sessionId: string, archived: boolean) => { void remoteChange(sessionId, { archived }); }
+    ? (sessionId: string, archived: boolean) => {
+        void remoteChange(sessionId, { archived });
+      }
     : onArchiveLocalSession;
   const onArchiveSessions = remoteProject
     ? (sessionIds: readonly string[], archived: boolean) => {
-        void Promise.all(sessionIds.map((id) => remoteChange(id, { archived })));
+        void Promise.all(
+          sessionIds.map((id) => remoteChange(id, { archived })),
+        );
       }
     : onArchiveLocalSessions;
   const onPinSession = remoteProject
-    ? (sessionId: string, pinned: boolean) => { void remoteChange(sessionId, { pinned }); }
+    ? (sessionId: string, pinned: boolean) => {
+        void remoteChange(sessionId, { pinned });
+      }
     : onPinLocalSession;
   const onPinSessions = remoteProject
     ? (sessionIds: readonly string[], pinned: boolean) => {
@@ -551,10 +597,14 @@ function SidebarComponent({
       }
     : onPinLocalSessions;
   const onDeleteSession = remoteProject
-    ? (sessionId: string) => { void remoteDelete([sessionId]); }
+    ? (sessionId: string) => {
+        void remoteDelete([sessionId]);
+      }
     : onDeleteLocalSession;
   const onDeleteSessions = remoteProject
-    ? (sessionIds: readonly string[]) => { void remoteDelete(sessionIds); }
+    ? (sessionIds: readonly string[]) => {
+        void remoteDelete(sessionIds);
+      }
     : onDeleteLocalSessions;
   const onSetSessionLinkedWorkItem = remoteProject
     ? (sessionId: string, item: LinkedWorkItem | undefined) => {
@@ -564,43 +614,62 @@ function SidebarComponent({
   const activeRemoteId = activeSessionId
     ? remoteSessionFor(activeSessionId)
     : undefined;
-  const activeListedSessionId = remoteProject ? activeRemoteId : activeSessionId;
+  const activeListedSessionId = remoteProject
+    ? activeRemoteId
+    : activeSessionId;
   const listedBusySessionIds = remoteProject
-    ? new Set(remote.sessions.filter((session) => session.status === "running" && !session.needsInput).map((session) => session.id))
+    ? new Set(
+        remote.sessions
+          .filter(
+            (session) => session.status === "running" && !session.needsInput,
+          )
+          .map((session) => session.id),
+      )
     : busySessionIds;
   const listedApprovalSessionIds = remoteProject
-    ? new Set(remote.sessions.filter((session) => session.needsInput).map((session) => session.id))
+    ? new Set(
+        remote.sessions
+          .filter((session) => session.needsInput)
+          .map((session) => session.id),
+      )
     : approvalSessionIds;
-  const projectSessions: SessionSummary[] = useMemo(() => remoteProject
-    ? remote.sessions.map((session) => ({
-        id: session.id,
-        cwd,
-        harness: session.harness,
-        model: session.model ?? "",
-        runtimeMode: session.runtimeMode ?? "supervised",
-        providerSessionId: session.providerSessionId ?? undefined,
-        title: session.title,
-        createdAt: session.createdAt ?? session.updatedAt,
-        updatedAt: session.updatedAt,
-        archived: session.archived,
-        pinned: session.pinned,
-        linkedWorkItem: session.linkedWorkItem,
-        draft: session.draft,
-        repo: session.repo,
-        branch: session.branch,
-        worktreeCwd: session.worktreeCwd,
-      }))
-    : sessions, [remoteProject, remote.sessions, sessions, cwd]);
+  const projectSessions: SessionSummary[] = useMemo(
+    () =>
+      remoteProject
+        ? remote.sessions.map((session) => ({
+            id: session.id,
+            cwd,
+            harness: session.harness,
+            model: session.model ?? "",
+            runtimeMode: session.runtimeMode ?? "supervised",
+            providerSessionId: session.providerSessionId ?? undefined,
+            title: session.title,
+            createdAt: session.createdAt ?? session.updatedAt,
+            updatedAt: session.updatedAt,
+            archived: session.archived,
+            pinned: session.pinned,
+            linkedWorkItem: session.linkedWorkItem,
+            draft: session.draft,
+            repo: session.repo,
+            branch: session.branch,
+            worktreeCwd: session.worktreeCwd,
+          }))
+        : sessions,
+    [remoteProject, remote.sessions, sessions, cwd],
+  );
   const remoteExecutionCwd =
     remote.sessions.find((session) => session.id === activeRemoteId)?.cwd ??
     (activeSessionId ? remotePendingWorktree(activeSessionId) : undefined) ??
     (remoteProject && gitCwd && gitCwd !== cwd
-      ? parseRemotePath(gitCwd)?.hostPath ?? gitCwd
+      ? (parseRemotePath(gitCwd)?.hostPath ?? gitCwd)
       : undefined) ??
     undefined;
   const gitRoot =
     remoteProject && hostProject
-      ? remotePath(hostProject.environmentId, remoteExecutionCwd ?? hostProject.cwd)
+      ? remotePath(
+          hostProject.environmentId,
+          remoteExecutionCwd ?? hostProject.cwd,
+        )
       : gitCwd || cwd;
   const resize = useDragResize({
     min: MIN_WIDTH,
@@ -688,13 +757,18 @@ function SidebarComponent({
     : pending && sessions.length === 0;
   const worktreeFocus = useWorktreeFocus(cwd);
   const focusedWorktree = remoteProject ? undefined : worktreeFocus;
+  useSyncExternalStore(subscribeMonos, monosSnapshot, monosSnapshot);
   const listedSessions = mergeFolderSessionSummaries(
     projectSessions,
     remoteProject ? [] : openSessions,
     sessionFolders,
   ).filter(
     (session) =>
-      !session.orchestrationLeadId && inWorktreeFocus(session, focusedWorktree),
+      !isMonoSession(session.id) &&
+      !("ephemeral" in session && session.ephemeral) &&
+      !isHabitRun(session.id) &&
+      !session.orchestrationLeadId &&
+      inWorktreeFocus(session, focusedWorktree),
   );
   const visibleSessions = [
     ...filterSessionsByQuery(
@@ -834,14 +908,29 @@ function SidebarComponent({
     compactProjectRail && showProjectRail && !railVisible;
   const inProject = looksLikeProject(cwd);
   const showSidebarFooter = !projectRailOpen;
+  const otherViewActive =
+    searchActive ||
+    inboxActive ||
+    notesActive ||
+    tasksActive ||
+    kanbanActive ||
+    automationsActive ||
+    settingsOpen;
+  // A remembered Mono sits underneath these views; select it only while visible.
+  const railMonos = monos
+    ? { ...monos, activeId: otherViewActive ? undefined : monos.activeId }
+    : undefined;
   // A blank session has no project to browse, so the shell stands alone until
   // one is picked — whether or not the rail is open.
   const sidebarAvailable =
     !searchActive &&
     !inboxActive &&
-    !notesActive && !tasksActive && !kanbanActive &&
+    !notesActive &&
+    !tasksActive &&
+    !kanbanActive &&
     !automationsActive &&
     !settingsOpen &&
+    !monoViewActive &&
     inProject;
   // Chat mode swaps the workspace for the chat list, so it skips the
   // project gate but honors the same overlays (search, inbox, notes,
@@ -851,7 +940,11 @@ function SidebarComponent({
     open &&
     !searchActive &&
     !inboxActive &&
-    !notesActive && !tasksActive && !kanbanActive &&
+    !notesActive &&
+    !tasksActive &&
+    !kanbanActive &&
+    !monoViewActive &&
+    !automationsActive &&
     !settingsOpen;
   const sidebarVisible = open && sidebarAvailable;
   // A selected provider folder replaces the workspace panel with its
@@ -861,7 +954,9 @@ function SidebarComponent({
     open &&
     !searchActive &&
     !inboxActive &&
-    !notesActive && !tasksActive && !kanbanActive &&
+    !notesActive &&
+    !tasksActive &&
+    !kanbanActive &&
     !automationsActive &&
     !settingsOpen;
   // With the sidebar collapsed beside the compact rail, its tab shortcuts
@@ -878,6 +973,12 @@ function SidebarComponent({
   const drawerRendered = drawerVisible || drawerClosing;
   const drawerAnimation = useRef<Animation | null>(null);
   const panelOpen = open || drawerVisible;
+  // Keep the hidden explorer intact when a chat tab changes worktrees. Its
+  // rows and file icons only need rebuilding when Files is actually shown.
+  const explorer = useRef<{ cwd: string; rootLabel?: string } | null>(null);
+  if (panelOpen && tab === "files") {
+    explorer.current = { cwd: gitRoot, rootLabel: explorerRootLabel };
+  }
   const gitStatuses = useGitFileStatuses(gitRoot, panelOpen && tab === "files");
   const changeStats = useProjectDiffStats(gitRoot, panelOpen);
 
@@ -1005,14 +1106,16 @@ function SidebarComponent({
     if (remoteProject && !remote.loaded) return;
     const known = new Set(projectSessions.map((session) => session.id));
     const completedFolderSessions = new Map<string, string>();
-    for (const session of remoteProject ? [] : openSessions) known.add(session.id);
+    for (const session of remoteProject ? [] : openSessions)
+      known.add(session.id);
     if (activeListedSessionId) known.add(activeListedSessionId);
     if (remoteProject && activeSessionId) known.add(activeSessionId);
     if (remoteProject) {
       for (const folder of sessionFolders) {
         for (const shellId of folder.sessionIds) {
           const hostId = remoteSessionFor(shellId);
-          if (hostId && known.has(hostId)) completedFolderSessions.set(shellId, hostId);
+          if (hostId && known.has(hostId))
+            completedFolderSessions.set(shellId, hostId);
         }
       }
     }
@@ -1035,7 +1138,9 @@ function SidebarComponent({
       const migrated = completedFolderSessions.size
         ? current.map((folder) => ({
             ...folder,
-            sessionIds: folder.sessionIds.map((id) => completedFolderSessions.get(id) ?? id),
+            sessionIds: folder.sessionIds.map(
+              (id) => completedFolderSessions.get(id) ?? id,
+            ),
           }))
         : current;
       const next = pruneSessionFolders(migrated, known);
@@ -1043,7 +1148,18 @@ function SidebarComponent({
       saveSessionFolders(cwd, next);
       return next;
     });
-  }, [activeListedSessionId, activeSessionId, cwd, openSessions, pending, projectSessions, remoteProject, remote.loaded, sessionFolders, status]);
+  }, [
+    activeListedSessionId,
+    activeSessionId,
+    cwd,
+    openSessions,
+    pending,
+    projectSessions,
+    remoteProject,
+    remote.loaded,
+    sessionFolders,
+    status,
+  ]);
 
   useEffect(() => {
     if (tab !== "sessions") return;
@@ -1461,7 +1577,12 @@ function SidebarComponent({
 
   const onSessionCardSelect = (
     sessionId: string,
-    event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey?: boolean },
+    event: {
+      shiftKey: boolean;
+      ctrlKey: boolean;
+      metaKey: boolean;
+      altKey?: boolean;
+    },
   ) => {
     contextSelectionRef.current = false;
     setSessionMenu(null);
@@ -1482,7 +1603,8 @@ function SidebarComponent({
       ) {
         selectionAnchorRef.current = null;
       }
-      const anchor = selectionAnchorRef.current ?? activeListedSessionId ?? sessionId;
+      const anchor =
+        selectionAnchorRef.current ?? activeListedSessionId ?? sessionId;
       const start = visibleIds.indexOf(anchor);
       const end = visibleIds.indexOf(sessionId);
       const range =
@@ -1539,7 +1661,12 @@ function SidebarComponent({
     () => ({
       select: (
         sessionId: string,
-        event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey?: boolean },
+        event: {
+          shiftKey: boolean;
+          ctrlKey: boolean;
+          metaKey: boolean;
+          altKey?: boolean;
+        },
       ) => cardHandlers.current.onSessionCardSelect(sessionId, event),
       openWorkItem: (item: LinkedWorkItem, sessionId: string) =>
         cardHandlers.current.onOpenInboxItem?.(item, sessionId),
@@ -1598,7 +1725,11 @@ function SidebarComponent({
         compact={compact}
         now={now}
         onSelect={cardActions.select}
-        onOpenWorkItem={onOpenInboxItem && !remoteProject ? cardActions.openWorkItem : undefined}
+        onOpenWorkItem={
+          onOpenInboxItem && !remoteProject
+            ? cardActions.openWorkItem
+            : undefined
+        }
         onPrefetch={onPrefetchSession ? cardActions.prefetch : undefined}
         onPlaceOnPane={
           onPlaceSessionOnPane ? cardActions.placeOnPane : undefined
@@ -1724,12 +1855,40 @@ function SidebarComponent({
     );
   });
 
+  const workspaceHeader = (
+    <div
+      className="flex h-10 shrink-0 select-none items-center gap-1 border-b border-stroke pl-3 pr-1.5"
+      data-tauri-drag-region="deep"
+    >
+      <div className="flex min-w-0 flex-1 items-center">
+        {!remoteProject && cwd && cwd !== "~" ? (
+          <SidebarWorktreeSwitcher
+            cwd={cwd}
+            tabStats={worktreeTabStats}
+            onSelect={onSelectWorkspace}
+            pending={workspaceSwitchPending}
+            switchError={workspaceSwitchError}
+          />
+        ) : (
+          <span className="min-w-0 truncate text-sm font-medium leading-tight">
+            Workspace
+          </span>
+        )}
+      </div>
+      <WorkspaceTitleActions onSearch={onGoToFile} onNew={onNew} />
+    </div>
+  );
+
   const sidebarContent = (
     <aside
       ref={resize.setPaneRef}
       // Names this panel in Performance overlay logs ("Sessions", "Explorer").
       data-debug-surface={
-        providerPanel != null ? "Provider conversations" : mode === "chat" ? "Chats" : TAB_LABELS[tab]
+        providerPanel != null
+          ? "Provider conversations"
+          : mode === "chat"
+            ? "Chats"
+            : TAB_LABELS[tab]
       }
       className="body-glass relative flex h-full min-h-0 shrink-0 flex-col border-r border-stroke"
     >
@@ -1755,575 +1914,582 @@ function SidebarComponent({
         />
       ) : (
         <>
-      {railVisible ? (
-        <>
-          <div
-            className="flex h-10 shrink-0 select-none items-center gap-1 border-b border-stroke pl-3 pr-1.5"
-            data-tauri-drag-region="deep"
-          >
-            <div className="flex min-w-0 flex-1 items-center">
-              {!remoteProject && cwd && cwd !== "~" ? (
-                <SidebarWorktreeSwitcher
+          {railVisible ? (
+            <>
+              {workspaceHeader}
+              <div
+                role="tablist"
+                aria-label="Workspace"
+                className="flex h-9 shrink-0 items-center gap-px border-b border-stroke px-2"
+              >
+                {workspaceTabItems}
+              </div>
+            </>
+          ) : (
+            <>
+              {titleBarAbove ? null : (
+                <div
+                  className="flex h-10 shrink-0 select-none items-center border-b border-stroke pr-1.5"
+                  data-tauri-drag-region="deep"
+                >
+                  {IS_MAC ? <div className="w-[78px] shrink-0" /> : null}
+                  <DevModeSlot />
+                  <TabVisitNav
+                    canGoBack={canGoBack}
+                    canGoForward={canGoForward}
+                    onGoBack={onGoBack}
+                    onGoForward={onGoForward}
+                    onTogglePanel={
+                      compactProjectRail ? undefined : onToggleProjectRail
+                    }
+                  />
+                </div>
+              )}
+              {compactRailVisible ? workspaceHeader : null}
+              {onSelectProject && !compactRailVisible ? (
+                <SidebarProjectPicker
                   cwd={cwd}
-                  tabStats={worktreeTabStats}
-                  onSelect={onSelectWorkspace}
-                  pending={workspaceSwitchPending}
-                  switchError={workspaceSwitchError}
+                  recents={recents}
+                  busy={projectPathBusy(busyProjectPaths, cwd)}
+                  onSelectProject={onSelectProject}
+                  onOpenProject={onOpenProject}
+                  onRemoveProject={onRemoveProject}
+                  onNew={onNew}
+                  onSearch={onSearch}
+                  onOpenInbox={onOpenInbox}
+                  onOpenNotificationSettings={onOpenNotificationSettings}
+                  onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+                  onOpenTasks={onOpenTasks}
+                  onOpenKanban={onOpenKanban}
+                  onOpenAutomations={onOpenAutomations}
+                  searchActive={searchActive}
+                  inboxActive={inboxActive}
+                  notesActive={notesActive}
+                  tasksActive={tasksActive}
+                  kanbanActive={kanbanActive}
+                  automationsActive={automationsActive}
+                  inboxUnseen={inboxUnseen}
                 />
+              ) : null}
+              {!compactRailVisible ? (
+                <div
+                  role="tablist"
+                  aria-label="Workspace"
+                  className="flex h-9 shrink-0 items-center gap-px overflow-visible border-b border-stroke px-2"
+                >
+                  {workspaceTabItems}
+                </div>
+              ) : null}
+            </>
+          )}
+          <>
+            <div
+              className={`flex min-h-0 flex-1 flex-col overflow-hidden ${
+                tab === "files" ? "" : "hidden"
+              }`}
+            >
+              {filesSearchOpen ? (
+                <ProjectSearch
+                  cwd={gitRoot}
+                  focusToken={searchFocusToken}
+                  onOpenFile={onOpenFile}
+                  onClose={() => onFilesSearchOpenChange(false)}
+                />
+              ) : cwd && cwd !== "~" ? (
+                <div className="flex min-h-0 flex-1 flex-col">
+                  {explorer.current ? (
+                    <FileTree
+                      key={explorer.current.cwd}
+                      cwd={explorer.current.cwd}
+                      rootLabel={explorer.current.rootLabel}
+                      onOpenFile={onOpenFile}
+                      onOpenTerminal={
+                        remoteProject ? undefined : onOpenTerminal
+                      }
+                      onFileMoved={onFileMoved}
+                      onFileDeleted={onFileDeleted}
+                      onSearch={onOpenFilesSearch}
+                      gitStatuses={gitStatuses}
+                    />
+                  ) : null}
+                </div>
               ) : (
-                <span className="min-w-0 truncate text-sm font-medium leading-tight">
-                  Workspace
-                </span>
+                <p className="px-3 py-2 text-[12px] text-content/50">
+                  No project folder
+                </p>
               )}
             </div>
-            <WorkspaceTitleActions onSearch={onGoToFile} onNew={onNew} />
-          </div>
-          <div
-            role="tablist"
-            aria-label="Workspace"
-            className="flex h-9 shrink-0 items-center gap-px border-b border-stroke px-2"
-          >
-            {workspaceTabItems}
-          </div>
-        </>
-      ) : (
-        <>
-          {titleBarAbove ? null : (
+            {tab === "sessions" && cwd && cwd !== "~" ? (
+              <div className="flex h-9 shrink-0 items-center gap-1 border-b border-stroke px-2">
+                <div className="relative flex h-7 min-w-0 flex-1 items-center">
+                  <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
+                  {sessionSearchInput}
+                </div>
+                <SessionsHeaderButton
+                  label="Filter sessions"
+                  active={filtersActive}
+                  open={!!filterMenu}
+                  hasPopup
+                  onClick={onFilterButtonClick}
+                >
+                  <ListFilter className="size-3" strokeWidth={1.75} />
+                </SessionsHeaderButton>
+              </div>
+            ) : null}
             <div
-              className="flex h-10 shrink-0 select-none items-center border-b border-stroke pr-1.5"
-              data-tauri-drag-region="deep"
+              ref={(el) => {
+                sessionsLock(el);
+                sessionsScrollRef.current = el;
+              }}
+              className={`sidebar-session-scroll min-h-0 flex-1 overflow-y-auto overscroll-none ${
+                tab === "sessions" ? "" : "hidden"
+              }`}
             >
-              {IS_MAC ? <div className="w-[78px] shrink-0" /> : null}
-              <DevModeSlot />
-              <TabVisitNav
-                canGoBack={canGoBack}
-                canGoForward={canGoForward}
-                onGoBack={onGoBack}
-                onGoForward={onGoForward}
-                onTogglePanel={
-                  compactProjectRail ? undefined : onToggleProjectRail
-                }
-              />
-            </div>
-          )}
-          {onSelectProject && !compactRailVisible ? (
-            <SidebarProjectPicker
-              cwd={cwd}
-              recents={recents}
-              busy={projectPathBusy(busyProjectPaths, cwd)}
-              onSelectProject={onSelectProject}
-              onOpenProject={onOpenProject}
-              onRemoveProject={onRemoveProject}
-              onNew={onNew}
-              onSearch={onSearch}
-              onOpenInbox={onOpenInbox}
-              onOpenNotificationSettings={onOpenNotificationSettings}
-              onOpenNotes={notesEnabled ? onOpenNotes : undefined}
-              onOpenTasks={onOpenTasks}
-              onOpenKanban={onOpenKanban}
-              onOpenAutomations={onOpenAutomations}
-              searchActive={searchActive}
-              inboxActive={inboxActive}
-              notesActive={notesActive}
-              tasksActive={tasksActive}
-          kanbanActive={kanbanActive}
-              automationsActive={automationsActive}
-              inboxUnseen={inboxUnseen}
-            />
-          ) : null}
-          {!compactRailVisible ? (
-            <div
-              role="tablist"
-              aria-label="Workspace"
-              className="flex h-9 shrink-0 items-center gap-px overflow-visible border-b border-stroke px-2"
-            >
-              {workspaceTabItems}
-            </div>
-          ) : null}
-        </>
-      )}
-      <>
-        <div
-          className={`flex min-h-0 flex-1 flex-col overflow-hidden ${
-            tab === "files" ? "" : "hidden"
-          }`}
-        >
-          {filesSearchOpen ? (
-            <ProjectSearch
-              cwd={gitRoot}
-              focusToken={searchFocusToken}
-              onOpenFile={onOpenFile}
-              onClose={() => onFilesSearchOpenChange(false)}
-            />
-          ) : cwd && cwd !== "~" ? (
-            <div className="flex min-h-0 flex-1 flex-col">
-              <FileTree
-                key={gitRoot}
-                cwd={gitRoot}
-                rootLabel={explorerRootLabel}
-                onOpenFile={onOpenFile}
-                onOpenTerminal={remoteProject ? undefined : onOpenTerminal}
-                onFileMoved={onFileMoved}
-                onFileDeleted={onFileDeleted}
-                onSearch={onOpenFilesSearch}
-                gitStatuses={gitStatuses}
-              />
-            </div>
-          ) : (
-            <p className="px-3 py-2 text-[12px] text-content/50">
-              No project folder
-            </p>
-          )}
-        </div>
-        {tab === "sessions" && cwd && cwd !== "~" ? (
-          <div className="flex h-9 shrink-0 items-center gap-1 border-b border-stroke px-2">
-            <div className="relative flex h-7 min-w-0 flex-1 items-center">
-              <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
-              {sessionSearchInput}
-            </div>
-            <SessionsHeaderButton
-              label="Filter sessions"
-              active={filtersActive}
-              open={!!filterMenu}
-              hasPopup
-              onClick={onFilterButtonClick}
-            >
-              <ListFilter className="size-3" strokeWidth={1.75} />
-            </SessionsHeaderButton>
-          </div>
-        ) : null}
-        <div
-          ref={(el) => {
-            sessionsLock(el);
-            sessionsScrollRef.current = el;
-          }}
-          className={`min-h-0 flex-1 overflow-y-auto overscroll-none ${
-            tab === "sessions" ? "" : "hidden"
-          }`}
-        >
-          {!cwd || cwd === "~" ? (
-            <p className="px-3 py-2 text-[12px] text-content/50">
-              No project folder
-            </p>
-          ) : (
-            <div>
-              {/*
+              {!cwd || cwd === "~" ? (
+                <p className="px-3 py-2 text-[12px] text-content/50">
+                  No project folder
+                </p>
+              ) : (
+                <div>
+                  {/*
               A project's first load stays deliberately blank. The listing is
               served from a covering index and resolves within a frame or two,
               so a placeholder only ever flashed — reading as a glitch rather
               than as progress. This is checked before the empty state so that
               cannot claim "No sessions yet" before the rows have landed.
             */}
-              {pendingFirstLoad ? null : status === "error" &&
-                projectSessions.length === 0 ? (
-                <p className="px-3 py-2 text-[12px] text-content/50">
-                  Couldn’t load sessions
-                </p>
-              ) : visibleSessions.length === 0 ? (
-                // A narrowed-down result is a transient answer to what the user
-                // just typed, so it stays a quiet line of text. Only the genuine
-                // "this project has nothing in it" case earns the illustration.
-                narrowedByUser ? (
-                  <p className="px-3 py-2 text-[12px] text-content/50">
-                    {searchNarrowed
-                      ? "No matching sessions"
-                      : "No sessions match these filters"}
-                  </p>
-                ) : remoteProject && !remote.machine ? (
-                  <p className="px-3 py-2 text-[12px] text-content/45">
-                    This project’s machine isn’t connected on this computer.
-                  </p>
-                ) : (
-                  <SessionsEmpty message="Sessions you start will show up here" />
-                )
-              ) : (
-                <ul data-session-list className="flex flex-col gap-0.5 p-1.5">
-                  {groupedSessionListEntries.map((group) => {
-                    if (
-                      group.kind === "pinned" ||
-                      group.kind === "reminders" ||
-                      group.kind === "drafts"
-                    ) {
-                      const entry = group.entry;
-                      const isReminders = entry.kind === "reminders";
-                      const isDrafts = entry.kind === "drafts";
-                      const expanded = searchNarrowed || !entry.collapsed;
-                      const beforeUngrouped =
-                        sessionListEntries[group.index + 1]?.kind === "session";
-                      return (
-                        <li
-                          key={`${entry.kind}-sessions`}
-                          data-pinned-sessions={
-                            entry.kind === "pinned" ? "" : undefined
-                          }
-                          data-reminder-sessions={isReminders ? "" : undefined}
-                          data-draft-sessions={isDrafts ? "" : undefined}
-                          className={`relative ${
-                            expanded || beforeUngrouped ? "mb-1.5" : ""
-                          }`}
-                        >
-                          <div className="overflow-hidden rounded-md bg-content/5">
-                            <FolderRow
-                              folder={
-                                isReminders
-                                  ? {
-                                      name: "Reminders",
-                                      customColor: REMINDERS_COLOR,
-                                    }
-                                  : isDrafts
-                                    ? { name: "Drafts" }
-                                    : { name: "Pinned" }
+                  {pendingFirstLoad ? null : status === "error" &&
+                    projectSessions.length === 0 ? (
+                    <p className="px-3 py-2 text-[12px] text-content/50">
+                      Couldn’t load sessions
+                    </p>
+                  ) : visibleSessions.length === 0 ? (
+                    // A narrowed-down result is a transient answer to what the user
+                    // just typed, so it stays a quiet line of text. Only the genuine
+                    // "this project has nothing in it" case earns the illustration.
+                    narrowedByUser ? (
+                      <p className="px-3 py-2 text-[12px] text-content/50">
+                        {searchNarrowed
+                          ? "No matching sessions"
+                          : "No sessions match these filters"}
+                      </p>
+                    ) : remoteProject && !remote.machine ? (
+                      <p className="px-3 py-2 text-[12px] text-content/45">
+                        This project’s machine isn’t connected on this computer.
+                      </p>
+                    ) : (
+                      <SessionsEmpty message="Sessions you start will show up here" />
+                    )
+                  ) : (
+                    <ul
+                      data-session-list
+                      className="flex flex-col gap-0.5 p-1.5 pb-10"
+                    >
+                      {groupedSessionListEntries.map((group) => {
+                        if (
+                          group.kind === "pinned" ||
+                          group.kind === "reminders" ||
+                          group.kind === "drafts"
+                        ) {
+                          const entry = group.entry;
+                          const isReminders = entry.kind === "reminders";
+                          const isDrafts = entry.kind === "drafts";
+                          const expanded = searchNarrowed || !entry.collapsed;
+                          const beforeUngrouped =
+                            sessionListEntries[group.index + 1]?.kind ===
+                            "session";
+                          return (
+                            <li
+                              key={`${entry.kind}-sessions`}
+                              data-pinned-sessions={
+                                entry.kind === "pinned" ? "" : undefined
                               }
-                              sessions={entry.sessions}
-                              expanded={expanded}
-                              dropTarget={false}
-                              busy={entry.sessions.some((session) =>
-                                listedBusySessionIds.has(session.id),
-                              )}
-                              done={entry.sessions.some((session) =>
-                                unseenFinishedIds.has(session.id),
-                              )}
-                              needsApproval={entry.sessions.some((session) =>
-                                listedApprovalSessionIds.has(session.id),
-                              )}
-                              groupIcon={
-                                isReminders ? (
-                                  <Clock
-                                    className="size-3.5"
-                                    strokeWidth={1.75}
-                                  />
-                                ) : isDrafts ? (
-                                  <CircleDashed
-                                    className="size-3.5 text-content"
-                                    strokeWidth={1.75}
-                                  />
-                                ) : (
-                                  <Pin
-                                    className="size-3.5 text-content"
-                                    strokeWidth={1.75}
-                                  />
-                                )
+                              data-reminder-sessions={
+                                isReminders ? "" : undefined
                               }
-                              onToggle={() => {
-                                if (searchNarrowed) return;
-                                const collapsed = !entry.collapsed;
-                                if (isReminders) {
-                                  setReminderSessionsCollapsed(collapsed);
-                                  saveReminderSessionsCollapsed(cwd, collapsed);
-                                  return;
-                                }
-                                if (isDrafts) {
-                                  setDraftSessionsCollapsed(collapsed);
-                                  saveDraftSessionsCollapsed(cwd, collapsed);
-                                  return;
-                                }
-                                setPinnedSessionsCollapsed(collapsed);
-                                savePinnedSessionsCollapsed(cwd, collapsed);
-                              }}
-                            />
-                            {expanded ? (
-                              <ul
-                                data-shared-hover-continuity
-                                className="flex flex-col gap-px p-1"
-                              >
-                                {entry.sessions.map((session) => (
-                                  <SessionListItem
-                                    key={session.id}
-                                    session={session}
-                                    cwd={cwd}
-                                    motion={sessionInsertMotion}
-                                  >
-                                    {renderSessionCard(session, true)}
-                                  </SessionListItem>
-                                ))}
-                              </ul>
-                            ) : null}
-                          </div>
-                        </li>
-                      );
-                    }
-                    if (group.kind === "divider") {
-                      return (
-                        <li
-                          key={group.key}
-                          aria-hidden
-                          className="mx-1 my-1 list-none"
-                        >
-                          <div className="h-px bg-content/10" />
-                        </li>
-                      );
-                    }
-                    if (group.kind === "folder") {
-                      const entry = group.entry;
-                      const expanded =
-                        searchNarrowed || !entry.folder.collapsed;
-                      const shellFill = folderShellFill(
-                        entry.folder.colorIndex,
-                        entry.folder.customColor,
-                      );
-                      const folderIndex = visibleFolderIds.indexOf(
-                        entry.folder.id,
-                      );
-                      const beforeUngrouped =
-                        sessionListEntries[group.index + 1]?.kind === "session";
-                      const draggingFolder =
-                        folderSortable.draggingId === entry.folder.id;
-                      const showFolderDropStart =
-                        folderSortable.draggingId &&
-                        folderSortable.toIndex === folderIndex &&
-                        folderSortable.fromIndex !== null &&
-                        folderSortable.toIndex < folderSortable.fromIndex;
-                      const showFolderDropEnd =
-                        folderSortable.draggingId &&
-                        folderSortable.toIndex === folderIndex &&
-                        folderSortable.fromIndex !== null &&
-                        folderSortable.toIndex > folderSortable.fromIndex;
-                      return (
-                        <li
-                          key={entry.folder.id}
-                          ref={(el) =>
-                            folderSortable.setItemRef(entry.folder.id, el)
-                          }
-                          data-session-folder={entry.folder.id}
-                          className={`relative ${
-                            expanded || beforeUngrouped ? "mb-1.5" : ""
-                          } ${draggingFolder ? "opacity-40" : ""}`}
-                        >
-                          {showFolderDropStart ? (
-                            <div className="pointer-events-none absolute inset-x-1 top-0 z-20 h-0.5 rounded-full bg-accent" />
-                          ) : null}
-                          {showFolderDropEnd ? (
-                            <div className="pointer-events-none absolute inset-x-1 bottom-0 z-20 h-0.5 rounded-full bg-accent" />
-                          ) : null}
-                          <div
-                            className={`overflow-hidden rounded-md ${
-                              shellFill ? "" : "bg-content/5"
-                            }`}
-                            style={
-                              shellFill ? { background: shellFill } : undefined
-                            }
-                          >
-                            {renamingFolderId === entry.folder.id ? (
-                              <FolderRenameRow
-                                folder={entry.folder}
-                                memberCount={entry.sessions.length}
-                                dropTarget={isSessionDrop(
-                                  "folder",
-                                  entry.folder.id,
-                                )}
-                                onCommit={(name) => {
-                                  commitSessionFolders(
-                                    renameFolder(
-                                      sessionFolders,
-                                      entry.folder.id,
-                                      name,
-                                    ),
-                                  );
-                                  setRenamingFolderId(null);
-                                }}
-                                onCancel={() => setRenamingFolderId(null)}
-                              />
-                            ) : (
-                              <FolderRow
-                                folder={entry.folder}
-                                sessions={entry.sessions}
-                                expanded={expanded}
-                                dropTarget={isSessionDrop(
-                                  "folder",
-                                  entry.folder.id,
-                                )}
-                                busy={entry.sessions.some((session) =>
-                                  listedBusySessionIds.has(session.id),
-                                )}
-                                done={entry.sessions.some((session) =>
-                                  unseenFinishedIds.has(session.id),
-                                )}
-                                needsApproval={entry.sessions.some((session) =>
-                                  listedApprovalSessionIds.has(session.id),
-                                )}
-                                onPointerDown={(event) =>
-                                  folderSortable.onItemPointerDown(
-                                    entry.folder.id,
-                                    event,
-                                  )
-                                }
-                                onToggle={() => {
-                                  if (folderSortable.consumeClick()) return;
-                                  if (searchNarrowed) return;
-                                  commitSessionFolders(
-                                    setFolderCollapsed(
-                                      sessionFolders,
-                                      entry.folder.id,
-                                      !entry.folder.collapsed,
-                                    ),
-                                  );
-                                }}
-                                onContextMenu={(event) =>
-                                  onFolderContextMenu(entry.folder.id, event)
-                                }
-                                onRename={() =>
-                                  setRenamingFolderId(entry.folder.id)
-                                }
-                              />
-                            )}
-                            {expanded ? (
-                              <>
-                                <ul
-                                  data-shared-hover-continuity
-                                  className="flex flex-col gap-px p-1"
-                                >
-                                  {entry.sessions.map((session) => (
-                                    <SessionListItem
-                                      key={session.id}
-                                      session={session}
-                                      cwd={cwd}
-                                      motion={sessionInsertMotion}
-                                    >
-                                      {renderSessionCard(session, true)}
-                                    </SessionListItem>
-                                  ))}
-                                </ul>
-                                {onNew ? (
-                                  <div className="border-t border-stroke p-1">
-                                    <button
-                                      type="button"
-                                      data-shared-hover-item
-                                      data-no-drag
-                                      data-tauri-drag-region="false"
-                                      title="New session"
-                                      aria-label="New session"
-                                      onClick={() =>
-                                        onNewInFolder(entry.folder.id)
-                                      }
-                                      className="relative flex w-full items-center gap-1 rounded-md border border-transparent px-2.5 py-1.5 text-left text-content/45 hover:bg-content/10 hover:text-content"
-                                    >
-                                      <Plus
-                                        className="size-3 shrink-0"
+                              data-draft-sessions={isDrafts ? "" : undefined}
+                              className={`relative ${
+                                expanded || beforeUngrouped ? "mb-1.5" : ""
+                              }`}
+                            >
+                              <div className="overflow-hidden rounded-md bg-content/5">
+                                <FolderRow
+                                  folder={
+                                    isReminders
+                                      ? {
+                                          name: "Reminders",
+                                          customColor: REMINDERS_COLOR,
+                                        }
+                                      : isDrafts
+                                        ? { name: "Drafts" }
+                                        : { name: "Pinned" }
+                                  }
+                                  sessions={entry.sessions}
+                                  expanded={expanded}
+                                  dropTarget={false}
+                                  busy={entry.sessions.some((session) =>
+                                    listedBusySessionIds.has(session.id),
+                                  )}
+                                  done={entry.sessions.some((session) =>
+                                    unseenFinishedIds.has(session.id),
+                                  )}
+                                  needsApproval={entry.sessions.some(
+                                    (session) =>
+                                      listedApprovalSessionIds.has(session.id),
+                                  )}
+                                  groupIcon={
+                                    isReminders ? (
+                                      <Clock
+                                        className="size-3.5"
                                         strokeWidth={1.75}
                                       />
-                                      <span className="text-[13px] font-semibold leading-snug">
-                                        New session
-                                      </span>
-                                    </button>
-                                  </div>
+                                    ) : isDrafts ? (
+                                      <CircleDashed
+                                        className="size-3.5 text-content"
+                                        strokeWidth={1.75}
+                                      />
+                                    ) : (
+                                      <Pin
+                                        className="size-3.5 text-content"
+                                        strokeWidth={1.75}
+                                      />
+                                    )
+                                  }
+                                  onToggle={() => {
+                                    if (searchNarrowed) return;
+                                    const collapsed = !entry.collapsed;
+                                    if (isReminders) {
+                                      setReminderSessionsCollapsed(collapsed);
+                                      saveReminderSessionsCollapsed(
+                                        cwd,
+                                        collapsed,
+                                      );
+                                      return;
+                                    }
+                                    if (isDrafts) {
+                                      setDraftSessionsCollapsed(collapsed);
+                                      saveDraftSessionsCollapsed(
+                                        cwd,
+                                        collapsed,
+                                      );
+                                      return;
+                                    }
+                                    setPinnedSessionsCollapsed(collapsed);
+                                    savePinnedSessionsCollapsed(cwd, collapsed);
+                                  }}
+                                />
+                                {expanded ? (
+                                  <ul
+                                    data-shared-hover-continuity
+                                    className="flex flex-col gap-px p-1"
+                                  >
+                                    {entry.sessions.map((session) => (
+                                      <SessionListItem
+                                        key={session.id}
+                                        session={session}
+                                        cwd={cwd}
+                                        motion={sessionInsertMotion}
+                                      >
+                                        {renderSessionCard(session, true)}
+                                      </SessionListItem>
+                                    ))}
+                                  </ul>
                                 ) : null}
-                              </>
-                            ) : null}
-                          </div>
-                        </li>
-                      );
-                    }
-                    return (
-                      <li key={group.key} className="list-none">
-                        <ul
-                          data-shared-hover-continuity
-                          className="flex flex-col gap-0.5"
-                        >
-                          {group.sessions.map((item) => (
-                            <SessionListItem
-                              key={item.session.id}
-                              session={item.session}
-                              cwd={cwd}
-                              motion={sessionInsertMotion}
+                              </div>
+                            </li>
+                          );
+                        }
+                        if (group.kind === "divider") {
+                          return (
+                            <li
+                              key={group.key}
+                              aria-hidden
+                              className="mx-1 my-1 list-none"
                             >
-                              {renderSessionCard(item.session)}
-                            </SessionListItem>
-                          ))}
-                        </ul>
-                      </li>
-                    );
-                  })}
-                  {hasMoreSessions ? (
-                    <li
-                      ref={loadMoreRef}
-                      aria-hidden
-                      className="h-px list-none"
-                    />
-                  ) : null}
-                </ul>
+                              <div className="h-px bg-content/10" />
+                            </li>
+                          );
+                        }
+                        if (group.kind === "folder") {
+                          const entry = group.entry;
+                          const expanded =
+                            searchNarrowed || !entry.folder.collapsed;
+                          const shellFill = folderShellFill(
+                            entry.folder.colorIndex,
+                            entry.folder.customColor,
+                          );
+                          const folderIndex = visibleFolderIds.indexOf(
+                            entry.folder.id,
+                          );
+                          const beforeUngrouped =
+                            sessionListEntries[group.index + 1]?.kind ===
+                            "session";
+                          const draggingFolder =
+                            folderSortable.draggingId === entry.folder.id;
+                          const showFolderDropStart =
+                            folderSortable.draggingId &&
+                            folderSortable.toIndex === folderIndex &&
+                            folderSortable.fromIndex !== null &&
+                            folderSortable.toIndex < folderSortable.fromIndex;
+                          const showFolderDropEnd =
+                            folderSortable.draggingId &&
+                            folderSortable.toIndex === folderIndex &&
+                            folderSortable.fromIndex !== null &&
+                            folderSortable.toIndex > folderSortable.fromIndex;
+                          return (
+                            <li
+                              key={entry.folder.id}
+                              ref={(el) =>
+                                folderSortable.setItemRef(entry.folder.id, el)
+                              }
+                              data-session-folder={entry.folder.id}
+                              className={`relative ${
+                                expanded || beforeUngrouped ? "mb-1.5" : ""
+                              } ${draggingFolder ? "opacity-40" : ""}`}
+                            >
+                              {showFolderDropStart ? (
+                                <div className="pointer-events-none absolute inset-x-1 top-0 z-20 h-0.5 rounded-full bg-accent" />
+                              ) : null}
+                              {showFolderDropEnd ? (
+                                <div className="pointer-events-none absolute inset-x-1 bottom-0 z-20 h-0.5 rounded-full bg-accent" />
+                              ) : null}
+                              <div
+                                className={`overflow-hidden rounded-md ${
+                                  shellFill ? "" : "bg-content/5"
+                                }`}
+                                style={
+                                  shellFill
+                                    ? { background: shellFill }
+                                    : undefined
+                                }
+                              >
+                                {renamingFolderId === entry.folder.id ? (
+                                  <FolderRenameRow
+                                    folder={entry.folder}
+                                    memberCount={entry.sessions.length}
+                                    dropTarget={isSessionDrop(
+                                      "folder",
+                                      entry.folder.id,
+                                    )}
+                                    onCommit={(name) => {
+                                      commitSessionFolders(
+                                        renameFolder(
+                                          sessionFolders,
+                                          entry.folder.id,
+                                          name,
+                                        ),
+                                      );
+                                      setRenamingFolderId(null);
+                                    }}
+                                    onCancel={() => setRenamingFolderId(null)}
+                                  />
+                                ) : (
+                                  <FolderRow
+                                    folder={entry.folder}
+                                    sessions={entry.sessions}
+                                    expanded={expanded}
+                                    dropTarget={isSessionDrop(
+                                      "folder",
+                                      entry.folder.id,
+                                    )}
+                                    busy={entry.sessions.some((session) =>
+                                      listedBusySessionIds.has(session.id),
+                                    )}
+                                    done={entry.sessions.some((session) =>
+                                      unseenFinishedIds.has(session.id),
+                                    )}
+                                    needsApproval={entry.sessions.some(
+                                      (session) =>
+                                        listedApprovalSessionIds.has(
+                                          session.id,
+                                        ),
+                                    )}
+                                    onPointerDown={(event) =>
+                                      folderSortable.onItemPointerDown(
+                                        entry.folder.id,
+                                        event,
+                                      )
+                                    }
+                                    onToggle={() => {
+                                      if (folderSortable.consumeClick()) return;
+                                      if (searchNarrowed) return;
+                                      commitSessionFolders(
+                                        setFolderCollapsed(
+                                          sessionFolders,
+                                          entry.folder.id,
+                                          !entry.folder.collapsed,
+                                        ),
+                                      );
+                                    }}
+                                    onContextMenu={(event) =>
+                                      onFolderContextMenu(
+                                        entry.folder.id,
+                                        event,
+                                      )
+                                    }
+                                    onRename={() =>
+                                      setRenamingFolderId(entry.folder.id)
+                                    }
+                                  />
+                                )}
+                                {expanded ? (
+                                  <>
+                                    <ul
+                                      data-shared-hover-continuity
+                                      className="flex flex-col gap-px p-1"
+                                    >
+                                      {entry.sessions.map((session) => (
+                                        <SessionListItem
+                                          key={session.id}
+                                          session={session}
+                                          cwd={cwd}
+                                          motion={sessionInsertMotion}
+                                        >
+                                          {renderSessionCard(session, true)}
+                                        </SessionListItem>
+                                      ))}
+                                    </ul>
+                                    {onNew ? (
+                                      <div className="border-t border-stroke p-1">
+                                        <button
+                                          type="button"
+                                          data-shared-hover-item
+                                          data-no-drag
+                                          data-tauri-drag-region="false"
+                                          title="New session"
+                                          aria-label="New session"
+                                          onClick={() =>
+                                            onNewInFolder(entry.folder.id)
+                                          }
+                                          className="relative flex w-full items-center gap-1 rounded-md border border-transparent px-2.5 py-1.5 text-left text-content/45 hover:bg-content/10 hover:text-content"
+                                        >
+                                          <Plus
+                                            className="size-3 shrink-0"
+                                            strokeWidth={1.75}
+                                          />
+                                          <span className="text-[13px] font-semibold leading-snug">
+                                            New session
+                                          </span>
+                                        </button>
+                                      </div>
+                                    ) : null}
+                                  </>
+                                ) : null}
+                              </div>
+                            </li>
+                          );
+                        }
+                        return (
+                          <li key={group.key} className="list-none">
+                            <ul
+                              data-shared-hover-continuity
+                              className="flex flex-col gap-0.5"
+                            >
+                              {group.sessions.map((item) => (
+                                <SessionListItem
+                                  key={item.session.id}
+                                  session={item.session}
+                                  cwd={cwd}
+                                  motion={sessionInsertMotion}
+                                >
+                                  {renderSessionCard(item.session)}
+                                </SessionListItem>
+                              ))}
+                            </ul>
+                          </li>
+                        );
+                      })}
+                      {hasMoreSessions ? (
+                        <li
+                          ref={loadMoreRef}
+                          aria-hidden
+                          className="h-px list-none"
+                        />
+                      ) : null}
+                    </ul>
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </div>
-        {tab === "changes" ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <SourceControl
-              cwd={gitRoot}
-              enabled={panelOpen}
-              textHarness={textHarness}
-              selectedPath={selectedDiffPath}
-              selectedKind={selectedDiffKind}
-              selectedSha={selectedCommitSha}
-              onOpenFile={
-                onOpenDiff ??
-                ((path) => onOpenFile(path, undefined, { exact: true }))
-              }
-              onOpenAllChanges={onOpenAllChanges ?? (() => {})}
-              onOpenCommit={onOpenCommit ?? (() => {})}
-            />
-          </div>
-        ) : null}
-        {showSidebarFooter ? (
-          <>
-            <LiveAgentsPreview
-              agents={liveAgents}
-              activeSessionId={activeSessionId}
-              onSelect={onSelectAgent}
-              bottomSpacing={compactRailVisible}
-            />
-            <SidebarUpdateFooter
-              update={updateNotice}
-              onOpenWhatsNew={onOpenWhatsNew}
-              onDismissUpdate={onDismissUpdate}
-            />
-            <div className="flex shrink-0 flex-col gap-px p-2 empty:hidden">
-              <GithubStarPrompt />
-              {!compactProjectRail ? (
-                <RailAction
-                  label="Settings"
-                  icon={Settings}
-                  onClick={onOpenSettings}
-                  shortcut={`${MOD},`}
-                  ariaLabel={`Settings (${MOD},)`}
+            {tab === "changes" ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <SourceControl
+                  cwd={gitRoot}
+                  enabled={panelOpen}
+                  textHarness={textHarness}
+                  selectedPath={selectedDiffPath}
+                  selectedKind={selectedDiffKind}
+                  selectedSha={selectedCommitSha}
+                  onOpenFile={
+                    onOpenDiff ??
+                    ((path) => onOpenFile(path, undefined, { exact: true }))
+                  }
+                  onOpenAllChanges={onOpenAllChanges ?? (() => {})}
+                  onOpenCommit={onOpenCommit ?? (() => {})}
                 />
-              ) : null}
-            </div>
+              </div>
+            ) : null}
+            {showSidebarFooter ? (
+              <>
+                <LiveAgentsPreview
+                  agents={liveAgents}
+                  activeSessionId={activeSessionId}
+                  onSelect={onSelectAgent}
+                  bottomSpacing={compactRailVisible}
+                />
+                <SidebarUpdateFooter
+                  update={updateNotice}
+                  onOpenWhatsNew={onOpenWhatsNew}
+                  onDismissUpdate={onDismissUpdate}
+                />
+                <div className="flex shrink-0 flex-col gap-px p-2 empty:hidden">
+                  <GithubStarPrompt />
+                  {!compactProjectRail ? (
+                    <RailAction
+                      label="Settings"
+                      icon={Settings}
+                      onClick={onOpenSettings}
+                      shortcut={`${MOD},`}
+                      ariaLabel={`Settings (${MOD},)`}
+                    />
+                  ) : null}
+                </div>
+              </>
+            ) : null}
           </>
-        ) : null}
-      </>
-      {sessionMenu ? (
-        <ExplorerMenu
-          x={sessionMenu.x}
-          y={sessionMenu.y}
-          items={sessionMenuItems}
-          ariaLabel={
-            multipleMenuSessions
-              ? `${menuSessionIds.length} selected session actions`
-              : "Session actions"
-          }
-          onPick={onSessionMenuPick}
-          onClose={closeSessionMenu}
-        />
-      ) : null}
-      {folderMenu ? (
-        <ExplorerMenu
-          x={folderMenu.x}
-          y={folderMenu.y}
-          items={folderMenuItems}
-          ariaLabel="Folder actions"
-          width={260}
-          header={
-            <FolderColorSwatches
-              colorIndex={menuFolder?.colorIndex}
-              customColor={menuFolder?.customColor}
-              onChange={onFolderColorChange}
-              onCustomChange={onFolderCustomColorChange}
+          {sessionMenu ? (
+            <ExplorerMenu
+              x={sessionMenu.x}
+              y={sessionMenu.y}
+              items={sessionMenuItems}
+              ariaLabel={
+                multipleMenuSessions
+                  ? `${menuSessionIds.length} selected session actions`
+                  : "Session actions"
+              }
+              onPick={onSessionMenuPick}
+              onClose={closeSessionMenu}
             />
-          }
-          onPick={onFolderMenuPick}
-          onClose={() => setFolderMenu(null)}
-        />
-      ) : null}
+          ) : null}
+          {folderMenu ? (
+            <ExplorerMenu
+              x={folderMenu.x}
+              y={folderMenu.y}
+              items={folderMenuItems}
+              ariaLabel="Folder actions"
+              width={260}
+              header={
+                <FolderColorSwatches
+                  colorIndex={menuFolder?.colorIndex}
+                  customColor={menuFolder?.customColor}
+                  onChange={onFolderColorChange}
+                  onCustomChange={onFolderCustomColorChange}
+                />
+              }
+              onPick={onFolderMenuPick}
+              onClose={() => setFolderMenu(null)}
+            />
+          ) : null}
         </>
       )}
       {filterMenu ? (
@@ -2404,6 +2570,8 @@ function SidebarComponent({
           onTogglePanel={onToggleProjectRail}
           onLeaveActive={onGoBack}
           titleBarAbove={titleBarAbove}
+          monos={railMonos}
+          monoViewActive={monoViewActive}
         />
       ) : null}
       {railMounted.current && onSelectProject && onOpenProject ? (
@@ -2452,6 +2620,7 @@ function SidebarComponent({
           selectedProvider={selectedProvider}
           onSelectProvider={onSelectProvider}
           onAddSession={onAddSession}
+          monos={railMonos}
         />
       ) : null}
       {providerPanelVisible || (mode === "chat" ? chatVisible : sidebarVisible)
@@ -2613,7 +2782,11 @@ function SidebarProjectPicker({
           </IconButton>
         ) : null}
         {onOpenTasks ? (
-          <IconButton label="Task Manager" active={tasksActive} onClick={onOpenTasks}>
+          <IconButton
+            label="Task Manager"
+            active={tasksActive}
+            onClick={onOpenTasks}
+          >
             <CheckCircle className="size-3.5" strokeWidth={1.75} />
           </IconButton>
         ) : null}
@@ -2626,7 +2799,15 @@ function SidebarProjectPicker({
             <Zap className="size-3.5" strokeWidth={1.75} />
           </IconButton>
         ) : null}
-        {onOpenKanban ? <IconButton label="Session Manager" active={kanbanActive} onClick={onOpenKanban}><MessageMultiple className="size-3.5" /></IconButton> : null}
+        {onOpenKanban ? (
+          <IconButton
+            label="Session Manager"
+            active={kanbanActive}
+            onClick={onOpenKanban}
+          >
+            <MessageMultiple className="size-3.5" />
+          </IconButton>
+        ) : null}
       </div>
       {inboxMenu ? (
         <InboxNotificationMenu
@@ -2674,6 +2855,8 @@ function CompactProjectRail({
   onTogglePanel,
   onLeaveActive,
   titleBarAbove,
+  monos,
+  monoViewActive = false,
 }: {
   cwd: string;
   recents: RecentProject[];
@@ -2705,7 +2888,30 @@ function CompactProjectRail({
   onTogglePanel?: () => void;
   onLeaveActive?: () => void;
   titleBarAbove: boolean;
+  /** Monos have no row here, so the project button lists them too. */
+  monos?: MonoRailProps;
+  /** A Mono fills the main area: no workspace tab is the current one. */
+  monoViewActive?: boolean;
 }) {
+  const monosSnap = useSyncExternalStore(
+    subscribeMonos,
+    monosSnapshot,
+    monosSnapshot,
+  );
+  const pickerMonos = useMemo((): PickerMonos | undefined => {
+    if (!monos) return undefined;
+    return {
+      items: listMonos().map((mono) => ({
+        id: mono.id,
+        ...monoLook(mono),
+        status: monos.states.get(mono.id)?.status ?? "idle",
+      })),
+      activeId: monos.activeId,
+      onOpen: monos.onOpen,
+      onCreate: monos.onCreate,
+    };
+    // The roster is read through its snapshot.
+  }, [monos, monosSnap]);
   const [inboxMenu, setInboxMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -2713,7 +2919,13 @@ function CompactProjectRail({
   const action = (active: boolean, open?: () => void) =>
     active && onLeaveActive ? onLeaveActive : open;
   const workspaceActive =
-    !searchActive && !inboxActive && !notesActive && !tasksActive && !kanbanActive && !automationsActive;
+    !searchActive &&
+    !inboxActive &&
+    !notesActive &&
+    !tasksActive &&
+    !kanbanActive &&
+    !automationsActive &&
+    !monoViewActive;
   const openWorkspaceTab = (nextTab: SidebarTab) => {
     if (!workspaceActive) onLeaveActive?.();
     onTabChange(nextTab);
@@ -2760,6 +2972,7 @@ function CompactProjectRail({
             onOpenProject={onOpenProject}
             onRemoveProject={onRemoveProject}
             onOpenNotificationSettings={onOpenNotificationSettings}
+            monos={pickerMonos}
           />
         ) : null}
         <div
@@ -2809,8 +3022,12 @@ function CompactProjectRail({
           />
         ) : null}
         {onOpenTasks ? (
-          <CompactRailAction label="Task Manager" icon={CheckCircle} active={tasksActive}
-            onClick={action(tasksActive, onOpenTasks)} />
+          <CompactRailAction
+            label="Task Manager"
+            icon={CheckCircle}
+            active={tasksActive}
+            onClick={action(tasksActive, onOpenTasks)}
+          />
         ) : null}
         <CompactRailAction
           label="Automations"
@@ -2818,7 +3035,14 @@ function CompactProjectRail({
           active={automationsActive}
           onClick={action(automationsActive, onOpenAutomations)}
         />
-        {onOpenKanban ? <CompactRailAction label="Session Manager" icon={MessageMultiple} active={kanbanActive} onClick={action(kanbanActive, onOpenKanban)} /> : null}
+        {onOpenKanban ? (
+          <CompactRailAction
+            label="Session Manager"
+            icon={MessageMultiple}
+            active={kanbanActive}
+            onClick={action(kanbanActive, onOpenKanban)}
+          />
+        ) : null}
       </div>
       <div className="min-h-2 flex-1" />
       <div
@@ -3256,7 +3480,12 @@ const SessionCard = memo(function SessionCard({
   now: number;
   onSelect: (
     sessionId: string,
-    event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean; altKey?: boolean },
+    event: {
+      shiftKey: boolean;
+      ctrlKey: boolean;
+      metaKey: boolean;
+      altKey?: boolean;
+    },
   ) => void;
   onOpenWorkItem?: (item: LinkedWorkItem, sessionId: string) => void;
   onPrefetch?: (sessionId: string) => void;
@@ -3353,11 +3582,6 @@ const SessionCard = memo(function SessionCard({
       data-tauri-drag-region="false"
       title={`Open ${linkedWorkItem.kind === "pr" ? "PR" : "issue"} #${linkedWorkItem.number} beside this session (${MOD}-click for GitHub)`}
       aria-label={`Open ${linkedWorkItem.kind === "pr" ? "PR" : "issue"} #${linkedWorkItem.number}`}
-      onPointerEnter={() => {
-        // Hover usually precedes the click by a few hundred ms, which is
-        // most of what the panel would otherwise spend waiting on GitHub.
-        if (onOpenWorkItem) prefetchGithubWorkItem(session.cwd, linkedWorkItem);
-      }}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.preventDefault();
@@ -3658,10 +3882,7 @@ const SessionCard = memo(function SessionCard({
             ) : null}
           </span>
         </div>
-        {compact &&
-        !orchestrationExpanded &&
-        compactModelLabels &&
-        model ? (
+        {compact && !orchestrationExpanded && compactModelLabels && model ? (
           <span
             title={`Model: ${model}`}
             className="relative mt-0.5 min-w-0 truncate text-[10px] leading-tight text-content/45"
@@ -3679,7 +3900,11 @@ const SessionCard = memo(function SessionCard({
           {gitLabel ? (
             <span
               className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-content/45"
-              title={session.worktreeCwd ? `${gitLabel}\n${session.worktreeCwd}` : gitLabel}
+              title={
+                session.worktreeCwd
+                  ? `${gitLabel}\n${session.worktreeCwd}`
+                  : gitLabel
+              }
             >
               <GitBranch className="size-3 shrink-0" strokeWidth={1.75} />
               <span className="min-w-0 truncate">{gitLabel}</span>
@@ -3903,6 +4128,46 @@ function DiffStat({
   additions: number;
   deletions: number;
 }) {
+  const containerRef = useRef<HTMLSpanElement>(null);
+  const contentRef = useRef<HTMLSpanElement>(null);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const content = contentRef.current;
+    if (!container || !content) return;
+
+    const fit = () => {
+      const availableWidth = container.getBoundingClientRect().width;
+      if (availableWidth <= 0) return;
+
+      // Measure at the normal size so the text can grow again after resizing.
+      let maxFontSize = 11;
+      content.style.fontSize = `${maxFontSize}px`;
+      if (content.getBoundingClientRect().width <= availableWidth) return;
+
+      // Font metrics can change at small sizes, so check the rendered width.
+      let minFontSize = 0;
+      while (maxFontSize - minFontSize > 0.1) {
+        const fontSize = (minFontSize + maxFontSize) / 2;
+        content.style.fontSize = `${fontSize}px`;
+        if (content.getBoundingClientRect().width > availableWidth) {
+          maxFontSize = fontSize;
+        } else {
+          minFontSize = fontSize;
+        }
+      }
+      content.style.fontSize = `${minFontSize}px`;
+    };
+
+    fit();
+    // Sidebar dragging writes its width directly to the DOM, without a render.
+    const observer = new ResizeObserver(fit);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [additions, deletions]);
+
+  if (additions <= 0 && deletions <= 0) return null;
+
   const label = [
     additions > 0 ? `+${formatInteger(additions)}` : "",
     deletions > 0 ? `-${formatInteger(deletions)}` : "",
@@ -3911,19 +4176,25 @@ function DiffStat({
     .join(" ");
   return (
     <span
+      ref={containerRef}
       title={`${label} uncommitted`}
-      className="flex shrink-0 items-center gap-1.5 font-sans text-[11px] font-semibold tabular-nums"
+      className="flex h-full w-full min-w-0 items-center justify-center overflow-hidden"
     >
-      {additions > 0 ? (
-        <span className="text-emerald-400">
-          +<TightDiffNumber value={additions} />
-        </span>
-      ) : null}
-      {deletions > 0 ? (
-        <span className="text-red-400">
-          -<TightDiffNumber value={deletions} />
-        </span>
-      ) : null}
+      <span
+        ref={contentRef}
+        className="flex shrink-0 items-center gap-[0.55em] whitespace-nowrap font-sans text-[11px] font-semibold tabular-nums"
+      >
+        {additions > 0 ? (
+          <span className="text-diff-add-fg">
+            +<TightDiffNumber value={additions} />
+          </span>
+        ) : null}
+        {deletions > 0 ? (
+          <span className="text-diff-del-fg">
+            -<TightDiffNumber value={deletions} />
+          </span>
+        ) : null}
+      </span>
     </span>
   );
 }

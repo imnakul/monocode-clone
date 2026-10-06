@@ -26,6 +26,9 @@ function render(
         text: `${first}\n\n${second}`,
         onSaveNote,
         streaming,
+        // Test the controls on a painted table. Initial reveal pacing has its
+        // own tests; the provider is still streaming throughout this fixture.
+        revealOnMount: false,
       }),
     ),
   );

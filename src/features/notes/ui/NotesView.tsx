@@ -8,7 +8,6 @@ import {
 } from "../../../shared/ui/icons";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -59,10 +58,7 @@ import {
   looksLikeProject,
   type RecentProject,
 } from "../../projects/model/recents";
-import {
-  AgentMarkdown,
-  MarkdownSourceHighlight,
-} from "../../sessions/ui/AgentMarkdown";
+import { AgentMarkdown } from "../../sessions/ui/AgentMarkdown";
 import { ChevronDown } from "../../../shared/ui/icons";
 import {
   ExplorerMenu,
@@ -71,6 +67,8 @@ import {
 import { loadRecents } from "../../projects/model/recents";
 import { SharedHoverHighlight } from "../../sessions/ui/SharedHoverHighlight";
 import { type NoteProjectChoice } from "../notes";
+
+import { MarkdownSourceEditor } from "../../sessions/ui/MarkdownSourceEditor";
 
 const MIN_WIDTH = 240;
 const MAX_WIDTH = 420;
@@ -479,10 +477,7 @@ function NoteCard({
       <span className="flex items-center gap-2">
         {project && note.sourceCwd ? (
           <span className="min-w-0 flex-1 text-[11px] text-content/50">
-            <ProjectMark
-              cwd={note.sourceCwd}
-              {...marks}
-            />
+            <ProjectMark cwd={note.sourceCwd} {...marks} />
           </span>
         ) : (
           <span className="min-w-0 flex-1 text-[11px] text-content/50">
@@ -597,6 +592,7 @@ function NoteEditor({
   const projectChangeRef = useRef(projectChange);
   const noteRef = useRef(note);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  const titleFieldRef = useRef<HTMLInputElement>(null);
   const sourceFieldRef = useRef<HTMLTextAreaElement>(null);
   const lastDropAt = useRef(0);
   const skipSave = useRef(false);
@@ -626,19 +622,25 @@ function NoteEditor({
     const current = latest ?? noteRef.current;
     const changes = editsRef.current;
     const nextBody = changes.body ?? current.body;
+    const titleFocused = document.activeElement === titleFieldRef.current;
     const nextTitle =
-      (changes.title ?? current.title).trim() || noteTitle(nextBody);
+      (changes.title ?? current.title).trim() ||
+      (titleFocused ? current.title : noteTitle(nextBody));
     const nextTags = changes.tags ?? current.tags;
     const nextProject = projectChangeRef.current;
     const acceptSaved = (saved: Note) => {
       noteRef.current = saved;
       // A completed save only clears the edits included in that request.
       const remaining = { ...editsRef.current };
-      // While the title field has focus, keep what the user typed when the
-      // saved title differs only by trimming ("Fix the " saves as "Fix the"),
-      // or the input would eat trailing spaces mid-typing. Blur normalises it.
-      const typing = titleFocused.current && saved.title !== changes.title;
-      if (remaining.title === changes.title && !typing) delete remaining.title;
+      // Keep the focused draft, including blanks and spaces, until blur.
+      // Leave the draft for a queued blur or unmount save to commit as well.
+      if (
+        remaining.title === changes.title &&
+        !titleFocused &&
+        document.activeElement !== titleFieldRef.current
+      ) {
+        delete remaining.title;
+      }
       if (remaining.body === changes.body) delete remaining.body;
       if (remaining.tags === changes.tags) delete remaining.tags;
       editsRef.current = remaining;
@@ -829,10 +831,7 @@ function NoteEditor({
               <span className="min-w-0 truncate">{note.slug}</span>
             ) : null}
             {note.sourceCwd ? (
-              <ProjectMark
-                cwd={note.sourceCwd}
-                {...marks}
-              />
+              <ProjectMark cwd={note.sourceCwd} {...marks} />
             ) : (
               <PersonalMark />
             )}
@@ -851,6 +850,7 @@ function NoteEditor({
             />
           </div>
           <input
+            ref={titleFieldRef}
             value={title}
             onChange={(event) => {
               editNote({ title: event.target.value });
@@ -966,7 +966,8 @@ function NoteEditor({
             </div>
           ) : null}
           {mode === "source" ? (
-            <NoteSource
+            <MarkdownSourceEditor
+              label="Note Markdown"
               textareaRef={sourceFieldRef}
               autoFocus={blank}
               value={body}
@@ -999,47 +1000,14 @@ export function NoteSource({
   label?: string;
   autoFocus?: boolean;
 }) {
-  const lines = value.split("\n");
-  const gutterWidth = `calc(${Math.max(String(lines.length).length, 2)}ch + 0.75rem)`;
-  const textOffset = `calc(${gutterWidth} + 0.75rem)`;
-
   return (
-    <div className="relative min-h-[448px]">
-      <div
-        aria-hidden
-        className="pointer-events-none grid font-mono text-[13px] leading-5 text-content/85"
-        style={{
-          gridTemplateColumns: `${gutterWidth} minmax(0, 1fr)`,
-        }}
-      >
-        {lines.map((line, index) => (
-          <Fragment key={index}>
-            <div className="select-none pr-2 text-right tabular-nums whitespace-nowrap text-content/40">
-              {index + 1}
-            </div>
-            <div className="min-h-5 min-w-0 pl-3 whitespace-pre-wrap wrap-break-word">
-              {line ? <MarkdownSourceHighlight text={line} /> : "\u00a0"}
-            </div>
-          </Fragment>
-        ))}
-      </div>
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-y-0 w-px bg-content/10"
-        style={{ left: gutterWidth }}
-      />
-      <textarea
-        aria-label={label}
-        ref={textareaRef}
-        value={value}
-        autoFocus={autoFocus}
-        onChange={(event) => onChange(event.target.value)}
-        spellCheck={false}
-        placeholder="Write markdown…"
-        className="markdown-source-field absolute inset-0 h-full w-full resize-none overflow-hidden border-0 bg-transparent py-0 pr-0 font-mono text-[13px] leading-5 whitespace-pre-wrap wrap-break-word outline-none"
-        style={{ paddingLeft: textOffset }}
-      />
-    </div>
+    <MarkdownSourceEditor
+      label={label}
+      value={value}
+      onChange={onChange}
+      textareaRef={textareaRef}
+      autoFocus={autoFocus}
+    />
   );
 }
 

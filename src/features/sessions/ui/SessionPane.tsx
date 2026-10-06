@@ -2,7 +2,7 @@ import { WorkInPicker } from "../../provider-sessions/ui/WorkInPicker";
 import type { RemoteControlControls } from "../../provider-sessions/ui/RemoteControlButton";
 import { editableSessionTodo } from "../../session-board/sessionTodos";
 import { composeSessionTodo } from "../../session-board/ui/SessionManagerCapture";
-import { ChevronDown, GripVertical, X } from "../../../shared/ui/icons";
+import { GripVertical, X } from "../../../shared/ui/icons";
 import {
   memo,
   useCallback,
@@ -62,16 +62,40 @@ import { AgentTranscript } from "./AgentTranscript";
 import { PooledTranscript, type TranscriptPool } from "./TranscriptPool";
 import { TranscriptFind } from "./TranscriptFind";
 import {
+  TranscriptJumpToBottom,
+  useTranscriptJumpVisibility,
+} from "./TranscriptJumpToBottom";
+import {
   clearTranscriptJump,
   peekTranscriptJump,
   subscribeTranscriptJump,
 } from "../model/transcriptJump";
 import { EmptySession } from "./EmptySession";
 import { SessionProviderStrip } from "../../provider-sessions/ui/SessionProviderStrip";
-import { useCloudLaunch, type CloudLaunchOutcome } from "../../provider-sessions/ui/useCloudLaunch";
+import {
+  useCloudLaunch,
+  type CloudLaunchOutcome,
+} from "../../provider-sessions/ui/useCloudLaunch";
 import { useNativeHistory } from "../../provider-sessions/ui/useNativeHistory";
 import { isHistoryBlock } from "../../provider-sessions/model/history";
 import { canHarnessRemoteControl } from "../../../integrations/harness/core/registry";
+import {
+  monoForSession,
+  monoLook,
+  monosSnapshot,
+  subscribeMonos,
+} from "../../monos/model/mono";
+import { MonoHeader } from "../../monos/ui/MonoHeader";
+import { MonoComposer } from "../../monos/ui/MonoComposer";
+import { MonoUsageLimitNotice } from "../../monos/ui/MonoUsageLimitNotice";
+import { QuestionForm } from "./QuestionForm";
+import {
+  monoMessageDeliveries,
+  monoPendingTranscriptBlocks,
+} from "../../monos/model/monoMessaging";
+import { MessageQueue } from "./MessageQueue";
+import { useMonoTranscript } from "../../monos/hooks/useMonoTranscript";
+import { MONO_PAGE_TURNS } from "../data/sessionStore";
 import { useComposerDockMotion } from "./useComposerDockMotion";
 import { MOD } from "../../../platform/tauri/platform";
 import {
@@ -86,7 +110,11 @@ import {
   loadNotesEnabled,
   subscribeNotesEnabled,
 } from "../../settings/model/settings";
-import { getComposerDraft, setComposerDraft, setComposerPendingInput } from "../model/draftCache";
+import {
+  getComposerDraft,
+  setComposerDraft,
+  setComposerPendingInput,
+} from "../model/draftCache";
 import { resolveModel } from "../model/models";
 import { isAstraModel } from "../model/astraWelcome";
 import { isOpus55Model } from "../model/opusWelcome";
@@ -101,6 +129,7 @@ import {
   subscribeProjectChatBackground,
 } from "../../projects/model/projectChatBackground";
 import { useProjectBackgroundEffect } from "../../projects/ui/useProjectBackgroundEffect";
+import { monoChatBackground } from "../../monos/model/monoBackground";
 import { GradientBlurBackground } from "../../settings/ui/GradientBlurBackground";
 import {
   loadChatBackgroundPath,
@@ -126,6 +155,12 @@ export type SessionPaneProps = {
   inSplit: boolean;
   composerFocused: boolean;
   composerFocusToken?: number;
+  onShowMonoActivity?: (
+    sessionId: string,
+    turnId: string,
+    blocks: Block[],
+  ) => void;
+  monoActivityTurnId?: string;
   recents: RecentProject[];
   hideProjectPicker?: boolean;
   onFocus: (sessionId: string) => void;
@@ -179,6 +214,7 @@ export type SessionPaneProps = {
   onUsageLimitResume: (sessionId: string) => void;
   onUsageLimitResumeAtReset: (sessionId: string, enabled: boolean) => void;
   onUsageLimitDismiss: (sessionId: string) => void;
+  onUsageLimitAccountChange?: (sessionId: string, accountId: string) => void;
   onInboxCardDismiss?: (sessionId: string) => void;
   onLinkedWorkItemUpdateCardDismiss?: (sessionId: string) => void;
   onNoteCardDismiss?: (sessionId: string) => void;
@@ -327,6 +363,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
   onUsageLimitResume,
   onUsageLimitResumeAtReset,
   onUsageLimitDismiss,
+  onUsageLimitAccountChange,
   onInboxCardDismiss,
   onLinkedWorkItemUpdateCardDismiss,
   onNoteCardDismiss,
@@ -341,6 +378,8 @@ const LocalSessionPane = memo(function LocalSessionPane({
   onQuestionInteraction,
   onOpenFile,
   onOpenDiff,
+  onShowMonoActivity,
+  monoActivityTurnId,
   onOpenPlan,
   onBuildPlan,
   onSecondOpinion,
@@ -373,13 +412,26 @@ const LocalSessionPane = memo(function LocalSessionPane({
   const title = sessionDisplayTitle(session.title, session.harness);
   // Earlier provider history is display-only: it makes the pane a transcript,
   // but it is never part of `session.blocks` (not saved, sent or counted).
-  const representedNativeIds = useMemo(() => new Set(session.blocks.flatMap((block) =>
-    block.externalTurnId ? [block.providerMessageId ?? block.externalTurnId] : [])), [session.blocks]);
+  const representedNativeIds = useMemo(
+    () =>
+      new Set(
+        session.blocks.flatMap((block) =>
+          block.externalTurnId
+            ? [block.providerMessageId ?? block.externalTurnId]
+            : [],
+        ),
+      ),
+    [session.blocks],
+  );
   const history = useNativeHistory({
     sessionId: session.id,
     harness: session.harness,
     providerAccountId: session.providerAccountId,
-    enabled: visible && !remoteSession && !session.inboxAsk,
+    enabled:
+      visible &&
+      !remoteSession &&
+      !session.inboxAsk &&
+      !monoForSession(session.id),
     representedNativeIds,
     localBlocks: session.blocks,
     cutoffMs: session.blocks.find(
@@ -399,7 +451,9 @@ const LocalSessionPane = memo(function LocalSessionPane({
     remote: remoteSession,
     nativeResume: !!session.providerSessionId || !!session.sidechat,
     disabledReason:
-      session.workspaceMode === "worktree" || !!session.worktreeCwd || session.worktreeRemoved
+      session.workspaceMode === "worktree" ||
+      !!session.worktreeCwd ||
+      session.worktreeRemoved
         ? "Switch to Current checkout before starting a cloud task. Local worktree choices are not cloud environments."
         : undefined,
     onOutcome: onCloudLaunchOutcome ?? ignoreCloudOutcome,
@@ -423,10 +477,18 @@ const LocalSessionPane = memo(function LocalSessionPane({
         }
       : undefined;
   const historyNotice =
-    !remote && history.state.status !== "none" && history.state.status !== "loading"
+    !remote &&
+    history.state.status !== "none" &&
+    history.state.status !== "loading"
       ? history.state
       : undefined;
-  const editLastTurnSupported = !remote && canEditLastTurn(session);
+  const editLastTurnSupported =
+    !remote && !monoForSession(session.id) && canEditLastTurn(session);
+  const messageDeliveries = useMemo(
+    () => monoMessageDeliveries(session),
+    [session.queuedMessages, session.queueStatus],
+  );
+
   const turnRecall = editLastTurnSupported ? lastTurnRecall(session) : null;
   const draftBlock = sessionDraftBlock(session);
   useSyncExternalStore(
@@ -444,9 +506,14 @@ const LocalSessionPane = memo(function LocalSessionPane({
     loadNewThreadBackgroundEffect,
     loadNewThreadBackgroundEffect,
   );
-  const projectBackground = loadProjectChatBackgroundSettings(
-    projectKey(session.cwd),
-  );
+  // Renames, instructions and mascot picks re-render the agent's look.
+  useSyncExternalStore(subscribeMonos, monosSnapshot);
+  const mono = monoForSession(session.id);
+  const agent = mono ? monoLook(mono) : undefined;
+  // A Mono shows only its own background, never the project's or the app's.
+  const projectBackground = mono
+    ? monoChatBackground(mono.id)
+    : loadProjectChatBackgroundSettings(projectKey(session.cwd));
   const projectBackgroundUrl = useProjectBackgroundEffect(
     projectBackground?.path ?? null,
     projectBackground?.effect ?? "none",
@@ -466,11 +533,8 @@ const LocalSessionPane = memo(function LocalSessionPane({
       } as CSSProperties)
     : undefined;
   const approve = useCallback(
-    (
-      requestId: number,
-      decision: ApprovalDecision,
-      scope?: ApprovalScope,
-    ) => onApproval(session.id, requestId, decision, scope),
+    (requestId: number, decision: ApprovalDecision, scope?: ApprovalScope) =>
+      onApproval(session.id, requestId, decision, scope),
     [onApproval, session.id],
   );
   const fixReviewIssue = useCallback(
@@ -517,7 +581,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
     [onFocus, session.id],
   );
   const quoteRequestId = useRef(0);
-  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  const jumpVisibility = useTranscriptJumpVisibility();
   const [editingLastTurn, setEditingLastTurn] = useState(false);
   useEffect(() => {
     setEditingLastTurn(false);
@@ -572,6 +636,10 @@ const LocalSessionPane = memo(function LocalSessionPane({
   const onJumpToBottomReady = useCallback((jump: () => void) => {
     jumpToBottomRef.current = jump;
   }, []);
+  const monoTranscript = useMonoTranscript(
+    session,
+    !!monoForSession(session.id),
+  );
   const revealBlockRef = useRef<((blockId: string) => boolean) | null>(null);
   const onRevealReady = useCallback((reveal: (blockId: string) => boolean) => {
     revealBlockRef.current = reveal;
@@ -592,9 +660,16 @@ const LocalSessionPane = memo(function LocalSessionPane({
     [],
   );
   const navigateBlock = useCallback(
-    (blockId: string | null, query?: string) =>
-      navigateBlockRef.current?.(blockId, query) ?? false,
-    [],
+    async (blockId: string | null, query?: string) => {
+      if (navigateBlockRef.current?.(blockId, query)) return true;
+      if (!blockId) return false;
+      if (!(await monoTranscript.reveal(blockId))) return false;
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+      return navigateBlockRef.current?.(blockId, query) ?? false;
+    },
+    [monoTranscript.reveal],
   );
   const jumpRequest = useSyncExternalStore(
     subscribeTranscriptJump,
@@ -603,12 +678,19 @@ const LocalSessionPane = memo(function LocalSessionPane({
   );
   useEffect(() => {
     if (!visible || !navigatorReady || !jumpRequest) return;
+    let cancelled = false;
     const frame = requestAnimationFrame(() => {
-      if (navigateBlock(jumpRequest.blockId, jumpRequest.query)) {
-        clearTranscriptJump(session.id, jumpRequest.token);
-      }
+      void navigateBlock(jumpRequest.blockId, jumpRequest.query)
+        .then((found) => {
+          if (found && !cancelled)
+            clearTranscriptJump(session.id, jumpRequest.token);
+        })
+        .catch(() => undefined);
     });
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
   }, [visible, navigatorReady, jumpRequest, navigateBlock, session.id]);
   const addSelectionToChat = useCallback(
     (text: string, mode?: QuoteRequest["mode"]) => {
@@ -652,15 +734,18 @@ const LocalSessionPane = memo(function LocalSessionPane({
     [session.cwd, session.id],
   );
 
-  const saveSelectionTask = useCallback(async (text: string, blockId?: string) => {
-    await createTask({
-      body: text,
-      status: "todo",
-      projectCwd: looksLikeProject(session.cwd) ? session.cwd : undefined,
-      sourceSessionId: session.id,
-      sourceBlockId: blockId,
-    });
-  }, [session.cwd, session.id]);
+  const saveSelectionTask = useCallback(
+    async (text: string, blockId?: string) => {
+      await createTask({
+        body: text,
+        status: "todo",
+        projectCwd: looksLikeProject(session.cwd) ? session.cwd : undefined,
+        sourceSessionId: session.id,
+        sourceBlockId: blockId,
+      });
+    },
+    [session.cwd, session.id],
+  );
 
   useEffect(() => {
     if (!addToChatTarget) return;
@@ -674,9 +759,10 @@ const LocalSessionPane = memo(function LocalSessionPane({
   }, [addSelectionToChat, addToChatTarget]);
   const workCwd = sessionWorkCwd(session);
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
+  // The agent's input always sits at the bottom, like a chat.
   const dockComposer =
     remoteSessionLoading ||
-    (!draftBlock && (!isEmpty || inSplit || !!session.inboxAsk));
+    (!draftBlock && (!isEmpty || inSplit || !!session.inboxAsk || !!agent));
   const composerDockMotion = useComposerDockMotion(dockComposer);
   const draftRef = useRef<string | undefined>(getComposerDraft(session.id));
   const turnUsage = useMemo(
@@ -727,7 +813,9 @@ const LocalSessionPane = memo(function LocalSessionPane({
           ? undefined
           : session.composerSeed)
       }
-      onPendingInputChange={(pending) => setComposerPendingInput(session.id, pending)}
+      onPendingInputChange={(pending) =>
+        setComposerPendingInput(session.id, pending)
+      }
       onDraftChange={(text) => {
         draftRef.current = text;
         setComposerDraft(session.id, text);
@@ -784,7 +872,9 @@ const LocalSessionPane = memo(function LocalSessionPane({
         onModelSettingsChange(session.id, settings)
       }
       onRuntimeModeChange={(mode) => onRuntimeModeChange(session.id, mode)}
-      onOperatorDisable={onOperatorDisable ? () => onOperatorDisable(session.id) : undefined}
+      onOperatorDisable={
+        onOperatorDisable ? () => onOperatorDisable(session.id) : undefined
+      }
       externalTurnActive={!!session.externalTurnId}
       canSaveDraft={
         (!remote || !!remoteFeatures?.draft) &&
@@ -858,11 +948,14 @@ const LocalSessionPane = memo(function LocalSessionPane({
       data-project-background-effect={projectBackground?.effect}
       data-project-background-scope={projectBackground?.scope}
       style={projectBackgroundStyle}
-      className="chat-pane-background relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col"
+      className={`${
+        agent && !projectBackground ? "" : "chat-pane-background "
+      }relative isolate flex h-full min-h-0 min-w-0 flex-1 flex-col`}
       onMouseDown={() => onFocus(session.id)}
     >
       {projectBackground?.effect === "gradient-blur" ||
-      (!projectBackground &&
+      (!agent &&
+        !projectBackground &&
         globalBackgroundPath &&
         globalBackgroundEffect === "gradient-blur") ? (
         <GradientBlurBackground />
@@ -921,270 +1014,412 @@ const LocalSessionPane = memo(function LocalSessionPane({
           </button>
         </div>
       ) : null}
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        {visible && historyNotice ? (
-          <SessionProviderStrip
-            history={
-              historyNotice
-                ? {
-                    status: historyNotice.status,
-                    message:
-                      historyNotice.status === "error"
-                        ? historyNotice.message
-                        : historyNotice.status === "ready"
-                          ? historyNotice.earlierError
-                          : undefined,
-                    canShowEarlier:
-                      historyNotice.status === "ready" &&
-                      (historyNotice.visible < historyNotice.items.length ||
-                        historyNotice.hasEarlier),
-                    loadingEarlier:
-                      historyNotice.status === "ready" &&
-                      historyNotice.loadingEarlier,
-                    onShowEarlier: history.showEarlier,
-                    onRetry: history.retry,
-                  }
-                : undefined
-            }
-          />
-        ) : null}
-        <div
-          ref={transcriptScope}
-          className="@container relative min-h-0 flex-1"
-        >
-          {visible && focused && !session.inboxAsk ? (
-            <LinkedWorkItemUpdateNotice
-              sessionId={session.id}
-              card={session.linkedWorkItemUpdateCard}
-              onAcknowledge={() => {
-                const updatedAt = session.linkedWorkItemUpdateCard?.updatedAt;
-                if (updatedAt != null) {
-                  markLinkedSessionUpdateSeen(session.id, updatedAt);
-                }
-              }}
-              onDismiss={() => onLinkedWorkItemUpdateCardDismiss?.(session.id)}
-              onOpenDiscussion={() => {
-                if (session.linkedWorkItem) {
-                  onOpenLinkedWorkItem?.(session.linkedWorkItem, session.id);
-                }
-              }}
-              onAddToChat={(text) => addSelectionToChat(text, "plain")}
-              onArchiveSession={
-                onArchiveSession
-                  ? () => onArchiveSession(session.id, true)
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          {visible && historyNotice ? (
+            <SessionProviderStrip
+              history={
+                historyNotice
+                  ? {
+                      status: historyNotice.status,
+                      message:
+                        historyNotice.status === "error"
+                          ? historyNotice.message
+                          : historyNotice.status === "ready"
+                            ? historyNotice.earlierError
+                            : undefined,
+                      canShowEarlier:
+                        historyNotice.status === "ready" &&
+                        (historyNotice.visible < historyNotice.items.length ||
+                          historyNotice.hasEarlier),
+                      loadingEarlier:
+                        historyNotice.status === "ready" &&
+                        historyNotice.loadingEarlier,
+                      onShowEarlier: history.showEarlier,
+                      onRetry: history.retry,
+                    }
                   : undefined
-              }
-              onDeleteSession={
-                onDeleteSession ? () => onDeleteSession(session.id) : undefined
               }
             />
           ) : null}
-          {remoteSessionLoading ? null : isEmpty ? (
-            session.inboxAsk ? (
-              <div className="scrollbar-none h-full min-h-0 overflow-y-auto">
-                <DiscussionEmpty message="Explore this item with your agent." />
-              </div>
-            ) : (
-              <EmptySession
-                cwd={session.cwd}
-                hasChatBackground={Boolean(
-                  projectBackground || globalBackgroundPath,
-                )}
-                composer={
-                  dockComposer ? undefined : (
-                    <div
-                      ref={composerDockMotion.centeredRef}
-                      data-session-composer
-                    >
-                      {composer}
-                    </div>
-                  )
+          <div
+            ref={transcriptScope}
+            className={`@container relative min-h-0 flex-1${
+              dockComposer && !agent ? " transcript-composer-fade" : ""
+            }`}
+          >
+            {visible && focused && !session.inboxAsk ? (
+              <LinkedWorkItemUpdateNotice
+                sessionId={session.id}
+                card={session.linkedWorkItemUpdateCard}
+                onAcknowledge={() => {
+                  const updatedAt = session.linkedWorkItemUpdateCard?.updatedAt;
+                  if (updatedAt != null) {
+                    markLinkedSessionUpdateSeen(session.id, updatedAt);
+                  }
+                }}
+                onDismiss={() =>
+                  onLinkedWorkItemUpdateCardDismiss?.(session.id)
+                }
+                onOpenDiscussion={() => {
+                  if (session.linkedWorkItem) {
+                    onOpenLinkedWorkItem?.(session.linkedWorkItem, session.id);
+                  }
+                }}
+                onAddToChat={(text) => addSelectionToChat(text, "plain")}
+                onArchiveSession={
+                  onArchiveSession
+                    ? () => onArchiveSession(session.id, true)
+                    : undefined
+                }
+                onDeleteSession={
+                  onDeleteSession
+                    ? () => onDeleteSession(session.id)
+                    : undefined
                 }
               />
-            )
-          ) : (
-            <>
-              <PooledTranscript
-                pool={transcriptPool}
-                sessionId={session.id}
-                onMouseDown={focusPane}
-              >
-                <AgentTranscript
-                  blocks={history.transcriptBlocks}
-                  busy={!!session.busy}
-                  visible={visible}
-                  cwd={workCwd}
-                  harness={session.harness}
-                  model={session.model}
-                  modelSettings={session.modelSettings}
-                  pendingQuestion={!!session.pendingQuestion}
-                  backgroundTasks={session.backgroundTasks}
-                  onApproval={session.worktreeRemoved ? undefined : approve}
-                  onReviewFix={onReviewFix ? fixReviewIssue : undefined}
-                  onAddToChat={addSelectionToChat}
-                  onSaveNote={notesEnabled ? saveNote : undefined}
-                  onAddToSessionManager={remote ? undefined : (text) => composeSessionTodo({ prompt: text, cwd: session.cwd, harness: session.harness, model: session.model, modelSettings: session.modelSettings, runtimeMode: session.runtimeMode, workspaceMode: "current", ...(session.worktreeCwd ? { worktreeCwd: session.worktreeCwd } : {}), reveal: false })}
-                  onSidechat={onSidechat ? askSidechat : undefined}
-                  onBranch={onBranch ? branchTurn : undefined}
-                  onSendDraft={
-                    draftBlock
-                      ? (block) =>
-                          onSubmit(
-                            session.id,
-                            block.text,
-                            block.attachments ?? [],
-                            {
-                              draftBlockId: block.id,
-                              ...(block.intent ? { intent: block.intent } : {}),
-                              ...(block.appRequestId
-                                ? { appRequestId: block.appRequestId }
-                                : {}),
-                            },
-                          )
-                      : undefined
-                  }
-                  onRemoveDraft={
-                    draftBlock
-                      ? (block) => onRemoveDraft(session.id, block.id)
-                      : undefined
-                  }
-                  onEditDraft={
-                    // Only a whole-draft session (nothing sent yet) can be edited
-                    // as a Session Manager draft; local sessions only.
-                    draftBlock && onEditDraft && !remote && editableSessionTodo(session)
-                      ? () => onEditDraft(session.id)
-                      : undefined
-                  }
-                  onSaveSelectionTask={saveSelectionTask}
-                  onSaveSelectionNote={
-                    notesEnabled ? saveSelectionNote : undefined
-                  }
-                  onOpenFile={onOpenFile}
-                  onOpenDiff={onOpenDiff}
-                  onOpenPlan={openPlan}
-                  onBuildPlan={session.worktreeRemoved ? undefined : buildPlan}
-                  planBuildTargets={!remote}
-                  onSecondOpinion={
-                    !session.inboxAsk &&
-                    !session.worktreeRemoved &&
-                    onSecondOpinion
-                      ? (target, turn) => {
-                          if (!turn.some(isHistoryBlock))
-                            onSecondOpinion(session.id, target, turn);
-                        }
-                      : undefined
-                  }
-                  onHandoff={
-                    !session.inboxAsk && !session.worktreeRemoved && onHandoff
-                      ? (target, turn) => {
-                          if (!turn.some(isHistoryBlock))
-                            onHandoff(session.id, target, turn);
-                        }
-                      : undefined
-                  }
-                  onJumpToBottomChange={setShowJumpToBottom}
-                  onJumpToBottomReady={onJumpToBottomReady}
-                  onRevealReady={onRevealReady}
-                  onNavigateReady={onNavigateReady}
-                  onScrollerChange={setTranscriptScroller}
-                  editingLastTurn={editingLastTurn}
-                  onEditLastTurn={
-                    editLastTurnSupported
-                      ? () => {
-                          onFocus(session.id);
-                          recallLastTurnRef.current?.();
-                        }
-                      : undefined
-                  }
-                  latestTurnAccessory={
-                    remote ||
-                    session.inboxAsk ||
-                    session.worktreeRemoved ||
-                    draftBlock ? undefined : (
-                      <SessionReview
-                        sessionId={session.id}
-                        cwd={workCwd}
-                        enabled={visible}
-                        busy={!!session.busy}
-                        undoLocked={
-                          reviewUndoLocked ||
-                          orchestrationRuns.some(
-                            (run) =>
-                              (run.status === "active" ||
-                                run.status === "paused") &&
-                              (run.leadId === session.id ||
-                                run.tasks.some(
-                                  (task) => task.sessionId === session.id,
-                                )),
-                          )
-                        }
-                        onOpenDiff={onOpenDiff}
-                      />
+            ) : null}
+            {remoteSessionLoading ? null : isEmpty ? (
+              agent ? (
+                <div className="scrollbar-none h-full min-h-0 overflow-y-auto">
+                  <MonoHeader agent={agent} greeting />
+                </div>
+              ) : session.inboxAsk ? (
+                <div className="scrollbar-none h-full min-h-0 overflow-y-auto">
+                  <DiscussionEmpty message="Explore this item with your agent." />
+                </div>
+              ) : (
+                <EmptySession
+                  cwd={session.cwd}
+                  hasChatBackground={Boolean(
+                    projectBackground || globalBackgroundPath,
+                  )}
+                  composer={
+                    dockComposer ? undefined : (
+                      <div
+                        ref={composerDockMotion.centeredRef}
+                        data-session-composer
+                      >
+                        {composer}
+                      </div>
                     )
                   }
                 />
-              </PooledTranscript>
-              {!session.inboxAsk ? (
-                <TranscriptFind
-                  blocks={session.blocks}
-                  visible={visible}
-                  focused={focused}
-                  onNavigate={navigateBlock}
-                  side={
-                    session.linkedWorkItemUpdateCard &&
-                    session.linkedWorkItemUpdateCard.status !== "loading"
-                      ? "left"
-                      : "right"
-                  }
+              )
+            ) : (
+              <>
+                <PooledTranscript
+                  pool={transcriptPool}
+                  sessionId={session.id}
+                  onMouseDown={focusPane}
+                >
+                  <AgentTranscript
+                    blocks={
+                      agent && !monoTranscript.viewingOlderPage
+                        ? monoPendingTranscriptBlocks(
+                            session,
+                            monoTranscript.blocks,
+                          )
+                        : agent
+                          ? monoTranscript.blocks
+                          : history.transcriptBlocks
+                    }
+                    historicalBlockIds={monoTranscript.historicalBlockIds}
+                    initialTurns={agent ? MONO_PAGE_TURNS : undefined}
+                    pageSize={agent ? MONO_PAGE_TURNS : undefined}
+                    hasEarlier={monoTranscript.hasEarlier}
+                    loadEarlierOnScroll={!!agent}
+                    onLoadEarlier={
+                      agent ? monoTranscript.loadEarlier : undefined
+                    }
+                    onReturnToLatest={
+                      monoTranscript.viewingOlderPage
+                        ? monoTranscript.latest
+                        : undefined
+                    }
+                    busy={!!session.busy && !monoTranscript.viewingOlderPage}
+                    visible={visible}
+                    cwd={workCwd}
+                    agentName={agent?.name}
+                    agentMascot={agent}
+                    bottomAligned={!!agent}
+                    inlineWork={!!agent}
+                    messageDeliveries={agent ? messageDeliveries : undefined}
+                    onRetryMessage={
+                      agent ? () => onResumeQueue(session.id) : undefined
+                    }
+                    onShowWork={
+                      agent && onShowMonoActivity
+                        ? (turnId, blocks) =>
+                            onShowMonoActivity(session.id, turnId, blocks)
+                        : undefined
+                    }
+                    activeWorkTurnId={monoActivityTurnId}
+                    // A Mono's turn keeps copy, save as note and the time.
+                    daySeparators={!!agent}
+                    hideTurnMetrics={!!agent}
+                    harness={session.harness}
+                    model={session.model}
+                    modelSettings={session.modelSettings}
+                    pendingQuestion={!!session.pendingQuestion}
+                    backgroundTasks={session.backgroundTasks}
+                    onApproval={session.worktreeRemoved ? undefined : approve}
+                    onReviewFix={onReviewFix ? fixReviewIssue : undefined}
+                    onAddToSessionManager={
+                      remote
+                        ? undefined
+                        : (text) =>
+                            composeSessionTodo({
+                              prompt: text,
+                              cwd: session.cwd,
+                              harness: session.harness,
+                              model: session.model,
+                              modelSettings: session.modelSettings,
+                              runtimeMode: session.runtimeMode,
+                              workspaceMode: "current",
+                              ...(session.worktreeCwd
+                                ? { worktreeCwd: session.worktreeCwd }
+                                : {}),
+                              reveal: false,
+                            })
+                    }
+                    onSidechat={onSidechat ? askSidechat : undefined}
+                    onBranch={onBranch ? branchTurn : undefined}
+                    onSaveSelectionTask={saveSelectionTask}
+                    onAddToChat={addSelectionToChat}
+                    onSaveNote={notesEnabled ? saveNote : undefined}
+                    onSendDraft={
+                      draftBlock
+                        ? (block) =>
+                            onSubmit(
+                              session.id,
+                              block.text,
+                              block.attachments ?? [],
+                              {
+                                draftBlockId: block.id,
+                                ...(block.intent
+                                  ? { intent: block.intent }
+                                  : {}),
+                                ...(block.appRequestId
+                                  ? { appRequestId: block.appRequestId }
+                                  : {}),
+                              },
+                            )
+                        : undefined
+                    }
+                    onRemoveDraft={
+                      draftBlock
+                        ? (block) => onRemoveDraft(session.id, block.id)
+                        : undefined
+                    }
+                    onEditDraft={
+                      draftBlock &&
+                      onEditDraft &&
+                      !remote &&
+                      editableSessionTodo(session)
+                        ? () => onEditDraft(session.id)
+                        : undefined
+                    }
+                    onSaveSelectionNote={
+                      notesEnabled ? saveSelectionNote : undefined
+                    }
+                    onOpenFile={onOpenFile}
+                    onOpenDiff={onOpenDiff}
+                    onOpenPlan={openPlan}
+                    onBuildPlan={
+                      session.worktreeRemoved ? undefined : buildPlan
+                    }
+                    planBuildTargets={!remote}
+                    onSecondOpinion={
+                      !agent &&
+                      !session.inboxAsk &&
+                      !session.worktreeRemoved &&
+                      onSecondOpinion
+                        ? (target, turn) => {
+                            if (!turn.some(isHistoryBlock))
+                              onSecondOpinion(session.id, target, turn);
+                          }
+                        : undefined
+                    }
+                    onHandoff={
+                      !agent &&
+                      !session.inboxAsk &&
+                      !session.worktreeRemoved &&
+                      onHandoff
+                        ? (target, turn) => {
+                            if (!turn.some(isHistoryBlock))
+                              onHandoff(session.id, target, turn);
+                          }
+                        : undefined
+                    }
+                    onJumpToBottomChange={jumpVisibility.setVisible}
+                    onJumpToBottomReady={onJumpToBottomReady}
+                    onRevealReady={onRevealReady}
+                    onNavigateReady={onNavigateReady}
+                    onScrollerChange={setTranscriptScroller}
+                    editingLastTurn={editingLastTurn}
+                    onEditLastTurn={
+                      editLastTurnSupported && !monoTranscript.viewingOlderPage
+                        ? () => {
+                            onFocus(session.id);
+                            recallLastTurnRef.current?.();
+                          }
+                        : undefined
+                    }
+                    latestTurnAccessory={
+                      remote ||
+                      session.inboxAsk ||
+                      session.worktreeRemoved ||
+                      monoTranscript.viewingOlderPage ||
+                      draftBlock ? undefined : (
+                        <SessionReview
+                          sessionId={session.id}
+                          cwd={workCwd}
+                          enabled={visible}
+                          busy={!!session.busy}
+                          undoLocked={
+                            reviewUndoLocked ||
+                            orchestrationRuns.some(
+                              (run) =>
+                                (run.status === "active" ||
+                                  run.status === "paused") &&
+                                (run.leadId === session.id ||
+                                  run.tasks.some(
+                                    (task) => task.sessionId === session.id,
+                                  )),
+                            )
+                          }
+                          onOpenDiff={onOpenDiff}
+                        />
+                      )
+                    }
+                  />
+                </PooledTranscript>
+                {!session.inboxAsk ? (
+                  <TranscriptFind
+                    blocks={session.blocks}
+                    visible={visible}
+                    focused={focused}
+                    onNavigate={navigateBlock}
+                    onSearch={monoTranscript.search}
+                    side={
+                      session.linkedWorkItemUpdateCard &&
+                      session.linkedWorkItemUpdateCard.status !== "loading"
+                        ? "left"
+                        : "right"
+                    }
+                  />
+                ) : null}
+                {/* One mark per message would crowd a Mono's endless chat. */}
+                {agent ? null : (
+                  <PromptOutline
+                    blocks={session.blocks}
+                    scope={transcriptScope}
+                    scroller={transcriptScroller}
+                    visible={visible}
+                    revealBlock={revealBlock}
+                  />
+                )}
+                <TranscriptJumpToBottom
+                  visibility={jumpVisibility}
+                  onJump={() => {
+                    if (monoTranscript.viewingOlderPage) {
+                      monoTranscript.latest();
+                      requestAnimationFrame(() => jumpToBottomRef.current?.());
+                    } else jumpToBottomRef.current?.();
+                  }}
                 />
-              ) : null}
-              <PromptOutline
-                blocks={session.blocks}
-                scope={transcriptScope}
-                scroller={transcriptScroller}
-                visible={visible}
-                revealBlock={revealBlock}
-              />
-              {showJumpToBottom ? (
-                <div className="pointer-events-none absolute inset-x-0 bottom-2 z-30 flex justify-center">
-                  <button
-                    type="button"
-                    title="Jump to latest"
-                    aria-label="Jump to latest"
-                    data-jump-to-bottom
-                    onClick={() => jumpToBottomRef.current?.()}
-                    className="pointer-events-auto grid size-6 place-items-center rounded-md border border-content/15 bg-content/10 text-content shadow-md hover:bg-content/5 backdrop-blur-md"
-                  >
-                    <ChevronDown className="size-4" strokeWidth={2} />
-                  </button>
-                </div>
-              ) : null}
-            </>
-          )}
-        </div>
-        {dockComposer ? (
-          <div
-            ref={composerDockMotion.dockedRef}
-            data-session-composer
-            inert={btw.open}
-            className="mx-auto w-full max-w-4xl shrink-0"
-          >
-            {composer}
+              </>
+            )}
           </div>
-        ) : null}
-        <BtwSheet
-          btw={btw}
-          cwd={workCwd}
-          visible={visible}
-          origin={() =>
-            composerDockMotion.dockedRef.current?.querySelector<HTMLElement>(
-              "[data-composer-box]",
-            ) ?? null
-          }
-          onSaveNote={notesEnabled ? saveNote : undefined}
-          onOpenFile={onOpenFile}
-          onOpenDiff={onOpenDiff}
-        />
+          {dockComposer ? (
+            <div
+              ref={composerDockMotion.dockedRef}
+              data-session-composer
+              inert={btw.open}
+              className="mx-auto w-full max-w-4xl shrink-0"
+            >
+              {agent ? (
+                <>
+                  <MessageQueue
+                    messages={(session.queuedMessages ?? []).filter(
+                      (message) => !!message.monoSessionCompletion,
+                    )}
+                    status={session.queueStatus}
+                    sendingId={session.sendingQueuedMessageId}
+                    onDelete={(messageId) =>
+                      onDeleteQueuedMessage(session.id, messageId)
+                    }
+                    onResume={() => onResumeQueue(session.id)}
+                    variant="messages"
+                  />
+                  {session.pendingQuestion ? (
+                    <QuestionForm
+                      prompt={session.pendingQuestion}
+                      onReply={replyQuestion}
+                      onInteraction={(id) =>
+                        onQuestionInteraction?.(session.id, id)
+                      }
+                    />
+                  ) : null}
+                  {session.usageLimit ? (
+                    <MonoUsageLimitNotice
+                      session={session}
+                      onModelChange={(harness, model) =>
+                        onModelChange(session.id, harness, model)
+                      }
+                      onAccountChange={
+                        onUsageLimitAccountChange
+                          ? (accountId) =>
+                              onUsageLimitAccountChange(session.id, accountId)
+                          : undefined
+                      }
+                      onResume={() => onUsageLimitResume(session.id)}
+                      onResumeAtReset={(enabled) =>
+                        onUsageLimitResumeAtReset(session.id, enabled)
+                      }
+                    />
+                  ) : null}
+                  <MonoComposer
+                    key={session.id}
+                    sessionId={session.id}
+                    name={agent.name}
+                    enabled={visible}
+                    quoteRequest={quoteRequest}
+                    onQuoteRequestConsumed={acknowledgeQuote}
+                    onDraftChange={(text) => {
+                      draftRef.current = text;
+                    }}
+                    focusToken={
+                      focused && composerFocused
+                        ? composerFocusToken
+                        : undefined
+                    }
+                    onFocus={() => onFocus(session.id)}
+                    onSubmit={(text, attachments) =>
+                      onSubmit(session.id, text, attachments)
+                    }
+                  />
+                </>
+              ) : (
+                composer
+              )}
+            </div>
+          ) : null}
+          <BtwSheet
+            btw={btw}
+            cwd={workCwd}
+            visible={visible}
+            origin={() =>
+              composerDockMotion.dockedRef.current?.querySelector<HTMLElement>(
+                "[data-composer-box]",
+              ) ?? null
+            }
+            onSaveNote={notesEnabled ? saveNote : undefined}
+            onOpenFile={onOpenFile}
+            onOpenDiff={onOpenDiff}
+          />
+        </div>
       </div>
     </div>
   );

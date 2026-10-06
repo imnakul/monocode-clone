@@ -5,18 +5,12 @@ import {
   AiIdea,
   Check,
   CircleDashed,
-  CornerDownRight,
   CursorMagicSelection,
   FilePlus,
-  ListEnd,
-  Pause,
-  Pencil,
-  Play,
   Plus,
   Share,
   Square,
   StickyNote,
-  Trash2,
   X,
 } from "../../../shared/ui/icons";
 import {
@@ -31,10 +25,8 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   attachmentsFromFiles,
-  attachmentsFromPaths,
   filesFromClipboard,
   mergeAttachments,
   pickAttachments,
@@ -46,10 +38,7 @@ import {
   messageFilesFromClipboard,
   nativeClipboardAttachments,
 } from "../../../platform/tauri/clipboard";
-import {
-  EXPLORER_FILE_POINTER_DRAG_EVENT,
-  type ExplorerFilePointerDragDetail,
-} from "../../../shared/lib/drag";
+import { useFileDrop } from "../hooks/useFileDrop";
 import type { ContextUsage } from "../model/contextUsage";
 import {
   loadProjectFiles,
@@ -135,6 +124,8 @@ import { HandoffMiniCard } from "./HandoffMiniCard";
 import { ModelControlPills, ModelPicker } from "./ModelPicker";
 import { QuestionForm } from "./QuestionForm";
 import { McpForm } from "./McpForm";
+import { MessageQueue } from "./MessageQueue";
+export { MessageQueue } from "./MessageQueue";
 import { SkillPicker } from "../../skills/ui/SkillPicker";
 import { SavedPromptMenu } from "../../prompts/ui/SavedPromptMenu";
 import { useSavedPromptMenu } from "../../prompts/ui/useSavedPromptMenu";
@@ -375,230 +366,6 @@ function ToolButton({
   );
 }
 
-export function MessageQueue({
-  messages,
-  status,
-  holdReason,
-  onDelete,
-  onEdit,
-  onEditingChange,
-  onSteer,
-  onResume,
-}: {
-  messages: QueuedMessage[];
-  status?: MessageQueueStatus;
-  holdReason?: string;
-  onDelete?: (messageId: string) => void;
-  onEdit?: (messageId: string, text: string) => void;
-  onEditingChange?: (messageId?: string) => void;
-  onSteer?: (messageId: string) => void;
-  onResume?: () => void;
-}): ReactNode {
-  const [editingId, setEditingId] = useState<string>();
-  const [editDraft, setEditDraft] = useState("");
-  const onEditingChangeRef = useRef(onEditingChange);
-  onEditingChangeRef.current = onEditingChange;
-  const editingIdRef = useRef(editingId);
-  editingIdRef.current = editingId;
-  useEffect(() => {
-    return () => {
-      if (editingIdRef.current) onEditingChangeRef.current?.(undefined);
-    };
-  }, []);
-  useEffect(() => {
-    if (status === "steering" && editingIdRef.current) {
-      setEditingId(undefined);
-      setEditDraft("");
-      onEditingChangeRef.current?.(undefined);
-    }
-  }, [status]);
-  if (messages.length === 0) return null;
-  const paused = status === "paused";
-  const held = status === "held";
-  const steering = status === "steering";
-
-  const startEdit = (message: QueuedMessage): void => {
-    if (steering) return;
-    setEditingId(message.id);
-    setEditDraft(message.text);
-    onEditingChange?.(message.id);
-  };
-  const cancelEdit = (): void => {
-    if (steering) return;
-    setEditingId(undefined);
-    setEditDraft("");
-    onEditingChange?.();
-  };
-  const saveEdit = (message: QueuedMessage): void => {
-    if (steering) return;
-    if (!editDraft.trim() && message.attachments.length === 0) return;
-    onEdit?.(message.id, editDraft);
-    setEditingId(undefined);
-    setEditDraft("");
-    onEditingChange?.();
-  };
-
-  return (
-    <div className="px-2 text-content/55" data-message-queue>
-      <div
-        className="relative z-0 rounded-t-[10px] border border-b-0 border-content/10 bg-content/3 px-2 py-1"
-        data-message-queue-card
-      >
-        {steering ? (
-          <div
-            role="status"
-            aria-live="polite"
-            className="flex h-7 items-center gap-2 border-b border-content/10 text-[12px]"
-          >
-            <Pause className="size-3.5" />
-            <span className="min-w-0 flex-1 truncate">
-              Stopping the current turn before steering
-            </span>
-          </div>
-        ) : null}
-        {held ? (
-          <div
-            role="status"
-            aria-live="polite"
-            className="flex h-7 items-center gap-2 border-b border-content/10 text-[12px]"
-          >
-            <Pause className="size-3.5" />
-            <span
-              title={holdReason || "Queue held because the last turn failed"}
-              className="min-w-0 flex-1 truncate"
-            >
-              {holdReason || "Queue held because the last turn failed"}
-            </span>
-            <button
-              type="button"
-              onClick={onResume}
-              aria-label="Resume held message queue"
-              className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content"
-            >
-              <Play className="size-3.5" />
-              Resume
-            </button>
-          </div>
-        ) : null}
-        {paused ? (
-          <div className="flex h-7 items-center gap-2 border-b border-stroke text-[12px]">
-            <Pause className="size-3.5" />
-            <span className="min-w-0 flex-1 truncate">
-              Queue paused because you interrupted
-            </span>
-            <button
-              aria-label="Resume paused message queue"
-              type="button"
-              onClick={onResume}
-              className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content"
-            >
-              <Play className="size-3.5" />
-              Resume
-            </button>
-          </div>
-        ) : null}
-        {messages.map((message, index) => {
-          const editing = !steering && editingId === message.id;
-          const label =
-            message.text.trim() ||
-            `${message.attachments.length} attachment${message.attachments.length === 1 ? "" : "s"}`;
-          return (
-            <div
-              key={message.id}
-              className={`flex min-h-7 items-center gap-2 text-[12px] ${
-                index > 0 ? "border-t border-stroke" : ""
-              }`}
-            >
-              <ListEnd className="size-3.5 shrink-0" />
-              {editing ? (
-                <>
-                  <textarea
-                    autoFocus
-                    aria-label="Edit queued message"
-                    value={editDraft}
-                    rows={1}
-                    onChange={(event) => setEditDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (isImeComposition(event.nativeEvent)) return;
-                      if (event.key === "Escape") {
-                        event.preventDefault();
-                        cancelEdit();
-                      } else if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        saveEdit(message);
-                      }
-                    }}
-                    className="min-h-6 min-w-0 flex-1 resize-none rounded-md border border-content/15 bg-content/5 px-1.5 py-0.5 text-[12px] text-content outline-none focus:border-content/30"
-                  />
-                  <button
-                    type="button"
-                    title="Save queued message"
-                    aria-label="Save queued message"
-                    disabled={
-                      steering ||
-                      (!editDraft.trim() && message.attachments.length === 0)
-                    }
-                    onClick={() => !steering && saveEdit(message)}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content disabled:opacity-30 disabled:pointer-events-none"
-                  >
-                    <Check className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Cancel queued message edit"
-                    aria-label="Cancel queued message edit"
-                    disabled={steering}
-                    onClick={() => !steering && cancelEdit()}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content disabled:opacity-30 disabled:pointer-events-none"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="min-w-0 flex-1 truncate text-content/80">
-                    {label}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label={`Steer with queued message: ${label}`}
-                    disabled={steering}
-                    onClick={() => !steering && onSteer?.(message.id)}
-                    className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 hover:bg-content/10 hover:text-content disabled:pointer-events-none disabled:opacity-40"
-                  >
-                    <CornerDownRight className="size-3.5" />
-                    Steer
-                  </button>
-                  <button
-                    type="button"
-                    title="Edit queued message"
-                    aria-label="Edit queued message"
-                    disabled={steering}
-                    onClick={() => !steering && startEdit(message)}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content disabled:pointer-events-none disabled:opacity-40"
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Remove queued message"
-                    aria-label="Remove queued message"
-                    disabled={steering}
-                    onClick={() => !steering && onDelete?.(message.id)}
-                    className="grid size-6 shrink-0 place-items-center rounded-md hover:bg-content/10 hover:text-content disabled:pointer-events-none disabled:opacity-40"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 export function Composer({
   enabled = true,
   focused,
@@ -705,15 +472,20 @@ export function Composer({
   const consumedQuoteId = useRef<number | null>(null);
   const draftRevisionRef = useRef(0);
   const draftResetTokenRef = useRef(draftResetToken);
-  /** Bumped when the draft is cleared, so a late paste cannot land on the next one. */
+  /** Bumped when the draft is cleared, so a late file read cannot land on the next one. */
   const pasteGenerationRef = useRef(0);
-  /** Native and file pastes still reading when Send is pressed. */
+  /** Pasted and dropped files still reading when Send is pressed. */
   const pasteFlightRef = useRef<Promise<void> | null>(null);
   const submitLockRef = useRef(false);
   const positionedInitialDraft = useRef(false);
   const slashRef = useRef<SlashToken | null>(null);
   const mentionRef = useRef<MentionToken | null>(null);
   const [draft, setDraft] = useState(initialDraft ?? "");
+  // React rewrites a textarea's text node whenever defaultValue changes, and
+  // WebKit then resets the field, committing any IME composition. Parents
+  // re-render with the latest draft (remote sessions on every poll), so keep
+  // the mount-time value; the effect below applies later changes.
+  const [mountDraft] = useState(initialDraft);
   const { branches: draftBranches } = useProjectBranchesState(
     executionCwd,
     draftWorkspace && enabled && !busy,
@@ -747,7 +519,6 @@ export function Composer({
   );
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [pasteError, setPasteError] = useState<string | null>(null);
-  const [fileDrag, setFileDrag] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [planSelected, setPlanSelected] = useState(false);
   const [operatorSelected, setOperatorSelected] = useState(false);
@@ -1000,6 +771,60 @@ export function Composer({
     },
     [harness, syncHasValue],
   );
+  // Native listener registration crosses several IPC hops. Keep changing
+  // composer callbacks and capabilities out of its subscription dependencies.
+  const fileDropStateRef = useRef({
+    attachmentsSupported,
+    remote,
+    addAttachments,
+  });
+  fileDropStateRef.current = { attachmentsSupported, remote, addAttachments };
+
+  const rememberAttachmentRead = useCallback((work: Promise<void>) => {
+    const flight = work.then(
+      () => undefined,
+      () => undefined,
+    );
+    const previous = pasteFlightRef.current;
+    const joined = previous ? previous.then(() => flight) : flight;
+    pasteFlightRef.current = joined;
+    void joined.finally(() => {
+      if (pasteFlightRef.current === joined) pasteFlightRef.current = null;
+    });
+  }, []);
+
+  const readDroppedAttachments = useCallback(
+    (read: () => Promise<Attachment[]>) => {
+      const generation = pasteGenerationRef.current;
+      setPasteError(null);
+      rememberAttachmentRead(
+        read()
+          .then((incoming) => {
+            if (
+              pasteGenerationRef.current !== generation ||
+              !fileDropStateRef.current.attachmentsSupported
+            ) {
+              incoming.forEach(revokeAttachment);
+              return;
+            }
+            if (incoming.length === 0) {
+              setPasteError(
+                "Nothing to attach from that drop — the file may have been moved, renamed, or deleted.",
+              );
+              return;
+            }
+            fileDropStateRef.current.addAttachments(incoming);
+          })
+          .catch((reason: unknown) => {
+            if (pasteGenerationRef.current !== generation) return;
+            setPasteError(
+              reason instanceof Error ? reason.message : String(reason),
+            );
+          }),
+      );
+    },
+    [rememberAttachmentRead],
+  );
 
   const removeAttachment = useCallback(
     (id: string) => {
@@ -1023,6 +848,7 @@ export function Composer({
     return () => {
       queueMicrotask(() => {
         if (attachmentLifecycleRef.current !== lifecycle) return;
+        pasteGenerationRef.current += 1;
         for (const file of attachmentsRef.current) {
           if (!borrowedAttachmentIdsRef.current.delete(file.id)) {
             revokeAttachment(file);
@@ -1411,130 +1237,13 @@ export function Composer({
     ref.current?.focus();
   }, [disabled, focused, question, busy, focusToken]);
 
-  useEffect(() => {
-    if (!enabled || disabled) {
-      setFileDrag(false);
-      return;
-    }
-    const dropRoot = () =>
-      boxRef.current?.closest("[data-session-drop]") as HTMLElement | null;
-    let nativeDropAt = 0;
-
-    const toClientPoint = (x: number, y: number) => {
-      const scale = window.devicePixelRatio || 1;
-      // Tauri types this as PhysicalPosition, but macOS wry reports logical
-      // points. Only scale down when the point sits outside the CSS viewport.
-      if (scale !== 1 && (x > window.innerWidth || y > window.innerHeight)) {
-        return { x: x / scale, y: y / scale };
-      }
-      return { x, y };
-    };
-
-    const overTarget = (x: number, y: number) => {
-      const root = dropRoot();
-      if (!root) return false;
-      const point = toClientPoint(x, y);
-      const rect = root.getBoundingClientRect();
-      return (
-        point.x >= rect.left &&
-        point.x <= rect.right &&
-        point.y >= rect.top &&
-        point.y <= rect.bottom
-      );
-    };
-
-    const onDragOver = (event: DragEvent) => {
-      const data = event.dataTransfer;
-      if (!hasFiles(data)) return;
-      event.preventDefault();
-      if (!attachmentsSupported) return;
-      data.dropEffect = "copy";
-      setFileDrag(true);
-    };
-    const onDragLeave = (event: DragEvent) => {
-      const root = dropRoot();
-      if (!root) return;
-      const next = event.relatedTarget as Node | null;
-      if (next && root.contains(next)) return;
-      setFileDrag(false);
-    };
-    const onDrop = (event: DragEvent) => {
-      const data = event.dataTransfer;
-      if (!hasFiles(data)) return;
-      event.preventDefault();
-      setFileDrag(false);
-      if (!attachmentsSupported) return;
-      if (Date.now() - nativeDropAt < 250) return;
-      const files = [...data.files];
-      if (files.length === 0) return;
-      void attachmentsFromFiles(files).then(addAttachments);
-    };
-
-    const onExplorerFilePointerDrag = (event: Event) => {
-      if (remote) return;
-      const detail = (event as CustomEvent<ExplorerFilePointerDragDetail>)
-        .detail;
-      if (!detail || detail.type === "end") {
-        setFileDrag(false);
-        return;
-      }
-      const over = overTarget(detail.x, detail.y);
-      if (detail.type === "move") {
-        setFileDrag(over && attachmentsSupported);
-        return;
-      }
-      setFileDrag(false);
-      if (!over || !attachmentsSupported) return;
-      void attachmentsFromPaths([detail.path]).then(addAttachments);
-    };
-
-    const root = dropRoot();
-    root?.addEventListener("dragover", onDragOver);
-    root?.addEventListener("dragleave", onDragLeave);
-    root?.addEventListener("drop", onDrop);
-    window.addEventListener(
-      EXPLORER_FILE_POINTER_DRAG_EVENT,
-      onExplorerFilePointerDrag,
-    );
-
-    let cancelled = false;
-    let unlisten: (() => void) | undefined;
-    void getCurrentWebview()
-      .onDragDropEvent((event) => {
-        if (event.payload.type === "leave") {
-          setFileDrag(false);
-          return;
-        }
-        const { x, y } = event.payload.position;
-        const over = overTarget(x, y);
-        if (event.payload.type === "enter" || event.payload.type === "over") {
-          setFileDrag(over && attachmentsSupported);
-          return;
-        }
-        if (event.payload.type !== "drop") return;
-        setFileDrag(false);
-        if (!over || !attachmentsSupported) return;
-        nativeDropAt = Date.now();
-        void attachmentsFromPaths(event.payload.paths).then(addAttachments);
-      })
-      .then((fn) => {
-        if (cancelled) fn();
-        else unlisten = fn;
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-      root?.removeEventListener("dragover", onDragOver);
-      root?.removeEventListener("dragleave", onDragLeave);
-      root?.removeEventListener("drop", onDrop);
-      window.removeEventListener(
-        EXPLORER_FILE_POINTER_DRAG_EVENT,
-        onExplorerFilePointerDrag,
-      );
-      unlisten?.();
-    };
-  }, [addAttachments, attachmentsSupported, enabled, remote]);
+  const fileDrag = useFileDrop({
+    anchor: boxRef,
+    enabled: enabled && !disabled,
+    state: fileDropStateRef,
+    read: readDroppedAttachments,
+    onError: setPasteError,
+  });
   const restoreDraft = useCallback(
     (
       text: string,
@@ -1545,8 +1254,7 @@ export function Composer({
       onDraftChange?.(text);
       if (ref.current) {
         ref.current.value = text;
-        ref.current.style.height = "auto";
-        ref.current.style.height = `${Math.min(ref.current.scrollHeight, 240)}px`;
+        resizeComposer(ref.current);
       }
 
       const nextIds = new Set(nextAttachments.map((file) => file.id));
@@ -1667,18 +1375,6 @@ export function Composer({
     [actionContext],
   );
 
-  const rememberPaste = (work: Promise<void>) => {
-    const flight = work.then(
-      () => undefined,
-      () => undefined,
-    );
-    const previous = pasteFlightRef.current;
-    const joined = previous ? previous.then(() => flight) : flight;
-    pasteFlightRef.current = joined;
-    void joined.finally(() => {
-      if (pasteFlightRef.current === joined) pasteFlightRef.current = null;
-    });
-  };
   const submit = (
     value: string,
     options?: { followUpBehavior?: FollowUpBehavior },
@@ -2162,7 +1858,7 @@ export function Composer({
       const text = e.clipboardData.getData("text/plain");
       if (captured) insertRestoredText(captured, text);
       if (!attachmentsSupported) return;
-      rememberPaste(
+      rememberAttachmentRead(
         attachmentsFromFiles(messageFiles).then((pasted) => {
           if (pasteGenerationRef.current !== generation) {
             pasted.forEach(revokeAttachment);
@@ -2191,7 +1887,7 @@ export function Composer({
       const captured = isFileReferenceText(text)
         ? captureDraft(e.currentTarget)
         : null;
-      rememberPaste(
+      rememberAttachmentRead(
         nativeClipboardAttachments(text)
           .then(({ files: pasted, warning }) => {
             if (pasteGenerationRef.current !== generation) {
@@ -2218,7 +1914,7 @@ export function Composer({
     e.preventDefault();
     if (!attachmentsSupported) return;
     const generation = pasteGenerationRef.current;
-    rememberPaste(
+    rememberAttachmentRead(
       attachmentsFromFiles(files).then((pasted) => {
         if (pasteGenerationRef.current !== generation) {
           pasted.forEach(revokeAttachment);
@@ -2603,7 +2299,7 @@ export function Composer({
               style={{ textIndent: modeIndent }}
               rows={1}
               spellCheck={false}
-              defaultValue={initialDraft}
+              defaultValue={mountDraft}
               placeholder={
                 worktreeRemoved
                   ? "Select a branch or worktree to continue…"
@@ -3184,12 +2880,5 @@ export function ComposerAction({
     >
       <ArrowUp className="size-3.5" strokeWidth={2.25} />
     </button>
-  );
-}
-
-function hasFiles(data: DataTransfer | null): data is DataTransfer {
-  if (!data) return false;
-  return [...data.types].some(
-    (type) => type === "Files" || type === "application/x-moz-file",
   );
 }

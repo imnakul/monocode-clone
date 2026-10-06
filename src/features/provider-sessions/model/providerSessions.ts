@@ -40,14 +40,29 @@ export function listProviderConversations(
     includeArchived?: boolean;
     limit?: number;
     offset?: number;
+    query?: string;
+    projectCwd?: string;
   } = {},
 ): Promise<ProviderConversationPage> {
-  return invoke("provider_sessions_list", {
-    provider,
-    accountId: options.accountId ?? "default",
+  const request = {
     includeArchived: options.includeArchived ?? false,
     limit: options.limit ?? 10,
     offset: options.offset ?? 0,
+  };
+  if (options.query !== undefined || options.projectCwd !== undefined)
+    return invoke("provider_sessions_find", {
+      provider,
+      accountId: options.accountId ?? "default",
+      request: {
+        ...request,
+        query: options.query ?? "",
+        projectCwd: options.projectCwd ?? "",
+      },
+    });
+  return invoke("provider_sessions_list", {
+    provider,
+    accountId: options.accountId ?? "default",
+    ...request,
   });
 }
 

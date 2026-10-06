@@ -244,7 +244,18 @@ fn scan_codex_metadata(
                 &db,
                 OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
             )?;
-            let mut query = conn.prepare("SELECT id, title, cwd, updated_at FROM threads")?;
+            let has_millis = conn
+                .prepare("PRAGMA table_info(threads)")?
+                .query_map([], |r| r.get::<_, String>(1))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+                .iter()
+                .any(|name| name == "updated_at_ms");
+            let sql = if has_millis {
+                "SELECT id, title, cwd, COALESCE(updated_at_ms / 1000, updated_at) FROM threads"
+            } else {
+                "SELECT id, title, cwd, updated_at FROM threads"
+            };
+            let mut query = conn.prepare(sql)?;
             let found = query.query_map([], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
@@ -445,6 +456,37 @@ fn list_at(
     page_with_state(conn, rows, diagnostics, include_archived, limit, offset)
 }
 
+/// Filter the full discovery result before pagination; older matches stay findable.
+fn filter_conversations(
+    rows: BTreeMap<String, ProviderConversation>,
+    query: Option<&str>,
+    project_cwd: Option<&str>,
+) -> BTreeMap<String, ProviderConversation> {
+    let query = query.unwrap_or_default().trim().to_lowercase();
+    let project = project_cwd
+        .filter(|cwd| !cwd.trim().is_empty())
+        .map(cwd_key);
+    rows.into_iter()
+        .filter(|(_, row)| {
+            project.as_ref().is_none_or(|cwd| *cwd == cwd_key(&row.cwd))
+                && (query.is_empty()
+                    || [&row.title, &row.cwd, &row.native_id]
+                        .iter()
+                        .any(|text| text.to_lowercase().contains(&query)))
+        })
+        .collect()
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationFindRequest {
+    pub include_archived: bool,
+    pub limit: u32,
+    pub offset: usize,
+    pub query: Option<String>,
+    pub project_cwd: Option<String>,
+}
+
 #[tauri::command(async)]
 pub fn provider_sessions_list(
     app: AppHandle,
@@ -455,12 +497,47 @@ pub fn provider_sessions_list(
     limit: u32,
     offset: usize,
 ) -> Result<ConversationPage, String> {
+    provider_sessions_find(
+        app,
+        store,
+        provider,
+        account_id,
+        ConversationFindRequest {
+            include_archived,
+            limit,
+            offset,
+            query: None,
+            project_cwd: None,
+        },
+    )
+}
+
+#[tauri::command(async)]
+pub fn provider_sessions_find(
+    app: AppHandle,
+    store: State<'_, SessionStore>,
+    provider: Provider,
+    account_id: Option<String>,
+    request: ConversationFindRequest,
+) -> Result<ConversationPage, String> {
     let account = account_id.as_deref().unwrap_or("default");
     let root = root_for(&app, &provider, account)?;
-    // Slow provider filesystem scans must not block unrelated MonoCode storage writes.
+    // Slow provider scans must not block unrelated MonoCode storage writes.
     let (rows, diagnostics) = discover_at(provider, &root, account);
+    let rows = filter_conversations(
+        rows,
+        request.query.as_deref(),
+        request.project_cwd.as_deref(),
+    );
     let conn = store.lock_conn()?;
-    page_with_state(&conn, rows, diagnostics, include_archived, limit, offset)
+    page_with_state(
+        &conn,
+        rows,
+        diagnostics,
+        request.include_archived,
+        request.limit,
+        request.offset,
+    )
 }
 
 fn validate_native_id(id: &str) -> Result<(), String> {

@@ -98,6 +98,7 @@ import {
   useBoardCounts,
 } from "../../features/session-board/useBoardCounts";
 import { BoardCountPills } from "../../features/session-board/ui/BoardCountPills";
+import { MonoRailSection, type MonoRailProps } from "./MonoRailSection";
 
 type Props = {
   visible?: boolean;
@@ -145,6 +146,8 @@ type Props = {
   selectedProvider?: NativeProvider | null;
   onSelectProvider?: (provider: NativeProvider) => void;
   onAddSession?: () => void;
+  /** The Monos section above the projects; absent while Monos are off. */
+  monos?: MonoRailProps;
 };
 
 /** Projects / Chat lens switcher. Hari enables when its surface lands.
@@ -195,6 +198,7 @@ export function ProjectRail({
   selectedProvider = null,
   onSelectProvider,
   onAddSession,
+  monos,
 }: Props) {
   const resize = useDragResize({
     min: PROJECT_RAIL_WIDTH_MIN,
@@ -358,6 +362,13 @@ export function ProjectRail({
     saveProjectRailOrder(next);
   };
 
+  // Another view in the main area means no project row is the current one.
+  const otherViewActive =
+    searchActive ||
+    inboxActive ||
+    notesActive || tasksActive || kanbanActive || selectedProvider !== null ||
+    automationsActive ||
+    !!monos?.activeId;
   const pinnedIds = sections.pinned.map((item) => item.path);
   const projectIds = groupedProjectSections.ungrouped.map((item) => item.path);
   const pinnedSortable = useAnimatedReorder(pinnedIds, onReorderPinned, "y");
@@ -450,6 +461,13 @@ export function ProjectRail({
             }}
             className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-none pb-2"
           >
+            {monos ? (
+              <MonoRailSection
+                {...monos}
+                introAvailable={visible && !!monos.introAvailable}
+              />
+            ) : null}
+
             {sections.pinned.length > 0 ? (
               <ProjectSection
                 label="Pinned"
@@ -460,13 +478,7 @@ export function ProjectRail({
                 statsEnabled={visible}
                 sortable={pinnedSortable}
                 pinned
-                searchActive={
-                  searchActive ||
-                  selectedProvider !== null ||
-                  inboxActive ||
-                  notesActive || tasksActive || kanbanActive ||
-                  automationsActive
-                }
+                searchActive={otherViewActive}
                 onSelect={onSelectProject}
                 onTogglePin={toggleProjectPin}
                 onContextMenu={onProjectContextMenu}
@@ -495,13 +507,7 @@ export function ProjectRail({
                       cwd={cwd}
                       busy={busy}
                       statsEnabled={visible}
-                      searchActive={
-                        searchActive ||
-                        selectedProvider !== null ||
-                        inboxActive ||
-                        notesActive || tasksActive || kanbanActive ||
-                        automationsActive
-                      }
+                      searchActive={otherViewActive}
                       onSelect={onSelectProject}
                       onTogglePin={toggleProjectPin}
                       onContextMenu={onProjectContextMenu}
@@ -542,9 +548,7 @@ export function ProjectRail({
               statsEnabled={visible}
               sortable={projectSortable}
               pinned={false}
-              searchActive={
-                searchActive || selectedProvider !== null || inboxActive || notesActive || tasksActive || kanbanActive || automationsActive
-              }
+              searchActive={otherViewActive}
               onSelect={onSelectProject}
               onTogglePin={toggleProjectPin}
               onContextMenu={onProjectContextMenu}
@@ -710,7 +714,8 @@ function ProjectSectionHeader({
 }) {
   return (
     <div className="flex items-center gap-1 px-3 pb-1.5 pt-1">
-      <span className="min-w-0 flex-1 truncate px-1 text-xs text-content/50">
+      {/* As tall as the header buttons, so every section header matches. */}
+      <span className="min-w-0 flex-1 truncate px-1 text-xs leading-5 text-content/50">
         {label}
       </span>
       {onAddGroup ? (
@@ -1150,10 +1155,10 @@ function ProjectDiffStat({
       className="flex shrink-0 items-center gap-1 font-sans text-[11px] font-semibold tabular-nums"
     >
       {additions > 0 ? (
-        <span className="text-emerald-400">+{formatInteger(additions)}</span>
+        <span className="text-diff-add-fg">+{formatInteger(additions)}</span>
       ) : null}
       {deletions > 0 ? (
-        <span className="text-red-400">-{formatInteger(deletions)}</span>
+        <span className="text-diff-del-fg">-{formatInteger(deletions)}</span>
       ) : null}
     </span>
   );

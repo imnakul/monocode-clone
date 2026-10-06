@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isMonoSession } from "../../monos/model/mono";
 import {
   isWeakToolTitle,
   titleFromToolInput,
@@ -7,7 +8,11 @@ import { codexCommandPresentation } from "../../../integrations/harness/provider
 import { recoverCursorSubagents } from "../../../integrations/harness/providers/cursor/cursorSubagents";
 import { persistableAttachment } from "../model/attachments";
 import type { ContextUsage } from "../model/contextUsage";
-import { isRemoteProjectPath, normalizeProjectPath, sameProjectPath } from "../../projects/model/recents";
+import {
+  isRemoteProjectPath,
+  normalizeProjectPath,
+  sameProjectPath,
+} from "../../projects/model/recents";
 import {
   claudeShellCommands,
   ompActiveAssistantTexts,
@@ -47,7 +52,10 @@ import { HARNESSES, RUNTIME_MODES } from "../model/session";
 import { restoreOrchestrationProposal } from "../../orchestration/model/orchestrationPlan";
 
 import type { OrchestrationSummary } from "../../orchestration/model/orchestrationSummary";
-import { type CodeReviewReport, type ReviewIssue } from "../../inbox/model/githubTasks";
+import {
+  type CodeReviewReport,
+  type ReviewIssue,
+} from "../../inbox/model/githubTasks";
 import { sanitizeProcessedUsage } from "../model/tokenAccounting";
 
 export type SessionSummary = {
@@ -78,6 +86,7 @@ export type SessionSummary = {
 };
 
 type SessionRecord = {
+  monoTranscript?: Session["monoTranscript"];
   orchestrationLeadId?: string;
   id: string;
   cwd: string;
@@ -131,7 +140,9 @@ export function shouldPersistSession(session: Session): boolean {
     !session.inboxAsk &&
     !isRemoteProjectPath(session.cwd) &&
     session.cwd !== "~" &&
-    session.blocks.some((block) => block.role === "user")
+    (session.blocks.some((block) => block.role === "user") ||
+      (isMonoSession(session.id) &&
+        (session.blocks.length > 0 || !!session.monoTranscript)))
   );
 }
 
@@ -142,12 +153,19 @@ export function isPersistableId(value: string): boolean {
 
 function persistableMeta(
   session: Session,
+  includeQueue = true,
 ): Omit<SessionUpsertPayload, "blocks"> {
   const queueStatus =
     session.queueStatus === "resuming" || session.queueStatus === "steering"
       ? "paused"
       : session.queueStatus;
   const linkedWorkItem = sanitizeLinkedWorkItem(session.linkedWorkItem);
+  const queuedMessages = includeQueue
+    ? persistableQueuedMessages(
+        sanitizeQueuedMessages(session.queuedMessages),
+        session.queueHoldReason,
+      )
+    : [];
   return {
     id: session.id,
     cwd: normalizeProjectPath(session.cwd),
@@ -156,6 +174,12 @@ function persistableMeta(
     modelSettings: session.modelSettings,
     runtimeMode: session.runtimeMode,
     title: session.title,
+    ...(queuedMessages.length
+      ? {
+          queuedMessages,
+          queueStatus: queueStatus ?? "active",
+        }
+      : {}),
     ...(session.providerSessionId && isPersistableId(session.providerSessionId)
       ? { providerSessionId: session.providerSessionId }
       : {}),
@@ -168,22 +192,122 @@ function persistableMeta(
       : {}),
     ...(session.branch ? { branch: session.branch } : {}),
     ...(session.worktreeCwd ? { worktreeCwd: session.worktreeCwd } : {}),
-    // Queued follow-ups ride with the session so a restart cannot lose them.
-    ...(session.queuedMessages?.length
-      ? {
-          queuedMessages: persistableQueuedMessages(
-            session.queuedMessages,
-            session.queueHoldReason,
-          ),
-          queueStatus,
-        }
-      : {}),
     ...(session.worktreeRemoved ? { worktreeRemoved: true } : {}),
     ...(linkedWorkItem ? { linkedWorkItem } : {}),
     ...(session.automationId && isPersistableId(session.automationId)
       ? { automationId: session.automationId }
       : {}),
   };
+}
+
+function sanitizeMonoSessionCompletion(
+  value: unknown,
+): Block["monoSessionCompletion"] {
+  if (!value || typeof value !== "object") return undefined;
+  const completion = value as NonNullable<Block["monoSessionCompletion"]>;
+  if (
+    typeof completion.sessionId !== "string" ||
+    !isPersistableId(completion.sessionId) ||
+    typeof completion.title !== "string" ||
+    !["completed", "failed", "cancelled"].includes(completion.status)
+  )
+    return undefined;
+  return {
+    sessionId: completion.sessionId,
+    title: completion.title,
+    status: completion.status,
+    ...(typeof completion.sessionCount === "number" &&
+    Number.isInteger(completion.sessionCount) &&
+    completion.sessionCount > 1
+      ? { sessionCount: completion.sessionCount }
+      : {}),
+  };
+}
+
+/** Pending images need their bytes until delivery; object URLs never survive reloads. */
+function sanitizeQueuedMessages(value: unknown): QueuedMessage[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const message = entry as QueuedMessage;
+    if (
+      typeof message.id !== "string" ||
+      !isPersistableId(message.id) ||
+      seen.has(message.id) ||
+      typeof message.text !== "string"
+    )
+      return [];
+    seen.add(message.id);
+    const attachments = Array.isArray(message.attachments)
+      ? message.attachments.flatMap((file) => {
+          if (
+            !file ||
+            typeof file.id !== "string" ||
+            typeof file.name !== "string" ||
+            typeof file.mimeType !== "string" ||
+            !["image", "audio", "file"].includes(file.kind) ||
+            typeof file.size !== "number" ||
+            !Number.isFinite(file.size) ||
+            file.size < 0
+          )
+            return [];
+          return [
+            {
+              ...persistableAttachment(file),
+              ...(!file.path && typeof file.data === "string"
+                ? { data: file.data }
+                : {}),
+            },
+          ];
+        })
+      : [];
+    const noteMeta = sanitizeNoteCard(message.noteCard);
+    const completion = sanitizeMonoSessionCompletion(
+      message.monoSessionCompletion,
+    );
+    const noteCard =
+      noteMeta && typeof message.noteCard?.body === "string"
+        ? { ...noteMeta, body: message.noteCard.body }
+        : undefined;
+    const handoff = message.handoffCard;
+    const handoffCard =
+      handoff &&
+      typeof handoff.brief === "string" &&
+      HARNESSES.includes(handoff.from) &&
+      HARNESSES.includes(handoff.to)
+        ? handoff
+        : undefined;
+    if (
+      !message.text.trim() &&
+      !attachments.length &&
+      !noteCard &&
+      !handoffCard
+    )
+      return [];
+    return [
+      {
+        id: message.id,
+        ...(typeof message.blockId === "string" &&
+        isPersistableId(message.blockId)
+          ? { blockId: message.blockId }
+          : {}),
+        text: message.text,
+        attachments,
+        ...(noteCard ? { noteCard } : {}),
+        ...(handoffCard ? { handoffCard } : {}),
+        ...(completion ? { monoSessionCompletion: completion } : {}),
+        ...(["default", "plan", "build", "orchestrate"].includes(
+          message.intent ?? "",
+        )
+          ? { intent: message.intent }
+          : {}),
+        ...(typeof message.error === "string" && message.error
+          ? { error: message.error }
+          : {}),
+      },
+    ];
+  });
 }
 
 export function sanitizeLinkedWorkItem(
@@ -275,7 +399,9 @@ export async function upsertNativeResumeSession(
   session: Session,
 ): Promise<SessionSummary | null> {
   if (
-    session.ephemeral || session.inboxAsk || isRemoteProjectPath(session.cwd) ||
+    session.ephemeral ||
+    session.inboxAsk ||
+    isRemoteProjectPath(session.cwd) ||
     (session.harness !== "claude" && session.harness !== "codex")
   ) {
     throw new Error(
@@ -284,10 +410,13 @@ export async function upsertNativeResumeSession(
   }
   if (deletedSessionIds.has(session.id)) return null;
   const source = await invoke<{ key: string; cwd: string } | null>(
-    "provider_sessions_for_session", { sessionId: session.id },
+    "provider_sessions_for_session",
+    { sessionId: session.id },
   );
   if (!source || !source.cwd || !sameProjectPath(source.cwd, session.cwd)) {
-    throw new Error("Native conversation binding is missing or its project folder changed.");
+    throw new Error(
+      "Native conversation binding is missing or its project folder changed.",
+    );
   }
   await invoke("provider_sessions_validate_source", {
     key: source.key,
@@ -300,7 +429,14 @@ export async function upsertNativeResumeSession(
 async function writeSessionRecord(
   session: Session,
 ): Promise<SessionSummary | null> {
-  const payload = sanitizeSessionForPersist(session);
+  const mono = !!session.monoTranscript || isMonoSession(session.id);
+  const snapshot = mono
+    ? session.blocks.filter((block) => monoPersistedBlock(block) !== null)
+    : session.blocks;
+  // Mono writes sanitize only the changed suffix inside the serialized queue.
+  const payload = mono
+    ? persistableMeta(session)
+    : sanitizeSessionForPersist(session);
   if (session.orchestrationLeadId) {
     sessionWriteLeadById.set(session.id, session.orchestrationLeadId);
   } else {
@@ -308,10 +444,43 @@ async function writeSessionRecord(
   }
   const summary = await enqueueSessionWrite(session.id, async () => {
     if (deletedSessionIds.has(session.id)) return null;
+    if (mono) {
+      const previous = monoSavedBlocks.get(session.id);
+      let same = 0;
+      if (previous) {
+        while (
+          same < previous.length &&
+          same < snapshot.length &&
+          previous[same] === snapshot[same]
+        )
+          same++;
+      }
+      const changed =
+        !previous || same !== previous.length || same !== snapshot.length;
+      const summary = await invoke<SessionSummary>("mono_session_upsert", {
+        session: {
+          ...payload,
+          blocks: changed
+            ? snapshot.slice(same).map((block) => monoPersistedBlock(block)!)
+            : [],
+        },
+        afterBlockId: same > 0 ? snapshot[same - 1].id : null,
+        fromBlockId:
+          same === 0
+            ? previous !== undefined
+              ? (previous[0]?.id ?? null)
+              : (session.monoTranscript?.firstBlockId ?? null)
+            : null,
+        blocksChanged: changed,
+        appendOnly: previous?.length === 0,
+      });
+      monoSavedBlocks.set(session.id, snapshot);
+      return summary;
+    }
     return invoke<SessionSummary>("session_upsert", {
       session: {
         ...payload,
-        blocks: payload.blocks.map((block) =>
+        blocks: (payload as SessionUpsertPayload).blocks.map((block) =>
           block.orchestrationLeadId &&
           deletedSessionIds.has(block.orchestrationLeadId)
             ? { ...block, orchestrationLeadId: undefined }
@@ -331,7 +500,9 @@ async function writeSessionRecord(
  * `persistableMeta` so a new persisted column cannot be forgotten here.
  */
 const blockTokens = new WeakMap<Block, number>();
+const queuedMessageTokens = new WeakMap<QueuedMessage, number>();
 let lastBlockToken = 0;
+let lastQueuedMessageToken = 0;
 
 function blockToken(block: Block): number {
   const seen = blockTokens.get(block);
@@ -342,7 +513,17 @@ function blockToken(block: Block): number {
 }
 
 export function persistFingerprint(session: Session): string {
-  return `${JSON.stringify(persistableMeta(session))}|${session.orchestrationLeadId ?? ""}|${session.blocks
+  // Pasted image bytes can be megabytes. Like transcript blocks, queue rows
+  // are immutable, so their identity detects edits without serializing bytes.
+  const queue = (session.queuedMessages ?? []).map((message) => {
+    let token = queuedMessageTokens.get(message);
+    if (token === undefined) {
+      token = ++lastQueuedMessageToken;
+      queuedMessageTokens.set(message, token);
+    }
+    return token;
+  });
+  return `${JSON.stringify(persistableMeta(session, false))}|${queue.length ? (session.queueStatus ?? "active") : ""}:${queue.join(",")}|${session.orchestrationLeadId ?? ""}|${session.blocks
     .map(blockToken)
     .join(",")}`;
 }
@@ -423,12 +604,61 @@ export function cancelSessionSearch(searchOwner: string): Promise<void> {
   return invoke<void>("cancel_session_search", { searchOwner });
 }
 
-export async function getSession(sessionId: string): Promise<Session | null> {
-  const record = await invoke<SessionRecord | null>("session_get", {
+const monoSavedBlocks = new Map<string, Block[]>();
+const monoBlockPayloads = new WeakMap<Block, Block | null>();
+function monoPersistedBlock(block: Block): Block | null {
+  if (monoBlockPayloads.has(block)) return monoBlockPayloads.get(block)!;
+  const payload = sanitizeBlock(block);
+  monoBlockPayloads.set(block, payload);
+  return payload;
+}
+
+export const MONO_PAGE_TURNS = 10;
+export type MonoTranscriptPage = {
+  blocks: Block[];
+  before: number | null;
+  hasNewer: boolean;
+};
+
+export async function getMonoTranscriptPage(
+  sessionId: string,
+  options: {
+    before?: number;
+    beforeBlockId?: string;
+    aroundBlockId?: string;
+  } = {},
+): Promise<MonoTranscriptPage> {
+  const page = await invoke<MonoTranscriptPage>("mono_session_page", {
     sessionId,
+    before: options.before ?? null,
+    beforeBlockId: options.beforeBlockId ?? null,
+    aroundBlockId: options.aroundBlockId ?? null,
   });
+  return {
+    ...page,
+    blocks: page.blocks
+      .map((block) => sanitizeBlock(block, { hydrate: true }))
+      .filter((block): block is Block => !!block),
+  };
+}
+
+export function findMonoTranscript(
+  sessionId: string,
+  query: string,
+): Promise<string[]> {
+  return invoke("mono_session_find", { sessionId, query });
+}
+
+export async function getSession(sessionId: string): Promise<Session | null> {
+  const record = await invoke<SessionRecord | null>(
+    isMonoSession(sessionId) ? "mono_session_get" : "session_get",
+    {
+      sessionId,
+    },
+  );
   if (!record) return null;
   const session = recordToSession(record);
+  if (session.monoTranscript) monoSavedBlocks.set(sessionId, session.blocks);
   if (session.harness === "claude" && session.providerSessionId) {
     const toolIds = shellPlaceholderIds(session.blocks);
     if (toolIds.length) {
@@ -580,7 +810,11 @@ export async function deleteSession(
     await enqueueSessionWrite(sessionId, () =>
       invoke<void>("session_delete", { sessionId, imagePaths }),
     );
-    const tombstone = setTimeout(() => deletedSessionIds.delete(sessionId), 60_000);
+    monoSavedBlocks.delete(sessionId);
+    const tombstone = setTimeout(
+      () => deletedSessionIds.delete(sessionId),
+      60_000,
+    );
     if (typeof tombstone === "object") tombstone.unref();
   } catch (error) {
     deletedSessionIds.delete(sessionId);
@@ -595,6 +829,7 @@ export async function discardDraftSessionRecord(
   await enqueueSessionWrite(sessionId, () =>
     invoke<void>("session_delete", { sessionId, imagePaths: [] }),
   );
+  monoSavedBlocks.delete(sessionId);
 }
 
 export async function setSessionArchived(
@@ -714,10 +949,31 @@ function sanitizeBlock(
     const usage = sanitizeProcessedUsage(block.turnUsage);
     if (usage) next.turnUsage = usage;
   }
+  if (
+    (block.role === "assistant" || block.role === "approval") &&
+    typeof block.monoHabit?.id === "string" &&
+    block.monoHabit.id.trim() &&
+    typeof block.monoHabit.name === "string" &&
+    block.monoHabit.name.trim() &&
+    typeof block.monoHabit.at === "number" &&
+    Number.isFinite(block.monoHabit.at)
+  ) {
+    next.monoHabit = {
+      id: block.monoHabit.id,
+      name: block.monoHabit.name,
+      at: block.monoHabit.at,
+    };
+  }
+  if (block.role === "user" && typeof block.sentAt === "number")
+    next.sentAt = block.sentAt;
   const turnModel = sanitizeTurnModel(block.turnModel);
   if (block.role === "user" && turnModel) next.turnModel = turnModel;
   if (block.role === "user" && block.draft) next.draft = true;
-  if (block.role === "user" && typeof block.providerForkPoint === "string" && isPersistableId(block.providerForkPoint)) {
+  if (
+    block.role === "user" &&
+    typeof block.providerForkPoint === "string" &&
+    isPersistableId(block.providerForkPoint)
+  ) {
     next.providerForkPoint = block.providerForkPoint;
   }
   if (block.role === "system") {
@@ -727,9 +983,15 @@ function sanitizeBlock(
   if (block.role === "user" && block.monocode) next.monocode = true;
   if (block.role === "system" && typeof block.operatorAccess === "boolean")
     next.operatorAccess = block.operatorAccess;
-  if (typeof block.externalTurnId === "string" && isPersistableId(block.externalTurnId))
+  if (
+    typeof block.externalTurnId === "string" &&
+    isPersistableId(block.externalTurnId)
+  )
     next.externalTurnId = block.externalTurnId;
-  if (typeof block.providerMessageId === "string" && isPersistableId(block.providerMessageId))
+  if (
+    typeof block.providerMessageId === "string" &&
+    isPersistableId(block.providerMessageId)
+  )
     next.providerMessageId = block.providerMessageId;
   if (
     block.role === "user" &&
@@ -757,6 +1019,9 @@ function sanitizeBlock(
   // Without this the transcript would show the app's orchestration turns as
   // the user's own after a reload.
   if (block.role === "user" && block.internal) next.internal = true;
+  const completion = sanitizeMonoSessionCompletion(block.monoSessionCompletion);
+  if (block.role === "user" && block.internal && completion)
+    next.monoSessionCompletion = completion;
   const turnMetrics = sanitizeTurnMetrics(block.turnMetrics);
   if (block.role === "user" && turnMetrics) next.turnMetrics = turnMetrics;
   if (block.tool) next.tool = block.tool;
@@ -838,36 +1103,83 @@ function sanitizeBlock(
 }
 
 function sanitizeBranchOrigin(value: unknown): BranchOrigin | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const reasons: BranchSummaryReason[] = ["different-provider", "not-started", "pending-switch", "orchestration-worker", "no-fork-point", "source-continued", "branch-changed", "fork-failed"];
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return undefined;
+  const reasons: BranchSummaryReason[] = [
+    "different-provider",
+    "not-started",
+    "pending-switch",
+    "orchestration-worker",
+    "no-fork-point",
+    "source-continued",
+    "branch-changed",
+    "fork-failed",
+  ];
   // Persistence accepts untrusted JSON, so narrow every field before retaining it.
   const row = value as Record<string, unknown>;
-  const harness = HARNESSES.find(harness => harness === row.harness);
-  const reason = reasons.find(reason => reason === row.reason);
-  if (typeof row.sessionId !== "string" || !isPersistableId(row.sessionId)
-    || typeof row.sourceSessionId !== "string" || !isPersistableId(row.sourceSessionId)
-    || typeof row.sourceTitle !== "string" || !harness
-    || (row.mode !== "native" && row.mode !== "summary")
-    || (row.status !== "pending" && row.status !== "uncertain" && row.status !== "done")
-    || (row.reason !== undefined && !reason)
-    || (row.summaryDelivery !== undefined && row.summaryDelivery !== "composer" && row.summaryDelivery !== "prefix")
-    || (row.mode === "summary" && (!reason || !row.summaryDelivery || row.status === "uncertain"))) return undefined;
+  const harness = HARNESSES.find((harness) => harness === row.harness);
+  const reason = reasons.find((reason) => reason === row.reason);
+  if (
+    typeof row.sessionId !== "string" ||
+    !isPersistableId(row.sessionId) ||
+    typeof row.sourceSessionId !== "string" ||
+    !isPersistableId(row.sourceSessionId) ||
+    typeof row.sourceTitle !== "string" ||
+    !harness ||
+    (row.mode !== "native" && row.mode !== "summary") ||
+    (row.status !== "pending" &&
+      row.status !== "uncertain" &&
+      row.status !== "done") ||
+    (row.reason !== undefined && !reason) ||
+    (row.summaryDelivery !== undefined &&
+      row.summaryDelivery !== "composer" &&
+      row.summaryDelivery !== "prefix") ||
+    (row.mode === "summary" &&
+      (!reason || !row.summaryDelivery || row.status === "uncertain"))
+  )
+    return undefined;
   const origin: BranchOrigin = {
-    sessionId: row.sessionId, sourceSessionId: row.sourceSessionId, sourceTitle: row.sourceTitle,
-    harness, mode: row.mode, status: row.status,
+    sessionId: row.sessionId,
+    sourceSessionId: row.sourceSessionId,
+    sourceTitle: row.sourceTitle,
+    harness,
+    mode: row.mode,
+    status: row.status,
     ...(reason ? { reason } : {}),
-    ...(row.summaryDelivery === "composer" || row.summaryDelivery === "prefix" ? { summaryDelivery: row.summaryDelivery } : {}),
+    ...(row.summaryDelivery === "composer" || row.summaryDelivery === "prefix"
+      ? { summaryDelivery: row.summaryDelivery }
+      : {}),
   };
-  if (row.mode === "native" && row.status !== "done" && row.fork && typeof row.fork === "object" && !Array.isArray(row.fork)) {
+  if (
+    row.mode === "native" &&
+    row.status !== "done" &&
+    row.fork &&
+    typeof row.fork === "object" &&
+    !Array.isArray(row.fork)
+  ) {
     const fork = row.fork as Record<string, unknown>;
-    const validOptionalId = (id: unknown): boolean => id === undefined || (typeof id === "string" && isPersistableId(id));
-    if (typeof fork.sourceProviderSessionId === "string" && isPersistableId(fork.sourceProviderSessionId)
-      && validOptionalId(fork.forkPoint) && validOptionalId(fork.providerAccountId)
-      && validOptionalId(fork.sourceLastUserBlockId) && typeof fork.workCwd === "string") {
-      origin.fork = { sourceProviderSessionId: fork.sourceProviderSessionId, workCwd: fork.workCwd,
-        ...(typeof fork.forkPoint === "string" ? { forkPoint: fork.forkPoint } : {}),
-        ...(typeof fork.providerAccountId === "string" ? { providerAccountId: fork.providerAccountId } : {}),
-        ...(typeof fork.sourceLastUserBlockId === "string" ? { sourceLastUserBlockId: fork.sourceLastUserBlockId } : {}),
+    const validOptionalId = (id: unknown): boolean =>
+      id === undefined || (typeof id === "string" && isPersistableId(id));
+    if (
+      typeof fork.sourceProviderSessionId === "string" &&
+      isPersistableId(fork.sourceProviderSessionId) &&
+      validOptionalId(fork.forkPoint) &&
+      validOptionalId(fork.providerAccountId) &&
+      validOptionalId(fork.sourceLastUserBlockId) &&
+      typeof fork.workCwd === "string"
+    ) {
+      origin.fork = {
+        sourceProviderSessionId: fork.sourceProviderSessionId,
+        workCwd: fork.workCwd,
+        ...(typeof fork.forkPoint === "string"
+          ? { forkPoint: fork.forkPoint }
+          : {}),
+        ...(typeof fork.providerAccountId === "string"
+          ? { providerAccountId: fork.providerAccountId }
+          : {}),
+        ...(typeof fork.sourceLastUserBlockId === "string"
+          ? { sourceLastUserBlockId: fork.sourceLastUserBlockId }
+          : {}),
       };
     }
   }
@@ -1002,14 +1314,17 @@ function sanitizeBtwThreads(
   return threads.length > 0 ? threads : undefined;
 }
 
-function sanitizeGeneratedImage(value: unknown): GeneratedImageMeta | undefined {
+function sanitizeGeneratedImage(
+  value: unknown,
+): GeneratedImageMeta | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
   }
   const record = value as Record<string, unknown>;
   const path = typeof record.path === "string" ? record.path.trim() : "";
   const name = typeof record.name === "string" ? record.name.trim() : "";
-  const mimeType = typeof record.mimeType === "string" ? record.mimeType.trim() : "";
+  const mimeType =
+    typeof record.mimeType === "string" ? record.mimeType.trim() : "";
   const size = record.size;
   if (
     !path ||
@@ -1224,9 +1539,7 @@ function sanitizeTaskList(value: unknown): TaskListMeta | null {
   };
 }
 
-function sanitizeReview(
-  value: Block["review"],
-): CodeReviewReport | undefined {
+function sanitizeReview(value: Block["review"]): CodeReviewReport | undefined {
   if (!value || typeof value !== "object") return undefined;
   const repo = typeof value.repo === "string" ? value.repo.trim() : "";
   const prNumber =
@@ -1321,6 +1634,7 @@ function recordToSession(record: SessionRecord): Session {
     runtimeMode: asRuntimeMode(record.runtimeMode),
     title: record.title,
     blocks,
+    ...(record.monoTranscript ? { monoTranscript: record.monoTranscript } : {}),
     busy: false,
     orchestrationLeadId:
       record.orchestrationLeadId ??
@@ -1332,9 +1646,14 @@ function recordToSession(record: SessionRecord): Session {
       ? { providerSessionId: record.providerSessionId }
       : {}),
     ...(restoredQueue ?? {}),
-    ...(restoredQueue &&
-    (record.queueStatus === "held" || record.queueStatus === "paused")
-      ? { queueStatus: record.queueStatus }
+    // A restart interrupts an active/steering turn; held and paused barriers persist.
+    ...(restoredQueue
+      ? {
+          queueStatus:
+            record.queueStatus === "held"
+              ? ("held" as const)
+              : ("paused" as const),
+        }
       : {}),
     ...(record.providerAccountId
       ? { providerAccountId: record.providerAccountId }
@@ -1447,7 +1766,7 @@ export function queuePersistFingerprint(
   const queueStatus =
     session.queueStatus === "resuming" || session.queueStatus === "steering"
       ? "paused"
-      : session.queueStatus ?? "active";
+      : (session.queueStatus ?? "active");
   return JSON.stringify({ queuedMessages, queueStatus });
 }
 
@@ -1460,7 +1779,8 @@ export function shouldScheduleSessionPersist(params: {
 }): boolean {
   if (!shouldPersistSession(params.session)) return false;
   if (!params.hasPersistedBefore) return true;
-  if (params.isNewlyBound || params.isNewUserTurn || params.isParked) return true;
+  if (params.isNewlyBound || params.isNewUserTurn || params.isParked)
+    return true;
   return !params.session.busy;
 }
 
@@ -1502,7 +1822,11 @@ export function restoreQueuedMessages(
   const holdReason = value
     .flatMap((entry) =>
       entry && typeof entry === "object" && !Array.isArray(entry)
-        ? [sanitizeQueueHoldReason((entry as Record<string, unknown>).queueHoldReason)]
+        ? [
+            sanitizeQueueHoldReason(
+              (entry as Record<string, unknown>).queueHoldReason,
+            ),
+          ]
         : [],
     )
     .find((reason): reason is string => Boolean(reason));
@@ -1563,9 +1887,25 @@ export function restoreQueuedMessages(
         id: row.id,
         text: row.text,
         attachments,
+        ...(typeof row.blockId === "string" && isPersistableId(row.blockId)
+          ? { blockId: row.blockId }
+          : {}),
+        ...(sanitizeMonoSessionCompletion(row.monoSessionCompletion)
+          ? {
+              monoSessionCompletion: sanitizeMonoSessionCompletion(
+                row.monoSessionCompletion,
+              ),
+            }
+          : {}),
+        ...(typeof row.error === "string" && row.error
+          ? { error: row.error }
+          : {}),
         ...(noteCard ? { noteCard } : {}),
         ...(handoffCard ? { handoffCard } : {}),
-        ...(row.intent === "plan" || row.intent === "build"
+        ...(row.intent === "default" ||
+        row.intent === "plan" ||
+        row.intent === "build" ||
+        row.intent === "orchestrate"
           ? { intent: row.intent }
           : {}),
       },

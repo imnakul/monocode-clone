@@ -208,66 +208,147 @@ describe("Composer question focus", () => {
 
   it("keeps every + menu row on the gliding hover; Cloud moved to Work in", async () => {
     const setActive = vi.fn();
-    await act(async () => root.render(createElement(Composer, {
-      harness: "claude", model: "claude-sonnet", runtimeMode: "supervised",
-      cwd: "/repo", executionCwd: "/repo",
-      hideProjectPicker: true, hideBranchPicker: true,
-      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(),
-      onRuntimeModeChange: vi.fn(), onSubmit: vi.fn(),
-      cloudLaunch: {
-        active: false, canLaunch: false, launch: vi.fn(async () => true),
-        resetToLocal: vi.fn(), setActive, panel: null,
-      },
-    })));
     await act(async () =>
-      container.querySelector<HTMLButtonElement>('[aria-label="Add files or choose a mode"]')!.click(),
+      root.render(
+        createElement(Composer, {
+          harness: "claude",
+          model: "claude-sonnet",
+          runtimeMode: "supervised",
+          cwd: "/repo",
+          executionCwd: "/repo",
+          hideProjectPicker: true,
+          hideBranchPicker: true,
+          onFocus: vi.fn(),
+          onCwdChange: vi.fn(),
+          onModelChange: vi.fn(),
+          onRuntimeModeChange: vi.fn(),
+          onSubmit: vi.fn(),
+          cloudLaunch: {
+            active: false,
+            canLaunch: false,
+            launch: vi.fn(async () => true),
+            resetToLocal: vi.fn(),
+            setActive,
+            panel: null,
+          },
+        }),
+      ),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Add files or choose a mode"]',
+        )!
+        .click(),
     );
     const menu = document.querySelector<HTMLElement>("[data-composer-plus]")!;
     const rows = [...menu.querySelectorAll<HTMLButtonElement>("button")];
     expect(rows.length).toBeGreaterThan(1);
-    for (const row of rows) expect(row.hasAttribute("data-shared-hover-item")).toBe(true);
+    for (const row of rows)
+      expect(row.hasAttribute("data-shared-hover-item")).toBe(true);
     // Where a session runs is chosen in "Work in" beside the branch now.
-    expect(rows.some((row) => row.textContent?.includes("Cloud session"))).toBe(false);
+    expect(rows.some((row) => row.textContent?.includes("Cloud session"))).toBe(
+      false,
+    );
     expect(setActive).not.toHaveBeenCalled();
   });
 
-  it.each([true, false])("routes normal composer Cloud send without a local turn (launch succeeds=%s)", async (succeeds) => {
-    const launch = vi.fn(async () => succeeds);
-    const onSubmit = vi.fn();
-    await act(async () => root.render(createElement(Composer, {
-      harness: "claude", model: "claude-sonnet", runtimeMode: "supervised",
-      cwd: "/repo", executionCwd: "/repo", initialDraft: "Work in cloud",
-      hideProjectPicker: true, hideBranchPicker: true,
-      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(),
-      onRuntimeModeChange: vi.fn(), onSubmit,
-      cloudLaunch: {
-        active: true, canLaunch: true, launch, resetToLocal: vi.fn(), panel: null,
-        setActive: vi.fn(),
-      },
-    })));
-    // Cloud is chosen from the + menu now; there is no Local | Cloud switch.
-    expect(container.querySelector('[aria-label="Where this session runs"]')).toBeNull();
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send"]')!.click());
-    expect(launch).toHaveBeenCalledExactlyOnceWith("Work in cloud", [], false);
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(container.querySelector("textarea")?.value).toBe(succeeds ? "" : "Work in cloud");
-  });
+  it.each([true, false])(
+    "routes normal composer Cloud send without a local turn (launch succeeds=%s)",
+    async (succeeds) => {
+      const launch = vi.fn(async () => succeeds);
+      const onSubmit = vi.fn();
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            harness: "claude",
+            model: "claude-sonnet",
+            runtimeMode: "supervised",
+            cwd: "/repo",
+            executionCwd: "/repo",
+            initialDraft: "Work in cloud",
+            hideProjectPicker: true,
+            hideBranchPicker: true,
+            onFocus: vi.fn(),
+            onCwdChange: vi.fn(),
+            onModelChange: vi.fn(),
+            onRuntimeModeChange: vi.fn(),
+            onSubmit,
+            cloudLaunch: {
+              active: true,
+              canLaunch: true,
+              launch,
+              resetToLocal: vi.fn(),
+              panel: null,
+              setActive: vi.fn(),
+            },
+          }),
+        ),
+      );
+      // Cloud is chosen from the + menu now; there is no Local | Cloud switch.
+      expect(
+        container.querySelector('[aria-label="Where this session runs"]'),
+      ).toBeNull();
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>('[aria-label="Send"]')!
+          .click(),
+      );
+      expect(launch).toHaveBeenCalledExactlyOnceWith(
+        "Work in cloud",
+        [],
+        false,
+      );
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(container.querySelector("textarea")?.value).toBe(
+        succeeds ? "" : "Work in cloud",
+      );
+    },
+  );
 
   it("blocks both button and keyboard Cloud send while the launcher cannot start", async () => {
     const launch = vi.fn(async () => true);
     const onSubmit = vi.fn();
-    await act(async () => root.render(createElement(Composer, {
-      harness: "codex", model: "gpt-5", runtimeMode: "supervised",
-      cwd: "/repo", executionCwd: "/repo", initialDraft: "Work in cloud",
-      hideProjectPicker: true, hideBranchPicker: true,
-      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(),
-      onRuntimeModeChange: vi.fn(), onSubmit,
-      cloudLaunch: { active: true, canLaunch: false, launch, resetToLocal: vi.fn(), setActive: vi.fn(), panel: null },
-    })));
-    expect(container.querySelector<HTMLButtonElement>('[aria-label="Send"]')?.disabled).toBe(true);
-    await act(async () => container.querySelector("textarea")!.dispatchEvent(new KeyboardEvent("keydown", {
-      key: "Enter", bubbles: true, cancelable: true,
-    })));
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          harness: "codex",
+          model: "gpt-5",
+          runtimeMode: "supervised",
+          cwd: "/repo",
+          executionCwd: "/repo",
+          initialDraft: "Work in cloud",
+          hideProjectPicker: true,
+          hideBranchPicker: true,
+          onFocus: vi.fn(),
+          onCwdChange: vi.fn(),
+          onModelChange: vi.fn(),
+          onRuntimeModeChange: vi.fn(),
+          onSubmit,
+          cloudLaunch: {
+            active: true,
+            canLaunch: false,
+            launch,
+            resetToLocal: vi.fn(),
+            setActive: vi.fn(),
+            panel: null,
+          },
+        }),
+      ),
+    );
+    expect(
+      container.querySelector<HTMLButtonElement>('[aria-label="Send"]')
+        ?.disabled,
+    ).toBe(true);
+    await act(async () =>
+      container.querySelector("textarea")!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
     expect(launch).not.toHaveBeenCalled();
     expect(onSubmit).not.toHaveBeenCalled();
     expect(container.querySelector("textarea")?.value).toBe("Work in cloud");
@@ -932,75 +1013,199 @@ describe("Composer question focus", () => {
     });
   });
 
-  it.each([false, true])("keeps Operator visible after restoration and plain follow-ups (compact=%s)", async (compact) => {
-    const onSubmit = vi.fn(() => true);
-    const props = {
-      focused: true, compact, harness: "claude" as const,
-      model: "claude-sonnet", runtimeMode: "supervised" as const,
-      executionCwd: "/repo", initialDraft: "Continue the next task",
-      hideProjectPicker: true, hideBranchPicker: true,
-      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(),
-      onRuntimeModeChange: vi.fn(), onSubmit,
-      blocks: [{ id: "operator-turn", role: "user" as const, text: "Check my tasks", monocode: true }],
-    };
-    await act(async () => root.render(createElement(Composer, { ...props, key: "restored" })));
-    expect(container.querySelector('[role="status"][aria-label^="Operator access enabled"]')).not.toBeNull();
-    expect(container.querySelector('[aria-label="Turn off Operator"]')).toBeNull();
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send"]')!.click());
-    expect(onSubmit).toHaveBeenCalledWith("Continue the next task", [], { intent: "default" });
-    expect(container.querySelector('[role="status"][aria-label^="Operator access enabled"]')).not.toBeNull();
-    await act(async () => root.render(createElement(Composer, { ...props, key: "remounted" })));
-    expect(container.querySelector('[role="status"][aria-label^="Operator access enabled"]')).not.toBeNull();
-  });
+  it.each([false, true])(
+    "keeps Operator visible after restoration and plain follow-ups (compact=%s)",
+    async (compact) => {
+      const onSubmit = vi.fn(() => true);
+      const props = {
+        focused: true,
+        compact,
+        harness: "claude" as const,
+        model: "claude-sonnet",
+        runtimeMode: "supervised" as const,
+        executionCwd: "/repo",
+        initialDraft: "Continue the next task",
+        hideProjectPicker: true,
+        hideBranchPicker: true,
+        onFocus: vi.fn(),
+        onCwdChange: vi.fn(),
+        onModelChange: vi.fn(),
+        onRuntimeModeChange: vi.fn(),
+        onSubmit,
+        blocks: [
+          {
+            id: "operator-turn",
+            role: "user" as const,
+            text: "Check my tasks",
+            monocode: true,
+          },
+        ],
+      };
+      await act(async () =>
+        root.render(createElement(Composer, { ...props, key: "restored" })),
+      );
+      expect(
+        container.querySelector(
+          '[role="status"][aria-label^="Operator access enabled"]',
+        ),
+      ).not.toBeNull();
+      expect(
+        container.querySelector('[aria-label="Turn off Operator"]'),
+      ).toBeNull();
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>('[aria-label="Send"]')!
+          .click(),
+      );
+      expect(onSubmit).toHaveBeenCalledWith("Continue the next task", [], {
+        intent: "default",
+      });
+      expect(
+        container.querySelector(
+          '[role="status"][aria-label^="Operator access enabled"]',
+        ),
+      ).not.toBeNull();
+      await act(async () =>
+        root.render(createElement(Composer, { ...props, key: "remounted" })),
+      );
+      expect(
+        container.querySelector(
+          '[role="status"][aria-label^="Operator access enabled"]',
+        ),
+      ).not.toBeNull();
+    },
+  );
 
   it("does not display persistent Operator access for an unsent draft", async () => {
-    await act(async () => root.render(createElement(Composer, {
-      focused: true, harness: "claude", model: "claude-sonnet", runtimeMode: "supervised",
-      executionCwd: "/repo", hideProjectPicker: true, hideBranchPicker: true,
-      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(),
-      onRuntimeModeChange: vi.fn(), onSubmit: vi.fn(),
-      blocks: [{ id: "draft", role: "user", text: "Check tasks", monocode: true, draft: true }],
-    })));
-    expect(container.querySelector('[role="status"][aria-label^="Operator access enabled"]')).toBeNull();
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          focused: true,
+          harness: "claude",
+          model: "claude-sonnet",
+          runtimeMode: "supervised",
+          executionCwd: "/repo",
+          hideProjectPicker: true,
+          hideBranchPicker: true,
+          onFocus: vi.fn(),
+          onCwdChange: vi.fn(),
+          onModelChange: vi.fn(),
+          onRuntimeModeChange: vi.fn(),
+          onSubmit: vi.fn(),
+          blocks: [
+            {
+              id: "draft",
+              role: "user",
+              text: "Check tasks",
+              monocode: true,
+              draft: true,
+            },
+          ],
+        }),
+      ),
+    );
+    expect(
+      container.querySelector(
+        '[role="status"][aria-label^="Operator access enabled"]',
+      ),
+    ).toBeNull();
   });
 
   it("turns persisted Operator access off without resending its activation command", async () => {
     const onDisable = vi.fn();
     const onSubmit = vi.fn(() => true);
-    const blocks = [{ id: "on", role: "user" as const, text: "Check tasks", monocode: true }];
+    const blocks = [
+      { id: "on", role: "user" as const, text: "Check tasks", monocode: true },
+    ];
     const props = {
-      focused: true, harness: "claude" as const, model: "claude-sonnet",
-      runtimeMode: "supervised" as const, executionCwd: "/repo",
-      hideProjectPicker: true, hideBranchPicker: true, initialDraft: "Ordinary follow-up",
-      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(),
-      onRuntimeModeChange: vi.fn(), onSubmit, onOperatorDisable: onDisable, blocks,
+      focused: true,
+      harness: "claude" as const,
+      model: "claude-sonnet",
+      runtimeMode: "supervised" as const,
+      executionCwd: "/repo",
+      hideProjectPicker: true,
+      hideBranchPicker: true,
+      initialDraft: "Ordinary follow-up",
+      onFocus: vi.fn(),
+      onCwdChange: vi.fn(),
+      onModelChange: vi.fn(),
+      onRuntimeModeChange: vi.fn(),
+      onSubmit,
+      onOperatorDisable: onDisable,
+      blocks,
     };
     await act(async () => root.render(createElement(Composer, props)));
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Turn off Operator"]')!.click());
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Turn off Operator"]')!
+        .click(),
+    );
     expect(onDisable).toHaveBeenCalledOnce();
-    await act(async () => root.render(createElement(Composer, { ...props, blocks: [
-      ...blocks, { id: "off", role: "system", text: "Operator off", operatorAccess: false },
-    ] })));
-    expect(container.querySelector('[aria-label="Turn off Operator"]')).toBeNull();
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send"]')!.click());
-    expect(onSubmit).toHaveBeenCalledWith("Ordinary follow-up", [], { intent: "default" });
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          ...props,
+          blocks: [
+            ...blocks,
+            {
+              id: "off",
+              role: "system",
+              text: "Operator off",
+              operatorAccess: false,
+            },
+          ],
+        }),
+      ),
+    );
+    expect(
+      container.querySelector('[aria-label="Turn off Operator"]'),
+    ).toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Send"]')!
+        .click(),
+    );
+    expect(onSubmit).toHaveBeenCalledWith("Ordinary follow-up", [], {
+      intent: "default",
+    });
   });
 
-  it.each([{ busy: true }, { externalTurnActive: true }])("waits for an active turn before revoking saved Operator access (%o)", async (active) => {
-    const onDisable = vi.fn();
-    await act(async () => root.render(createElement(Composer, {
-      focused: true, harness: "claude", model: "claude-sonnet", runtimeMode: "supervised",
-      executionCwd: "/repo", hideProjectPicker: true, hideBranchPicker: true,
-      onFocus: vi.fn(), onCwdChange: vi.fn(), onModelChange: vi.fn(), onRuntimeModeChange: vi.fn(),
-      onSubmit: vi.fn(), onOperatorDisable: onDisable,
-      blocks: [{ id: "on", role: "user", text: "Check tasks", monocode: true }], ...active,
-    })));
-    const off = container.querySelector<HTMLButtonElement>('[aria-label="Turn off Operator"]');
-    expect(off?.disabled).toBe(true);
-    expect(off?.title).toContain("after the current turn finishes");
-    await act(async () => off?.click());
-    expect(onDisable).not.toHaveBeenCalled();
-  });
+  it.each([{ busy: true }, { externalTurnActive: true }])(
+    "waits for an active turn before revoking saved Operator access (%o)",
+    async (active) => {
+      const onDisable = vi.fn();
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            focused: true,
+            harness: "claude",
+            model: "claude-sonnet",
+            runtimeMode: "supervised",
+            executionCwd: "/repo",
+            hideProjectPicker: true,
+            hideBranchPicker: true,
+            onFocus: vi.fn(),
+            onCwdChange: vi.fn(),
+            onModelChange: vi.fn(),
+            onRuntimeModeChange: vi.fn(),
+            onSubmit: vi.fn(),
+            onOperatorDisable: onDisable,
+            blocks: [
+              { id: "on", role: "user", text: "Check tasks", monocode: true },
+            ],
+            ...active,
+          }),
+        ),
+      );
+      const off = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Turn off Operator"]',
+      );
+      expect(off?.disabled).toBe(true);
+      expect(off?.title).toContain("after the current turn finishes");
+      await act(async () => off?.click());
+      expect(onDisable).not.toHaveBeenCalled();
+    },
+  );
 
   it("keeps /plan in the text beside its pill and submits with the plan intent", async () => {
     const onSubmit = vi.fn(() => true);
@@ -1501,6 +1706,11 @@ describe("Composer question focus", () => {
         .querySelector<HTMLButtonElement>('[aria-label="Send"]')!
         .click(),
     );
+    // Attachment reads and the guarded async submit may finish after click.
+    // Wait for actual acceptance instead of racing a fixed 20ms delay.
+    await act(async () => {
+      await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    });
     await act(async () => rejectResend?.({ providerRewound: false }));
     await act(async () =>
       container

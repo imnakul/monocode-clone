@@ -280,3 +280,48 @@ describe("Operator Tasks", () => {
     );
   });
 });
+
+describe("Mono Tasks project boundary", () => {
+  it("lists only assigned tasks, keeping Personal tasks out of Mono access", async () => {
+    const { host, source, run } = fixture();
+    host.monoOf = () => ({ id: "mono", projects: [source.cwd] });
+    expect(await run("tasks.list", {})).toMatchObject({
+      total: 2,
+      tasks: [{ id: "a" }, { id: "c" }],
+    });
+    await expect(run("tasks.list", { projectCwd: null })).rejects.toThrow(
+      "assigned project",
+    );
+    await expect(run("tasks.list", { projectCwd: "D:/Other" })).rejects.toThrow(
+      "not assigned",
+    );
+  });
+  it.each(["tasks.read", "tasks.write", "tasks.delete"])(
+    "blocks %s for an unassigned task before mutation",
+    async (action) => {
+      const { host, run } = fixture();
+      host.monoOf = () => ({ id: "mono", projects: ["D:/Other"] });
+      await expect(
+        run(
+          action,
+          action === "tasks.write"
+            ? { id: "a", title: "Changed" }
+            : { id: "a" },
+        ),
+      ).rejects.toThrow("not assigned");
+      expect(host.updateTask).not.toHaveBeenCalled();
+      expect(host.deleteTask).not.toHaveBeenCalled();
+    },
+  );
+  it("defaults new tasks to the assigned project and prevents moving them outside it", async () => {
+    const { host, source, run } = fixture();
+    host.monoOf = () => ({ id: "mono", projects: [source.cwd] });
+    expect(await run("tasks.write", { title: "New task" })).toMatchObject({
+      projectCwd: source.cwd,
+    });
+    await expect(
+      run("tasks.write", { id: "a", projectCwd: "D:/Other" }),
+    ).rejects.toThrow("not assigned");
+    expect(host.updateTask).not.toHaveBeenCalled();
+  });
+});

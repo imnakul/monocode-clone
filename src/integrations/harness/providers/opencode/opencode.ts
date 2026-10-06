@@ -1,3 +1,4 @@
+import { TurnNotReadyError } from "../../core/types";
 import {
   modelContextWindow,
   nativeModelId,
@@ -274,7 +275,7 @@ async function latestOpenCodeUserMessageId(live: Live): Promise<string> {
 
 export async function steerOpenCodeTurn(input: SteerTurnInput): Promise<void> {
   const live = liveByThread.get(input.sessionId);
-  if (!live?.activeTurn) throw new Error("No active turn to steer");
+  if (!live?.activeTurn) throw new TurnNotReadyError("No active turn to steer");
 
   const parsed = parseOpenCodeModelSlug(nativeModelId(input.model));
   if (!parsed) {

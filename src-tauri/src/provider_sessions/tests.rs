@@ -463,3 +463,49 @@ fn history_reports_missing_files_and_rejects_unsafe_ids() {
     assert!(missing.contains("No transcript file"));
     assert!(read_history_at(dir.path(), &Provider::Claude, "../etc", None, 100).is_err());
 }
+
+#[test]
+fn find_filters_full_discovery_before_paging_and_keeps_native_titles() {
+    let (dir, conn) = setup();
+    for i in 0..25 {
+        claude(dir.path(), &format!("native-{i:02}"));
+    }
+    let (rows, diagnostics) = discover_at(Provider::Claude, dir.path(), "default");
+    let filtered = filter_conversations(rows, Some("native-24"), Some("/repo/"));
+    let page = page_with_state(&conn, filtered, diagnostics, false, 10, 0).unwrap();
+    assert_eq!(page.conversations.len(), 1);
+    assert_eq!(page.conversations[0].native_id, "native-24");
+    assert_eq!(page.conversations[0].title, "Keep original context");
+    assert!(page.next_offset.is_none());
+    let (rows, _) = discover_at(Provider::Claude, dir.path(), "default");
+    assert!(filter_conversations(rows, None, Some("/different")).is_empty());
+}
+
+#[test]
+fn codex_millisecond_metadata_becomes_seconds_once_without_losing_title() {
+    let (dir, conn) = setup();
+    let db = Connection::open(dir.path().join("state_5.sqlite")).unwrap();
+    db.execute_batch("CREATE TABLE threads(id TEXT, title TEXT, cwd TEXT, updated_at INTEGER, updated_at_ms INTEGER); INSERT INTO threads VALUES('native','Fix the landing page','/repo',100,1791288000123)").unwrap();
+    let (rows, diagnostics) = discover_at(Provider::Codex, dir.path(), "default");
+    let row = resolve_from_rows(&conn, rows, diagnostics, "native").unwrap();
+    assert_eq!(row.updated_at, 1_791_288_000);
+    assert_eq!(row.title, "Fix the landing page");
+}
+
+#[test]
+fn find_project_filter_matches_windows_slashes_without_relaxing_unix_identity() {
+    let (dir, _) = setup();
+    claude(dir.path(), "native");
+    let (mut rows, _) = discover_at(Provider::Claude, dir.path(), "default");
+    rows.values_mut().next().unwrap().cwd = r"E:\Developing\Project".into();
+    assert_eq!(
+        filter_conversations(
+            rows.clone(),
+            Some("context"),
+            Some("e:/developing/project/")
+        )
+        .len(),
+        1
+    );
+    assert!(filter_conversations(rows, None, Some("e:/developing/other")).is_empty());
+}

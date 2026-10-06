@@ -131,7 +131,7 @@ function terminalTheme(light: boolean) {
   };
 }
 
-function monoFont(): string {
+function terminalFont(): string {
   const fromCss = getComputedStyle(document.documentElement)
     .getPropertyValue("--font-terminal")
     .trim();
@@ -232,7 +232,7 @@ function LiveTerminalView({ id, cwd, active, onMetaChange }: Props) {
     const term = new Terminal({
       cursorBlink: true,
       cursorStyle: "bar",
-      fontFamily: monoFont(),
+      fontFamily: terminalFont(),
       fontSize: loadTerminalFontSize(),
       lineHeight: 1,
       letterSpacing: 0,
@@ -500,7 +500,7 @@ function LiveTerminalView({ id, cwd, active, onMetaChange }: Props) {
     };
 
     const onTypographyChange = () => {
-      term.options.fontFamily = monoFont();
+      term.options.fontFamily = terminalFont();
       term.options.fontSize = loadTerminalFontSize();
       lastCols = 0;
       lastRows = 0;

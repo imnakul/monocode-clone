@@ -377,7 +377,11 @@ function MarkdownCode({
         <span className="markdown-code-fallback-label">{fence.language}</span>
       ) : null}
       <CodeCopyButton code={code} />
-      <AddToSessionManagerButton text={code.replace(/\r?\n$/, "")} code disabled={incomplete} />
+      <AddToSessionManagerButton
+        text={code.replace(/\r?\n$/, "")}
+        code
+        disabled={incomplete}
+      />
       <CodeBlock
         className={className}
         code={code}
@@ -517,6 +521,7 @@ function DirectionalBlock({ dir, ...props }: BlockProps) {
 export const AgentMarkdown = memo(function AgentMarkdown({
   text,
   streaming,
+  revealOnMount,
   className,
   cwd,
   onOpenFile,
@@ -526,6 +531,8 @@ export const AgentMarkdown = memo(function AgentMarkdown({
 }: {
   text: string;
   streaming?: boolean;
+  /** Pace newly arrived output even if it finished before its first paint. */
+  revealOnMount?: boolean;
   className?: string;
   cwd?: string;
   onOpenFile?: OpenFileFn;
@@ -556,14 +563,21 @@ export const AgentMarkdown = memo(function AgentMarkdown({
     [cwd],
   );
   const remoteMedia = !!allowRemoteMedia;
-  const paced = usePacedText(text, !!streaming);
+  const paced = usePacedText(text, !!streaming, revealOnMount);
   const inheritedTableActions = useContext(MarkdownTableContext);
   const tableActions = useMemo(
     () => ({
       onSaveNote: onSaveNote ?? inheritedTableActions.onSaveNote,
-      streaming: !!streaming || paced.revealing,
+      streaming:
+        !!streaming || !!inheritedTableActions.streaming || paced.revealing,
     }),
-    [onSaveNote, inheritedTableActions.onSaveNote, streaming, paced.revealing],
+    [
+      onSaveNote,
+      inheritedTableActions.onSaveNote,
+      inheritedTableActions.streaming,
+      streaming,
+      paced.revealing,
+    ],
   );
   const fading = useWordFading(!!streaming || paced.revealing);
   // Spans stay while words are fading so a word already on screen keeps its

@@ -25,6 +25,8 @@ mod macos;
 mod macos_background;
 mod mcp;
 mod menu;
+mod mono;
+mod mono_transcript;
 mod notes;
 mod notifications;
 mod pasteboard;
@@ -559,6 +561,10 @@ pub fn run() {
             session_store::session_search,
             session_store::cancel_session_search,
             session_store::session_get,
+            mono_transcript::mono_session_get,
+            mono_transcript::mono_session_page,
+            mono_transcript::mono_session_upsert,
+            mono_transcript::mono_session_find,
             session_store::session_delete,
             session_store::session_set_archived,
             session_store::session_set_pinned,
@@ -571,6 +577,7 @@ pub fn run() {
             session_import::scan_external_sessions,
             session_import::read_external_transcript,
             provider_sessions::provider_sessions_list,
+            provider_sessions::provider_sessions_find,
             provider_sessions::provider_sessions_resolve,
             provider_sessions::provider_sessions_set_archived,
             provider_sessions::provider_sessions_bind,
@@ -594,6 +601,9 @@ pub fn run() {
             session_board::session_board_upsert,
             session_board::session_board_hide,
             session_board::session_board_remove,
+            mono::mono_load,
+            mono::mono_read,
+            mono::mono_save,
             checkpoint::session_checkpoint_ensure,
             checkpoint::session_checkpoint_prepare,
             checkpoint::session_checkpoint_capture,

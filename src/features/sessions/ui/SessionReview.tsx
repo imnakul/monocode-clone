@@ -9,10 +9,13 @@ import {
 } from "../model/checkpoint";
 import { invalidateProjectFiles } from "../../files/model/fileIndex";
 import { invalidateWatchedFiles } from "../../files/model/fileWatch";
-import { basename, notifyGitChanged, subscribeGitChanged } from "../../../platform/tauri/fs";
+import {
+  basename,
+  notifyGitChanged,
+  subscribeGitChanged,
+} from "../../../platform/tauri/fs";
 import { formatInteger } from "../../../shared/lib/numbers";
 import { FileTypeIcon } from "../../files/ui/FileTypeIcon";
-import { DiffStat } from "./DiffStat";
 
 type Props = {
   sessionId: string;
@@ -139,10 +142,10 @@ export function SessionReview({
               Changed {files.length} {files.length === 1 ? "file" : "files"}
             </div>
             <div className="flex items-center gap-1.5 font-sans text-[11px] font-semibold tabular-nums -mt-0.5">
-              <span className="text-emerald-400">
+              <span className="text-diff-add-fg">
                 +{formatInteger(totals.additions)}
               </span>
-              <span className="text-red-400">
+              <span className="text-diff-del-fg">
                 -{formatInteger(totals.deletions)}
               </span>
             </div>
@@ -253,8 +256,24 @@ function FileRow({
           Shared file
         </span>
       ) : (
-        <DiffStat additions={file.additions} deletions={file.deletions} compact />
+        <DiffCounts file={file} />
       )}
     </button>
+  );
+}
+
+function DiffCounts({ file }: { file: CheckpointFile }) {
+  if (!file.exact) {
+    return (
+      <span className="shrink-0 text-[11px] font-medium text-amber-300/80">
+        Mixed changes
+      </span>
+    );
+  }
+  return (
+    <span className="flex shrink-0 gap-2 font-sans text-[11px] font-semibold tabular-nums">
+      <span className="text-diff-add-fg">+{formatInteger(file.additions)}</span>
+      <span className="text-diff-del-fg">-{formatInteger(file.deletions)}</span>
+    </span>
   );
 }

@@ -77,6 +77,7 @@ function fixture() {
     clear: vi.fn(async () => ({ removed: 2 })),
   };
   const host = {
+    isMono: (): boolean => false,
     sessionManager,
     worktrees: vi.fn(async () => ({
       worktrees: [{ path: source.worktreeCwd, missing: false }],
@@ -214,4 +215,45 @@ it.each([
   expect(sessionManager.delete).not.toHaveBeenCalled();
   expect(sessionManager.remove).not.toHaveBeenCalled();
   expect(sessionManager.clear).not.toHaveBeenCalled();
+});
+
+it.each([
+  "session_manager.read",
+  "session_manager.start",
+  "session_manager.delete",
+  "session_manager.remove",
+  "session_manager.write",
+])("blocks Mono %s on an unassigned project", async (action) => {
+  const { host, source, sessionManager, run } = fixture();
+  host.monoOf = () => ({ id: "mono", projects: [source.cwd] });
+  await expect(
+    run(action, {
+      id: "todo",
+      ...(action === "session_manager.write" ? { title: "Changed" } : {}),
+      ...(action === "session_manager.remove" ? { runId: "run" } : {}),
+    }),
+  ).rejects.toThrow("not assigned");
+  expect(sessionManager.start).not.toHaveBeenCalled();
+  expect(sessionManager.delete).not.toHaveBeenCalled();
+  expect(sessionManager.remove).not.toHaveBeenCalled();
+  expect(sessionManager.write).not.toHaveBeenCalled();
+});
+it("limits Mono list/clear to assigned projects while Operator keeps cross-project access", async () => {
+  const { host, source, sessionManager, run } = fixture();
+  host.monoOf = () => ({ id: "mono", projects: [source.cwd] });
+  await run("session_manager.list", {});
+  expect(sessionManager.list).toHaveBeenLastCalledWith(
+    expect.objectContaining({ projectCwd: source.cwd }),
+  );
+  await expect(
+    run("session_manager.clear", { status: "done", projectCwd: "D:/Other" }),
+  ).rejects.toThrow("not assigned");
+  await run("session_manager.clear", { status: "done" });
+  expect(sessionManager.clear).toHaveBeenLastCalledWith("done", source.cwd);
+  host.monoOf = () => undefined;
+  await run("session_manager.clear", {
+    status: "done",
+    projectCwd: "D:/Other",
+  });
+  expect(sessionManager.clear).toHaveBeenLastCalledWith("done", "D:/Other");
 });
