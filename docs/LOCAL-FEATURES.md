@@ -106,7 +106,7 @@ recorded in the same spec; native desktop checks remain separate.
 | L-67 | Remote Control PC icon, Cloud session in the + menu, Session Manager run icons and one-close pane | sessions, Claude, session manager | No |
 | L-68 | Global Local / Remote / Cloud new-chat default, visible composer choice and preserved per-chat overrides | settings, composer, Claude, Codex | No |
 | L-69 | Separate Antigravity CLI alongside ACP: streaming, resume, quotas/credits, MCP switches and custom agents | providers, composer, usage | No |
-| L-70 | Task Manager week strip (3·today·3 + All, gliding hover/selected pill, sliding weeks, keyboard), Focus = Today with jump-to-today, focus-day history recorded when a day passes in focus, "Focus on" submenu (Today/Tomorrow/+2/+3, Remove), Since/Done card chips, Timeline in task details, day view with Completed/In focus groups and archived included; board columns use the Settings card surface (no blur). Partly reverses `a07c7af`: the Menu backdrop-blur slider no longer affects board columns | tasks, boards | No |
+| L-70 | Task Manager week strip inline beside Focus in the toolbar centre (3·Focus·3 + All, gliding hover/selected pill, sliding weeks, keyboard), Focus = Today with jump-to-today, focus-day history recorded when a day passes in focus, "Focus on" submenu (Today/Tomorrow/+2/+3, Remove), Since/Done card chips, Timeline in task details, day view with Completed/In focus groups and archived included; board columns use the Settings card surface (no blur). Partly reverses `a07c7af`: the Menu backdrop-blur slider no longer affects board columns | tasks, boards | No |
 
 ## For agents — read this first
 

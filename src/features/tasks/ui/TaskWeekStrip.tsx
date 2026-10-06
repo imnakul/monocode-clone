@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 import { SharedHoverHighlight } from "../../sessions/ui/SharedHoverHighlight";
 import { completedOn, inFocusOn, type Task } from "../tasks";
@@ -56,6 +57,8 @@ function prefersReducedMotion(): boolean {
 /**
  * Week strip: 7 days centred on an anchor plus All. The anchor starts at
  * today and follows it across midnight unless the arrows moved the window.
+ * With `center` (the Focus button) the strip sits inline in the toolbar:
+ * `center` takes today's place, or the middle when today is off-window.
  */
 export function TaskWeekStrip({
   tasks,
@@ -63,6 +66,7 @@ export function TaskWeekStrip({
   selectedDay,
   onSelect,
   recenterSignal = 0,
+  center,
 }: {
   tasks: readonly Task[];
   today: string;
@@ -71,12 +75,15 @@ export function TaskWeekStrip({
   onSelect: (day: string | null) => void;
   /** Bump to re-centre the window on today ("jump to today"). */
   recenterSignal?: number;
+  /** Rendered in the middle of the days, in place of today when visible. */
+  center?: ReactNode;
 }) {
   const [anchor, setAnchor] = useState(today);
   const [moved, setMoved] = useState(false);
   const [pill, setPill] = useState({ left: 0, width: 0, visible: false });
   const root = useRef<HTMLDivElement>(null);
-  const daysRef = useRef<HTMLDivElement>(null);
+  const leftRef = useRef<HTMLDivElement>(null);
+  const rightRef = useRef<HTMLDivElement>(null);
   const items = useRef(new Map<string, HTMLButtonElement>());
   const slideDir = useRef(0);
   const recenterSeen = useRef(recenterSignal);
@@ -125,15 +132,16 @@ export function TaskWeekStrip({
     const dir = slideDir.current;
     slideDir.current = 0;
     if (!dir || prefersReducedMotion()) return;
-    const element = daysRef.current;
-    if (!element || typeof element.animate !== "function") return;
-    element.animate(
-      [
-        { transform: `translateX(${-24 * dir}px)`, opacity: "0" },
-        { transform: "translateX(0)", opacity: "1" },
-      ],
-      { duration: 200, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
-    );
+    for (const element of [leftRef.current, rightRef.current]) {
+      if (!element || typeof element.animate !== "function") continue;
+      element.animate(
+        [
+          { transform: `translateX(${-24 * dir}px)`, opacity: "0" },
+          { transform: "translateX(0)", opacity: "1" },
+        ],
+        { duration: 200, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+      );
+    }
   }, [weekKey]);
 
   // Selected pill behind the selected item; hidden outside the window.
@@ -152,6 +160,16 @@ export function TaskWeekStrip({
   }, [selectedKey, weekKey, counts]);
 
   const order = [...days, WEEK_STRIP_ALL_KEY];
+  // With a centre node, today's own cell gives way to it; when today is in
+  // another week, the centre sits between the 3rd and 4th day.
+  const hasCenter = center !== undefined;
+  const todayAt = days.indexOf(today);
+  const left = !hasCenter ? days : days.slice(0, todayAt !== -1 ? todayAt : 3);
+  const right = !hasCenter
+    ? []
+    : todayAt !== -1
+      ? days.slice(todayAt + 1)
+      : days.slice(3);
   const focusItem = (key: string) => items.current.get(key)?.focus();
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -209,13 +227,50 @@ export function TaskWeekStrip({
     else items.current.delete(key);
   };
 
+  const renderDay = (day: string) => {
+    const count = counts.get(day) ?? 0;
+    const selected = selectedDay === day;
+    const isToday = day === today;
+    return (
+      <button
+        key={day}
+        ref={setItemRef(day)}
+        type="button"
+        role="tab"
+        aria-selected={selected}
+        tabIndex={selectedKey === day ? 0 : -1}
+        data-shared-hover-item
+        aria-label={`${describeDay(day)}, ${count === 0 ? "no tasks" : `${count} ${count === 1 ? "task" : "tasks"}`}`}
+        onClick={() => pick(day)}
+        className="relative z-[2] flex h-7 w-9 shrink-0 flex-col items-center justify-center gap-px rounded-md leading-none"
+      >
+        <span className="text-[9px] uppercase tracking-wide text-content/45">
+          {weekdayShort(day)}
+        </span>
+        <span
+          className={`text-[12px] font-medium tabular-nums ${
+            isToday ? "text-accent" : selected ? "text-content" : "text-content/80"
+          }`}
+        >
+          {parseDay(day).getDate()}
+        </span>
+        {count > 0 ? (
+          <span
+            aria-hidden
+            className={`absolute right-1 top-1 size-1 rounded-full ${isToday ? "bg-accent" : "bg-content/35"}`}
+          />
+        ) : null}
+      </button>
+    );
+  };
+
   return (
     <div
       ref={root}
       role="tablist"
       aria-label="Task days"
       onKeyDown={onKeyDown}
-      className="relative flex shrink-0 items-stretch gap-0.5 px-3"
+      className="relative flex h-7 shrink-0 items-center gap-0.5"
     >
       <SharedHoverHighlight />
       <button
@@ -224,57 +279,28 @@ export function TaskWeekStrip({
         data-shared-hover-item
         aria-label="Previous week"
         onClick={() => shiftWeek(-7)}
-        className="relative z-[2] grid w-7 shrink-0 place-items-center rounded-md text-[13px] text-content/45 hover:text-content"
+        className="relative z-[2] grid h-7 w-6 shrink-0 place-items-center rounded-md text-[13px] text-content/45 hover:text-content"
       >
         <span aria-hidden>‹</span>
       </button>
-      <div ref={daysRef} className="flex min-w-0 flex-1 items-stretch justify-center gap-0.5">
-        {days.map((day) => {
-          const count = counts.get(day) ?? 0;
-          const selected = selectedDay === day;
-          const isToday = day === today;
-          return (
-            <button
-              key={day}
-              ref={setItemRef(day)}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              tabIndex={selectedKey === day ? 0 : -1}
-              data-shared-hover-item
-              aria-label={`${describeDay(day)}, ${count === 0 ? "no tasks" : `${count} ${count === 1 ? "task" : "tasks"}`}`}
-              onClick={() => pick(day)}
-              className="relative z-[2] flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-md px-1 py-1"
-            >
-              <span className="text-[10px] uppercase leading-none text-content/45">
-                {weekdayShort(day)}
-              </span>
-              <span
-                className={`text-[13px] font-medium leading-none tabular-nums ${
-                  isToday ? "text-accent" : selected ? "text-content" : "text-content/80"
-                }`}
-              >
-                {parseDay(day).getDate()}
-              </span>
-              <span className="flex h-1 items-center">
-                {count > 0 ? (
-                  <span
-                    aria-hidden
-                    className={`size-1 rounded-full ${isToday ? "bg-accent" : "bg-content/35"}`}
-                  />
-                ) : null}
-              </span>
-            </button>
-          );
-        })}
+      <div ref={leftRef} className="flex shrink-0 items-center gap-0.5">
+        {left.map(renderDay)}
       </div>
+      {hasCenter ? (
+        <div className="flex shrink-0 items-center px-1">{center}</div>
+      ) : null}
+      {hasCenter ? (
+        <div ref={rightRef} className="flex shrink-0 items-center gap-0.5">
+          {right.map(renderDay)}
+        </div>
+      ) : null}
       <button
         ref={setItemRef("next")}
         type="button"
         data-shared-hover-item
         aria-label="Next week"
         onClick={() => shiftWeek(7)}
-        className="relative z-[2] grid w-7 shrink-0 place-items-center rounded-md text-[13px] text-content/45 hover:text-content"
+        className="relative z-[2] grid h-7 w-6 shrink-0 place-items-center rounded-md text-[13px] text-content/45 hover:text-content"
       >
         <span aria-hidden>›</span>
       </button>
@@ -287,11 +313,9 @@ export function TaskWeekStrip({
         data-shared-hover-item
         aria-label={`All, ${allCount === 0 ? "no tasks" : `${allCount} ${allCount === 1 ? "task" : "tasks"}`}`}
         onClick={() => pick(null)}
-        className="relative z-[2] flex shrink-0 flex-col items-center justify-center gap-0.5 rounded-md px-2.5 py-1"
+        className="relative z-[2] inline-flex h-7 shrink-0 items-center rounded-md px-2 text-[12px] text-content/70 hover:text-content aria-selected:text-content"
       >
-        <span className="text-[10px] uppercase leading-none text-content/45">Show</span>
-        <span className="text-[13px] font-medium leading-none text-content/80">All</span>
-        <span className="flex h-1 items-center" aria-hidden />
+        All
       </button>
       <span
         aria-hidden

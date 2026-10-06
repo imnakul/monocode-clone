@@ -1382,12 +1382,20 @@ describe("toolbar layout and focus presentation", () => {
     // After the filter pills, before Archived and the view switch.
     expect(focus).toBeGreaterThan(order.findIndex((l) => /Project/.test(l ?? "")));
     expect(focus).toBeLessThan(order.findIndex((l) => /Archived/.test(l ?? "")));
-    const slot = toolbar.querySelector<HTMLElement>('button[aria-label^="Focus:"]')!
-      .parentElement!.parentElement!;
-    expect(slot.className).toContain("flex-1");
-    expect(slot.className).toContain("justify-center");
-    // The Focus button glides like the strip: its own hover highlight.
-    expect(slot.querySelector("[data-shared-hover-highlight]")).not.toBeNull();
+    const focusButton = toolbar.querySelector<HTMLElement>('button[aria-label^="Focus:"]')!;
+    const slot = focusButton.closest<HTMLElement>(".flex-1.justify-center")!;
+    expect(slot).not.toBeNull();
+    // The week strip sits inline in the centre, three days on each side of
+    // Focus (Focus takes today's place), with All at the end.
+    const strip = slot.querySelector<HTMLElement>('[role="tablist"][aria-label="Task days"]')!;
+    expect(strip.contains(focusButton)).toBe(true);
+    const items = [...strip.querySelectorAll<HTMLElement>('[role="tab"], button[aria-label^="Focus:"]')];
+    const at = items.indexOf(focusButton);
+    expect(items.slice(0, at).filter((item) => item.getAttribute("role") === "tab")).toHaveLength(3);
+    expect(items.slice(at + 1).filter((item) => /^All/.test(item.getAttribute("aria-label") ?? ""))).toHaveLength(1);
+    expect(items.slice(at + 1).filter((item) => item.getAttribute("role") === "tab")).toHaveLength(4);
+    // One glide for the days and Focus together.
+    expect(strip.querySelector("[data-shared-hover-highlight]")).not.toBeNull();
     expect(
       toolbar.querySelector('button[aria-label^="Focus:"]')!.hasAttribute("data-shared-hover-item"),
     ).toBe(true);

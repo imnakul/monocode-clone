@@ -73,7 +73,6 @@ import {
   type TaskStatus,
 } from "../tasks";
 import { useLocalDay } from "../../../shared/hooks/useLocalDay";
-import { SharedHoverHighlight } from "../../sessions/ui/SharedHoverHighlight";
 import { TaskBoard } from "./TaskBoard";
 import { TaskList } from "./TaskList";
 import { TaskPeekPane } from "./TaskPeekPane";
@@ -675,33 +674,39 @@ export function TasksView({
           />
         }
         center={
-          <div className="relative shrink-0">
-            <SharedHoverHighlight />
-            <button
-              ref={focusButton}
-              type="button"
-              data-shared-hover-item
-              aria-pressed={focusSelected}
-              aria-label={`Focus: ${focusCount} of ${activeTasks.length} tasks are in today's focus`}
-              title="Show only today's focus: tasks created today or pinned to today"
-              onClick={toggleFocus}
-              className={`relative z-[2] inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12px] transition-colors duration-150 ${
-                focusSelected
-                  ? "bg-amber-400/15 text-amber-200 hover:bg-amber-400/25"
-                  : "text-content/60 hover:bg-content/10 hover:text-content"
-              }`}
-            >
-              <Target
-                aria-hidden
-                className="size-3.5"
-                strokeWidth={1.75}
-              />
-              Focus
-              <span className="tabular-nums text-[11px] opacity-70">
-                {focusCount}/{activeTasks.length}
-              </span>
-            </button>
-          </div>
+          <TaskWeekStrip
+            tasks={tasks}
+            today={today}
+            selectedDay={selectedDay}
+            onSelect={selectDay}
+            recenterSignal={recenterSignal}
+            center={
+              <button
+                ref={focusButton}
+                type="button"
+                data-shared-hover-item
+                aria-pressed={focusSelected}
+                aria-label={`Focus: ${focusCount} of ${activeTasks.length} tasks are in today's focus`}
+                title="Show only today's focus: tasks created today or pinned to today"
+                onClick={toggleFocus}
+                className={`relative z-[2] inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12px] transition-colors duration-150 ${
+                  focusSelected
+                    ? "bg-amber-400/15 text-amber-200 hover:bg-amber-400/25"
+                    : "text-content/60 hover:text-content"
+                }`}
+              >
+                <Target
+                  aria-hidden
+                  className="size-3.5"
+                  strokeWidth={1.75}
+                />
+                Focus
+                <span className="tabular-nums text-[11px] opacity-70">
+                  {focusCount}/{activeTasks.length}
+                </span>
+              </button>
+            }
+          />
         }
         trailing={
           <>
@@ -731,13 +736,6 @@ export function TasksView({
             <TasksViewSwitch view={view} onChange={saveView} />
           </>
         }
-      />
-      <TaskWeekStrip
-        tasks={tasks}
-        today={today}
-        selectedDay={selectedDay}
-        onSelect={selectDay}
-        recenterSignal={recenterSignal}
       />
       {menu ? (
         <ExplorerMenu

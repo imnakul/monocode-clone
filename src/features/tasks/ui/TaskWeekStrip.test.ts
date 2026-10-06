@@ -152,4 +152,41 @@ describe("TaskWeekStrip", () => {
       new RegExp(`^${describeDay(addDays(TODAY, -4))}`),
     );
   });
+
+  it("puts the centre node in today's place, and between the 3rd and 4th day in other weeks", async () => {
+    await act(async () =>
+      root.render(
+        createElement(TaskWeekStrip, {
+          tasks: [],
+          today: TODAY,
+          selectedDay: TODAY,
+          onSelect: () => {},
+          center: createElement("button", { "data-center": "" }, "Focus"),
+        }),
+      ),
+    );
+    const order = () =>
+      [...container.querySelectorAll<HTMLElement>('[role="tab"], [data-center]')].map(
+        (entry) => (entry.hasAttribute("data-center") ? "center" : entry.getAttribute("aria-label")!.split(",")[0]!),
+      );
+    // Today's own cell gives way to the centre: 3 days, centre, 3 days, All.
+    expect(order()).toEqual([
+      describeDay(addDays(TODAY, -3)),
+      describeDay(addDays(TODAY, -2)),
+      describeDay(addDays(TODAY, -1)),
+      "center",
+      describeDay(addDays(TODAY, 1)),
+      describeDay(addDays(TODAY, 2)),
+      describeDay(addDays(TODAY, 3)),
+      "All",
+    ]);
+    // The selected day is today, which the centre represents: no pill.
+    expect(container.querySelector("[data-week-pill]")!.style.opacity).toBe("0");
+    // Another week: all 7 days show, with the centre after the 3rd.
+    await click(container.querySelector('[aria-label="Previous week"]'));
+    const shifted = order();
+    expect(shifted).toHaveLength(9);
+    expect(shifted[3]).toBe("center");
+    expect(shifted[4]).toBe(describeDay(addDays(TODAY, -7)));
+  });
 });
