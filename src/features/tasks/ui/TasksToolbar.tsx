@@ -33,6 +33,7 @@ export function TasksToolbar({
   onChange,
   leading,
   center,
+  boardBelow = false,
   trailing,
 }: {
   filters: TaskFilters;
@@ -43,6 +44,8 @@ export function TasksToolbar({
   leading?: ReactNode;
   /** Shown centred in the free space between the filters and the view controls (Focus). */
   center?: ReactNode;
+  /** The board's own 12px top padding follows: put the row's space above. */
+  boardBelow?: boolean;
   /** View controls pinned to the right end of the row. */
   trailing?: ReactNode;
 }) {
@@ -95,7 +98,11 @@ export function TasksToolbar({
   return (
     <>
       {/* px-3 matches the board's p-3 so the edges line up with its columns. */}
-      <div className="flex h-10 shrink-0 items-center gap-1.5 px-3">
+      <div
+        className={`flex h-10 shrink-0 gap-1.5 px-3 ${
+          boardBelow ? "items-end" : "items-center"
+        }`}
+      >
         {leading}
         <div className="relative flex h-7 min-w-28 max-w-64 flex-1 items-center">
           <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />

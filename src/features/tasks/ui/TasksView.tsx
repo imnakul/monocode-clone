@@ -661,6 +661,7 @@ export function TasksView({
         {IS_MAC ? null : <WindowControls />}
       </div>
       <TasksToolbar
+        boardBelow={view === "board" && !(filters.tags?.length ?? 0)}
         filters={filters}
         tasks={tasks}
         projects={projects}

@@ -1,5 +1,11 @@
 # Changelog 03 — MonoCode Windows fork
 
+## 2026-10-06 — Even spacing around the Task Manager toolbar in Board view
+- What: In Board view the toolbar row puts its spacing above the controls (12px), so with the board's 12px top padding the gap above and below the filters is equal. List/Table and the tag-chip row keep the centred row.
+- Files: `src/features/tasks/ui/TasksToolbar.tsx` (`boardBelow`); `src/features/tasks/ui/TasksView.tsx` (passes it)
+- Verified: tsc ✅ | tests not run (spacing only) | manual: gap above and below the filters in Board view
+- Commit: see git log ("Even toolbar spacing above the task board")
+
 ## 2026-10-06 — Task week strip moved inline beside Focus
 - What: The week strip no longer spans its own full-width row. It sits in the toolbar centre: 3 days, Focus (in today's place), 3 days, then All, with compact two-line day chips and one gliding hover across the days and Focus. In another week, Focus sits between the 3rd and 4th day and still jumps back to today.
 - Files: `src/features/tasks/ui/TaskWeekStrip.tsx` (`center` prop, compact day chips, `renderDay`); `src/features/tasks/ui/TasksView.tsx` (strip in the toolbar centre); `TaskWeekStrip.test.ts`, `TasksView.test.ts`
