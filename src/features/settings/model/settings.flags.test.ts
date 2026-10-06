@@ -226,3 +226,34 @@ describe("Claude Remote Control persistence", () => {
     expect(settings.loadRemoteControlSessions()).toEqual(new Set());
   });
 });
+
+
+describe("new chat execution defaults", () => {
+  it("migrates the old enabled RC setting and respects a new explicit Local", () => {
+    expect(settings.loadNewChatExecution()).toBe("local");
+    localStorage.setItem("monocode.claudeRemoteControlDefault", "1");
+    expect(settings.loadNewChatExecution()).toBe("remote");
+    settings.saveNewChatExecution("local");
+    expect(settings.loadNewChatExecution()).toBe("local");
+    expect(settings.loadClaudeRemoteControlDefault()).toBe(false);
+  });
+  it("limits Remote to Claude and Cloud to Claude/Codex", () => {
+    settings.saveNewChatExecution("remote");
+    expect(settings.newChatExecutionFor("claude")).toBe("remote");
+    expect(settings.newChatExecutionFor("codex")).toBe("local");
+    settings.saveNewChatExecution("cloud");
+    expect(settings.newChatExecutionFor("claude")).toBe("cloud");
+    expect(settings.newChatExecutionFor("codex")).toBe("cloud");
+    expect(settings.newChatExecutionFor("pi")).toBe("local");
+    expect(settings.loadClaudeRemoteControlDefault()).toBe(false);
+  });
+});
+
+
+it("remembers explicit Local separately from enabled RC and preserves old enabled chats", () => {
+  settings.saveNewChatExecution("remote");
+  settings.saveRemoteControlChoices(["local-chat"]);
+  settings.saveRemoteControlSessions(["old-remote-chat"]);
+  expect(settings.loadRemoteControlChoices()).toEqual(new Set(["local-chat", "old-remote-chat"]));
+  expect(settings.loadRemoteControlSessions()).toEqual(new Set(["old-remote-chat"]));
+});

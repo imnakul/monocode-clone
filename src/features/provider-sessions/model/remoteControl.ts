@@ -1,6 +1,8 @@
 import type { Session } from "../../sessions/model/session";
 import {
   loadClaudeRemoteControlDefault,
+  loadRemoteControlChoices,
+  saveRemoteControlChoices,
   loadRemoteControlSessions,
   saveRemoteControlSessions,
 } from "../../settings/model/settings";
@@ -39,9 +41,12 @@ export function restoreClaudeRemoteControlPreferences(
 /** New local chats only; do not call for discovered/resumed or cloud chats. */
 export function initializeNewClaudeRemoteControlPreference(
   session: SessionIdentity,
+  enabled = loadClaudeRemoteControlDefault(),
 ): boolean {
   if (session.harness !== "claude") return false;
-  const enabled = loadClaudeRemoteControlDefault();
+  const choices = loadRemoteControlChoices();
+  choices.add(session.id);
+  saveRemoteControlChoices(choices);
   const saved = loadRemoteControlSessions();
   if (enabled) saved.add(session.id);
   else saved.delete(session.id);
@@ -59,6 +64,9 @@ export function initializeNewClaudeRemoteControlPreference(
 export async function changeClaudeRemoteControl(
   input: HarnessRemoteControlInput,
 ): Promise<void> {
+  const choices = loadRemoteControlChoices();
+  choices.add(input.sessionId);
+  saveRemoteControlChoices(choices);
   const action = Symbol();
   actions.set(input.sessionId, action);
   const saved = loadRemoteControlSessions();
@@ -94,6 +102,9 @@ export async function changeClaudeRemoteControl(
 /** Call on deletion. Stopping/parking a chat deliberately preserves its preference. */
 export function removeClaudeRemoteControlPreference(sessionId: string): void {
   actions.delete(sessionId);
+  const choices = loadRemoteControlChoices();
+  choices.delete(sessionId);
+  saveRemoteControlChoices(choices);
   const saved = loadRemoteControlSessions();
   saved.delete(sessionId);
   saveRemoteControlSessions(saved);

@@ -66,8 +66,8 @@ vi.mock("../model/quickComposer", async (actual) => ({
   ...(await actual<object>()),
   loadQuickProjects: () => ["/tmp/project"],
   initialQuickChoice: () => ({ harness: "codex", model: "test" }),
-  resolveQuickModel: () => ({
-    harness: "codex",
+  resolveQuickModel: (choice: { harness: "claude" | "codex" }) => ({
+    harness: choice.harness,
     id: "test",
     name: "Test model",
   }),
@@ -324,4 +324,48 @@ it("does not fall through to local start when Cloud is selected for a worktree",
     expect.anything(),
   );
   expect(prompt.value).toBe("Keep this on the cloud intent");
+});
+
+
+it("shows Cloud before first send and permits an explicit Local override", async () => {
+  stored.set("monocode.newChatExecution", "cloud");
+  await render({ key: "default-cloud" });
+  expect(container.querySelector("[data-work-in]")?.getAttribute("data-work-in")).toBe("cloud");
+  await click(container.querySelector<HTMLButtonElement>("[data-work-in]")!);
+  const local = [...document.querySelectorAll<HTMLButtonElement>("[data-work-in-picker] button")]
+    .find((element) => element.textContent?.startsWith("This computer"))!;
+  await click(local);
+  setValue(prompt, "Run locally instead");
+  await pressCtrlEnter(prompt);
+  expect(native.launch).not.toHaveBeenCalled();
+  expect(invoke).toHaveBeenCalledWith("quick_composer_submit", expect.anything());
+});
+
+it.each([true, false])("shows default Remote and delivers the explicit RC choice %s", async (enabled) => {
+  stored.set("monocode.newChatExecution", "remote");
+  await render({ key: "default-remote", initialLaunch: {
+    prompt: "Run once", cwd: "/tmp/project", harness: "claude", model: "test", reveal: false,
+  } });
+  expect(container.querySelector("[data-work-in]")?.getAttribute("data-work-in")).toBe("remote");
+  if (!enabled) {
+    await click(container.querySelector<HTMLButtonElement>("[data-work-in]")!);
+    const local = [...document.querySelectorAll<HTMLButtonElement>("[data-work-in-picker] button")]
+      .find((element) => element.textContent?.startsWith("This computer"))!;
+    await click(local);
+  }
+  await pressCtrlEnter(prompt);
+  expect(native.launch).not.toHaveBeenCalled();
+  expect(invoke).toHaveBeenCalledWith("quick_composer_submit", {
+    request: expect.objectContaining({ harness: "claude", remoteControl: enabled }),
+  });
+});
+
+
+it("keeps an explicit saved Local choice even when the global default is Cloud", async () => {
+  stored.set("monocode.newChatExecution", "cloud");
+  await render({ key: "saved-local", initialLaunch: {
+    prompt: "Keep local", cwd: "/tmp/project", harness: "claude", model: "test",
+    reveal: false, remoteControl: false,
+  } });
+  expect(container.querySelector("[data-work-in]")?.getAttribute("data-work-in")).toBe("local");
 });

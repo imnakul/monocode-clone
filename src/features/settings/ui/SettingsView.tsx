@@ -376,7 +376,7 @@ import {
   loadAiHelperSettings,
   currentKeybindings,
   loadClaudeHooks,
-  loadClaudeRemoteControlDefault,
+  loadNewChatExecution,
   loadCloseToTray,
   loadCollapsedProjectRailMode,
   loadComposerRunner,
@@ -396,7 +396,8 @@ import {
   loadQuickComposerShortcut,
   loadTabAnimationsEnabled,
   saveClaudeHooks,
-  saveClaudeRemoteControlDefault,
+  saveNewChatExecution,
+  type NewChatExecution,
   saveCloseToTray,
   saveCollapsedProjectRailMode,
   saveComposerRunner,
@@ -4035,8 +4036,8 @@ export function ProvidersPage({
   >("checking");
   const initialLoading = initialStatus === "checking";
   const [claudeHooks, setClaudeHooks] = useState(loadClaudeHooks);
-  const [claudeRemoteControl, setClaudeRemoteControl] = useState(
-    loadClaudeRemoteControlDefault,
+  const [newChatExecution, setNewChatExecution] = useState(
+    loadNewChatExecution,
   );
   const [updateNotices, setUpdateNotices] = useState<CliUpdateNotice[]>([]);
   const notifiedRef = useRef<Set<HarnessId>>(new Set());
@@ -4137,9 +4138,9 @@ export function ProvidersPage({
     setClaudeHooks(next);
   };
 
-  const onClaudeRemoteControl = (next: boolean) => {
-    saveClaudeRemoteControlDefault(next);
-    setClaudeRemoteControl(next);
+  const onNewChatExecution = (next: NewChatExecution): void => {
+    saveNewChatExecution(next);
+    setNewChatExecution(next);
   };
 
   const onModelChange = (harness: HarnessId, model: string) => {
@@ -4292,13 +4293,18 @@ export function ProvidersPage({
         </Row>
         <Row
           id="claude-remote-control"
-          label="Turn on Remote Control for new Claude chats"
-          description="Lets you continue a new local Claude chat from your phone. It applies only to chats you start after turning this on; each chat keeps its own Remote Control switch. Nothing is started when MonoCode launches, and a chat connects when you first send a message."
+          label="Default location for new chats"
+          description="Choose where new chats start. Remote runs Claude here with phone control; Cloud uses supported Claude/Codex cloud execution and may require an environment. Other providers stay local. Each new chat can override this choice; existing conversations keep their settings. Nothing starts until you send."
         >
-          <Toggle
-            label="Turn on Remote Control for new Claude chats"
-            on={claudeRemoteControl}
-            onChange={onClaudeRemoteControl}
+          <Segmented
+            label="Default location for new chats"
+            value={newChatExecution}
+            options={[
+              { value: "local", label: "Local" },
+              { value: "remote", label: "Remote" },
+              { value: "cloud", label: "Cloud" },
+            ]}
+            onChange={onNewChatExecution}
           />
         </Row>
       </Group>

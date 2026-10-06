@@ -1,3 +1,9 @@
+## 2026-10-06 — New-chat Local / Remote / Cloud default
+- What: Replaced the Claude default checkbox with a global execution choice, reflected before first send in normal and quick composers. Preserved explicit Local/Remote and named-draft Local/Cloud choices, including reopening; discovered chats retain their validated native ID before composer/default initialization.
+- Files: Settings model/UI; provider remote preferences, native discovery and cloud hook; App/SessionPane; QuickComposer and TS/Rust launch delivery; tests; `docs/specs/new-chat-execution-default-plan.md`.
+- Verified: full web suite (5,599 tests / 515 files), focused regressions, TypeScript and final-source production build pass; Rust formatting/check and extracted production delivery tests (3) pass. Manual: normal/floating/embedded composers and actual provider/phone/cloud behavior pending.
+- Commit: uncommitted.
+
 ## 2026-10-05 — Session Manager pane: simple slide instead of card morph
 - What: Removed the expand-from-card / collapse-into-card animation. The session pane now slides and fades in and out (200ms) like the Tasks peek pane and other side panes; the board takes its split width at once.
 - Files: `src/features/session-board/ui/SessionBoardView.tsx`

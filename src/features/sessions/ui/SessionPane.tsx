@@ -389,6 +389,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
   const recallLastTurnRef = useRef<(() => void) | null>(null);
   const remote = remoteSession;
   const cloudLaunch = useCloudLaunch({
+    draftId: session.id,
     harness: session.harness,
     cwd: session.cwd,
     providerAccountId: session.providerAccountId,

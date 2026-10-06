@@ -1,4 +1,5 @@
 import { createElement, useMemo, useRef, useState } from "react";
+import { newChatExecutionFor } from "../../settings/model/settings";
 import type { Attachment, HarnessId } from "../../sessions/model/session";
 import { selectedProviderAccountId } from "../../providers/model/providerAccounts";
 import {
@@ -76,6 +77,17 @@ export function cloudLaunchEligible(session: {
   );
 }
 
+/** Saved only for a named normal draft; floating composers start fresh. */
+function loadDraftExecution(key: string, named: boolean): Execution | null {
+  if (!named) return null;
+  try {
+    const value = localStorage.getItem(`monocode.draftExecution.${key}`);
+    return value === "local" || value === "cloud" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Local | Cloud choice for a new session. Cloud goes through the cloud launch
  * API exactly once per Send and never through the local send path.
@@ -90,6 +102,9 @@ export function useCloudLaunch(input: {
   nativeResume?: boolean;
   disabledReason?: string;
   onOutcome: (outcome: CloudLaunchOutcome) => void | Promise<void>;
+  /** Keep draft overrides scoped to the conversation, provider and project. */
+  draftId?: string;
+  initialExecution?: Execution;
 }): ComposerCloudLaunch | undefined {
   const {
     harness,
@@ -111,7 +126,28 @@ export function useCloudLaunch(input: {
     nativeResume,
   });
   const provider: NativeProvider = harness === "codex" ? "codex" : "claude";
-  const [execution, setExecution] = useState<Execution>("local");
+  const draftKey = `${input.draftId ?? "quick"}:${harness}:${cwd}`;
+  const [choice, setChoice] = useState<{
+    key: string;
+    execution: Execution;
+  } | null>(() => input.initialExecution
+    ? { key: draftKey, execution: input.initialExecution }
+    : null);
+  const execution: Execution =
+    choice?.key === draftKey
+      ? choice.execution
+      : loadDraftExecution(draftKey, !!input.draftId) ??
+        (newChatExecutionFor(harness) === "cloud" ? "cloud" : "local");
+  const setExecution = (next: Execution): void => {
+    setChoice({ key: draftKey, execution: next });
+    if (input.draftId) {
+      try {
+        localStorage.setItem(`monocode.draftExecution.${draftKey}`, next);
+      } catch {
+        // The current pane keeps its choice when storage is unavailable.
+      }
+    }
+  };
   const [environments, setEnvironments] = useState<Record<string, string>>({});
   const [branch, setBranch] = useState("");
   const [pending, setPending] = useState(false);
@@ -189,6 +225,8 @@ export function useCloudLaunch(input: {
     eligible,
     active,
     execution,
+    draftKey,
+    input.draftId,
     pending,
     error,
     provider,

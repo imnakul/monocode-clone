@@ -29,6 +29,7 @@ export async function acceptQuickLaunch(
     getSessions: () => Session[];
     updateSessions: (update: (sessions: Session[]) => Session[]) => void;
     appendTab: (tab: WorkspaceTab, cwd: string) => void;
+    configureRemoteControl?: (session: Session, enabled: boolean) => void;
     placeSession?: (
       sessionId: string,
       placement: { direction: SplitDir; besideSessionId: string },
@@ -99,6 +100,9 @@ export async function acceptQuickLaunch(
       workspace.setRecents(rememberProject(launch.cwd));
       workspace.revealTab(tabId, launch.cwd);
     }
+  }
+  if (typeof launch.remoteControl === "boolean" && session.harness === "claude") {
+    workspace.configureRemoteControl?.(session, launch.remoteControl);
   }
   if (launch.draft) {
     if (

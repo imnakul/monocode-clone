@@ -107,6 +107,9 @@ export function openProviderConversation(
       resolveImportModel(row.provider, options.model),
       options.runtimeMode,
     );
+    // Native identity is metadata, not transcript. Draft defaults must never
+    // treat a discovered conversation as a fresh local/cloud chat.
+    candidate.providerSessionId = nativeId;
     candidate.providerAccountId = row.providerAccountId;
     candidate.title = row.title;
     const liveMatch = await dependencies.findNativeSession?.(row);
@@ -140,7 +143,10 @@ export function openProviderConversation(
           "The saved MonoCode chat no longer matches this native conversation.",
         );
       }
-      if (liveMatch === existing) await dependencies.saveSession(existing);
+      const missingNativeId = !existing.providerSessionId;
+      if (missingNativeId) existing.providerSessionId = nativeId;
+      if (liveMatch === existing || missingNativeId)
+        await dependencies.saveSession(existing);
       bindHarnessSession(
         row.provider,
         existing.id,

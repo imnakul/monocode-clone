@@ -105,6 +105,8 @@ pub struct QuickLaunch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     runtime_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    remote_control: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     workspace_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     worktree_base: Option<String>,
