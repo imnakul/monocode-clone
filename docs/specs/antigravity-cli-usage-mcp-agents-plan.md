@@ -127,8 +127,10 @@ Learn, Remote Control, fork and planning are explicitly out of scope.
    work. CLI learn/RC/fork/planning controls remain unavailable/deferred.
 
 ## Done
-Source: `ea1c228` (local implementation commit).
+Source: `ea1c228` (published implementation commit).
 
 Implementation and automated gates complete; Review awaits the separate signed-in
 Windows checks above; the supplied native report format is covered by tests. No installer,
-GUI automation or remote feature was added. Nothing has been pushed in this task.
+GUI automation or remote feature was added. At the user's subsequent push request,
+implementation/checkpoint `9c73304` was pushed to
+`origin/nakul/windows-support-upstream-0.7.0` and its remote hash verified.
