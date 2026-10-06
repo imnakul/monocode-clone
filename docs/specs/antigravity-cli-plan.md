@@ -84,7 +84,7 @@ provider settings, model picker, streaming transcript, usage and session lifecyc
   [Antigravity ACP/CLI comparison](../notes/antigravity-acp-cli-comparison.md).
 
 ## Done
-Implementation is in the working tree on the original 0.7.0 branch; ACP identity,
+Implementation source is `d26c9a2c779bbc0d3c6fd1006d44fe15ba934081` on the original 0.7.0 branch; ACP identity,
 runtime and local features are preserved. New adapter/protocol/catalog/tests live
 under `src/integrations/harness/providers/antigravity-cli/`; existing components
 provide settings, binary selection, model selection and permissions.
@@ -105,6 +105,19 @@ Logs in this execution workspace: `/tmp/antigravity-cli-full-check-final.log`,
 
 No installed/authenticated agy is available in this environment. Actual
 Windows/provider/account/desktop checks are the manual follow-up in the comparison
-document. No installer, commit, push or Antigravity daemon installation requested;
-the pre-existing uncommitted defaults work remains intact. Current installed builds
-do not contain this uncommitted implementation.
+document. Nakul requested publication on 2026-10-06. The defaults and CLI
+features were committed separately and pushed to the fork; installed builds have
+not been rebuilt for this implementation. No installer or Antigravity daemon was added.
+
+### Publication — 2026-10-06 (IST)
+- Defaults source: `3c66574e5c9b74f1a55bc770ad506ceafcdb4079`.
+- CLI source: `d26c9a2c779bbc0d3c6fd1006d44fe15ba934081`.
+- Final pre-commit full check: 5,625 web tests / 518 files, TypeScript, Rust
+  formatting/Clippy and 615 Rust tests / 2 ignored — passed. This includes the
+  final native rebind guard. Log: `/tmp/monocode-publication-20261006-check.log`.
+- Reviewed/built code contents preserved exactly in the two feature commits.
+- Pushed to `imnakul/monocode-clone`, branch
+  `nakul/windows-support-upstream-0.7.0`; remote-verified at `d26c9a2`.
+  This documentation record follows that verified source checkpoint.
+- Both pre-existing untracked upstream-sync specs are unchanged and excluded.
+  Status remains Review for actual signed-in Windows/provider/desktop checks.

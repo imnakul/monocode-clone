@@ -60,7 +60,7 @@ No Happier/Sesori integration was implemented in this task.
 - The first full web run overlapped editing and loaded an older settings module
   alongside its new test (missing export). The complete-source rerun passed:
   5,599 tests in 515 files (`/tmp/new-chat-complete-web.log`).
-- Changes remain uncommitted/unpushed on the branch above.
+- Source commit: `3c66574e5c9b74f1a55bc770ad506ceafcdb4079`; published to the branch above on 2026-10-06 (IST).
 
 ## Issues and fixes
 - Previously the first-send default could disagree with the displayed location.
@@ -75,3 +75,13 @@ No Happier/Sesori integration was implemented in this task.
   extracted the production QuickLaunch/QuickAttachment types and included the actual
   delivery module in a temporary offline Rust crate: its three tests passed.
   Native Windows/macOS panel checks remain manual.
+
+## Publication
+Nakul requested publication on 2026-10-06. Source `3c66574` is followed by
+Antigravity CLI source `d26c9a2`; the combined code was pushed to the fork
+and remote-verified at `d26c9a2`. Final pre-commit `npm run check` passed:
+5,625 web tests / 518 files, TypeScript, Rust formatting/Clippy, and 615 Rust
+tests / 2 ignored. Code contents match the reviewed and previously built
+implementation; publication records are documentation only.
+No installer or native desktop/provider/phone verification was added.
+Log: `/tmp/monocode-publication-20261006-check.log`.
