@@ -6,7 +6,13 @@ import {
   type ProjectMarks,
 } from "../../projects/ui/ProjectMark";
 import { Target } from "../../../shared/ui/icons";
-import { TASK_STATUS_LABELS, type Task, type TaskStatus } from "../tasks";
+import {
+  TASK_STATUS_LABELS,
+  completedOn,
+  firstFocusDay,
+  type Task,
+  type TaskStatus,
+} from "../tasks";
 import { TaskStatusIcon } from "./TaskStatusIcon";
 
 export function relativeTime(timestamp: number | undefined): string {
@@ -83,48 +89,76 @@ export type FocusDayChip = {
   today: boolean;
 };
 
-/** "Oct 5" for a YYYY-MM-DD day. */
-function shortDay(day: string): string {
+/** Whole days from `first` to `later` (both `YYYY-MM-DD`). */
+export function dayDiff(first: string, later: string): number {
+  const parse = (day: string) => {
+    const [year, month, date] = day.split("-").map(Number);
+    return Date.UTC(year || 1970, (month || 1) - 1, date || 1);
+  };
+  return Math.round((parse(later) - parse(first)) / 86_400_000);
+}
+
+/** "5 Oct" for a YYYY-MM-DD day. */
+export function shortDay(day: string): string {
   const [year, month, date] = day.split("-").map(Number);
   if (!year || !month || !date) return day;
-  return new Date(year, month - 1, date).toLocaleDateString("en-US", {
+  const monthName = new Date(year, month - 1, date).toLocaleDateString("en-US", {
     month: "short",
-    day: "numeric",
+  });
+  return `${date} ${monthName}`;
+}
+
+/** "4:30 PM" for a completed-at timestamp. */
+export function shortTime(at: number): string {
+  return new Date(at).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
   });
 }
 
 /**
- * What the focus chip says for a task pinned to `focusDate`: "Today", the
- * short date when it is ahead, or "From Oct 2" when it was carried over.
+ * What the focus chip says: "Today" for a pin that started today, "Since …"
+ * for unfinished work that started earlier, or the short date for a future
+ * plan. Unpinned tasks show no chip.
  */
 export function focusDayChip(
-  focusDate: string | undefined,
+  task: Pick<Task, "focusDate" | "focusDays" | "createdAt" | "status">,
   today: string,
 ): FocusDayChip | null {
+  const focusDate = task.focusDate;
   if (!focusDate) return null;
-  if (focusDate === today) return { label: "Today", past: false, today: true };
   if (focusDate > today)
     return { label: shortDay(focusDate), past: false, today: false };
-  return { label: `From ${shortDay(focusDate)}`, past: true, today: false };
+  const first = firstFocusDay(task, today);
+  if (focusDate === today && first === today)
+    return { label: "Today", past: false, today: true };
+  if (first !== undefined && first < today) {
+    const ago = dayDiff(first, today);
+    if (ago === 1) return { label: "Since yesterday", past: true, today: false };
+    if (ago <= 6)
+      return { label: `Since ${ago} days ago`, past: true, today: false };
+    return { label: `Since ${shortDay(first)}`, past: true, today: false };
+  }
+  return { label: "Today", past: false, today: true };
 }
 
 export function TaskFocusChip({
-  focusDate,
+  task,
   today,
   className = "",
 }: {
-  focusDate: string | undefined;
+  task: Pick<Task, "focusDate" | "focusDays" | "createdAt" | "status">;
   today: string;
   className?: string;
 }) {
-  const chip = focusDayChip(focusDate, today);
+  const chip = focusDayChip(task, today);
   if (!chip) return null;
   return (
     <span
       data-focus-chip
       title={
         chip.past
-          ? `Pinned to focus ${shortDay(focusDate ?? "")}, still unfinished`
+          ? `In focus since ${shortDay(firstFocusDay(task, today) ?? task.focusDate ?? "")}, still unfinished`
           : `In focus: ${chip.label}`
       }
       className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] leading-none ${
@@ -136,6 +170,39 @@ export function TaskFocusChip({
       <Target aria-hidden className="size-2.5" strokeWidth={1.75} />
       {chip.label}
     </span>
+  );
+}
+
+/** Completion time shown on cards for a day selected in the week strip. */
+export function TaskDoneChip({
+  completedAt,
+  className = "",
+}: {
+  completedAt: number;
+  className?: string;
+}) {
+  return (
+    <span
+      data-done-chip
+      title={`Completed at ${shortTime(completedAt)}`}
+      className={`inline-flex shrink-0 items-center rounded bg-content/8 px-1.5 py-0.5 text-[10px] leading-none text-content/55 ${className}`}
+    >
+      Done {shortTime(completedAt)}
+    </span>
+  );
+}
+
+/** Done chip when a past strip day is selected and the task completed then. */
+export function taskDayChip(
+  task: Pick<Task, "completedAt">,
+  selectedDay: string | null,
+  today: string,
+): boolean {
+  return (
+    selectedDay !== null &&
+    selectedDay < today &&
+    task.completedAt !== undefined &&
+    completedOn(task, selectedDay)
   );
 }
 

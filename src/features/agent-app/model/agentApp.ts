@@ -693,7 +693,7 @@ export async function handleAgentApp(
       }
       if (input.focus !== undefined) {
         if (typeof input.focus !== "boolean") throw new Error("focus must be true or false");
-        if (input.focus) filters.focusDay = localDay();
+        if (input.focus) filters.day = localDay();
       }
       const limit = input.limit ?? 30, offset = input.offset ?? 0;
       if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 100)
@@ -737,6 +737,7 @@ export async function handleAgentApp(
         if (input.focusDate !== null && (typeof input.focusDate !== "string" || !/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(input.focusDate)))
           throw new Error("focusDate must be YYYY-MM-DD or null");
         changes.focusDate = input.focusDate;
+        changes.today = localDay();
       }
       if (input.tags !== undefined) changes.tags = noteTags(input.tags);
       if (input.projectCwd !== undefined) changes.projectCwd = taskProject(input.projectCwd);
@@ -760,6 +761,7 @@ export async function handleAgentApp(
         body: changes.body ?? "",
         status: changes.status ?? "todo",
         tags: changes.tags ?? [],
+        focusDays: [],
         projectCwd: changes.projectCwd === null ? undefined : changes.projectCwd ?? (looksLikeProject(source.cwd) ? source.cwd : undefined),
         sourceSessionId: changes.sourceSessionId === null ? undefined : changes.sourceSessionId ?? source.id,
         sourceBlockId: changes.sourceBlockId ?? undefined,

@@ -11,11 +11,12 @@ import type { ExplorerMenuItem } from "../../files/ui/ExplorerMenu";
 import {
   TASK_STATUSES,
   TASK_STATUS_LABELS,
-  isInFocus,
+  localDay,
   type Task,
   type TaskStatus,
 } from "../tasks";
 import { TaskStatusIcon } from "./TaskStatusIcon";
+import { addDays } from "./TaskWeekStrip";
 
 const icon = (Component: IconComponent) =>
   createElement(Component, { className: "size-3.5", strokeWidth: 1.75 });
@@ -23,22 +24,40 @@ const icon = (Component: IconComponent) =>
 /** What a task context-menu pick does. */
 export type TaskMenuAction =
   | { kind: "work" }
-  | { kind: "focus"; on: boolean }
+  | { kind: "focus"; on: boolean; day?: string }
   | { kind: "move"; status: TaskStatus }
   | { kind: "copy" }
   | { kind: "archive"; on: boolean }
   | { kind: "delete" };
 
 const MOVE_PREFIX = "move:";
+const FOCUS_ON_PREFIX = "focusOn:";
+
+function weekdayDate(day: string): string {
+  const [year, month, date] = day.split("-").map(Number);
+  const at = new Date(year || 1970, (month || 1) - 1, date || 1);
+  return `${at.toLocaleDateString("en-US", { weekday: "short" })} ${at.getDate()}`;
+}
+
+/** The four days offered by the "Focus on" submenu. */
+export function focusOnDays(today: string): { day: string; label: string }[] {
+  const tomorrow = addDays(today, 1);
+  return [
+    { day: today, label: "Today" },
+    { day: tomorrow, label: `Tomorrow · ${weekdayDate(tomorrow)}` },
+    { day: addDays(today, 2), label: weekdayDate(addDays(today, 2)) },
+    { day: addDays(today, 3), label: weekdayDate(addDays(today, 3)) },
+  ];
+}
 
 /** Right-click menu for one task. `today` is the local day (YYYY-MM-DD). */
 export function taskMenuItems(
   task: Task,
-  today: string,
+  today: string = localDay(),
   canWorkOn: boolean,
 ): ExplorerMenuItem[] {
-  const pinned = task.focusDate === today;
   const archived = task.archivedAt !== undefined;
+  const days = focusOnDays(today);
   return [
     ...(canWorkOn
       ? [{
@@ -48,21 +67,29 @@ export function taskMenuItems(
           icon: icon(Play),
         }]
       : []),
-    pinned
-      ? {
-          kind: "item",
-          id: "unfocus",
-          label: "Remove from today's focus",
-          icon: icon(Target),
-        }
-      : {
-          kind: "item",
-          id: "focus",
-          icon: icon(Target),
-          label: isInFocus(task, today)
-            ? "Pin to today's focus"
-            : "Focus today",
-        },
+    {
+      kind: "item",
+      id: "focus-on",
+      label: "Focus on",
+      icon: icon(Target),
+      submenu: [
+        ...days.map((entry) => ({
+          kind: "item" as const,
+          id: `${FOCUS_ON_PREFIX}${entry.day}`,
+          label: entry.label,
+          checked: task.focusDate === entry.day,
+        })),
+        ...(task.focusDate !== undefined
+          ? [
+              {
+                kind: "item" as const,
+                id: "unfocus",
+                label: "Remove from focus",
+              },
+            ]
+          : []),
+      ],
+    },
     {
       kind: "item",
       id: "move",
@@ -114,6 +141,12 @@ export function taskMenuAction(id: string): TaskMenuAction | null {
       (entry) => entry === id.slice(MOVE_PREFIX.length),
     );
     return status ? { kind: "move", status } : null;
+  }
+  if (id.startsWith(FOCUS_ON_PREFIX)) {
+    const day = id.slice(FOCUS_ON_PREFIX.length);
+    return /^\d{4}-\d{2}-\d{2}$/.test(day)
+      ? { kind: "focus", on: true, day }
+      : null;
   }
   switch (id) {
     case "work":

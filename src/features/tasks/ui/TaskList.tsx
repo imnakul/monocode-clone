@@ -1,8 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
 import type { ProjectMarks } from "../../projects/ui/ProjectMark";
 import { SharedHoverHighlight } from "../../sessions/ui/SharedHoverHighlight";
-import { groupTasks, type TaskGroupBy } from "../taskViewState";
+import { groupTasks, type TaskGroup, type TaskGroupBy } from "../taskViewState";
 import type { Task } from "../tasks";
 import { TaskGroupHeader } from "./TaskGroupHeader";
 import { TaskRow } from "./TaskRow";
@@ -13,6 +13,10 @@ export function TaskList({
   collapsed,
   selectedId,
   marks,
+  today,
+  selectedDay = null,
+  groups: override,
+  groupIcon,
   onSelect,
   onTagClick,
   onToggleGroup,
@@ -24,14 +28,23 @@ export function TaskList({
   collapsed: readonly string[];
   selectedId: string | null;
   marks: ProjectMarks;
+  /** Local day (YYYY-MM-DD) for the focus chips. */
+  today: string;
+  /** Week-strip day; completed cards on a past day show their Done time. */
+  selectedDay?: string | null;
+  /** Replaces the `groupBy` groups (the day view's Completed / In focus). */
+  groups?: TaskGroup[];
+  /** Override icon for a group header (the day view's In focus Target). */
+  groupIcon?: (group: TaskGroup) => ReactNode;
   onSelect: (id: string) => void;
   onTagClick: (tag: string) => void;
   onToggleGroup: (key: string) => void;
   onContextMenu: (task: Task, x: number, y: number) => void;
 }) {
   const lock = useLockOverscroll<HTMLDivElement>();
-  const groups = useMemo(() => groupTasks(tasks, groupBy), [tasks, groupBy]);
-  const grouped = groupBy !== "none";
+  const computed = useMemo(() => groupTasks(tasks, groupBy), [tasks, groupBy]);
+  const groups = override ?? computed;
+  const grouped = override ? true : groupBy !== "none";
   return (
     <div
       ref={lock}
@@ -52,6 +65,7 @@ export function TaskList({
                   collapsed={isCollapsed}
                   marks={marks}
                   onToggle={() => onToggleGroup(group.key)}
+                  icon={groupIcon?.(group)}
                 />
               </div>
             ) : null}
@@ -69,6 +83,8 @@ export function TaskList({
                       active={selectedId === task.id}
                       marks={marks}
                       groupBy={groupBy}
+                      today={today}
+                      selectedDay={selectedDay}
                       onSelect={() => onSelect(task.id)}
                       onTagClick={onTagClick}
                       onContextMenu={(x, y) => onContextMenu(task, x, y)}

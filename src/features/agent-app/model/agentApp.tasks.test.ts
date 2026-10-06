@@ -260,6 +260,7 @@ describe("Operator Tasks", () => {
     await run("tasks.write", { id: "b", focusDate: day, archived: true });
     expect(host.updateTask).toHaveBeenLastCalledWith("b", {
       focusDate: day,
+      today: day,
       archived: true,
     });
     await run("tasks.write", { id: "b", status: "deferred" });

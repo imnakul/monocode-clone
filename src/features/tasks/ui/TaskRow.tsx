@@ -1,10 +1,12 @@
 import type { ProjectMarks } from "../../projects/ui/ProjectMark";
 import { notePreview } from "../../notes/notes";
-import { localDay, TASK_STATUS_LABELS, type Task } from "../tasks";
+import { TASK_STATUS_LABELS, type Task } from "../tasks";
 import type { TaskGroupBy } from "../taskViewState";
 import { TaskStatusIcon } from "./TaskStatusIcon";
 import {
   relativeTime,
+  TaskDoneChip,
+  taskDayChip,
   TaskFocusChip,
   TaskProjectMark,
   TaskStatusLabel,
@@ -17,6 +19,8 @@ export function TaskRow({
   active,
   marks,
   groupBy = "none",
+  today,
+  selectedDay = null,
   onSelect,
   onTagClick,
   onContextMenu,
@@ -26,6 +30,10 @@ export function TaskRow({
   marks: ProjectMarks;
   /** Grouped by Project: show the status where the project would be. */
   groupBy?: TaskGroupBy;
+  /** Local day (YYYY-MM-DD) for the focus chip. */
+  today: string;
+  /** Week-strip day; completed rows on a past day show their Done time. */
+  selectedDay?: string | null;
   onSelect: () => void;
   onTagClick: (tag: string) => void;
   onContextMenu?: (x: number, y: number) => void;
@@ -81,7 +89,11 @@ export function TaskRow({
         onTagClick={onTagClick}
         className="hidden shrink-0 md:flex"
       />
-      <TaskFocusChip focusDate={task.focusDate} today={localDay()} />
+      {taskDayChip(task, selectedDay ?? null, today) && task.completedAt !== undefined ? (
+        <TaskDoneChip completedAt={task.completedAt} />
+      ) : (
+        <TaskFocusChip task={task} today={today} />
+      )}
       <span className="max-w-40 min-w-0 shrink-0 text-[11px] text-content/50">
         {groupBy === "project" ? (
           <TaskStatusLabel status={task.status} />

@@ -231,14 +231,16 @@ export function BoardColumn({
             ? { minWidth: fit ? 0 : fillMin }
             : { flexBasis: fixed, minWidth: resize?.min ?? fillMin }
       }
-      className={`relative flex min-h-0 flex-col rounded-lg transition-colors duration-100 ${
+      className={`relative flex min-h-0 flex-col rounded-xl transition-colors duration-100 ${
         wrapped
           ? "min-w-0"
           : fixed === null
             ? "flex-1 basis-0"
             : "shrink grow-0"
-      } surface-blur ${
-        highlighted ? "bg-content/5 ring-1 ring-accent/40" : "surface-tint"
+      } ${
+        highlighted
+          ? "border border-accent/40 bg-content/5"
+          : "border border-content/10 bg-content/3"
       } ${dimmed ? "opacity-50" : ""}`}
     >
       <div className="group/column-header flex h-9 shrink-0 items-center gap-2 px-3 text-[12px] font-medium">

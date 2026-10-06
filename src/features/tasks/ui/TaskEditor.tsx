@@ -20,14 +20,15 @@ import { AgentMarkdown } from "../../sessions/ui/AgentMarkdown";
 import { MarkdownDetailTabs } from "../../sessions/ui/MarkdownDetailTabs";
 import { useMarkdownMode } from "../../sessions/ui/MarkdownModeToggle";
 import {
-  localDay,
   taskMarkdown,
   updateTask,
   type Task,
   type TaskChanges,
 } from "../tasks";
+import { useLocalDay } from "../../../shared/hooks/useLocalDay";
 import { TaskStatusMenu } from "./TaskStatusIcon";
 import { relativeTime, TaskFocusChip, TaskProjectMark } from "./TaskTags";
+import { TaskTimeline } from "./TaskTimeline";
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -80,7 +81,7 @@ export function TaskEditor({
   const status = edits.status ?? task.status;
   const focusDate =
     edits.focusDate === null ? undefined : (edits.focusDate ?? task.focusDate);
-  const today = localDay();
+  const today = useLocalDay();
   const project =
     edits.projectCwd === null
       ? undefined
@@ -220,7 +221,7 @@ export function TaskEditor({
             />
             <span className="ml-auto flex items-center gap-0.5">
               <TaskFocusChip
-                focusDate={focusDate}
+                task={{ ...task, focusDate }}
                 today={today}
                 className="mr-1"
               />
@@ -238,7 +239,13 @@ export function TaskEditor({
                     : "Focus today"
                 }
                 onClick={() =>
-                  edit({ focusDate: focusDate === today ? null : today }, true)
+                  edit(
+                    {
+                      focusDate: focusDate === today ? null : today,
+                      today,
+                    },
+                    true,
+                  )
                 }
                 className={`${iconClass} ${focusDate === today ? "text-amber-300" : ""}`}
               >
@@ -375,6 +382,7 @@ export function TaskEditor({
         ) : (
           <p className="text-[13px] text-content/45">No description</p>
         )}
+        <TaskTimeline task={task} today={today} />
       </div>
     </div>
   );

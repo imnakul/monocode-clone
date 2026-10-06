@@ -1,6 +1,6 @@
 # Todo — Task Manager week strip, focus days, Settings-style board columns
 
-- Tier: medium · Snapshot: `147aea7` on `nakul/windows-support-upstream-0.7.0`, 2026-10-06 · Status: Todo
+- Tier: medium · Snapshot: `147aea7` on `nakul/windows-support-upstream-0.7.0`, 2026-10-06 · Status: Review
 - Skills: `frontend-ui`
 - Desktop UI checks are Nakul's. The implementer finishes with the manual checklist at the end.
 
@@ -259,4 +259,4 @@ A new section titled `Timeline`, below the body:
 
 ## Handoff retro
 
-(Filled in after implementation.)
+Implemented 2026-10-06 on `nakul/windows-support-upstream-0.7.0` (no drift: only this spec changed since `147aea7`). Deviations: no separator inside the "Focus on" submenu (ExplorerMenu submenus have no separator rows); timeline tested in `TaskTimeline.test.ts` rather than a `TaskPeekPane` test (the timeline is a `TaskTimeline` component rendered by `TaskEditor`); `focusDayChip`/`TaskFocusChip` now take the task (wording needs `firstFocusDay`); `TaskRow`/`TaskBoard` take `today` + `selectedDay` props; `inFocusOn`/`firstFocusDay` tolerate a missing `focusDays` (old fixtures). Verification below; manual checklist unchanged for Nakul.

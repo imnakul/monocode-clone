@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { ChevronDown } from "../../../shared/ui/icons";
 import {
   PersonalIcon,
@@ -27,11 +28,14 @@ export function TaskGroupHeader({
   collapsed,
   marks,
   onToggle,
+  icon,
 }: {
   group: TaskGroup;
   collapsed: boolean;
   marks: ProjectMarks;
   onToggle: () => void;
+  /** Overrides the status/project icon (e.g. the day view's In focus). */
+  icon?: ReactNode;
 }) {
   return (
     <button
@@ -47,7 +51,7 @@ export function TaskGroupHeader({
           collapsed ? "-rotate-90" : ""
         }`}
       />
-      <TaskGroupIcon group={group} marks={marks} />
+      {icon ?? <TaskGroupIcon group={group} marks={marks} />}
       <span className="min-w-0 truncate">{group.label}</span>
       <span className="shrink-0 tabular-nums text-content/45">
         {group.tasks.length}

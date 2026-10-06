@@ -28,7 +28,6 @@ import {
   type TaskBoardState,
 } from "../taskViewState";
 import {
-  localDay,
   TASK_STATUS_LABELS,
   type Task,
   type TaskStatus,
@@ -37,6 +36,8 @@ import { TaskGroupIcon } from "./TaskGroupHeader";
 import { TaskStatusIcon, TaskStatusMenu } from "./TaskStatusIcon";
 import {
   relativeTime,
+  TaskDoneChip,
+  taskDayChip,
   TaskFocusChip,
   TaskProjectMark,
   TaskStatusLabel,
@@ -100,6 +101,8 @@ export function TaskBoard({
   groupBy,
   selectedId,
   marks,
+  today,
+  selectedDay = null,
   onStateChange,
   onSelect,
   onTagClick,
@@ -114,6 +117,10 @@ export function TaskBoard({
   groupBy: BoardGroupBy;
   selectedId: string | null;
   marks: ProjectMarks;
+  /** Local day (YYYY-MM-DD) for the focus chips. */
+  today: string;
+  /** Week-strip day; completed cards on a past day show their Done time. */
+  selectedDay?: string | null;
   onStateChange: (state: TaskBoardState) => void;
   onSelect: (id: string) => void;
   onTagClick: (tag: string) => void;
@@ -452,6 +459,8 @@ export function TaskBoard({
                               dragging={drag?.task.id === task.id}
                               marks={marks}
                               groupBy={groupBy}
+                              today={today}
+                              selectedDay={selectedDay}
                               onPointerDown={(event) => beginDrag(event, task)}
                               onContextMenu={(event) => openMenu(event, task)}
                               onSelect={() => {
@@ -504,6 +513,8 @@ export function TaskBoard({
             dragging={false}
             marks={marks}
             groupBy={groupBy}
+            today={today}
+            selectedDay={selectedDay}
             ghost
           />
         </div>
@@ -530,6 +541,8 @@ function TaskCard({
   dragging,
   marks,
   groupBy,
+  today,
+  selectedDay = null,
   ghost = false,
   onPointerDown,
   onContextMenu,
@@ -543,6 +556,8 @@ function TaskCard({
   dragging: boolean;
   marks: ProjectMarks;
   groupBy: BoardGroupBy;
+  today: string;
+  selectedDay?: string | null;
   ghost?: boolean;
   onPointerDown?: (event: ReactPointerEvent<HTMLElement>) => void;
   onContextMenu?: (event: ReactMouseEvent<HTMLElement>) => void;
@@ -588,7 +603,11 @@ function TaskCard({
               <TaskProjectMark task={task} marks={marks} />
             )}
           </span>
-          <TaskFocusChip focusDate={task.focusDate} today={localDay()} />
+          {taskDayChip(task, selectedDay ?? null, today) && task.completedAt !== undefined ? (
+            <TaskDoneChip completedAt={task.completedAt} />
+          ) : (
+            <TaskFocusChip task={task} today={today} />
+          )}
           <TaskTagChips
             tags={task.tags}
             max={2}

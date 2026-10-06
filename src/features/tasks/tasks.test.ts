@@ -2,9 +2,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import {
+  completedOn,
   createTask,
   deleteTask,
   filterTasks,
+  firstFocusDay,
+  inFocusOn,
+  localDay,
+  normalizeFocusDays,
   TASKS_CHANGED_EVENT,
   parseTaskStatus,
   taskStatus,
@@ -22,6 +27,7 @@ function task(id: string, changes: Partial<Task> = {}): Task {
     tags: [],
     createdAt: 1,
     updatedAt: 1,
+    focusDays: [],
     ...changes,
   };
 }
@@ -70,6 +76,69 @@ describe("shared Tasks filters", () => {
       ),
     ).toEqual(["b"]);
     expect(filterTasks(rows).map((row) => row.id)).toEqual(["a", "b", "c"]);
+  });
+  it("matches a day by focus history, plan, creation or completion, archived included", () => {
+    // 2026-10-07 is a Tuesday; timestamps are noon local.
+    const day = (y: number, m: number, d: number) =>
+      new Date(y, m - 1, d, 12).getTime();
+    const seventh = day(2026, 10, 7);
+    const created7th = (changes: Partial<Task> = {}) =>
+      task("x", { createdAt: seventh, ...changes });
+    // R4: recorded history counts.
+    expect(
+      inFocusOn(created7th({ focusDays: ["2026-10-06"] }), "2026-10-06"),
+    ).toBe(true);
+    // R4: created on the 7th, planned for the 9th → not on the 7th.
+    expect(
+      inFocusOn(created7th({ focusDate: "2026-10-09" }), "2026-10-07"),
+    ).toBe(false);
+    expect(
+      inFocusOn(created7th({ focusDate: "2026-10-09" }), "2026-10-09"),
+    ).toBe(true);
+    // R4: created on the 7th, unpinned → on the 7th.
+    expect(inFocusOn(created7th(), "2026-10-07")).toBe(true);
+    expect(inFocusOn(created7th(), "2026-10-08")).toBe(false);
+    // R5.
+    expect(
+      completedOn(task("c", { completedAt: day(2026, 10, 10) }), "2026-10-10"),
+    ).toBe(true);
+    expect(completedOn(task("c"), "2026-10-10")).toBe(false);
+    // firstFocusDay: earliest of history, plan (≤ today) and created day.
+    // Created on the 7th but planned for the 9th: the 7th is not included.
+    expect(
+      firstFocusDay(
+        created7th({ focusDays: ["2026-10-08"], focusDate: "2026-10-09" }),
+        "2026-10-10",
+      ),
+    ).toBe("2026-10-08");
+    expect(
+      firstFocusDay(created7th({ focusDate: "2026-10-07" }), "2026-10-10"),
+    ).toBe("2026-10-07");
+    expect(firstFocusDay(created7th(), "2026-10-07")).toBe("2026-10-07");
+    expect(
+      firstFocusDay(created7th({ focusDate: "2026-10-09" }), "2026-10-07"),
+    ).toBeUndefined();
+    expect(normalizeFocusDays(["2026-10-09", "bad", "2026-10-09"])).toEqual([
+      "2026-10-09",
+    ]);
+    expect(localDay(seventh)).toBe("2026-10-07");
+  });
+  it("includes archived tasks in a day view but hides them elsewhere", () => {
+    const rows = [
+      task("done", {
+        createdAt: new Date(2026, 9, 10, 12).getTime(),
+        completedAt: new Date(2026, 9, 10, 16, 30).getTime(),
+        archivedAt: 5,
+      }),
+      task("other", { archivedAt: 6 }),
+    ];
+    expect(filterTasks(rows, { day: "2026-10-10" }).map((t) => t.id)).toEqual([
+      "done",
+    ]);
+    expect(filterTasks(rows).map((t) => t.id)).toEqual([]);
+    expect(
+      filterTasks(rows, { archived: "all" }).map((t) => t.id).sort(),
+    ).toEqual(["done", "other"]);
   });
   it("normalizes display status aliases and rejects unknown status values", () => {
     expect(taskStatus("In Progress")).toBe("in_progress");

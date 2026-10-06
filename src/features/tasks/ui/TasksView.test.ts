@@ -51,6 +51,7 @@ function row(partial: Partial<Task> & { id: string }): Task {
     tags: [],
     createdAt: 1,
     updatedAt: 1,
+    focusDays: [],
     ...partial,
   };
 }
@@ -264,7 +265,11 @@ async function switchView(label: "List" | "Table" | "Board") {
 function listTitles() {
   return [
     ...container.querySelectorAll<HTMLElement>(
-      '[aria-label="Tasks"][role="list"] li button .font-semibold',
+      [
+        '[aria-label="Tasks"][role="list"] li button .font-semibold',
+        '[aria-label="Completed tasks"][role="list"] li button .font-semibold',
+        '[aria-label="In focus tasks"][role="list"] li button .font-semibold',
+      ].join(", "),
     ),
   ].map((entry) => entry.textContent);
 }
@@ -907,9 +912,9 @@ describe("board view", () => {
     it("cancels with Escape and does nothing when dropped on the same column", async () => {
       await openBoard();
       await drag("Fix installer", "Review", false);
-      expect(byLabel("Review column").className).toContain("ring-accent");
+      expect(byLabel("Review column").className).toContain("border-accent/40");
       await escape();
-      expect(byLabel("Review column").className).not.toContain("ring-accent");
+      expect(byLabel("Review column").className).not.toContain("border-accent/40");
       expect(onClose).not.toHaveBeenCalled();
       await drag("Fix installer", "Blocked");
       expect(upserts()).toHaveLength(0);
@@ -1228,21 +1233,69 @@ describe("focus, archive and the task menu", () => {
     expect(focus.getAttribute("aria-label")).toBe(
       "Focus: 1 of 3 tasks are in today's focus",
     );
+    expect(focus.getAttribute("aria-pressed")).toBe("false");
+    // The week strip starts on All.
+    expect(
+      container.querySelector('[role="tablist"][aria-label="Task days"] [aria-selected="true"]')
+        ?.textContent,
+    ).toContain("All");
     await click(focus);
     expect(focus.getAttribute("aria-pressed")).toBe("true");
     expect(listTitles()).toEqual(["Personal reminder"]);
     expect(localStorage.getItem("monocode.tasks.focus")).toBe("true");
     await click(focus);
     expect(listTitles()).toHaveLength(3);
+    expect(localStorage.getItem("monocode.tasks.focus")).toBe("false");
   });
 
-  it("offers carry-over for unfinished tasks pinned on an earlier day", async () => {
+  it("selecting another strip day shows Focus off and groups the list", async () => {
+    const yesterday = localDay(Date.now() - 86_400_000);
+    rows.set("personal", { ...rows.get("personal")!, focusDate: yesterday });
+    await render();
+    const tabs = () =>
+      [...container.querySelectorAll<HTMLElement>('[aria-label="Task days"] [role="tab"]')].filter(
+        (entry) => !/^All/.test(entry.getAttribute("aria-label") ?? ""),
+      );
+    // Yesterday is the middle-left tab (3 days before .. 3 days after today).
+    await click(tabs()[2]);
+    const focus = container.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Focus:"]',
+    )!;
+    expect(focus.getAttribute("aria-pressed")).toBe("false");
+    expect(container.textContent).toContain("In focus");
+    expect(listTitles()).toEqual(["Personal reminder"]);
+    // Back to All from the strip.
+    await click(
+      container.querySelector<HTMLElement>('[aria-label="Task days"] [aria-label^="All"]'),
+    );
+    expect(listTitles()).toHaveLength(3);
+  });
+
+  it("shows the past and future empty states for strip days", async () => {
+    await render();
+    const strip = () =>
+      container.querySelector<HTMLElement>('[aria-label="Task days"]')!;
+    const dayTabs = () =>
+      [...strip().querySelectorAll<HTMLElement>('[role="tab"]')].filter(
+        (entry) => !/^All/.test(entry.getAttribute("aria-label") ?? ""),
+      );
+    // Yesterday: nothing recorded. Tomorrow: nothing planned.
+    await click(dayTabs()[2]);
+    expect(container.textContent).toContain("Nothing recorded for");
+    await click(dayTabs()[4]);
+    expect(container.textContent).toContain("Nothing planned for");
+  });
+
+  it("offers carry-over only with Today selected and sends today with it", async () => {
     rows.set("docs", { ...rows.get("docs")!, focusDate: "2020-01-01" });
     await render();
+    expect(container.textContent).not.toContain("unfinished from earlier focus");
     await click(container.querySelector('button[aria-label^="Focus:"]'));
     expect(container.textContent).toContain("1 unfinished from earlier focus");
     await click(button("Carry over"));
     expect(rows.get("docs")?.focusDate).toBe(localDay());
+    const carried = upserts().at(-1);
+    expect(carried).toMatchObject({ focusDate: localDay(), today: localDay() });
     expect(listTitles()).toEqual(["Ship docs"]);
   });
 
@@ -1278,8 +1331,13 @@ describe("focus, archive and the task menu", () => {
       ),
     );
     await rightClick(listRow("Fix installer"));
-    await click(menuItem("Focus today"));
+    await click(menuItem("Focus on"));
+    await click(menuItem("Today"));
     expect(rows.get("first")?.focusDate).toBe(localDay());
+    expect(upserts().at(-1)).toMatchObject({
+      focusDate: localDay(),
+      today: localDay(),
+    });
     await rightClick(listRow("Fix installer"));
     await click(menuItem("Start Work"));
     expect(workOn).toHaveBeenCalledWith(expect.objectContaining({ id: "first" }));
@@ -1325,9 +1383,14 @@ describe("toolbar layout and focus presentation", () => {
     expect(focus).toBeGreaterThan(order.findIndex((l) => /Project/.test(l ?? "")));
     expect(focus).toBeLessThan(order.findIndex((l) => /Archived/.test(l ?? "")));
     const slot = toolbar.querySelector<HTMLElement>('button[aria-label^="Focus:"]')!
-      .parentElement!;
+      .parentElement!.parentElement!;
     expect(slot.className).toContain("flex-1");
     expect(slot.className).toContain("justify-center");
+    // The Focus button glides like the strip: its own hover highlight.
+    expect(slot.querySelector("[data-shared-hover-highlight]")).not.toBeNull();
+    expect(
+      toolbar.querySelector('button[aria-label^="Focus:"]')!.hasAttribute("data-shared-hover-item"),
+    ).toBe(true);
     expect(toolbar.textContent).not.toContain("Columns");
     await switchView("Board");
     expect(toolbar.textContent).not.toContain("Columns");
@@ -1359,13 +1422,17 @@ describe("toolbar layout and focus presentation", () => {
 
   it("shows the focus day chip on rows and cards, but not for tasks in focus by creation", async () => {
     rows.set("docs", { ...rows.get("docs")!, focusDate: localDay() });
-    rows.set("first", { ...rows.get("first")!, focusDate: "2020-01-02" });
+    rows.set("first", {
+      ...rows.get("first")!,
+      focusDate: "2020-01-02",
+      focusDays: ["2020-01-01"],
+    });
     await render();
     expect(listRow("Ship docs").querySelector("[data-focus-chip]")?.textContent).toBe(
       "Today",
     );
-    expect(listRow("Fix installer").querySelector("[data-focus-chip]")?.textContent).toBe(
-      "From Jan 2",
+    expect(listRow("Fix installer").querySelector("[data-focus-chip]")?.textContent).toContain(
+      "Since",
     );
     expect(listRow("Personal reminder").querySelector("[data-focus-chip]")).toBeNull();
     await switchView("Board");

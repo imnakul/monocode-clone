@@ -72,6 +72,9 @@ pub struct Task {
     /// Local calendar day (`YYYY-MM-DD`) the task is pinned to Focus.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub focus_date: Option<String>,
+    /// Past local days the task sat in focus before moving on (R2/R3 history).
+    #[serde(default)]
+    pub focus_days: Vec<String>,
     /// When the task was archived; archived tasks stay in their status.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<i64>,
@@ -98,6 +101,14 @@ pub struct TaskUpsert {
     pub source_block_id: Option<String>,
     #[serde(default)]
     pub focus_date: Option<String>,
+    /// History carried by full-replacement upserts; the server merges it with
+    /// the stored history and R2/R3 additions (never drops entries by itself).
+    #[serde(default)]
+    pub focus_days: Vec<String>,
+    /// Local day (`YYYY-MM-DD`) of the writer, sent whenever `focus_date` is
+    /// in the changes. Used only to apply R2/R3; never stored.
+    #[serde(default)]
+    pub today: Option<String>,
     #[serde(default)]
     pub archived: bool,
     #[serde(default)]
@@ -123,11 +134,12 @@ pub fn ensure_tasks_table(conn: &Connection) -> rusqlite::Result<()> {
            source_block_id TEXT,
            created_at INTEGER NOT NULL,
            updated_at INTEGER NOT NULL,
-           completed_at INTEGER,
-           focus_date TEXT,
-           archived_at INTEGER,
-           sort_order REAL
-         );",
+            completed_at INTEGER,
+            focus_date TEXT,
+            focus_days_json TEXT NOT NULL DEFAULT '[]',
+            archived_at INTEGER,
+            sort_order REAL
+          );",
     )?;
     let columns = {
         let mut statement = tx.prepare("SELECT name FROM pragma_table_info('tasks')")?;
@@ -160,6 +172,7 @@ pub fn ensure_tasks_table(conn: &Connection) -> rusqlite::Result<()> {
         ("updated_at", "INTEGER NOT NULL DEFAULT 0"),
         ("completed_at", "INTEGER"),
         ("focus_date", "TEXT"),
+        ("focus_days_json", "TEXT NOT NULL DEFAULT '[]'"),
         ("archived_at", "INTEGER"),
         ("sort_order", "REAL"),
     ] {
@@ -217,6 +230,21 @@ fn validate_task_upsert(task: &TaskUpsert) -> Result<(), String> {
     {
         if !is_calendar_day(day) {
             return Err("Invalid task focus date".into());
+        }
+    }
+    if let Some(day) = task
+        .today
+        .as_deref()
+        .map(str::trim)
+        .filter(|day| !day.is_empty())
+    {
+        if !is_calendar_day(day) {
+            return Err("Invalid task today".into());
+        }
+    }
+    for day in &task.focus_days {
+        if !is_calendar_day(day.trim()) {
+            return Err("Invalid task focus history".into());
         }
     }
     if task.sort_order.is_some_and(|order| !order.is_finite()) {
@@ -277,7 +305,7 @@ fn list_tasks(conn: &Connection) -> rusqlite::Result<Vec<Task>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, body, status, tags_json, project_cwd,
                 source_session_id, source_block_id, created_at, updated_at, completed_at,
-                focus_date, archived_at, sort_order
+                focus_date, focus_days_json, archived_at, sort_order
          FROM tasks
          ORDER BY updated_at DESC, id ASC",
     )?;
@@ -289,13 +317,68 @@ fn get_task(conn: &Connection, id: &str) -> rusqlite::Result<Option<Task>> {
     conn.query_row(
         "SELECT id, title, body, status, tags_json, project_cwd,
                 source_session_id, source_block_id, created_at, updated_at, completed_at,
-                focus_date, archived_at, sort_order
+                focus_date, focus_days_json, archived_at, sort_order
          FROM tasks
          WHERE id = ?1",
         params![id],
         read_task,
     )
     .optional()
+}
+
+/// Local day (`YYYY-MM-DD`) of a millis timestamp, in the machine's timezone.
+/// SQLite's `localtime` modifier shares the OS timezone with the frontend's
+/// `localDay()`, so R3 sees the same created day the UI does.
+fn local_day_of(conn: &Connection, at_millis: i64) -> rusqlite::Result<String> {
+    conn.query_row(
+        "SELECT date(?1 / 1000, 'unixepoch', 'localtime')",
+        params![at_millis],
+        |row| row.get(0),
+    )
+}
+
+/// R2/R3: on a change of `focus_date` from O to N (N = none included), the
+/// frontend sends `today`; the old day O is recorded when O < today, or when
+/// O == today and N is another day (not none). When O is none, R3 treats the
+/// created day C as O when C < today.
+fn focus_history_addition(
+    old_focus_date: Option<&str>,
+    new_focus_date: Option<&str>,
+    created_day: Option<&str>,
+    today: &str,
+) -> Option<String> {
+    if old_focus_date == new_focus_date {
+        return None;
+    }
+    let effective_old = match old_focus_date {
+        Some(day) => Some(day),
+        None => match created_day {
+            Some(created) if created < today => Some(created),
+            _ => None,
+        },
+    };
+    let old = effective_old?;
+    if old < today {
+        Some(old.to_string())
+    } else if old == today {
+        match new_focus_date {
+            Some(next) if next != today => Some(old.to_string()),
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
+fn normalize_focus_days(days: &[String]) -> Vec<String> {
+    let mut kept: Vec<String> = days
+        .iter()
+        .map(|day| day.trim().to_string())
+        .filter(|day| is_calendar_day(day))
+        .collect();
+    kept.sort();
+    kept.dedup();
+    kept
 }
 
 fn upsert_task(conn: &Connection, input: &TaskUpsert) -> rusqlite::Result<Task> {
@@ -309,19 +392,63 @@ fn upsert_task(conn: &Connection, input: &TaskUpsert) -> rusqlite::Result<Task> 
     let source_session_id = clean_optional(input.source_session_id.as_deref());
     let source_block_id = clean_optional(input.source_block_id.as_deref());
     let focus_date = clean_optional(input.focus_date.as_deref());
+    let today = clean_optional(input.today.as_deref());
     let sort_order = input.sort_order.filter(|order| order.is_finite());
     let now = now_millis();
 
+    // R2/R3 history is computed in the same transaction as the focus_date
+    // write, so a concurrent edit cannot drop the recorded day.
+    let tx = conn.unchecked_transaction()?;
+    let previous: Option<Task> = tx
+        .query_row(
+            "SELECT id, title, body, status, tags_json, project_cwd,
+                    source_session_id, source_block_id, created_at, updated_at, completed_at,
+                    focus_date, focus_days_json, archived_at, sort_order
+             FROM tasks
+             WHERE id = ?1",
+            params![input.id],
+            read_task,
+        )
+        .optional()?;
+    let mut focus_days = normalize_focus_days(&input.focus_days);
+    if let Some(stored) = previous.as_ref() {
+        for day in normalize_focus_days(&stored.focus_days) {
+            if !focus_days.contains(&day) {
+                focus_days.push(day);
+            }
+        }
+        focus_days.sort();
+        if let Some(day) = today.as_deref() {
+            // New rows have no previous focus; R3 still applies when an
+            // existing row never had a focus date (created day before today).
+            let created_day = local_day_of(&tx, stored.created_at).ok();
+            let addition = focus_history_addition(
+                stored.focus_date.as_deref(),
+                focus_date.as_deref(),
+                created_day.as_deref(),
+                day,
+            );
+            if let Some(record) = addition {
+                if !focus_days.contains(&record) {
+                    focus_days.push(record);
+                    focus_days.sort();
+                }
+            }
+        }
+    }
+    let focus_days_json = serde_json::to_string(&focus_days)
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+
     // Completion time and created time transitions are evaluated by one
     // SQLite statement, so an edit racing a completion cannot reset the time.
-    conn.execute(
+    tx.execute(
         "INSERT INTO tasks (
            id, title, body, status, tags_json, project_cwd,
            source_session_id, source_block_id, created_at, updated_at, completed_at,
-           focus_date, archived_at, sort_order
+           focus_date, focus_days_json, archived_at, sort_order
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9,
                    CASE WHEN ?4 = 'completed' THEN ?9 ELSE NULL END,
-                   ?10, CASE WHEN ?11 THEN ?9 ELSE NULL END, ?12)
+                   ?10, ?11, CASE WHEN ?12 THEN ?9 ELSE NULL END, ?13)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            body = excluded.body,
@@ -331,10 +458,11 @@ fn upsert_task(conn: &Connection, input: &TaskUpsert) -> rusqlite::Result<Task> 
            source_session_id = excluded.source_session_id,
            source_block_id = excluded.source_block_id,
            focus_date = excluded.focus_date,
+           focus_days_json = excluded.focus_days_json,
            sort_order = excluded.sort_order,
            archived_at = CASE
-             WHEN ?11 AND tasks.archived_at IS NULL THEN excluded.updated_at
-             WHEN ?11 THEN tasks.archived_at
+             WHEN ?12 AND tasks.archived_at IS NULL THEN excluded.updated_at
+             WHEN ?12 THEN tasks.archived_at
              ELSE NULL END,
            updated_at = CASE
              WHEN tasks.title IS NOT excluded.title
@@ -345,7 +473,8 @@ fn upsert_task(conn: &Connection, input: &TaskUpsert) -> rusqlite::Result<Task> 
                OR tasks.source_session_id IS NOT excluded.source_session_id
                OR tasks.source_block_id IS NOT excluded.source_block_id
                OR tasks.focus_date IS NOT excluded.focus_date
-               OR (tasks.archived_at IS NULL) = ?11
+               OR tasks.focus_days_json IS NOT excluded.focus_days_json
+               OR (tasks.archived_at IS NULL) = ?12
              THEN excluded.updated_at ELSE tasks.updated_at END,
            completed_at = CASE
              WHEN excluded.status = 'completed' AND tasks.status <> 'completed'
@@ -363,11 +492,24 @@ fn upsert_task(conn: &Connection, input: &TaskUpsert) -> rusqlite::Result<Task> 
             source_block_id,
             now,
             focus_date,
+            focus_days_json,
             input.archived,
             sort_order,
         ],
     )?;
-    get_task(conn, &input.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+    let saved: Task = tx
+        .query_row(
+            "SELECT id, title, body, status, tags_json, project_cwd,
+                    source_session_id, source_block_id, created_at, updated_at, completed_at,
+                    focus_date, focus_days_json, archived_at, sort_order
+             FROM tasks
+             WHERE id = ?1",
+            params![input.id],
+            read_task,
+        )
+        .map_err(|_| rusqlite::Error::QueryReturnedNoRows)?;
+    tx.commit()?;
+    Ok(saved)
 }
 
 fn delete_task(conn: &Connection, id: &str) -> rusqlite::Result<()> {
@@ -386,6 +528,8 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
     })?;
     let tags_json: String = row.get(4)?;
     let tags = serde_json::from_str::<Vec<String>>(&tags_json).unwrap_or_default();
+    let focus_days_json: String = row.get(12).unwrap_or_else(|_| "[]".to_string());
+    let focus_days = serde_json::from_str::<Vec<String>>(&focus_days_json).unwrap_or_default();
     Ok(Task {
         id: row.get(0)?,
         title: row.get(1)?,
@@ -399,8 +543,9 @@ fn read_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
         updated_at: row.get(9)?,
         completed_at: row.get(10)?,
         focus_date: row.get(11)?,
-        archived_at: row.get(12)?,
-        sort_order: row.get(13)?,
+        focus_days: normalize_focus_days(&focus_days),
+        archived_at: row.get(13)?,
+        sort_order: row.get(14)?,
     })
 }
 
@@ -461,8 +606,18 @@ mod tests {
             source_session_id: None,
             source_block_id: None,
             focus_date: None,
+            focus_days: Vec::new(),
+            today: None,
             archived: false,
             sort_order: None,
+        }
+    }
+
+    fn with_focus(id: &str, focus_date: Option<&str>, today: Option<&str>) -> TaskUpsert {
+        TaskUpsert {
+            focus_date: focus_date.map(str::to_string),
+            today: today.map(str::to_string),
+            ..input(id, TaskStatus::Todo)
         }
     }
 
@@ -887,7 +1042,117 @@ mod tests {
         assert_eq!(old.title, "Old task");
         assert_eq!(old.status, TaskStatus::Completed);
         assert_eq!(old.focus_date, None);
+        assert!(old.focus_days.is_empty());
         assert_eq!(old.archived_at, None);
         assert_eq!(old.sort_order, None);
+    }
+
+    fn local_day(conn: &Connection, modifier: &str) -> String {
+        let query = if modifier.is_empty() {
+            "SELECT date('now', 'localtime')".to_string()
+        } else {
+            format!("SELECT date('now', '{modifier}', 'localtime')")
+        };
+        conn.query_row(&query, [], |row| row.get(0)).unwrap()
+    }
+
+    fn backdate_created(conn: &Connection, id: &str, modifier: &str) {
+        conn.execute(
+            &format!(
+                "UPDATE tasks SET created_at = \
+                 (strftime('%s', 'now', '{modifier}') * 1000) WHERE id = ?1"
+            ),
+            params![id],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn focus_history_records_a_past_day_when_moving_on() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let today = local_day(&conn, "");
+        let yesterday = local_day(&conn, "-1 day");
+        upsert_task(&conn, &with_focus("hist-1", Some(&yesterday), None)).unwrap();
+        let moved = upsert_task(&conn, &with_focus("hist-1", Some(&today), Some(&today))).unwrap();
+        assert_eq!(moved.focus_days, vec![yesterday.clone()]);
+        // Re-saving without a focus change records nothing more.
+        let again = upsert_task(&conn, &with_focus("hist-1", Some(&today), Some(&today))).unwrap();
+        assert_eq!(again.focus_days, vec![yesterday]);
+    }
+
+    #[test]
+    fn focus_history_records_today_only_when_planning_another_day() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let today = local_day(&conn, "");
+        let tomorrow = local_day(&conn, "+1 day");
+        upsert_task(&conn, &with_focus("hist-2", Some(&today), None)).unwrap();
+        let planned =
+            upsert_task(&conn, &with_focus("hist-2", Some(&tomorrow), Some(&today))).unwrap();
+        assert_eq!(planned.focus_days, vec![today.clone()]);
+        // Unpinning today (a mistake undone) records nothing.
+        upsert_task(&conn, &with_focus("hist-3", Some(&today), None)).unwrap();
+        let unpinned = upsert_task(&conn, &with_focus("hist-3", None, Some(&today))).unwrap();
+        assert!(unpinned.focus_days.is_empty());
+    }
+
+    #[test]
+    fn focus_history_ignores_moves_between_future_days() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let today = local_day(&conn, "");
+        let tomorrow = local_day(&conn, "+1 day");
+        let day_after = local_day(&conn, "+2 days");
+        upsert_task(&conn, &with_focus("hist-4", Some(&tomorrow), None)).unwrap();
+        let moved =
+            upsert_task(&conn, &with_focus("hist-4", Some(&day_after), Some(&today))).unwrap();
+        assert!(moved.focus_days.is_empty());
+        // Planning for the first time on the same day records nothing (R3
+        // needs the created day to be before today).
+        let fresh =
+            upsert_task(&conn, &with_focus("hist-5", Some(&tomorrow), Some(&today))).unwrap();
+        assert!(fresh.focus_days.is_empty());
+    }
+
+    #[test]
+    fn focus_history_uses_the_created_day_when_never_pinned() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let today = local_day(&conn, "");
+        let yesterday = local_day(&conn, "-1 day");
+        upsert_task(&conn, &with_focus("hist-6", None, None)).unwrap();
+        backdate_created(&conn, "hist-6", "-1 day");
+        let pinned = upsert_task(&conn, &with_focus("hist-6", Some(&today), Some(&today))).unwrap();
+        assert_eq!(pinned.focus_days, vec![yesterday]);
+    }
+
+    #[test]
+    fn focus_history_stays_sorted_without_duplicates_and_merges_inputs() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let mut seeded = input("hist-7", TaskStatus::Todo);
+        seeded.focus_days = vec![
+            "2026-10-10".into(),
+            "2026-10-08".into(),
+            "2026-10-10".into(),
+            "bad-day".into(),
+        ];
+        let saved = upsert_task(&conn, &seeded).unwrap();
+        assert_eq!(saved.focus_days, vec!["2026-10-08", "2026-10-10"]);
+        // A later write without a focus change keeps stored days even when
+        // the input omits them.
+        let kept = upsert_task(&conn, &input("hist-7", TaskStatus::Todo)).unwrap();
+        assert_eq!(kept.focus_days, vec!["2026-10-08", "2026-10-10"]);
+    }
+
+    #[test]
+    fn focus_history_rejects_bad_today_and_history_values() {
+        let mut task = input("bad-hist", TaskStatus::Todo);
+        task.today = Some("tomorrow".into());
+        assert!(validate_task_upsert(&task).is_err());
+        task.today = Some("2026-10-07".into());
+        task.focus_days = vec!["2026-13-01".into()];
+        assert!(validate_task_upsert(&task).is_err());
     }
 }

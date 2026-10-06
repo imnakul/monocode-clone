@@ -39,6 +39,8 @@ export type Task = {
   completedAt?: number;
   /** Local day (YYYY-MM-DD) this task is pinned to Focus. */
   focusDate?: string;
+  /** Past local days the task sat in focus before moving on (R2/R3 history). */
+  focusDays: string[];
   /** Archived tasks keep their status and are hidden unless shown. */
   archivedAt?: number;
   /** Manual position in a board column; lower comes first. */
@@ -47,7 +49,11 @@ export type Task = {
 export type TaskUpsert = Omit<
   Task,
   "createdAt" | "updatedAt" | "completedAt" | "archivedAt"
-> & { archived?: boolean };
+> & {
+  archived?: boolean;
+  /** Local day of the writer, sent whenever `focusDate` changes (R2/R3). */
+  today?: string;
+};
 export type TaskChanges = Partial<
   Omit<
     TaskUpsert,
@@ -56,7 +62,9 @@ export type TaskChanges = Partial<
     | "sourceSessionId"
     | "sourceBlockId"
     | "focusDate"
+    | "focusDays"
     | "sortOrder"
+    | "today"
   >
 > & {
   projectCwd?: string | null;
@@ -64,6 +72,8 @@ export type TaskChanges = Partial<
   sourceBlockId?: string | null;
   focusDate?: string | null;
   sortOrder?: number | null;
+  /** Local day (YYYY-MM-DD) of the writer; sent with every `focusDate` change. */
+  today?: string;
 };
 export type TaskFilters = {
   statuses?: TaskStatus[];
@@ -76,8 +86,8 @@ export type TaskFilters = {
   query?: string;
   /** false/omitted: hide archived; true: only archived; "all": both. */
   archived?: boolean | "all";
-  /** Keep only tasks in Focus on this local day (YYYY-MM-DD). */
-  focusDay?: string;
+  /** Keep only tasks in Focus or completed on this local day (YYYY-MM-DD). */
+  day?: string;
 };
 
 /** Local calendar day, YYYY-MM-DD. Focus is about the user's day, not UTC. */
@@ -87,9 +97,55 @@ export function localDay(at: number | Date = Date.now()): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** Focus history entries, normalised to sorted unique `YYYY-MM-DD` days. */
+export function normalizeFocusDays(days: unknown): string[] {
+  if (!Array.isArray(days)) return [];
+  const kept = days.filter(
+    (day): day is string =>
+      typeof day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(day),
+  );
+  return [...new Set(kept)].sort();
+}
+
+/**
+ * In Focus on day D (R4): recorded in `focusDays`, pinned to D, or created
+ * on D while unpinned (or pinned no later than D). A task created on the 7th
+ * but planned for the 9th does not show on the 7th.
+ */
+export function inFocusOn(task: Pick<Task, "focusDate" | "focusDays" | "createdAt">, day: string): boolean {
+  // Older rows and test fixtures may omit the history; treat it as empty.
+  if ((task.focusDays ?? []).includes(day)) return true;
+  if (task.focusDate === day) return true;
+  if (localDay(task.createdAt) !== day) return false;
+  return task.focusDate === undefined || task.focusDate <= day;
+}
+
 /** In Focus on `day`: created that day, or pinned to it. */
-export function isInFocus(task: Task, day: string): boolean {
-  return task.focusDate === day || localDay(task.createdAt) === day;
+export function isInFocus(task: Pick<Task, "focusDate" | "focusDays" | "createdAt">, day: string): boolean {
+  return inFocusOn(task, day);
+}
+
+/** Completed on day D (R5): the local day of `completedAt`. */
+export function completedOn(task: Pick<Task, "completedAt">, day: string): boolean {
+  return task.completedAt !== undefined && localDay(task.completedAt) === day;
+}
+
+/**
+ * Earliest day the task was in focus: the first of `focusDays`, `focusDate`
+ * (when not in the future) and the created day (when R4 covers it).
+ */
+export function firstFocusDay(
+  task: Pick<Task, "focusDate" | "focusDays" | "createdAt">,
+  today: string = localDay(),
+): string | undefined {
+  const candidates: string[] = [];
+  for (const day of task.focusDays ?? []) candidates.push(day);
+  if (task.focusDate !== undefined && task.focusDate <= today)
+    candidates.push(task.focusDate);
+  const created = localDay(task.createdAt);
+  if (inFocusOn(task, created)) candidates.push(created);
+  if (!candidates.length) return undefined;
+  return candidates.sort()[0];
 }
 
 /** Status for user or Operator input, mapping retired names. */
@@ -112,19 +168,24 @@ export function parseTaskStatus(value: unknown): {
   return { status, archive: false };
 }
 
-type StoredTask = Omit<Task, "status"> & { status: TaskStatus | LegacyStatus };
+type StoredTask = Omit<Task, "status" | "focusDays"> & {
+  status: TaskStatus | LegacyStatus;
+  focusDays?: unknown;
+};
 
 /** A row as the UI should see it: retired statuses mapped, plus whether to rewrite it. */
 export function normalizeStoredTask(raw: StoredTask): {
   task: Task;
   legacy: boolean;
 } {
+  const focusDays = normalizeFocusDays(raw.focusDays);
   if (!isLegacyStatus(raw.status))
-    return { task: { ...raw, status: raw.status }, legacy: false };
+    return { task: { ...raw, focusDays, status: raw.status }, legacy: false };
   const deferred = raw.status === "deferred";
   return {
     task: {
       ...raw,
+      focusDays,
       status: LEGACY_STATUSES[raw.status],
       archivedAt: deferred ? (raw.archivedAt ?? raw.updatedAt) : raw.archivedAt,
     },
@@ -147,10 +208,16 @@ export function filterTasks(
     .filter((task) => {
       if (filters.statuses?.length && !filters.statuses.includes(task.status))
         return false;
-      const archived = task.archivedAt !== undefined;
-      if (filters.archived === true ? !archived : filters.archived !== "all" && archived)
-        return false;
-      if (filters.focusDay && !isInFocus(task, filters.focusDay)) return false;
+      if (filters.day) {
+        // A day view shows everything recorded for it, including tasks
+        // archived since; the archived filter does not apply here.
+        if (!inFocusOn(task, filters.day) && !completedOn(task, filters.day))
+          return false;
+      } else {
+        const archived = task.archivedAt !== undefined;
+        if (filters.archived === true ? !archived : filters.archived !== "all" && archived)
+          return false;
+      }
       if (filters.projectCwds) {
         if (
           !filters.projectCwds.some((cwd) =>
@@ -264,9 +331,14 @@ export function taskToUpsert(task: Task): TaskUpsert {
     updatedAt: _updated,
     completedAt: _completed,
     archivedAt,
+    focusDays,
     ...record
   } = task;
-  return { ...record, archived: archivedAt !== undefined };
+  return {
+    ...record,
+    focusDays: [...focusDays],
+    archived: archivedAt !== undefined,
+  };
 }
 export async function upsertTask(task: TaskUpsert): Promise<Task> {
   const saved = await invoke<StoredTask>("tasks_upsert", {
@@ -283,13 +355,15 @@ export async function createTask(
   input: Omit<Partial<TaskUpsert>, "id"> = {},
 ): Promise<Task> {
   const body = input.body ?? "";
+  const { today: _today, ...rest } = input;
   return upsertTask({
-    ...input,
+    ...rest,
     id: crypto.randomUUID(),
     title: input.title?.trim() || noteTitle(body),
     body,
     status: input.status ?? "todo",
     tags: input.tags ?? [],
+    focusDays: input.focusDays ?? [],
   });
 }
 
@@ -314,6 +388,7 @@ export function updateTask(id: string, changes: TaskChanges): Promise<Task> {
     return upsertTask({
       ...record,
       ...changes,
+      today: changes.today ?? undefined,
       focusDate:
         changes.focusDate === null
           ? undefined

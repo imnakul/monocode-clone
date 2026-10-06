@@ -54,9 +54,11 @@ import {
   type TaskViewId,
 } from "../taskViewState";
 import {
+  completedOn,
   createTask,
   deleteTask,
   filterTasks,
+  inFocusOn,
   isInFocus,
   loadTasks,
   localDay,
@@ -70,10 +72,14 @@ import {
   type TaskFilters,
   type TaskStatus,
 } from "../tasks";
+import { useLocalDay } from "../../../shared/hooks/useLocalDay";
+import { SharedHoverHighlight } from "../../sessions/ui/SharedHoverHighlight";
 import { TaskBoard } from "./TaskBoard";
 import { TaskList } from "./TaskList";
 import { TaskPeekPane } from "./TaskPeekPane";
+import { describeDay, TaskWeekStrip } from "./TaskWeekStrip";
 import { usePresence } from "../../../shared/hooks/usePresence";
+import type { TaskGroup } from "../taskViewState";
 import { TaskTable } from "./TaskTable";
 import { hasActiveFilters, TasksToolbar } from "./TasksToolbar";
 import { ResultCount } from "../../../shared/ui/ResultCount";
@@ -159,14 +165,25 @@ export function TasksView({
   const [listCollapsed, setListCollapsed] = useState<string[]>([]);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [taskMenu, setTaskMenu] = useState<TaskMenu | null>(null);
-  const [focusOn, setFocusOn] = useState(() => loadFlag(FOCUS_KEY));
+  // Week-strip day (`null` means All). Starts on Today when the Focus flag
+  // is set; a past or future day is never restored.
+  const [selectedDay, setSelectedDay] = useState<string | null>(() =>
+    loadFlag(FOCUS_KEY) ? localDay() : null,
+  );
+  const [recenterSignal, setRecenterSignal] = useState(0);
   const [showArchived, setShowArchived] = useState(() =>
     loadFlag(SHOW_ARCHIVED_KEY),
   );
   const [burst, setBurst] = useState<BurstTarget | null>(null);
   const [newTaskId, setNewTaskId] = useState<string | null>(null);
   const focusButton = useRef<HTMLButtonElement>(null);
-  const today = localDay();
+  const today = useLocalDay();
+  const focusSelected = selectedDay === today;
+  const selectDay = (day: string | null) => {
+    setSelectedDay(day);
+    if (day === today) saveFlag(FOCUS_KEY, true);
+    else if (day === null) saveFlag(FOCUS_KEY, false);
+  };
   const marks = useProjectMarks();
   const root = useRef<HTMLDivElement>(null);
   const alive = useRef(true);
@@ -211,19 +228,38 @@ export function TasksView({
     };
   }, [refresh]);
 
-  /** User filters plus Focus and Show archived. */
+  /** User filters plus the week-strip day and Show archived. */
   const effectiveFilters = useMemo<TaskFilters>(
     () => ({
       ...filters,
       archived: showArchived ? "all" : false,
-      focusDay: focusOn ? today : undefined,
+      day: selectedDay ?? undefined,
     }),
-    [filters, showArchived, focusOn, today],
+    [filters, showArchived, selectedDay],
   );
   const visible = useMemo(
     () => filterTasks(tasks, effectiveFilters),
     [tasks, effectiveFilters],
   );
+  /** List view on a strip day: Completed and In focus groups. */
+  const dayGroups = useMemo<TaskGroup[] | null>(() => {
+    if (selectedDay === null) return null;
+    const completed = visible.filter((task) => completedOn(task, selectedDay));
+    const inFocus = visible.filter(
+      (task) => !completedOn(task, selectedDay) && inFocusOn(task, selectedDay),
+    );
+    const groups: TaskGroup[] = [];
+    if (completed.length)
+      groups.push({
+        key: "day:completed",
+        label: "Completed",
+        status: "completed",
+        tasks: completed,
+      });
+    if (inFocus.length)
+      groups.push({ key: "day:in-focus", label: "In focus", tasks: inFocus });
+    return groups;
+  }, [visible, selectedDay]);
   const activeTasks = useMemo(
     () => tasks.filter((task) => showArchived || task.archivedAt === undefined),
     [tasks, showArchived],
@@ -303,13 +339,14 @@ export function TasksView({
       const task = await createTask({ projectCwd, status: "todo" });
       if (!alive.current) return;
       if (!alive.current) return;
-      // Always show the new task: clear every filter that could hide it (Focus
+      // Always show the new task: clear every filter that could hide it (Today
       // keeps it, as a task created today is in today's focus), and put it in
       // the list ourselves. `refresh()` can be superseded by the change-event
       // refresh and return before the row is loaded; the selection effect
       // would then see an unknown id and close the open pane.
       setFilters({});
-      if (focusOn && !isInFocus(task, today)) setFocusOn(false);
+      if (selectedDay !== null && !inFocusOn(task, selectedDay))
+        setSelectedDay(null);
       setTasks((current) => [
         task,
         ...current.filter((item) => item.id !== task.id),
@@ -353,19 +390,26 @@ export function TasksView({
     verb: string,
   ) => {
     setActionError(null);
-    updateTask(task.id, changes).catch((reason: unknown) => {
+    // Every `focusDate` change carries `today` so history is recorded (R2/R3).
+    const dated =
+      changes.focusDate !== undefined && changes.today === undefined
+        ? { ...changes, today }
+        : changes;
+    updateTask(task.id, dated).catch((reason: unknown) => {
       if (alive.current)
         setActionError(`Could not ${verb} "${task.title}": ${message(reason)}`);
     });
   };
   const toggleFocus = () => {
-    const next = !focusOn;
-    setFocusOn(next);
-    saveFlag(FOCUS_KEY, next);
-    if (next) {
-      const target = burstAt(focusButton.current);
-      if (target) setBurst(target);
+    if (focusSelected) {
+      selectDay(null);
+      return;
     }
+    // Jump to today: select it and re-centre the strip on it.
+    selectDay(today);
+    setRecenterSignal((signal) => signal + 1);
+    const target = burstAt(focusButton.current);
+    if (target) setBurst(target);
   };
   const toggleArchived = () => {
     const next = !showArchived;
@@ -390,7 +434,9 @@ export function TasksView({
       case "focus":
         changeTask(
           task,
-          { focusDate: action.on ? today : null },
+          action.on
+            ? { focusDate: action.day ?? today, today }
+            : { focusDate: null, today },
           action.on ? "focus" : "unfocus",
         );
         return;
@@ -486,7 +532,7 @@ export function TasksView({
   const filteredEmpty = tasks.length > 0 && visible.length === 0;
   const resetFilters = () => {
     setFilters({});
-    if (focusOn) toggleFocus();
+    selectDay(null);
   };
   const body =
     loading && tasks.length === 0 ? (
@@ -514,9 +560,13 @@ export function TasksView({
       </EmptyState>
     ) : filteredEmpty ? (
       <EmptyState>
-        {focusOn && !hasActiveFilters(filters)
-          ? "Nothing in focus today. Pin a task with Focus today, or create one."
-          : "No tasks match these filters"}
+        {selectedDay !== null && selectedDay !== today
+          ? selectedDay < today
+            ? `Nothing recorded for ${describeDay(selectedDay)}.`
+            : `Nothing planned for ${describeDay(selectedDay)}.`
+          : selectedDay === today && !hasActiveFilters(filters)
+            ? "Nothing in focus today. Pin a task with Focus today, or create one."
+            : "No tasks match these filters"}
         <button
           type="button"
           onClick={resetFilters}
@@ -532,6 +582,14 @@ export function TasksView({
         collapsed={listCollapsed}
         selectedId={selected?.id ?? null}
         marks={marks}
+        today={today}
+        selectedDay={selectedDay}
+        groups={dayGroups ?? undefined}
+        groupIcon={(group) =>
+          group.key === "day:in-focus" ? (
+            <Target aria-hidden className="size-3.5" strokeWidth={1.75} />
+          ) : undefined
+        }
         onSelect={setSelectedId}
         onTagClick={addTagFilter}
         onToggleGroup={toggleListGroup}
@@ -558,6 +616,8 @@ export function TasksView({
         groupBy={grouping.board}
         selectedId={selected?.id ?? null}
         marks={marks}
+        today={today}
+        selectedDay={selectedDay}
         onStateChange={updateBoard}
         onSelect={setSelectedId}
         onTagClick={addTagFilter}
@@ -594,7 +654,7 @@ export function TasksView({
             <ResultCount
               shown={visible.length}
               total={activeTasks.length}
-              filtered={hasActiveFilters(filters) || focusOn}
+              filtered={hasActiveFilters(filters) || selectedDay !== null}
               noun="tasks"
             />
           )}
@@ -615,29 +675,33 @@ export function TasksView({
           />
         }
         center={
-          <button
-            ref={focusButton}
-            type="button"
-            aria-pressed={focusOn}
-            aria-label={`Focus: ${focusCount} of ${activeTasks.length} tasks are in today's focus`}
-            title="Show only today's focus: tasks created today or pinned to today"
-            onClick={toggleFocus}
-            className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12px] transition-colors duration-150 ${
-              focusOn
-                ? "bg-amber-400/15 text-amber-200 hover:bg-amber-400/25"
-                : "text-content/60 hover:bg-content/10 hover:text-content"
-            }`}
-          >
-            <Target
-              aria-hidden
-              className="size-3.5"
-              strokeWidth={1.75}
-            />
-            Focus
-            <span className="tabular-nums text-[11px] opacity-70">
-              {focusCount}/{activeTasks.length}
-            </span>
-          </button>
+          <div className="relative shrink-0">
+            <SharedHoverHighlight />
+            <button
+              ref={focusButton}
+              type="button"
+              data-shared-hover-item
+              aria-pressed={focusSelected}
+              aria-label={`Focus: ${focusCount} of ${activeTasks.length} tasks are in today's focus`}
+              title="Show only today's focus: tasks created today or pinned to today"
+              onClick={toggleFocus}
+              className={`relative z-[2] inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12px] transition-colors duration-150 ${
+                focusSelected
+                  ? "bg-amber-400/15 text-amber-200 hover:bg-amber-400/25"
+                  : "text-content/60 hover:bg-content/10 hover:text-content"
+              }`}
+            >
+              <Target
+                aria-hidden
+                className="size-3.5"
+                strokeWidth={1.75}
+              />
+              Focus
+              <span className="tabular-nums text-[11px] opacity-70">
+                {focusCount}/{activeTasks.length}
+              </span>
+            </button>
+          </div>
         }
         trailing={
           <>
@@ -667,6 +731,13 @@ export function TasksView({
             <TasksViewSwitch view={view} onChange={saveView} />
           </>
         }
+      />
+      <TaskWeekStrip
+        tasks={tasks}
+        today={today}
+        selectedDay={selectedDay}
+        onSelect={selectDay}
+        recenterSignal={recenterSignal}
       />
       {menu ? (
         <ExplorerMenu
@@ -699,7 +770,7 @@ export function TasksView({
           onDone={() => setBurst(null)}
         />
       ) : null}
-      {focusOn && carryOver.length ? (
+      {focusSelected && carryOver.length ? (
         <div className="flex shrink-0 items-center gap-2 px-3 pb-1 text-[12px] text-content/60">
           <Target
             aria-hidden

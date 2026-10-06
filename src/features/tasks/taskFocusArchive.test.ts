@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  completedOn,
   filterTasks,
+  inFocusOn,
   isInFocus,
   localDay,
   normalizeStoredTask,
@@ -29,6 +31,7 @@ function task(id: string, changes: Partial<Task> = {}): Task {
     tags: [],
     createdAt: DAY - 3 * 86_400_000,
     updatedAt: 1,
+    focusDays: [],
     ...changes,
   };
 }
@@ -44,14 +47,25 @@ describe("Focus", () => {
     );
   });
 
-  it("filters by focus day, hides archived by default and combines several projects", () => {
+  it("keeps inFocusOn as the Focus predicate and records history days", () => {
+    expect(inFocusOn(task("h", { focusDays: [YESTERDAY] }), YESTERDAY)).toBe(
+      true,
+    );
+    expect(completedOn(task("c", { completedAt: DAY }), TODAY)).toBe(true);
+    expect(completedOn(task("c"), TODAY)).toBe(false);
+  });
+
+  it("filters by day, hides archived by default and combines several projects", () => {
     const rows = [
       task("today", { createdAt: DAY, projectCwd: "/work/a" }),
       task("pinned", { focusDate: TODAY }),
       task("archived", { createdAt: DAY, archivedAt: 5 }),
       task("other", { projectCwd: "/work/b" }),
     ];
-    expect(filterTasks(rows, { focusDay: TODAY }).map((t) => t.id).sort()).toEqual([
+    // The day view ignores the archived filter: the archived task created
+    // today still shows for today.
+    expect(filterTasks(rows, { day: TODAY }).map((t) => t.id).sort()).toEqual([
+      "archived",
       "pinned",
       "today",
     ]);
@@ -82,6 +96,12 @@ describe("retired statuses", () => {
       task: { status: "todo", archivedAt: 9 },
     });
     expect(normalizeStoredTask(task("ok")).legacy).toBe(false);
+    const { focusDays, ...missing } = task("m");
+    expect(normalizeStoredTask(missing as Task).task.focusDays).toEqual([]);
+    expect(
+      normalizeStoredTask({ ...task("u"), focusDays: undefined as unknown as string[] })
+        .task.focusDays,
+    ).toEqual([]);
   });
 });
 
@@ -154,12 +174,12 @@ describe("board ordering", () => {
 });
 
 describe("task right-click menu", () => {
-  it("offers work, focus, move, copy, archive and delete, and decodes picks", () => {
+  it("offers work, a Focus on submenu, move, copy, archive and delete, and decodes picks", () => {
     const items = taskMenuItems(task("a"), TODAY, true);
     const labels = items.map((item) => (item.kind === "item" ? item.label : "—"));
     expect(labels).toEqual([
       "Start Work",
-      "Focus today",
+      "Focus on",
       "Status",
       "Copy",
       "—",
@@ -167,27 +187,59 @@ describe("task right-click menu", () => {
       "Delete task",
     ]);
     expect(labels).not.toContain("Open beside session");
-    // Every actionable item, and every status in the submenu, has an icon.
-    for (const item of items) {
-      if (item.kind !== "item") continue;
-      expect(item.icon, item.label).toBeTruthy();
-      for (const sub of item.submenu ?? [])
-        expect(sub.icon, sub.label).toBeTruthy();
-    }
-    const status = items.find((item) => item.kind === "item" && item.id === "move");
-    expect(status?.kind === "item" ? status.submenu : []).toHaveLength(5);
-    const archived = taskMenuItems(
+    const focus = items.find(
+      (item) => item.kind === "item" && item.id === "focus-on",
+    );
+    expect(focus?.kind === "item" ? focus.icon : null).toBeTruthy();
+    const days = focus?.kind === "item" ? (focus.submenu ?? []) : [];
+    expect(days.map((item) => item.label)).toEqual([
+      "Today",
+      expect.stringMatching(/^Tomorrow · /),
+      expect.any(String),
+      expect.any(String),
+    ]);
+    // No ✓ when unpinned, and no Remove item.
+    expect(days.every((item) => item.checked !== true)).toBe(true);
+    expect(days.some((item) => item.id === "unfocus")).toBe(false);
+    const pinned = taskMenuItems(
       task("b", { archivedAt: 1, focusDate: TODAY }),
       TODAY,
       false,
-    ).map((item) => (item.kind === "item" ? item.label : "—"));
-    expect(archived).toContain("Unarchive");
-    expect(archived).toContain("Remove from today's focus");
-    expect(archived).not.toContain("Start Work");
+    );
+    const pinnedLabels = pinned.map((item) =>
+      item.kind === "item" ? item.label : "—",
+    );
+    expect(pinnedLabels).toContain("Unarchive");
+    expect(pinnedLabels).not.toContain("Start Work");
+    const pinnedFocus = pinned.find(
+      (item) => item.kind === "item" && item.id === "focus-on",
+    );
+    const pinnedDays =
+      pinnedFocus?.kind === "item" ? (pinnedFocus.submenu ?? []) : [];
+    expect(
+      pinnedDays.find((item) => item.id === `focusOn:${TODAY}`)?.checked,
+    ).toBe(true);
+    expect(
+      pinnedDays.some((item) => item.label === "Remove from focus"),
+    ).toBe(true);
+    // Every top-level actionable item has an icon; status rows keep theirs.
+    for (const item of items) {
+      if (item.kind !== "item") continue;
+      expect(item.icon, item.label).toBeTruthy();
+    }
+    const status = items.find((item) => item.kind === "item" && item.id === "move");
+    expect(status?.kind === "item" ? status.submenu : []).toHaveLength(5);
     expect(taskMenuAction("move:review")).toEqual({
       kind: "move",
       status: "review",
     });
+    expect(taskMenuAction(`focusOn:${TODAY}`)).toEqual({
+      kind: "focus",
+      on: true,
+      day: TODAY,
+    });
+    expect(taskMenuAction("unfocus")).toEqual({ kind: "focus", on: false });
+    expect(taskMenuAction("focusOn:bad")).toBeNull();
     expect(taskMenuAction("unarchive")).toEqual({ kind: "archive", on: false });
     expect(taskMenuAction("bogus")).toBeNull();
   });
