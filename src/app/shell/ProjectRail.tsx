@@ -140,10 +140,11 @@ type Props = {
   onDismissUpdate?: () => void;
   mode?: AppMode;
   onModeChange?: (mode: AppMode) => void;
-  /** Enabled provider folders shown below the projects. */
+  /** MonoCode-retained cloud providers shown below the projects. */
   providerEntries?: readonly ProviderRailEntry[];
   selectedProvider?: NativeProvider | null;
   onSelectProvider?: (provider: NativeProvider) => void;
+  onAddSession?: () => void;
 };
 
 /** Projects / Chat lens switcher. Hari enables when its surface lands.
@@ -193,6 +194,7 @@ export function ProjectRail({
   providerEntries = [],
   selectedProvider = null,
   onSelectProvider,
+  onAddSession,
 }: Props) {
   const resize = useDragResize({
     min: PROJECT_RAIL_WIDTH_MIN,
@@ -558,6 +560,7 @@ export function ProjectRail({
                 entries={providerEntries}
                 selected={selectedProvider}
                 onSelect={onSelectProvider}
+                onAddSession={onAddSession}
               />
             ) : null}
           </div>

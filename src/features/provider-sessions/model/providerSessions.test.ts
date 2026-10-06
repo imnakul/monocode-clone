@@ -35,7 +35,37 @@ beforeEach(() => {
   });
 });
 
-describe("automatic native provider conversations", () => {
+describe("native provider conversations", () => {
+  it.each([
+    ["E:\\Developing\\Repo\\", "e:/developing/repo"],
+    ["\\\\HOST\\Share\\Repo", "//host/share/repo/"],
+  ])("reuses saved Windows identity across path spelling: %s", async (nativeCwd, savedCwd) => {
+    const nativeRow = { ...row, cwd: nativeCwd };
+    const existing = { ...newSession("claude", savedCwd), providerSessionId: row.nativeId };
+    const saveSession = vi.fn();
+    expect(await openProviderConversation(nativeRow, {
+      findSession: async () => existing,
+      saveSession,
+    })).toBe(existing);
+    expect(saveSession).not.toHaveBeenCalled();
+    expect(bind).toHaveBeenCalledWith("claude", existing.id, row.nativeId, savedCwd, "default");
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "provider_sessions_for_session") return { key: row.key, cwd: nativeCwd };
+      if (command === "provider_sessions_validate_source") return row.nativeId;
+    });
+    expect(await prepareProviderNativeInput("claude", {
+      sessionId: existing.id, cwd: savedCwd, model: "claude:sonnet",
+      runtimeMode: "supervised", onEvent: vi.fn(),
+    })).toMatchObject({ nativeResume: { providerSessionId: row.nativeId } });
+  });
+
+  it.each(["/Repo", "/repo\\sub", "/repo/sub"])("keeps different Unix folders distinct: %s", async (cwd) => {
+    await expect(openProviderConversation(row, {
+      findSession: async () => ({ ...newSession("claude", cwd), providerSessionId: row.nativeId }),
+      saveSession: vi.fn(),
+    })).rejects.toThrow("no longer matches");
+    expect(bind).not.toHaveBeenCalled();
+  });
   it("rejects a mismatched live native ID before claiming a source binding", async () => {
     await expect(
       openProviderConversation(row, {

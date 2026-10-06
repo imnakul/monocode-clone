@@ -571,6 +571,7 @@ pub fn run() {
             session_import::scan_external_sessions,
             session_import::read_external_transcript,
             provider_sessions::provider_sessions_list,
+            provider_sessions::provider_sessions_resolve,
             provider_sessions::provider_sessions_set_archived,
             provider_sessions::provider_sessions_bind,
             provider_sessions::provider_sessions_for_session,

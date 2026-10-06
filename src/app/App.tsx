@@ -423,10 +423,7 @@ import {
 } from "../features/provider-sessions/model/providerSessions";
 import { nativeHistoryStore } from "../features/provider-sessions/model/history";
 import { prepareNativeInput } from "../features/provider-sessions/model/nativeInput";
-import {
-  archiveProviderConversationRow,
-  liveNativeDependencies,
-} from "../features/provider-sessions/model/providerActions";
+import { liveNativeDependencies } from "../features/provider-sessions/model/providerActions";
 import {
   changeClaudeRemoteControl,
   initializeNewClaudeRemoteControlPreference,
@@ -434,10 +431,9 @@ import {
   removeClaudeRemoteControlPreference,
   restoreClaudeRemoteControlPreferences,
 } from "../features/provider-sessions/model/remoteControl";
-import {
-  useEnabledNativeProviders,
-  useProviderConversations,
-} from "../features/provider-sessions/ui/useProviderConversations";
+import { useEnabledNativeProviders } from "../features/provider-sessions/ui/useProviderConversations";
+import { AddNativeSessionDialog } from "../features/provider-sessions/ui/AddNativeSessionDialog";
+import { emptyProviderListState } from "../features/provider-sessions/model/conversationStore";
 import { CloudSessionDialog } from "../features/provider-sessions/ui/CloudSessionDialog";
 import { useCloudRecords } from "../features/provider-sessions/ui/useCloudRecords";
 import {
@@ -1148,9 +1144,7 @@ function Workspace({
     loadSessionSidebarOpen,
   );
   const enabledNativeProviders = useEnabledNativeProviders();
-  const providerConversations = useProviderConversations(
-    enabledNativeProviders,
-  );
+  const [addNativeSessionOpen, setAddNativeSessionOpen] = useState(false);
   const [selectedProviderRaw, setSelectedProvider] =
     useState<NativeProvider | null>(null);
   const selectedProvider =
@@ -1162,12 +1156,6 @@ function Workspace({
     record: CloudSession;
     unsavedMessage?: string;
   } | null>(null);
-  const [providerOpeningKey, setProviderOpeningKey] = useState<string | null>(
-    null,
-  );
-  const [providerActionError, setProviderActionError] = useState<
-    string | null
-  >(null);
   /** Saved per-chat Remote Control intent; live state lives on the session. */
   const [remoteControlDesired, setRemoteControlDesired] = useState<
     ReadonlySet<string>
@@ -5568,92 +5556,67 @@ function Workspace({
     setInboxViewOpen(false);
     setRecordsViewOpen(false);
     setAutomationsViewOpen(false);
-    setProviderActionError(null);
     setSelectedProvider((current) => (current === provider ? null : provider));
     setSessionSidebarOpen(true);
     saveSessionSidebarOpen(true);
   }, []);
 
-  const onOpenProviderConversation = useCallback(
-    async (row: ProviderConversation) => {
-      setProviderActionError(null);
-      setProviderOpeningKey(row.key);
-      try {
-        const session = await openProviderConversation(
-          row,
-          liveNativeDependencies({
-            liveSessions: () => sessionsRef.current,
-            getStored: getSession,
-            saveNative: upsertNativeResumeSession,
-          }),
-        );
-        providerConversations.store.linkSession(row.key, session.id);
-        await onSelectHistorySession(session.id);
-        void refreshHistory(sidebarCwdRef.current);
-      } catch (error) {
-        setProviderActionError(
-          error instanceof Error ? error.message : String(error),
-        );
-      } finally {
-        setProviderOpeningKey((current) =>
-          current === row.key ? null : current,
-        );
-      }
-    },
-    [onSelectHistorySession, providerConversations.store, refreshHistory],
-  );
-
-  /** MonoCode-only visibility; the provider's own conversation is never touched. */
-  const onArchiveProviderConversation = useCallback(
-    async (row: ProviderConversation, archived: boolean) => {
-      setProviderActionError(null);
-      const error = await archiveProviderConversationRow({
-        store: providerConversations.store,
-        setArchived: setProviderConversationArchived,
-        syncSession: onArchiveHistorySession,
-        row,
-        archived,
+  const onAddNativeSession = useCallback(
+    async (row: ProviderConversation): Promise<void> => {
+      const dependencies = liveNativeDependencies({
+        liveSessions: () => sessionsRef.current,
+        getStored: getSession,
+        saveNative: upsertNativeResumeSession,
       });
-      if (error) setProviderActionError(error);
+      // Never rebind/reload a running MonoCode chat underneath its stream.
+      const live = await dependencies.findNativeSession?.(row);
+      const session = live?.busy
+        ? live
+        : await openProviderConversation(row, dependencies);
+      if (row.archived) {
+        if (!(await onArchiveHistorySession(session.id, false)))
+          throw new Error("Could not restore the archived MonoCode session.");
+        await setProviderConversationArchived(row.key, false);
+      }
+      if (!session.busy) nativeHistoryStore.forget(session.id);
+      setSearchViewOpen(false);
+      setInboxViewOpen(false);
+      setRecordsViewOpen(false);
+      setAutomationsViewOpen(false);
+      setSettingsOpen(false);
+      setFilePickerOpen(false);
+      setSelectedProvider(null);
+      await onSelectHistorySession(session.id);
+      if (!session.busy)
+        void nativeHistoryStore.ensureLoaded(
+          session.id, session.harness, session.providerAccountId ?? "default",
+        );
+      void refreshHistory(sidebarCwdRef.current);
     },
-    [onArchiveHistorySession, providerConversations.store],
-  );
-
-  const refreshProviderConversations = useCallback(
-    (provider: NativeProvider) => {
-      providerConversations.refresh(provider);
-      cloudRecords.refresh();
-    },
-    [cloudRecords.refresh, providerConversations.refresh],
+    [onSelectHistorySession, onArchiveHistorySession, refreshHistory],
   );
 
   const providerRailEntries = useMemo<ProviderRailEntry[]>(
     () =>
-      enabledNativeProviders.map((provider) => {
-        const state = providerConversations.snapshot[provider];
-        return {
+      enabledNativeProviders
+        .filter((provider) =>
+          cloudRecords.records.some((record) => record.provider === provider) ||
+          !!cloudRecords.errors[provider],
+        )
+        .map((provider) => ({
           provider,
           label: PROVIDER_LABEL[provider],
-          count:
-            state.status === "ready"
-              ? state.rows.length +
-                cloudRecords.records.filter(
-                  (record) => record.provider === provider,
-                ).length
-              : null,
-          refreshing:
-            state.refreshing ||
-            state.status === "loading" ||
-            cloudRecords.refreshing,
-          failed: state.error !== null || !!cloudRecords.errors[provider],
-        };
-      }),
+          count: cloudRecords.records.filter(
+            (record) => record.provider === provider,
+          ).length,
+          refreshing: cloudRecords.refreshing,
+          failed: !!cloudRecords.errors[provider],
+        })),
     [
       cloudRecords.errors,
       cloudRecords.records,
       cloudRecords.refreshing,
       enabledNativeProviders,
-      providerConversations.snapshot,
     ],
   );
 
@@ -5693,21 +5656,20 @@ function Workspace({
   const providerPanel = selectedProvider ? (
     <ProviderConversationList
       provider={selectedProvider}
-      state={providerConversations.snapshot[selectedProvider]}
-      showArchived={providerConversations.showArchived}
-      openingKey={providerOpeningKey}
-      actionError={providerActionError}
+      state={{ ...emptyProviderListState, status: "ready" }}
+      cloudOnly
+      showArchived={false}
+      openingKey={null}
+      actionError={null}
       activeSessionId={active?.id}
       sessions={sessions}
       remoteControlDesired={remoteControlDesired}
-      onShowArchivedChange={providerConversations.setShowArchived}
-      onRefresh={() => refreshProviderConversations(selectedProvider)}
-      onLoadMore={() => providerConversations.loadMore(selectedProvider)}
-      onOpen={(row) => void onOpenProviderConversation(row)}
-      onArchive={(row, archived) =>
-        void onArchiveProviderConversation(row, archived)
-      }
-      onDismissActionError={() => setProviderActionError(null)}
+      onShowArchivedChange={() => undefined}
+      onRefresh={cloudRecords.refresh}
+      onLoadMore={() => undefined}
+      onOpen={() => undefined}
+      onArchive={() => undefined}
+      onDismissActionError={() => undefined}
       cloudError={cloudRecords.errors[selectedProvider] ?? null}
       cloudRefreshing={cloudRecords.refreshing}
       cloudRecords={cloudRecords.records.filter(
@@ -12219,6 +12181,13 @@ function Workspace({
         >
           {compactTitleBar ? workspaceTitleBar : null}
           <SavePromptDialogHost />
+          {addNativeSessionOpen ? (
+            <AddNativeSessionDialog
+              providers={enabledNativeProviders}
+              onResume={onAddNativeSession}
+              onClose={() => setAddNativeSessionOpen(false)}
+            />
+          ) : null}
           {cloudDialog ? (
             <CloudSessionDialog
               key={`${cloudDialog.record.providerAccountId}:${cloudDialog.record.id}`}
@@ -12326,6 +12295,11 @@ function Workspace({
               providerEntries={providerRailEntries}
               selectedProvider={selectedProvider}
               onSelectProvider={onSelectProvider}
+              onAddSession={
+                enabledNativeProviders.length > 0
+                  ? () => setAddNativeSessionOpen(true)
+                  : undefined
+              }
               providerPanel={providerPanel}
               onNew={onNew}
               openSessions={openProjectSessions}

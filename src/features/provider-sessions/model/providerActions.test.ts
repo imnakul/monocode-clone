@@ -65,6 +65,16 @@ describe("liveNativeDependencies", () => {
     expect(await deps.findSession("missing")).toBeUndefined();
     await expect(deps.saveSession(open)).rejects.toThrow("removed before it could be saved");
   });
+
+  it("finds a Windows live match without confusing a different project or profile", async () => {
+    const open = live({ id: "windows", cwd: "e:/Developing/Repo" });
+    const deps = liveNativeDependencies({
+      liveSessions: () => [open], getStored: async () => null, saveNative: async () => true,
+    });
+    expect(await deps.findNativeSession?.(row({ cwd: "E:\\Developing\\repo\\" }))).toBe(open);
+    expect(await deps.findNativeSession?.(row({ cwd: "E:/Developing/Other" }))).toBeUndefined();
+    expect(await deps.findNativeSession?.(row({ cwd: open.cwd, providerAccountId: "work" }))).toBeUndefined();
+  });
 });
 
 describe("archiveProviderConversationRow", () => {

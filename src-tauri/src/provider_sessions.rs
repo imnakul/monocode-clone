@@ -320,6 +320,34 @@ fn discover_at(
     (rows, diagnostics)
 }
 
+/// Match the frontend's project identity without changing launch/display paths.
+/// Windows drive/UNC paths accept either slash and case; Unix stays case-sensitive.
+fn cwd_key(cwd: &str) -> String {
+    let bytes = cwd.as_bytes();
+    let windows = (bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\'))
+        || cwd.starts_with("\\\\")
+        || cwd.starts_with("//");
+    let slashed = if windows {
+        cwd.replace('\\', "/")
+    } else {
+        cwd.to_string()
+    };
+    let trimmed = slashed.trim_end_matches('/');
+    let trimmed = if trimmed.is_empty() { "/" } else { trimmed };
+    if windows
+        || (trimmed.len() == 2
+            && trimmed.as_bytes()[0].is_ascii_alphabetic()
+            && trimmed.as_bytes()[1] == b':')
+    {
+        trimmed.to_lowercase()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 fn page_with_state(
     conn: &Connection,
     mut rows: BTreeMap<String, ProviderConversation>,
@@ -348,14 +376,14 @@ fn page_with_state(
             let (id, provider, native_id, cwd, account, archived) =
                 session.map_err(|e| e.to_string())?;
             identities
-                .entry((provider, native_id, cwd, account))
+                .entry((provider, native_id, cwd_key(&cwd), account))
                 .or_insert((id, archived));
         }
         for row in rows.values_mut() {
             let identity = (
                 row.provider.name().to_string(),
                 row.native_id.clone(),
-                row.cwd.clone(),
+                cwd_key(&row.cwd),
                 row.provider_account_id.clone(),
             );
             if let Some((id, archived)) = identities.get(&identity) {
@@ -435,6 +463,59 @@ pub fn provider_sessions_list(
     page_with_state(&conn, rows, diagnostics, include_archived, limit, offset)
 }
 
+fn validate_native_id(id: &str) -> Result<(), String> {
+    if id.is_empty()
+        || id.len() > 200
+        || id.starts_with('-')
+        || !id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"_-".contains(&c))
+    {
+        return Err("Paste a local session ID or a supported resume command".into());
+    }
+    Ok(())
+}
+
+fn resolve_from_rows(
+    conn: &Connection,
+    rows: BTreeMap<String, ProviderConversation>,
+    diagnostics: Vec<String>,
+    native_id: &str,
+) -> Result<ProviderConversation, String> {
+    validate_native_id(native_id)?;
+    let matches = rows
+        .into_iter()
+        .filter(|(_, row)| row.native_id == native_id)
+        .collect();
+    // Include archived chats and retain the existing MonoCode identity. Explicit
+    // lookup is independent of list pagination and never writes a provider store.
+    let mut page = page_with_state(conn, matches, diagnostics, true, 2, 0)?;
+    match page.conversations.len() {
+        1 => Ok(page.conversations.remove(0)),
+        0 => Err(format!(
+            "Session {native_id} was not found in this local provider account. Check the provider and account; cloud and public share links cannot be resumed here.{}",
+            if page.diagnostics.is_empty() { String::new() } else { format!(" Discovery: {}", page.diagnostics.join("; ")) }
+        )),
+        _ => Err("More than one local conversation has this ID; resolve the duplicate in the provider store first".into()),
+    }
+}
+
+#[tauri::command(async)]
+pub fn provider_sessions_resolve(
+    app: AppHandle,
+    store: State<'_, SessionStore>,
+    provider: Provider,
+    account_id: Option<String>,
+    native_id: String,
+) -> Result<ProviderConversation, String> {
+    validate_native_id(&native_id)?;
+    let account = account_id.as_deref().unwrap_or("default");
+    let root = root_for(&app, &provider, account)?;
+    let (rows, diagnostics) = discover_at(provider, &root, account);
+    let conn = store.lock_conn()?;
+    resolve_from_rows(&conn, rows, diagnostics, &native_id)
+}
+
 fn set_archive(conn: &Connection, key: &str, archived: bool) -> Result<(), String> {
     validate_key(key)?;
     conn.execute("INSERT INTO provider_conversation_state(source_key, archived, updated_at) VALUES (?1, ?2, ?3)
@@ -495,8 +576,26 @@ fn bind(
     }
     let parts: Vec<String> = serde_json::from_str(key).map_err(|e| e.to_string())?;
     let existing: Option<(String, bool)> = if has_session_table(conn).map_err(|e| e.to_string())? {
-        conn.query_row("SELECT id, archived FROM sessions WHERE harness=?1 AND provider_session_id=?2 AND cwd=?3 AND COALESCE(provider_account_id,'default')=?4 ORDER BY updated_at DESC, id LIMIT 1",
-            params![parts[0], parts[2], cwd, account], |r| Ok((r.get(0)?, r.get(1)?))).optional().map_err(|e| e.to_string())?
+        let mut query = conn.prepare("SELECT id, archived, cwd FROM sessions WHERE harness=?1 AND provider_session_id=?2 AND COALESCE(provider_account_id,'default')=?3 ORDER BY updated_at DESC, id").map_err(|e| e.to_string())?;
+        let candidates = query
+            .query_map(params![parts[0], parts[2], account], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, bool>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        let expected_cwd = cwd_key(cwd);
+        let mut matched = None;
+        for candidate in candidates {
+            let (id, archived, saved_cwd) = candidate.map_err(|e| e.to_string())?;
+            if cwd_key(&saved_cwd) == expected_cwd {
+                matched = Some((id, archived));
+                break;
+            }
+        }
+        matched
     } else {
         None
     };

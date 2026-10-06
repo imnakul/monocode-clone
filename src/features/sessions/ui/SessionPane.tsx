@@ -70,7 +70,7 @@ import { EmptySession } from "./EmptySession";
 import { SessionProviderStrip } from "../../provider-sessions/ui/SessionProviderStrip";
 import { useCloudLaunch, type CloudLaunchOutcome } from "../../provider-sessions/ui/useCloudLaunch";
 import { useNativeHistory } from "../../provider-sessions/ui/useNativeHistory";
-import { isHistoryBlock, withHistory } from "../../provider-sessions/model/history";
+import { isHistoryBlock } from "../../provider-sessions/model/history";
 import { canHarnessRemoteControl } from "../../../integrations/harness/core/registry";
 import { useComposerDockMotion } from "./useComposerDockMotion";
 import { MOD } from "../../../platform/tauri/platform";
@@ -381,6 +381,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
     providerAccountId: session.providerAccountId,
     enabled: visible && !remoteSession && !session.inboxAsk,
     representedNativeIds,
+    localBlocks: session.blocks,
     cutoffMs: session.blocks.find(
       (block) => block.role === "user" && block.startedAt !== undefined,
     )?.startedAt,
@@ -1009,7 +1010,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
                 onMouseDown={focusPane}
               >
                 <AgentTranscript
-                  blocks={withHistory(history.blocks, session.blocks)}
+                  blocks={history.transcriptBlocks}
                   busy={!!session.busy}
                   visible={visible}
                   cwd={workCwd}

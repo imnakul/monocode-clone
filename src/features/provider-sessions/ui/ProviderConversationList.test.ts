@@ -57,6 +57,16 @@ function render(state: Partial<ProviderListState>, extra: Record<string, unknown
 }
 
 describe("conversationSummary", () => {
+  it("preserves cloud-only navigation without local empty text or archive filters", () => {
+    const html = render({ status: "ready" }, { cloudOnly: true, cloudRecords: [{
+      provider: "claude", id: "cloud-one", url: "https://claude.ai/chat/cloud-one", cwd: "/repo", providerAccountId: "default", createdAt: 1,
+    }], onOpenCloud: vi.fn() });
+    expect(html).toContain("Claude cloud sessions");
+    expect(html).toContain("Cloud task cloud-one");
+    expect(html).not.toContain("No Claude conversations found");
+    expect(html).not.toContain("Filter conversations");
+    expect(html).toContain("Refresh Claude cloud sessions");
+  });
   it("maps epoch seconds to the card's milliseconds and shows the project folder", () => {
     const summary = conversationSummary(row("a", { archived: true }));
     expect(summary.id).toBe("a");

@@ -7,7 +7,7 @@ import { codexCommandPresentation } from "../../../integrations/harness/provider
 import { recoverCursorSubagents } from "../../../integrations/harness/providers/cursor/cursorSubagents";
 import { persistableAttachment } from "../model/attachments";
 import type { ContextUsage } from "../model/contextUsage";
-import { isRemoteProjectPath, normalizeProjectPath } from "../../projects/model/recents";
+import { isRemoteProjectPath, normalizeProjectPath, sameProjectPath } from "../../projects/model/recents";
 import {
   claudeShellCommands,
   ompActiveAssistantTexts,
@@ -286,7 +286,7 @@ export async function upsertNativeResumeSession(
   const source = await invoke<{ key: string; cwd: string } | null>(
     "provider_sessions_for_session", { sessionId: session.id },
   );
-  if (!source || !source.cwd || source.cwd !== session.cwd) {
+  if (!source || !source.cwd || !sameProjectPath(source.cwd, session.cwd)) {
     throw new Error("Native conversation binding is missing or its project folder changed.");
   }
   await invoke("provider_sessions_validate_source", {

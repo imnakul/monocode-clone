@@ -2,7 +2,9 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { Block, HarnessId } from "../../sessions/model/session";
 import {
   historyBlocks,
+  isHistoryBlock,
   nativeHistoryStore,
+  reconcileNativeHistory,
   trimHistoryBefore,
   type NativeHistoryState,
 } from "../model/history";
@@ -10,6 +12,7 @@ import {
 export type NativeHistoryView = {
   /** Display-only blocks (oldest first, ending with the divider); empty when none. */
   blocks: Block[];
+  transcriptBlocks: Block[];
   state: NativeHistoryState;
   showEarlier: () => void;
   retry: () => void;
@@ -17,7 +20,7 @@ export type NativeHistoryView = {
 
 /**
  * Read-only earlier history for a chat bound to a native Claude/Codex
- * conversation. Loads when the chat is shown, once per app run; nothing here
+ * conversation. Refreshes when the chat is shown; nothing here
  * writes MonoCode turns or reaches the provider.
  */
 export function useNativeHistory(input: {
@@ -28,8 +31,17 @@ export function useNativeHistory(input: {
   /** Epoch ms of the chat's first MonoCode turn; earlier provider items only. */
   cutoffMs?: number;
   representedNativeIds?: ReadonlySet<string>;
+  localBlocks?: Block[];
 }): NativeHistoryView {
-  const { sessionId, harness, providerAccountId, enabled, cutoffMs, representedNativeIds } = input;
+  const {
+    sessionId,
+    harness,
+    providerAccountId,
+    enabled,
+    cutoffMs,
+    representedNativeIds,
+    localBlocks,
+  } = input;
   const accountId = providerAccountId ?? "default";
   useSyncExternalStore(
     nativeHistoryStore.subscribe,
@@ -38,26 +50,56 @@ export function useNativeHistory(input: {
   );
   const state = nativeHistoryStore.get(sessionId);
   useEffect(() => {
-    if (enabled) void nativeHistoryStore.ensureLoaded(sessionId, harness, accountId);
+    if (enabled)
+      void nativeHistoryStore.ensureLoaded(
+        sessionId,
+        harness,
+        accountId,
+        nativeHistoryStore.get(sessionId).status !== "loading",
+      );
   }, [enabled, sessionId, harness, accountId]);
-  const blocks = useMemo(() => {
-    if (state.status !== "ready") return [];
-    const earlier = trimHistoryBefore(state.items, cutoffMs, representedNativeIds);
+  const transcriptBlocks = useMemo(() => {
+    if (state.status !== "ready") return localBlocks ?? [];
+    if (localBlocks)
+      return reconcileNativeHistory(
+        state.items.slice(-state.visible),
+        state.provider,
+        localBlocks,
+        {
+          hasEarlier: state.hasEarlier,
+          hiddenCount: Math.max(0, state.items.length - state.visible),
+        },
+      );
+    const earlier = trimHistoryBefore(
+      state.items,
+      cutoffMs,
+      representedNativeIds,
+    );
     const items = earlier.slice(-state.visible);
     if (items.length === 0) return [];
     return historyBlocks(items, state.provider, {
       hasEarlier: state.hasEarlier,
       hiddenCount: Math.max(0, earlier.length - state.visible),
     });
-  }, [state, cutoffMs, representedNativeIds]);
+  }, [state, cutoffMs, representedNativeIds, localBlocks]);
+  const blocks = useMemo(
+    () => transcriptBlocks.filter(isHistoryBlock),
+    [transcriptBlocks],
+  );
   return useMemo(
     () => ({
       blocks,
+      transcriptBlocks,
       state,
       showEarlier: () => void nativeHistoryStore.showEarlier(sessionId),
       retry: () =>
-        void nativeHistoryStore.ensureLoaded(sessionId, harness, accountId, true),
+        void nativeHistoryStore.ensureLoaded(
+          sessionId,
+          harness,
+          accountId,
+          true,
+        ),
     }),
-    [blocks, state, sessionId, harness, accountId],
+    [blocks, transcriptBlocks, state, sessionId, harness, accountId],
   );
 }

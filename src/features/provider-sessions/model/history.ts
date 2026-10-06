@@ -214,6 +214,119 @@ export function withHistory(history: Block[], blocks: Block[]): Block[] {
   return history.length === 0 ? blocks : [...history, ...blocks];
 }
 
+/**
+ * Merge read-only native turns around saved MonoCode turns. Keep the richer
+ * local blocks for turns we already own, but retain later external turns.
+ * Native data is never assigned to session.blocks or used as a send payload.
+ */
+export function reconcileNativeHistory(
+  items: readonly HistoryItem[],
+  provider: NativeProvider,
+  local: Block[],
+  options: { hasEarlier: boolean; hiddenCount: number },
+): Block[] {
+  if (items.length === 0) return local;
+  if (local.length === 0) return historyBlocks(items, provider, options);
+  const turns: Block[][] = [];
+  const leading: Block[] = [];
+  for (const block of local) {
+    if (block.role === "user") turns.push([block]);
+    else if (turns.length) turns[turns.length - 1].push(block);
+    else leading.push(block);
+  }
+  const groups: HistoryItem[][] = [];
+  for (const item of items) {
+    if (item.role === "user" || groups.length === 0) groups.push([item]);
+    else groups[groups.length - 1].push(item);
+  }
+  const buckets: HistoryItem[][] = Array.from(
+    { length: turns.length + 1 },
+    () => [],
+  );
+  const matchedLocal = new Set<number>();
+  const prompts = turns.map(([user]) =>
+    cap(user.text.replace(/^\s*\/operator\s+/, "")),
+  );
+  let afterMatched = 0;
+  for (const group of groups) {
+    const first = group[0];
+    const matched =
+      first.role === "user"
+        ? turns.findIndex(([user], index) => {
+            if (
+              first.nativeId &&
+              (first.nativeId === user.providerMessageId ||
+                first.nativeId === user.externalTurnId)
+            )
+              return true;
+            if (matchedLocal.has(index)) return false;
+            if (
+              first.at === undefined ||
+              user.startedAt === undefined ||
+              user.draft
+            )
+              return false;
+            const end = user.startedAt + (user.durationMs ?? 60_000);
+            if (first.at < user.startedAt - 2_000 || first.at > end)
+              return false;
+            const localText = prompts[index];
+            if (
+              first.text !== localText &&
+              !first.text.endsWith(`\n${localText}`) &&
+              !first.text.startsWith(`${localText}\n\n<monocode_app>`)
+            )
+              return false;
+            // Require matching prompt text as well as time: two different prompts
+            // sent in quick succession must never suppress an external turn.
+            return true;
+          })
+        : -1;
+    if (matched >= 0) {
+      matchedLocal.add(matched);
+      afterMatched = matched + 1;
+      continue;
+    }
+    // A chunk can start inside our own reply. It has no user boundary to
+    // match, so omit that fragment; the saved local reply is authoritative.
+    const recordedAt = first.at;
+    if (
+      first.role !== "user" &&
+      recordedAt !== undefined &&
+      turns.some(
+        ([user]) =>
+          user.startedAt !== undefined &&
+          recordedAt >= user.startedAt - 2_000 &&
+          recordedAt <= user.startedAt + (user.durationMs ?? 60_000) + 2_000,
+      )
+    )
+      continue;
+    let bucket = afterMatched;
+    if (recordedAt !== undefined) {
+      const next = turns.findIndex(
+        ([user]) => user.startedAt !== undefined && user.startedAt > recordedAt,
+      );
+      bucket = next < 0 ? turns.length : next;
+    }
+    buckets[bucket].push(...group);
+  }
+  const shown: Block[] = [...leading];
+  for (let index = 0; index < buckets.length; index++) {
+    if (buckets[index].length) {
+      const imported = historyBlocks(buckets[index], provider, options);
+      // The divider applies to the whole native view, not each insertion.
+      shown.push(...imported.slice(0, -1));
+    }
+    if (index < turns.length) shown.push(...turns[index]);
+  }
+  if (!shown.some(isHistoryBlock)) return local;
+  shown.push({
+    id: `${HISTORY_BLOCK_PREFIX}divider`,
+    role: "system",
+    text: `Native ${provider === "claude" ? "Claude Code" : "Codex"} history${options.hasEarlier || options.hiddenCount > 0 ? " · older messages not shown yet" : ""}`,
+  });
+  return shown;
+}
+
 export type HistoryChunk = { text: string; start: number; hasEarlier: boolean };
 
 export type HistoryLoader = {
@@ -267,6 +380,7 @@ const NONE: NativeHistoryState = { status: "none" };
 export class NativeHistoryStore {
   private states = new Map<string, NativeHistoryState>();
   private started = new Set<string>();
+  private requests = new Map<string, object>();
   private cursors = new Map<string, { key: string; accountId: string; end: number }>();
   private listeners = new Set<() => void>();
   private version = 0;
@@ -300,16 +414,19 @@ export class NativeHistoryStore {
     if (harness !== "claude" && harness !== "codex") return;
     if (this.started.has(sessionId) && !reload) return;
     this.started.add(sessionId);
+    const request = {};
+    this.requests.set(sessionId, request);
+    this.cursors.delete(sessionId);
     this.set(sessionId, { status: "loading" });
     try {
       const source = await this.loader.source(sessionId);
-      if (!this.started.has(sessionId)) return;
+      if (this.requests.get(sessionId) !== request) return;
       if (!source) {
         this.set(sessionId, NONE);
         return;
       }
       const chunk = await this.loader.read({ key: source.key, provider: harness, accountId });
-      if (!this.started.has(sessionId)) return;
+      if (this.requests.get(sessionId) !== request) return;
       this.cursors.set(sessionId, { key: source.key, accountId, end: chunk.start });
       const items = parseProviderHistory(harness, chunk.text, String(chunk.start));
       this.set(sessionId, {
@@ -321,7 +438,7 @@ export class NativeHistoryStore {
         loadingEarlier: false,
       });
     } catch (error) {
-      if (!this.started.has(sessionId)) return;
+      if (this.requests.get(sessionId) !== request) return;
       this.set(sessionId, {
         status: "error",
         message: error instanceof Error ? error.message : String(error),
@@ -341,6 +458,7 @@ export class NativeHistoryStore {
       return;
     }
     const cursor = this.cursors.get(sessionId);
+    const request = this.requests.get(sessionId);
     if (!state.hasEarlier || !cursor) return;
     this.set(sessionId, { ...state, loadingEarlier: true, earlierError: undefined });
     try {
@@ -351,7 +469,7 @@ export class NativeHistoryStore {
         end: cursor.end,
       });
       const latest = this.get(sessionId);
-      if (latest.status !== "ready" || !this.started.has(sessionId)) return;
+      if (latest.status !== "ready" || this.requests.get(sessionId) !== request) return;
       this.cursors.set(sessionId, { ...cursor, end: chunk.start });
       const earlier = parseProviderHistory(state.provider, chunk.text, String(chunk.start));
       const items = [...earlier, ...latest.items];
@@ -364,7 +482,7 @@ export class NativeHistoryStore {
       });
     } catch (error) {
       const latest = this.get(sessionId);
-      if (latest.status !== "ready") return;
+      if (latest.status !== "ready" || this.requests.get(sessionId) !== request) return;
       this.set(sessionId, {
         ...latest,
         loadingEarlier: false,
@@ -376,6 +494,7 @@ export class NativeHistoryStore {
   /** Drop a deleted chat's cache and invalidate any read still in flight. */
   forget(sessionId: string): void {
     this.started.delete(sessionId);
+    this.requests.delete(sessionId);
     this.cursors.delete(sessionId);
     if (this.states.delete(sessionId)) {
       this.version += 1;

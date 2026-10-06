@@ -1,4 +1,5 @@
 import type { Session } from "../../sessions/model/session";
+import { sameProjectPath } from "../../projects/model/recents";
 import type { ProviderConversationStore } from "./conversationStore";
 import type {
   NativeOpenDependencies,
@@ -35,7 +36,7 @@ export function liveNativeDependencies(deps: {
           (entry) =>
             entry.providerSessionId === row.nativeId &&
             entry.harness === row.provider &&
-            entry.cwd === row.cwd &&
+            sameProjectPath(entry.cwd, row.cwd) &&
             (entry.providerAccountId ?? DEFAULT_ACCOUNT) ===
               row.providerAccountId,
         ),

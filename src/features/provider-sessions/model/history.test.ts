@@ -5,12 +5,13 @@ import {
   isHistoryBlock,
   NativeHistoryStore,
   parseProviderHistory,
+  reconcileNativeHistory,
   trimHistoryBefore,
   visibleHistoryItems,
   withHistory,
   type HistoryLoader,
 } from "./history";
-import { newSession } from "../../sessions/model/session";
+import { newSession, type Block } from "../../sessions/model/session";
 
 const jsonl = (...rows: unknown[]): string => rows.map((row) => JSON.stringify(row)).join("\n") + "\n";
 
@@ -101,6 +102,80 @@ describe("trimHistoryBefore", () => {
 });
 
 describe("display blocks", () => {
+  it("interleaves external follow-ups between and after local turns without summary transfer", () => {
+    const base = Date.parse("2026-10-06T00:00:00Z");
+    const local: Block[] = [
+      { id: "u1", role: "user", text: "Local one", startedAt: base + 10_000, durationMs: 5_000 },
+      { id: "a1", role: "assistant", text: "Rich local one" },
+      { id: "u2", role: "user", text: "Local two", startedAt: base + 40_000, durationMs: 5_000 },
+      { id: "a2", role: "assistant", text: "Rich local two" },
+    ];
+    const items = [
+      { id: "history:old", role: "user" as const, text: "Original", at: base },
+      { id: "history:own1", role: "user" as const, text: "Local one", at: base + 11_000 },
+      { id: "history:reply1", role: "assistant" as const, text: "Native duplicate one" },
+      { id: "history:external", role: "user" as const, text: "Desktop follow-up", at: base + 25_000 },
+      { id: "history:answer", role: "assistant" as const, text: "Desktop answer" },
+      { id: "history:own2", role: "user" as const, text: "Local two", at: base + 41_000 },
+      { id: "history:reply2", role: "assistant" as const, text: "Native duplicate two" },
+      { id: "history:latest", role: "user" as const, text: "Latest external", at: base + 55_000 },
+    ];
+    const shown = reconcileNativeHistory(items, "codex", local, { hasEarlier: false, hiddenCount: 0 });
+    expect(shown.slice(0, -1).map((block) => block.text)).toEqual([
+      "Original", "Local one", "Rich local one", "Desktop follow-up", "Desktop answer", "Local two", "Rich local two", "Latest external",
+    ]);
+    expect(local).toHaveLength(4);
+    expect(local.some(isHistoryBlock)).toBe(false);
+    expect(shown.find((block) => block.id === "a1")).toBe(local[1]);
+  });
+
+  it("does not confuse two different prompts near the same timestamp, or repeated text days apart", () => {
+    const local: Block[] = [{ id: "u", role: "user", text: "Continue", startedAt: 100_000, durationMs: 1000 }];
+    const shown = reconcileNativeHistory([
+      { id: "history:1", role: "user", text: "Different phone prompt", at: 102_000 },
+      { id: "history:2", role: "user", text: "Continue", at: 200_000 },
+    ], "claude", local, { hasEarlier: false, hiddenCount: 0 });
+    expect(shown.filter((block) => block.role === "user").map((block) => block.text)).toEqual(["Continue", "Different phone prompt", "Continue"]);
+  });
+
+  it("deduplicates phone turns by native identity even without timestamps", () => {
+    const local: Block[] = [{ id: "phone", role: "user", text: "Phone prompt", providerMessageId: "uuid" }, { id: "reply", role: "assistant", text: "Saved phone reply" }];
+    const shown = reconcileNativeHistory([
+      { id: "history:1", role: "user", text: "Phone prompt", nativeId: "uuid" },
+      { id: "history:2", role: "assistant", text: "Duplicate reply" },
+      { id: "history:3", role: "user", text: "Later external prompt" },
+    ], "claude", local, { hasEarlier: false, hiddenCount: 0 });
+    expect(shown.slice(0, -1).map((block) => block.text)).toEqual(["Phone prompt", "Saved phone reply", "Later external prompt"]);
+  });
+
+  it("never matches an unsent draft to a native turn", () => {
+    const local: Block[] = [{ id: "draft", role: "user", text: "Same text", startedAt: 1000, draft: true }];
+    const shown = reconcileNativeHistory([{ id: "history:1", role: "user", text: "Same text", at: 1000 }], "codex", local, { hasEarlier: false, hiddenCount: 0 });
+    expect(shown.filter((block) => block.role === "user")).toHaveLength(2);
+  });
+
+  it("keeps a second identical prompt within the same second once the local turn is matched", () => {
+    const local: Block[] = [{ id: "u", role: "user", text: "Continue", startedAt: 1000, durationMs: 1000 }];
+    const shown = reconcileNativeHistory([
+      { id: "history:own", role: "user", text: "Continue", at: 1001 },
+      { id: "history:second", role: "user", text: "Continue", at: 1500 },
+    ], "codex", local, { hasEarlier: false, hiddenCount: 0 });
+    expect(shown.filter((block) => block.role === "user").map((block) => block.id)).toEqual(["u", "history:second"]);
+  });
+
+  it("keeps an Operator turn only once when native history includes the production instruction suffix", () => {
+    const local: Block[] = [
+      { id: "operator", role: "user", text: "/operator Check the task", startedAt: 1000, durationMs: 1000, monocode: true },
+      { id: "answer", role: "assistant", text: "Local answer" },
+    ];
+    const shown = reconcileNativeHistory([
+      { id: "history:own", role: "user", text: "Check the task\n\n<monocode_app>\nOperator instructions\n</monocode_app>", at: 1100 },
+      { id: "history:answer", role: "assistant", text: "Duplicate native answer" },
+      { id: "history:other", role: "user", text: "Check another task", at: 2100 },
+    ], "claude", local, { hasEarlier: false, hiddenCount: 0 });
+    expect(shown.slice(0, -1).map((block) => block.text)).toEqual(["/operator Check the task", "Local answer", "Check another task"]);
+  });
+
   it("builds transcript blocks and a divider, tagged so they are never turns", () => {
     const items = parseProviderHistory("claude", claudeFixture, "0");
     const blocks = historyBlocks(items, "claude", { hasEarlier: false, hiddenCount: 0 });
@@ -138,6 +213,21 @@ function loaderFor(chunks: Record<number, { text: string; start: number; hasEarl
 }
 
 describe("NativeHistoryStore", () => {
+  it("ignores an older read after explicit reopen starts a new history request", async () => {
+    let finishOld: (chunk: { text: string; start: number; hasEarlier: boolean }) => void = () => undefined;
+    let reads = 0;
+    const store = new NativeHistoryStore({
+      source: async () => ({ key: "k" }),
+      read: async () => ++reads === 1 ? new Promise((resolve) => { finishOld = resolve; }) : ({ text: jsonl({ type: "user", message: { content: "Fresh" } }), start: 0, hasEarlier: false }),
+    });
+    const old = store.ensureLoaded("s", "claude", "default");
+    await Promise.resolve();
+    store.forget("s");
+    await store.ensureLoaded("s", "claude", "default");
+    finishOld({ text: jsonl({ type: "user", message: { content: "Stale" } }), start: 0, hasEarlier: false });
+    await old;
+    expect(visibleHistoryItems(store.get("s")).map((item) => item.text)).toEqual(["Fresh"]);
+  });
   it("loads once per session, read-only, and exposes parsed items", async () => {
     const loader = loaderFor({ [-1]: { text: claudeFixture, start: 100, hasEarlier: false } });
     const store = new NativeHistoryStore(loader);

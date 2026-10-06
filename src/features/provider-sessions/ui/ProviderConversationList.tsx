@@ -34,6 +34,7 @@ import type {
 
 type Props = {
   provider: NativeProvider;
+  cloudOnly?: boolean;
   state: ProviderListState;
   showArchived: boolean;
   /** Key of the row being opened, if any. */
@@ -78,6 +79,7 @@ function ListSkeleton({ label }: { label: string }): ReactElement {
  */
 export function ProviderConversationList({
   provider,
+  cloudOnly = false,
   state,
   showArchived,
   openingKey,
@@ -160,9 +162,9 @@ export function ProviderConversationList({
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-content/10 px-3">
         <HarnessIcon harness={provider} className="size-3.5 shrink-0" />
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-          {label} conversations
+          {label} {cloudOnly ? "cloud sessions" : "conversations"}
         </span>
-        <button
+        {!cloudOnly ? <button
           ref={filterButton}
           type="button"
           title="Filter conversations"
@@ -177,11 +179,11 @@ export function ProviderConversationList({
           }`}
         >
           <ListFilter className="size-3.5" />
-        </button>
+        </button> : null}
         <button
           type="button"
-          title={`Refresh ${label} conversations and cloud tasks`}
-          aria-label={`Refresh ${label} conversations and cloud tasks`}
+          title={`Refresh ${label} ${cloudOnly ? "cloud sessions" : "conversations and cloud tasks"}`}
+          aria-label={`Refresh ${label} ${cloudOnly ? "cloud sessions" : "conversations and cloud tasks"}`}
           disabled={
             state.refreshing || state.status === "loading" || cloudRefreshing
           }
@@ -313,7 +315,7 @@ export function ProviderConversationList({
             </ul>
           </section>
         ) : null}
-        {initialLoading ? (
+        {cloudOnly ? (cloudRecords.length === 0 ? <p className="px-3 py-2 text-[12px] text-content/50">No MonoCode-created {label} cloud sessions.</p> : null) : initialLoading ? (
           <ListSkeleton label={`Loading ${label} conversations`} />
         ) : showEmpty ? (
           <p className="px-3 py-2 text-[12px] text-content/50">

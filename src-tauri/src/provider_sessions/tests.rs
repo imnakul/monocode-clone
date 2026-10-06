@@ -29,6 +29,80 @@ fn claude(root: &Path, id: &str) {
 }
 
 #[test]
+fn explicit_lookup_finds_old_archived_chats_and_reuses_native_binding() {
+    let (dir, conn) = setup();
+    for i in 0..30 {
+        claude(dir.path(), &format!("native-{i}"));
+    }
+    let (rows, diagnostics) = discover_at(Provider::Claude, dir.path(), "work");
+    let key = source_key(
+        &Provider::Claude,
+        &fs::canonicalize(dir.path()).unwrap(),
+        "native-29",
+    );
+    bind(&conn, &key, "existing-mono", "/repo", "work").unwrap();
+    set_archive(&conn, &key, true).unwrap();
+    let row = resolve_from_rows(&conn, rows, diagnostics, "native-29").unwrap();
+    assert_eq!(row.native_id, "native-29");
+    assert_eq!(row.provider_account_id, "work");
+    assert_eq!(row.monocode_session_id.as_deref(), Some("existing-mono"));
+    assert!(row.archived);
+    assert_eq!(row.cwd, "/repo");
+    // Lookup cannot alter native files or unarchive the chat by itself.
+    assert!(
+        fs::read_to_string(dir.path().join("projects/-repo/native-29.jsonl"))
+            .unwrap()
+            .contains("Keep original context")
+    );
+}
+
+#[test]
+fn explicit_lookup_rejects_missing_and_unsafe_ids_without_binding() {
+    let (dir, conn) = setup();
+    claude(dir.path(), "known");
+    let (rows, diagnostics) = discover_at(Provider::Claude, dir.path(), "default");
+    assert!(resolve_from_rows(&conn, rows, diagnostics, "missing")
+        .unwrap_err()
+        .contains("not found"));
+    for id in [
+        "",
+        "../known",
+        "--last",
+        "https://claude.ai/chat/x",
+        "id\0",
+        "a b",
+    ] {
+        assert!(validate_native_id(id).is_err());
+    }
+    assert_eq!(
+        conn.query_row(
+            "SELECT COUNT(*) FROM provider_conversation_state",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn explicit_codex_lookup_supports_database_metadata_without_jsonl() {
+    let (dir, conn) = setup();
+    let db = Connection::open(dir.path().join("state_5.sqlite")).unwrap();
+    db.execute_batch("CREATE TABLE threads(id TEXT, title TEXT, cwd TEXT, updated_at INTEGER); INSERT INTO threads VALUES('codex-native','Original','/repo',42)").unwrap();
+    let (rows, diagnostics) = discover_at(Provider::Codex, dir.path(), "default");
+    let row = resolve_from_rows(&conn, rows, diagnostics, "codex-native").unwrap();
+    assert_eq!(row.provider, Provider::Codex);
+    assert_eq!(row.title, "Original");
+    assert!(row.monocode_session_id.is_none());
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM threads", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
 fn archive_survives_refresh_without_writing_provider_files() {
     let (dir, conn) = setup();
     claude(dir.path(), "native-one");
@@ -190,6 +264,70 @@ fn provider_list_and_binding_reuse_existing_monocode_chats_and_archives() {
             .len(),
         1
     );
+}
+
+#[test]
+fn native_folder_identity_accepts_windows_spellings_but_preserves_unix() {
+    for (left, right) in [
+        (r"E:\Developing\Repo\", "e:/developing/repo"),
+        (r"\\HOST\Share\Repo", "//host/share/repo/"),
+        (r"C:\", "C:"),
+        ("/repo/", "/repo"),
+    ] {
+        assert_eq!(cwd_key(left), cwd_key(right));
+    }
+    for (left, right) in [
+        ("/Repo", "/repo"),
+        (r"/repo\sub", "/repo/sub"),
+        ("E:/Repo", "F:/Repo"),
+        ("//host/share", "//host/other"),
+    ] {
+        assert_ne!(cwd_key(left), cwd_key(right));
+    }
+}
+
+#[test]
+fn explicit_lookup_and_bind_reuse_windows_folder_identity_only_in_same_profile() {
+    for (native_cwd, saved_cwd) in [
+        (r"E:\Developing\Repo\", "e:/developing/repo"),
+        (r"\\HOST\Share\Repo", "//host/share/repo/"),
+        (r"C:\", "C:"),
+    ] {
+        let (dir, conn) = setup();
+        let db = Connection::open(dir.path().join("state_5.sqlite")).unwrap();
+        db.execute_batch("CREATE TABLE threads(id TEXT, title TEXT, cwd TEXT, updated_at INTEGER)")
+            .unwrap();
+        db.execute(
+            "INSERT INTO threads VALUES('native','Original',?1,42)",
+            [native_cwd],
+        )
+        .unwrap();
+        conn.execute_batch("CREATE TABLE sessions (id TEXT, harness TEXT, provider_session_id TEXT, cwd TEXT, provider_account_id TEXT, archived INTEGER, updated_at INTEGER)").unwrap();
+        for (id, provider, cwd, account, updated) in [
+            ("existing", "codex", saved_cwd, "default", 42),
+            ("other-account", "codex", saved_cwd, "work", 100),
+            ("other-folder", "codex", "E:/Elsewhere", "default", 101),
+            ("other-harness", "claude", saved_cwd, "default", 102),
+        ] {
+            conn.execute(
+                "INSERT INTO sessions VALUES(?1,?2,'native',?3,?4,0,?5)",
+                params![id, provider, cwd, account, updated],
+            )
+            .unwrap();
+        }
+        let (rows, diagnostics) = discover_at(Provider::Codex, dir.path(), "default");
+        let row = resolve_from_rows(&conn, rows, diagnostics, "native").unwrap();
+        assert_eq!(row.monocode_session_id.as_deref(), Some("existing"));
+        assert_eq!(
+            bind(&conn, &row.key, "candidate", native_cwd, "default").unwrap(),
+            "existing"
+        );
+        assert_eq!(
+            conn.query_row("SELECT source_cwd FROM provider_conversation_state WHERE monocode_session_id='existing'", [], |r| r.get::<_, String>(0)).unwrap(),
+            native_cwd
+        );
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM provider_conversation_state WHERE monocode_session_id='candidate'", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
 }
 
 #[test]

@@ -12,6 +12,7 @@ the top of the table. Do not rewrite older sections.
 
 | Date | Section heading (search this) | Area |
 |---|---|---|
+| 6 Oct 2026 | Native session identity preserves Windows project paths | provider resume, drive/UNC paths |
 | 3 Oct 2026 | MCP config toggles preserve Windows line endings | MCP, config, CRLF |
 | 2 Oct 2026 | Windows 0.6.0 installer | installer, versioning, known test failures |
 | 1 Oct 2026 | 0.1.55-local5-provider-fixes | providers |
@@ -48,6 +49,17 @@ the top of the table. Do not rewrite older sections.
 | 24 Sept 2026 | round 3 landed in tree | upstream merge, CLI notices |
 
 ---
+
+## 6 Oct 2026 — Native session identity preserves Windows project paths
+
+Provider metadata may retain backslashes while MonoCode persists project paths
+with forward slashes. Native lookup, live-session matching, binding reuse and
+strict resume/save checks now compare project identity using the same drive/UNC
+slash, case and trailing-separator rules. Launch/display paths are preserved.
+Unix paths remain case-sensitive and literal backslashes are not rewritten.
+Tests cover restored views, drive roots, network shares and distinct
+provider/account/folder identities. Signed-in Windows round trips remain in
+`docs/specs/native-add-session-plan.md`.
 
 ## 3 Oct 2026 — MCP config toggles preserve Windows line endings
 

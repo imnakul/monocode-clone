@@ -7,6 +7,7 @@ import {
 import { resolveImportModel } from "../../../integrations/harness/core/sessionImport";
 import { bindHarnessSession } from "../../../integrations/harness/core/registry";
 import type { HarnessSessionInput } from "../../../integrations/harness/core/types";
+import { sameProjectPath } from "../../projects/model/recents";
 import {
   getSession,
   upsertNativeResumeSession,
@@ -117,7 +118,7 @@ export function openProviderConversation(
       liveMatch &&
       (liveMatch.providerSessionId !== row.nativeId ||
         liveMatch.harness !== row.provider ||
-        liveMatch.cwd !== row.cwd ||
+        !sameProjectPath(liveMatch.cwd, row.cwd) ||
         (liveMatch.providerAccountId ?? "default") !== row.providerAccountId)
     )
       throw new Error(
@@ -134,7 +135,7 @@ export function openProviderConversation(
     if (existing) {
       if (
         existing.harness !== row.provider ||
-        existing.cwd !== row.cwd ||
+        !sameProjectPath(existing.cwd, row.cwd) ||
         (existing.providerSessionId &&
           existing.providerSessionId !== row.nativeId) ||
         (existing.providerAccountId ?? "default") !== row.providerAccountId
@@ -151,7 +152,7 @@ export function openProviderConversation(
         row.provider,
         existing.id,
         row.nativeId,
-        row.cwd,
+        existing.cwd,
         row.providerAccountId,
       );
       return existing;
@@ -190,7 +191,7 @@ export async function prepareProviderNativeInput<T extends HarnessSessionInput>(
   if (!source) return input;
   if (harness !== "claude" && harness !== "codex")
     throw new Error("This conversation must use its original provider.");
-  if (!source.cwd || input.cwd !== source.cwd)
+  if (!source.cwd || !sameProjectPath(input.cwd, source.cwd))
     throw new Error(
       "This native conversation must use its original project folder.",
     );

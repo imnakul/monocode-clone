@@ -28,6 +28,7 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
+| 2026-10-06 | [Review — Add native Claude Code / Codex session](native-add-session-plan.md) | Explicit native ID/resume-command attachment; no summary transfer. Replace local folders, preserve MonoCode cloud access; same provider/account storage and single-writer requirement. Automated gates pass; Windows desktop handoff pending; uncommitted/unpushed. |
 | 2026-10-06 | [Review — Antigravity CLI usage, MCP and custom agents](antigravity-cli-usage-mcp-agents-plan.md) | Existing quota/credits footer, native MCP discovery/switches and saved project-scoped agents; ACP preserved. Full check passed: TypeScript, 5,643 web tests, 619 Rust tests (2 ignored), format and Clippy; cargo check and build passed. User-supplied native reports covered; signed-in Windows desktop checks pending. Published source `ea1c228` / checkpoint `9c73304`, remote verified. |
 | 2026-10-06 | [Review — Advanced automation schedule meaning](automation-schedule-meaning-plan.md) | Plain-language cron meaning alongside Next run; scheduler unchanged at user request. Final publication on local5: TypeScript, 5,630 web tests and build pass; manual editor check pending. Four Antigravity CLI follow-ups recorded separately. |
 | 2026-10-06 | [Review — Antigravity CLI alongside ACP](antigravity-cli-plan.md) | Separate official agy provider with streaming/native resume/usage and existing UI; ACP preserved. Source `d26c9a2` published and remote-verified. Final full check passes (5,625 web / 615 Rust, 2 ignored); build and final regressions pass. Setup/comparison/manual Windows-provider checks recorded. |
@@ -58,6 +59,7 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
+| 2026-10-06 | [Progress — Upstream 0.8.0 synchronization](upstream-0.8.0-sync-plan.md) | New branch from 0.7.0 fork; preserve local/pending native-session features, forecast conflicts and obtain decisions before resolution; exact release/Main target and recovery checkpoints in spec. |
 
 ## Done
 

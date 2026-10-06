@@ -63,3 +63,17 @@ it("refuses an unverified provider profile before saving", async () => {
     invoke.mock.calls.some(([command]) => command === "session_upsert"),
   ).toBe(false);
 });
+
+it("saves a restored Windows native view with its original path identity", async () => {
+  invoke.mockImplementation(async (command: string, args: Record<string, unknown>) => {
+    if (command === "provider_sessions_for_session") return { key: "key", cwd: "E:\\Developing\\Repo\\" };
+    if (command === "provider_sessions_validate_source") return "native";
+    if (command === "session_upsert") return args.session;
+  });
+  const session = newSession("claude", "e:/developing/repo");
+  session.providerSessionId = "native";
+  expect((await upsertNativeResumeSession(session))?.id).toBe(session.id);
+  expect(invoke).toHaveBeenCalledWith("session_upsert", expect.objectContaining({
+    session: expect.objectContaining({ cwd: session.cwd, blocks: [] }),
+  }));
+});
