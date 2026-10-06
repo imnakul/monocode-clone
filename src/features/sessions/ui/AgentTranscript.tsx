@@ -3515,7 +3515,7 @@ function ToolCall({
   const state = toolCallState(block);
   const stateLabel =
     block.approval?.decided === "allow" && block.approval.scope === "session"
-      ? "Allowed for session"
+      ? "Allowed for this chat"
       : state === "accepted"
         ? "Accepted"
         : state === "rejected"
@@ -3779,7 +3779,7 @@ function ApprovalControls({
       >
         Allow
       </button>
-      {approval.sessionScopeHint ? (
+      {approval.sessionScopeHint && !approval.serverScope ? (
         <button
           type="button"
           title={approval.sessionScopeHint}
@@ -3787,7 +3787,7 @@ function ApprovalControls({
           className="rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/85 hover:bg-content/20"
           onClick={() => onApproval(approval.requestId, "allow", "session")}
         >
-          Allow for session
+          Allow for this chat
         </button>
       ) : null}
       {approval.serverScope ? (
@@ -3798,7 +3798,7 @@ function ApprovalControls({
           className="rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/85 hover:bg-content/20"
           onClick={() => onApproval(approval.requestId, "allow", "server")}
         >
-          Allow server for session
+          Allow MCP server for this chat
         </button>
       ) : null}
       <button
@@ -3823,14 +3823,14 @@ function SessionApprovalStatus({ block }: { block: Block }) {
         className="shrink-0 text-[10px] text-content/45"
         title={serverName ? `Allowed for ${serverName} in this chat` : undefined}
       >
-        Allowed for server in this chat
+        MCP server allowed for this chat
       </span>
     );
   }
   if (block.approval.scope !== "session") return null;
   return (
     <span className="shrink-0 text-[10px] text-content/45">
-      Allowed for session
+      Allowed for this chat
     </span>
   );
 }

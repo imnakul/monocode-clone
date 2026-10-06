@@ -131,7 +131,7 @@ function ApprovalToastCard({
           >
             Allow
           </button>
-          {notice.sessionScopeHint ? (
+          {notice.sessionScopeHint && !notice.serverScope ? (
             <button
               type="button"
               title={notice.sessionScopeHint}
@@ -141,7 +141,7 @@ function ApprovalToastCard({
                 onApproval(session.id, requestId, "allow", "session")
               }
             >
-              Allow for session
+              Allow for this chat
             </button>
           ) : null}
           {notice.serverScope ? (
@@ -154,7 +154,7 @@ function ApprovalToastCard({
                 onApproval(session.id, requestId, "allow", "server")
               }
             >
-              Allow server for session
+              Allow MCP server for this chat
             </button>
           ) : null}
           <button

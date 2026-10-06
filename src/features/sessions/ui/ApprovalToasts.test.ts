@@ -75,7 +75,7 @@ it("hides muted project approval popups while another project's controls remain 
   expect(onApproval).toHaveBeenCalledWith("work", 1, "allow");
 });
 
-it("shows and forwards Allow for session only when the notice has a hint", async () => {
+it("shows and forwards Allow for this chat only when the notice has a hint", async () => {
   const capable = notice("work");
   capable.session.blocks = [
     {
@@ -94,7 +94,7 @@ it("shows and forwards Allow for session only when the notice has a hint", async
     render([{ ...pending!, session: capable.session }]),
   );
   const sessionButton = [...document.querySelectorAll("button")].find(
-    (button) => button.textContent === "Allow for session",
+    (button) => button.textContent === "Allow for this chat",
   );
   expect(sessionButton?.getAttribute("title")).toBe(
     "Stop asking for this in this chat.",
@@ -106,7 +106,7 @@ it("shows and forwards Allow for session only when the notice has a hint", async
   expect(onApproval).toHaveBeenCalledWith("work", 1, "allow", "session");
 });
 
-it("shows and forwards server scope only when the provider verified a server", async () => {
+it("prefers the verified MCP server option over tool session approval and forwards server scope", async () => {
   const capable = notice("work");
   capable.session.blocks = [
     {
@@ -115,6 +115,7 @@ it("shows and forwards server scope only when the provider verified a server", a
       text: "Search docs",
       approval: {
         requestId: 1,
+        sessionScopeHint: "Allow this tool for this chat.",
         serverScope: {
           serverName: "docs",
           hint: "Allow tools from docs for this chat.",
@@ -126,11 +127,19 @@ it("shows and forwards server scope only when the provider verified a server", a
   expect(pending?.serverScope?.serverName).toBe("docs");
   await act(async () => render([{ ...pending!, session: capable.session }]));
   const serverButton = [...document.querySelectorAll("button")].find(
-    (button) => button.textContent === "Allow server for session",
+    (button) => button.textContent === "Allow MCP server for this chat",
   );
   expect(serverButton?.getAttribute("title")).toBe(
     "Allow tools from docs for this chat.",
   );
+  const approvalButtons = [
+    ...document.querySelectorAll(".approval-toast > div button"),
+  ].map((button) => button.textContent);
+  expect(approvalButtons).toEqual([
+    "Allow",
+    "Allow MCP server for this chat",
+    "Deny",
+  ]);
   act(() => serverButton?.click());
   expect(onApproval).toHaveBeenCalledWith("work", 1, "allow", "server");
 });
@@ -140,7 +149,7 @@ it("keeps one-time approvals to Allow and Deny", async () => {
   const approvalButtons = [...document.querySelectorAll(".approval-toast > div button")]
     .map((button) => button.textContent);
   expect(approvalButtons).toEqual(["Allow", "Deny"]);
-  expect(document.body.textContent).not.toContain("Allow for session");
+  expect(document.body.textContent).not.toContain("Allow for this chat");
 });
 
 it("immediately hides an existing question when its notification category is disabled", async () => {

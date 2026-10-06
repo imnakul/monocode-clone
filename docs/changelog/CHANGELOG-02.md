@@ -1,3 +1,9 @@
+## 2026-10-06 — Clarify MCP approval choices
+- What: MCP approvals keep one chat-scoped choice, "Allow MCP server for this chat", and hide the redundant tool-session button. Ordinary session approvals now say "Allow for this chat"; granted labels match. Transcript and notifications share the wording and retain existing permission scopes.
+- Files: `src/features/sessions/ui/{AgentTranscript,ApprovalToasts}.tsx` and adjacent tests; L-20.
+- Verified: TypeScript ✅ targeted approval tests ✅ (45 / 2 files) full web suite ✅ (5,630 / 518 files) diff check ✅. Manual: confirm one chat-scoped choice in both MCP approval locations on the updated desktop. Logs: `/tmp/monocode-mcp-labels-{targeted,tsc,web}.log`.
+- Commit: source commit containing this entry.
+
 ## 2026-10-06 — Publish schedule meaning, IST preview and CLI test handoff
 - What: Carried local schedule-meaning/IST edits and the selected Antigravity roadmap/test handoff onto remote `fda6d39`, retaining local5 metadata and release records. Conversation folders remain unchanged. The two pre-existing untracked upstream-sync specs remain untouched and excluded. No provider capability implementation or installer added.
 - Files: automation model/UI and regression tests; L-65, roadmap, changelog, spec index and the two new specs.

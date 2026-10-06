@@ -246,7 +246,7 @@ describe("AgentTranscript collapsed work", () => {
       ),
     );
     const sessionButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Allow for session",
+      (button) => button.textContent === "Allow for this chat",
     );
     expect(sessionButton?.getAttribute("title")).toBe(
       "Stop asking for this in this chat.",
@@ -258,7 +258,7 @@ describe("AgentTranscript collapsed work", () => {
     expect(onApproval).toHaveBeenCalledWith(7, "allow", "session");
   });
 
-  it("shows the verified server approval option and forwards its scope", () => {
+  it("prefers the verified MCP server option over tool session approval and forwards server scope", () => {
     const onApproval = vi.fn();
     const container = document.createElement("div");
     document.body.append(container);
@@ -270,6 +270,7 @@ describe("AgentTranscript collapsed work", () => {
           blocks: [
             tool("server", {
               requestId: 8,
+              sessionScopeHint: "Allow this tool for this chat.",
               serverScope: {
                 serverName: "docs",
                 hint: "Allow tools from docs for this chat.",
@@ -281,11 +282,14 @@ describe("AgentTranscript collapsed work", () => {
       ),
     );
     const serverButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Allow server for session",
+      (button) => button.textContent === "Allow MCP server for this chat",
     );
     expect(serverButton?.getAttribute("title")).toBe(
       "Allow tools from docs for this chat.",
     );
+    expect(container.textContent).not.toContain("Allow for this chat");
+    expect(container.textContent).not.toContain("Allow for session");
+    expect(container.textContent).not.toContain("Allow server for session");
     act(() => serverButton?.click());
     expect(onApproval).toHaveBeenCalledWith(8, "allow", "server");
   });
@@ -303,10 +307,10 @@ describe("AgentTranscript collapsed work", () => {
           },
         }),
       ]),
-    ).toContain("Allowed for server in this chat");
+    ).toContain("MCP server allowed for this chat");
   });
 
-  it("persists the Allowed for session transcript label", () => {
+  it("persists the Allowed for this chat transcript label", () => {
     expect(
       render([
         tool("granted", {
@@ -315,7 +319,7 @@ describe("AgentTranscript collapsed work", () => {
           scope: "session",
         }),
       ]),
-    ).toContain("Allowed for session");
+    ).toContain("Allowed for this chat");
   });
 
 
