@@ -64,7 +64,7 @@ another session can resume without repeating or dropping work.
 - [x] Add spec-index/changelog tracking entries.
 - [x] Forecast textual and semantic conflicts with one Luna 6 Max agent.
 - [x] Confirm prior documentation resolution and upstream conflict choices.
-- [ ] Create and record the new branch/base/worktree.
+- [x] Create and record the new branch/base/worktree.
 - [ ] Incorporate pending local implementation and approved upstream changes.
 - [ ] Verify all upstream-added paths and local feature preservation.
 - [ ] Pass full checks/build; update feature register and conflict notes.
@@ -128,3 +128,13 @@ docs are retained. All original combined-source preservation hashes match
 the passed 5,710 web/630 Rust gates; two unrelated untracked upstream-sync
 records remain untouched. Next: branch from the ensuing documentation
 checkpoint and perform approved source merge with the same Luna agent.
+
+## New branch checkpoint
+
+Created `nakul/windows-support-upstream-0.8.0` from published 0.7.0
+documentation checkpoint `2a35625e110efdfec47ab34ded0e146d8c79a5f1`.
+Worktree remains `/workspace/monocode-windows-upstream-0.7.0`; its directory
+name is historical, while the active Git branch is the new 0.8.0 branch.
+Upstream target is still exact `9ccfc09`. Publish this initial tracking
+checkpoint on the new branch, then merge approved source changes. The
+checkpoint is a starting point, not a finished 0.8.0 implementation.

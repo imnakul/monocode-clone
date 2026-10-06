@@ -1,10 +1,17 @@
 # Changelog 03 — MonoCode Windows fork
 
+## 2026-10-06 — New 0.8.0 synchronization branch checkpoint
+- What: Created `nakul/windows-support-upstream-0.8.0` from published 0.7.0 checkpoint `2a35625`, retaining native Add session `8ac5bc0`, all remote Task Manager commits and local features. The user approved the six keep-both conflict groups and base-publication order. Initial branch publication is only a tracking checkpoint; upstream source merge/checks remain in progress.
+- Files: [tracking spec](../specs/upstream-0.8.0-sync-plan.md); [approved conflict groups](../notes/upstream-0.8.0-conflict-review.md).
+- Verified: 0.7.0 remote matches `2a35625`; source unchanged from the passed 5,710 web / 630 Rust combined gates. Actual merge targets `9ccfc09`; 46-file/118-hunk preview retained.
+- Commit: See git log ("docs: establish approved 0.8.0 branch checkpoint"); final source merge and publication tracked in the spec.
+
 ## 2026-10-06 — Explicit native Add session for Claude Code and Codex
 - What: Replaced automatic local provider folders with Add session using existing dialog, selectors and buttons. Paste a local native ID/resume command and choose the matching account; read-only lookup includes older/archived conversations and reuses the exact session without summary transfer or fresh-chat fallback. Kept MonoCode-created cloud access. Native history reloads on reopening, retains later external turns around saved local turns, deduplicates Operator-wrapped turns and rejects stale reads. Native identity accepts equivalent Windows drive/UNC paths across restore/save/resume; Antigravity/OpenCode are unchanged.
 - Files: `src/features/provider-sessions/model/nativeSessionInput.ts`, `history.ts`; `ui/AddNativeSessionDialog.tsx`, `useNativeHistory.ts`; existing shell/App/SessionPane/cloud-list wiring; `src-tauri/src/provider_sessions.rs` / `lib.rs`; adjacent tests; L-71 and [plan](../specs/native-add-session-plan.md).
 - Verified: Final `npm run check` passed: 5,684 web tests / 523 files, TypeScript, Rust format, Clippy and 624 Rust tests (2 existing ignored); cargo check, diff check and production build passed. Combined remote Task Manager plus native session gates also passed: 5,710 web tests / 526 files, 630 Rust tests (2 ignored), TypeScript, format, Clippy, cargo check and production build. Incoming and native-session source files match their reviewed SHA-256 snapshots. Existing CSS minifier/large-chunk warnings remain. One unchanged Linux process-cleanup test failed in an earlier run; isolated and subsequent full gates passed. Manual: signed-in Windows native resume and provider-app round trip, transcript formats, archive/busy behavior and retained cloud/RC controls; checklist in the plan.
 - Commit: `8ac5bc0` normally pushed and remote-verified on 0.7.0; preserves Task Manager head `eaedb3c`. Approved register resolution keeps Task Manager L-70 and Add session L-71.
+
 ## 2026-10-06 — Upstream 0.8.0 intake and merge tracking
 - What: Verified Main and v0.8.0 both point to `9ccfc09`, with 38 incoming commits and no post-tag commits. Wrote the [tracking spec](../specs/upstream-0.8.0-sync-plan.md) before implementation; preserve current 0.7.0 Task Manager and pending native-session features. One Luna 6 Max agent assists read-only conflict review; resolution waits for the user's decisions.
 - Files: `docs/specs/upstream-0.8.0-sync-plan.md`; spec index; temporary conflict previews outside the checkout.
