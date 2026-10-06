@@ -170,8 +170,8 @@ Task Manager week strip, focus-day history/timeline, board styling and toolbar
 placement/spacing. Code paths do not overlap this implementation. Two docs
 have text conflicts; both features also chose register ID L-70. Proposed
 resolution: retain all entries, keep remote Task Manager at L-70 and renumber
-native Add session to L-71. Confirmation is pending under the working
-agreement's conflict rule; no conflicting files have been changed for sync.
+native Add session to L-71. The user approved this resolution on 2026-10-06; all entries were
+preserved and native Add session was renumbered to L-71.
 
 Recovery copy: `/tmp/monocode-native-session-before-sync` (full dirty-file
 archive, SHA-256 manifest, binary patch and overlapping-file previews).
@@ -179,9 +179,9 @@ Unrelated untracked upstream-sync documents are excluded from our commit.
 
 - [x] Fetch and review remote commits; preserve a recovery copy.
 - [x] Approve documentation conflict resolution; preserve both histories.
-- [ ] Integrate remote commits and this feature without force pushing.
+- [x] Integrate remote commits and this feature without force pushing.
 - [x] Run combined checks/build and confirm incoming source files unchanged.
-- [ ] Push and verify remote hash/ancestry; retain Windows handoff.
+- [x] Push and verify remote hash/ancestry; retain Windows handoff.
 
 Synchronization checkpoint: branch fast-forwarded to `eaedb3c`; our
 non-overlapping files are restored from recovery stash `fff46de99c2f`.
@@ -194,6 +194,10 @@ were applied, preserving new upstream-0.8.0 planning records. Combined
 `npm run check` passed: 5,710 web tests / 526 files, TypeScript, Rust format,
 Clippy and 630 Rust tests (two existing ignored). Separate cargo check passed.
 Production build passed in 32.16s with the same existing CSS minifier and
-large-chunk warnings. Diff check passed. No implementation commit or push has
-been made yet; publication is now authorized. Publish both on 0.7.0 first,
-then create the 0.8.0 synchronization branch from that updated base.
+large-chunk warnings. Diff check passed. Implementation commit `8ac5bc0cddebff2496774a16a69f294c70cf41d8` was
+normally pushed to `origin/nakul/windows-support-upstream-0.7.0`; remote hash
+matched exactly. Remote Task Manager head `eaedb3c` remains its ancestor and
+all incoming/native-session source SHA-256 checks passed. Separate signed-in
+Windows tests remain pending. User approved creating 0.8.0 from this published
+base next. Recovery archive/stash is retained; two unrelated untracked
+upstream-sync documents were excluded and remain untouched.

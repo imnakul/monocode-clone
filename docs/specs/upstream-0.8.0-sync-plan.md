@@ -118,3 +118,13 @@ do not spawn another implementation agent.
 No upstream source merge, new branch or new publication has happened yet.
 Only spec/index/changelog/conflict-review documents changed during intake.
 Existing native-session source and 0.7.0 remote history remain preserved.
+
+## Approved base publication checkpoint
+
+Native Add session plus all six remote Task Manager commits were normally
+pushed and remote-verified on 0.7.0 at
+`8ac5bc0cddebff2496774a16a69f294c70cf41d8`. L-70/L-71 records and all intake
+docs are retained. All original combined-source preservation hashes match
+the passed 5,710 web/630 Rust gates; two unrelated untracked upstream-sync
+records remain untouched. Next: branch from the ensuing documentation
+checkpoint and perform approved source merge with the same Luna agent.
