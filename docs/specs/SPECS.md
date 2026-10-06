@@ -17,6 +17,7 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
+| 2026-10-06 | [Draft — Hari: branded builds, CI releases and auto-update](hari-release-pipeline-plan.md) | New main branch `nakul/hari-kripa`; private `Hari-harness` rebrands each pushed commit at build time, runs all checks plus a "no MonoCode" guard, publishes signed Windows installers to public `hari-releases`; app auto-update and one-time MonoCode data copy. Phase 0 is Nakul's manual setup. |
 | 2026-10-04 23:48:33 | [Draft — Repeatable Windows installer build — delegation runbook](repeatable-windows-installer-build.md) | Reusable lower-cost-agent checklist and copyable prompt: dynamic version, checks, storage/failure stops, archive verification and per-run records. Explicit build invocation approves that run; keep this standing document for reuse. |
 | 2026-10-03 | [Draft — Claude Remote Control for MonoCode sessions — spec](claude-remote-control-plan.md) | Phase 0 manual probe (Nakul, phone) gates Phase 1. Uses the CLI's undocumented stream-json `remote_control` request. Cloud sessions, remote hosts and Codex are follow-ups. |
 | 2026-09-27 02:47:38 | [Draft — Prepare for a break — spec](prepare-for-break.md) | Depends on Native Branch and Claude cold-resume warning. |
