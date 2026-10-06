@@ -187,6 +187,12 @@ export const MODELS: AgentModel[] = [
     nativeId: "zai/glm-5.2-fast",
   },
   {
+    id: "antigravity-cli:default",
+    harness: "antigravity-cli",
+    name: "Configured CLI model",
+    nativeId: "",
+  },
+  {
     id: "antigravity:default",
     harness: "antigravity",
     name: "Default",
@@ -246,6 +252,7 @@ export const DEFAULT_MODEL_ID: Record<HarnessId, string> = {
   omp: "omp:default",
   fx: "fx:zai/glm-5.2-fast",
   antigravity: "antigravity:default",
+  "antigravity-cli": "antigravity-cli:default",
   cline: "cline:anthropic/claude-sonnet-5",
   hermes: "hermes:default",
 };
@@ -276,9 +283,9 @@ const HARNESS_ORDER: HarnessId[] = [
   "omp",
   "fx",
   "antigravity",
+  "antigravity-cli",
   "cline",
   "hermes",
-  "antigravity",
 ];
 
 const EMPTY_MODELS: AgentModel[] = [];

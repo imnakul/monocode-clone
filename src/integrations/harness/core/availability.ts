@@ -36,6 +36,7 @@ const CLI: Record<HarnessId, { name: string; install?: string }> = {
   omp: { name: "omp CLI", install: "curl -fsSL https://omp.sh/install | sh" },
   fx: { name: "fx CLI", install: "curl -fsSL https://fx.sh/setup.sh | bash" },
   antigravity: { name: "Antigravity ACP server (agy_acp_server.par)" },
+  "antigravity-cli": { name: "Antigravity CLI (agy)", install: "Install agy from antigravity.google/docs/cli/install/" },
   cline: { name: "Cline CLI", install: "npm i -g cline" },
   hermes: {
     name: "Hermes Agent CLI",

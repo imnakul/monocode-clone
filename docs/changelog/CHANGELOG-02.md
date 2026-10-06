@@ -1,3 +1,9 @@
+## 2026-10-06 — Antigravity CLI alongside ACP
+- What: Added separately selectable Antigravity CLI using official agy streaming, exact native resume, Stop/queued follow-ups, per-turn usage and read-only account reports. Existing ACP stays intact. Reused provider/model/permission components; CLI policy and explicit Full access reflect headless limitations. Model discovery errors are visible; unsupported attachments, interactive approvals, Plan/native fork and unverified remote/manual-compaction controls cannot silently pretend to work.
+- Files: New `src/integrations/harness/providers/antigravity-cli/`; harness/model/availability/binary registration; Rust CLI resolver/probe; existing provider/settings/model/permission UI; tests; [comparison and setup](../notes/antigravity-acp-cli-comparison.md); [spec](../specs/antigravity-cli-plan.md); L-69.
+- Verified: full check (5,624 web / 518 files; 615 Rust / 2 ignored), cargo check, final-source focused regressions (168 / 9 files), TypeScript and production frontend build pass. Manual: actual signed-in Windows agy, native desktop controls/resume/attachments remain; no installed agy in this environment. Existing build warnings unchanged.
+- Commit: uncommitted; no installer, push or Remote Control daemon installation.
+
 ## 2026-10-06 — New-chat Local / Remote / Cloud default
 - What: Replaced the Claude default checkbox with a global execution choice, reflected before first send in normal and quick composers. Preserved explicit Local/Remote and named-draft Local/Cloud choices, including reopening; discovered chats retain their validated native ID before composer/default initialization.
 - Files: Settings model/UI; provider remote preferences, native discovery and cloud hook; App/SessionPane; QuickComposer and TS/Rust launch delivery; tests; `docs/specs/new-chat-execution-default-plan.md`.

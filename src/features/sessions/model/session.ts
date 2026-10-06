@@ -30,6 +30,7 @@ export type HarnessId =
   | "omp"
   | "fx"
   | "antigravity"
+  | "antigravity-cli"
   | "cline"
   | "hermes";
 
@@ -43,6 +44,7 @@ export const HARNESSES: HarnessId[] = [
   "omp",
   "fx",
   "antigravity",
+  "antigravity-cli",
   "cline",
   "hermes",
 ];
@@ -574,6 +576,7 @@ export const HARNESS_LABEL: Record<HarnessId, string> = {
   omp: "omp",
   fx: "fx",
   antigravity: "antigravity",
+  "antigravity-cli": "antigravity-cli",
   cline: "cline",
   hermes: "hermes",
 };
@@ -588,13 +591,27 @@ export const HARNESS_TITLE: Record<HarnessId, string> = {
   omp: "omp",
   fx: "fx",
   antigravity: "Antigravity ACP",
+  "antigravity-cli": "Antigravity CLI",
   cline: "Cline",
   hermes: "Hermes Agent",
 };
 
-/** fx ACP rejects attachment prompt blocks. */
+/** These headless transports cannot receive attachment prompt blocks. */
 export function harnessSupportsAttachments(id: HarnessId): boolean {
-  return id !== "fx";
+  return id !== "fx" && id !== "antigravity-cli";
+}
+
+/** CLI headless policy has no interactive approval channel. */
+export function runtimeModesForHarness(harness?: HarnessId): RuntimeMode[] {
+  return harness === "antigravity-cli" ? ["supervised", "full-access"] : RUNTIME_MODES;
+}
+export function runtimeModeLabel(mode: RuntimeMode, harness?: HarnessId): string {
+  return harness === "antigravity-cli" && mode !== "full-access" ? "CLI policy" : RUNTIME_MODE_LABEL[mode];
+}
+export function runtimeModeHint(mode: RuntimeMode, harness?: HarnessId): string {
+  return harness === "antigravity-cli" && mode !== "full-access"
+    ? "Use agy's saved permissions. Requests needing confirmation are denied; workspace edits may be allowed."
+    : RUNTIME_MODE_HINT[mode];
 }
 
 export function newSession(

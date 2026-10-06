@@ -18,6 +18,7 @@ function emptyAvailability(): HarnessAvailability {
     omp: false,
     fx: false,
     antigravity: false,
+    "antigravity-cli": false,
     cline: false,
     hermes: false,
   };

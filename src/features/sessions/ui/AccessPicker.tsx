@@ -12,15 +12,17 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import {
-  RUNTIME_MODE_HINT,
-  RUNTIME_MODE_LABEL,
-  RUNTIME_MODES,
+  runtimeModeHint,
+  runtimeModeLabel,
+  runtimeModesForHarness,
+  type HarnessId,
   type RuntimeMode,
 } from "../model/session";
 import { Popover } from "../../../shared/ui/Popover";
 
 type Props = {
   value: RuntimeMode;
+  harness?: HarnessId;
   onChange: (mode: RuntimeMode) => void;
   onClose?: () => void;
   busy?: boolean;
@@ -37,13 +39,15 @@ const ICONS: Record<RuntimeMode, typeof Lock> = {
 
 export function AccessPicker({
   value,
+  harness,
   onChange,
   onClose,
   busy = false,
 }: Props) {
+  const modes = runtimeModesForHarness(harness);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(() =>
-    Math.max(0, RUNTIME_MODES.indexOf(value)),
+    Math.max(0, modes.indexOf(value)),
   );
   const root = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -57,8 +61,8 @@ export function AccessPicker({
 
   useEffect(() => {
     if (!open) return;
-    setActive(Math.max(0, RUNTIME_MODES.indexOf(value)));
-  }, [open, value]);
+    setActive(Math.max(0, modes.indexOf(value)));
+  }, [open, value, harness]);
 
   const pick = (mode: RuntimeMode) => {
     onChange(mode);
@@ -68,7 +72,7 @@ export function AccessPicker({
   const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((i) => Math.min(RUNTIME_MODES.length - 1, i + 1));
+      setActive((i) => Math.min(modes.length - 1, i + 1));
       return;
     }
     if (e.key === "ArrowUp") {
@@ -78,7 +82,7 @@ export function AccessPicker({
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      const mode = RUNTIME_MODES[active];
+      const mode = modes[active];
       if (mode) pick(mode);
     }
   };
@@ -88,8 +92,8 @@ export function AccessPicker({
       <button
         type="button"
         data-access-picker-trigger
-        title={`${RUNTIME_MODE_HINT[value]}${busy ? " Changes apply to the next turn." : ""}`}
-        aria-label={RUNTIME_MODE_LABEL[value]}
+        title={`${runtimeModeHint(value, harness)}${busy ? " Changes apply to the next turn." : ""}`}
+        aria-label={runtimeModeLabel(value, harness)}
         aria-expanded={open}
         aria-haspopup="listbox"
         onMouseDown={(e) => e.preventDefault()}
@@ -111,7 +115,7 @@ export function AccessPicker({
           strokeWidth={1.75}
         />
         <span className="min-w-0 truncate text-[11px]">
-          {RUNTIME_MODE_LABEL[value]}
+          {runtimeModeLabel(value, harness)}
         </span>
         <ChevronDown
           className={`size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
@@ -132,7 +136,7 @@ export function AccessPicker({
           onKeyDown={onMenuKey}
           className="p-1"
         >
-          {RUNTIME_MODES.map((mode, index) => {
+          {modes.map((mode, index) => {
             const ModeIcon = ICONS[mode];
             const selected = mode === value;
             const highlighted = index === active;
@@ -158,10 +162,10 @@ export function AccessPicker({
                 />
                 <span className="min-w-0">
                   <span className="block text-[13px] font-medium leading-5">
-                    {RUNTIME_MODE_LABEL[mode]}
+                    {runtimeModeLabel(mode, harness)}
                   </span>
                   <span className="mt-0.5 block text-[11px] leading-4 text-content/50">
-                    {RUNTIME_MODE_HINT[mode]}
+                    {runtimeModeHint(mode, harness)}
                   </span>
                 </span>
               </button>

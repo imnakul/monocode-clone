@@ -68,3 +68,29 @@ it("dismisses on Escape without changing permissions", () => {
   expect(onChange).not.toHaveBeenCalled();
   expect(onClose).toHaveBeenCalledOnce();
 });
+
+it("offers only actual CLI policies, and normalizes a saved interactive mode for keyboard selection", () => {
+  act(() =>
+    root.render(
+      createElement(QuickPermissions, {
+        key: "cli",
+        value: "auto",
+        harness: "antigravity-cli",
+        onChange,
+        onClose,
+      }),
+    ),
+  );
+  const options = container.querySelectorAll('[role="option"]');
+  expect(options).toHaveLength(2);
+  expect(options[0].textContent).toContain("CLI policy");
+  expect(options[1].textContent).toContain("Full access");
+  act(() =>
+    container
+      .querySelector('[role="listbox"]')!
+      .dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      ),
+  );
+  expect(onChange).toHaveBeenCalledWith("supervised");
+});

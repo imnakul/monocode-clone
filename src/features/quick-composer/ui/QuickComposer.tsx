@@ -66,7 +66,7 @@ import {
   DEFAULT_RUNTIME_MODE,
   HARNESS_TITLE,
   HARNESSES,
-  RUNTIME_MODE_LABEL,
+  runtimeModeLabel,
   type HarnessId,
   type RuntimeMode,
   harnessSupportsAttachments,
@@ -1109,7 +1109,7 @@ export function QuickComposer({
               mode={runtimeMode}
               className="size-3.5 shrink-0"
             />
-            <span className="truncate">{RUNTIME_MODE_LABEL[runtimeMode]}</span>
+            <span className="truncate">{runtimeModeLabel(runtimeMode, choice.harness)}</span>
             <ChevronDown className="size-3.5 shrink-0 opacity-60" />
           </button>
         ) : null}
@@ -1322,6 +1322,7 @@ export function QuickComposer({
 
           {picker === "permissions" ? (
             <QuickPermissions
+              harness={choice.harness}
               value={runtimeMode}
               onChange={setRuntimeMode}
               onClose={closePicker}

@@ -393,6 +393,7 @@ async function resolveHarnessBinary(
     cline: "harness_resolve_cline",
     hermes: "harness_resolve_hermes",
     antigravity: "harness_resolve_antigravity",
+    "antigravity-cli": "harness_resolve_antigravity_cli",
   };
   return invoke(command[provider]);
 }
@@ -464,6 +465,10 @@ export function resolveAntigravityBinary(
     path: string;
     args: string[];
   }>;
+}
+
+export function resolveAntigravityCliBinary(binaryPath?: string | null): Promise<{ path: string }> {
+  return resolveHarnessBinary("antigravity-cli", binaryPath);
 }
 
 export function freeHarnessPort(): Promise<number> {

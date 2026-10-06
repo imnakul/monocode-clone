@@ -867,9 +867,15 @@ pub fn harness_resolve_grok(override_path: Option<String>) -> Result<CursorBinar
     .map(cursor_binary)
 }
 
-/// Resolve the official Antigravity ACP runtime (`agy_acp_server` plus its
-/// matching `localharness_external` helper). The legacy headless `agy` CLI is
-/// not a valid ACP runtime and must be rejected with actionable guidance.
+/// Resolve Google's standalone headless CLI independently from the ACP runtime.
+#[tauri::command(async)]
+pub fn harness_resolve_antigravity_cli(
+    override_path: Option<String>,
+) -> Result<CursorBinary, String> {
+    resolve_requested_binary(override_path, resolve_antigravity_cli, "Antigravity CLI not found. Install the official agy CLI and sign in with agy in a terminal.").map(cursor_binary)
+}
+
+/// Resolve the official ACP runtime and matching helper; agy is a separate provider.
 #[tauri::command(async)]
 pub fn harness_resolve_antigravity(override_path: Option<String>) -> Result<CursorBinary, String> {
     resolve_antigravity_acp(override_path).map(cursor_binary)
@@ -930,6 +936,11 @@ fn resolve_provider_binary(
         "fx" => resolve_requested_binary(override_path, resolve_fx, "fx CLI not found"),
         "grok" => resolve_requested_binary(override_path, resolve_grok, "Grok Build CLI not found"),
         "antigravity" => resolve_antigravity_acp(override_path),
+        "antigravity-cli" => resolve_requested_binary(
+            override_path,
+            resolve_antigravity_cli,
+            "Antigravity CLI (agy) not found",
+        ),
         "cline" => resolve_requested_binary(override_path, resolve_cline, "Cline CLI not found"),
         _ => Err(format!("Unknown harness provider: {provider}")),
     }
@@ -1570,7 +1581,7 @@ fn require_probe_markers(path: &Path, args: &[&str], markers: &[&str]) -> Result
 fn probe_provider_binary(provider: &str, path: &Path) -> Result<Option<String>, String> {
     if !matches!(
         provider,
-        "codex" | "claude" | "opencode" | "antigravity" | "cline"
+        "codex" | "claude" | "opencode" | "antigravity" | "antigravity-cli" | "cline"
     ) {
         return Ok(None);
     }
@@ -1584,6 +1595,16 @@ fn probe_provider_binary(provider: &str, path: &Path) -> Result<Option<String>, 
     let version_output = probe_command_output(path, &["--version"], Duration::from_secs(8))?;
     match provider {
         "codex" => require_probe_markers(path, &["app-server", "--help"], &["app-server"])?,
+        "antigravity-cli" => require_probe_markers(
+            path,
+            &["--help"],
+            &[
+                "--input-format",
+                "--output-format",
+                "stream-json",
+                "--conversation",
+            ],
+        )?,
         "claude" => require_probe_markers(
             path,
             &["--help"],
@@ -2828,6 +2849,7 @@ fn resolve_harness_binary_default(provider: &str) -> Option<PathBuf> {
         "fx" => resolve_fx(),
         "hermes" => resolve_hermes(),
         "antigravity" => resolve_antigravity(),
+        "antigravity-cli" => resolve_antigravity_cli(),
         "cline" => resolve_cline(),
         _ => None,
     }
@@ -2876,6 +2898,7 @@ fn resolve_harness_binary_override(provider: &str, binary_path: &str) -> Result<
         "fx" => &["fx"],
         "hermes" => &["hermes"],
         "cline" => &["cline"],
+        "antigravity-cli" => &["agy"],
         _ => {
             return Err(format!(
                 "Unsupported configured harness provider: {provider}"
@@ -2948,6 +2971,7 @@ fn validate_harness_binary_version(provider: &str, path: &Path) -> Result<(), St
         "claude" => lower.contains("claude"),
         "codex" => lower.contains("codex"),
         "hermes" => lower.contains("hermes"),
+        "antigravity-cli" => lower.contains("antigravity") || lower.contains("agy"),
         _ => true,
     };
     if has_version && provider_marker {
@@ -3378,6 +3402,76 @@ mod antigravity_acp_tests {
         let result =
             harness_resolve_antigravity(Some(path.to_string_lossy().into_owned())).unwrap();
         assert!(resolved_binary_matches(Path::new(&result.path), &path));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+fn antigravity_cli_candidates(home: Option<&Path>, local_app_data: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(home) = home {
+        candidates.push(home.join(".local").join("bin").join(if cfg!(windows) {
+            "agy.exe"
+        } else {
+            "agy"
+        }));
+        #[cfg(windows)]
+        candidates.push(
+            home.join("AppData")
+                .join("Local")
+                .join("agy")
+                .join("bin")
+                .join("agy.exe"),
+        );
+    }
+    if let Some(local) = local_app_data {
+        candidates.push(local.join("agy").join("bin").join("agy.exe"));
+    }
+    candidates
+}
+
+fn resolve_antigravity_cli() -> Option<PathBuf> {
+    if let Some(found) = which_in_path(&gui_search_path(), "agy") {
+        return Some(found);
+    }
+    let home = dirs_home().map(PathBuf::from);
+    let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    antigravity_cli_candidates(home.as_deref(), local.as_deref())
+        .into_iter()
+        .find(|path| is_executable_file(path))
+}
+
+#[cfg(test)]
+mod antigravity_cli_tests {
+    use super::*;
+
+    #[test]
+    fn candidates_follow_user_directories_without_acp_helpers() {
+        let home = Path::new("user-root");
+        let local = Path::new("redirected-app-data");
+        let candidates = antigravity_cli_candidates(Some(home), Some(local));
+        assert!(candidates.contains(&local.join("agy/bin/agy.exe")));
+        assert!(candidates
+            .iter()
+            .all(|path| !path.to_string_lossy().contains("acp")));
+        assert!(antigravity_cli_candidates(None, None).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn standalone_cli_probes_and_override_require_stream_protocol() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("monocode-agy-cli-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("agy");
+        std::fs::write(&path, "#!/bin/sh\ncase \"$1\" in\n--version) echo 'Antigravity CLI 1.2.16';;\n--help) echo '--input-format --output-format stream-json --conversation';;\nesac\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(probe_provider_binary("antigravity-cli", &path).is_ok());
+        assert!(
+            resolve_harness_binary_override("antigravity-cli", &path.to_string_lossy()).is_ok()
+        );
+        assert!(resolve_antigravity_acp(Some(path.to_string_lossy().into_owned())).is_err());
+        std::fs::write(&path, "#!/bin/sh\necho 'Antigravity CLI 1.0.0'\n").unwrap();
+        assert!(probe_provider_binary("antigravity-cli", &path).is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 }
