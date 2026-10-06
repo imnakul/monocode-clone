@@ -1,3 +1,9 @@
+## 2026-10-06 09:46 IST — Windows 0.7.0-local5-upstream-sync-fixes installer
+- What: Built the requested local5 version from current branch HEAD `4b8c026` and archived the unsigned NSIS installer alongside earlier versions. The initial attempt stopped on Rust tests; after those results were disclosed, Nakul reiterated the exact build request and packaging resumed without source/test edits. No commit, push or installation.
+- Files: `package.json`, `package-lock.json`, `Cargo.toml`, `Cargo.lock`, `src-tauri/tauri.conf.json` (version metadata); [blocked build record and logs](../notes/windows-070-local5-upstream-sync-fixes-build/README.md).
+- Verified: TypeScript, Cargo format/check, Clippy, production frontend, native release and NSIS pass. Archive/source SHA-256 matches; FileVersion/ProductVersion match. Web suite: 5,583 passed / 2 documented Windows shortcut failures. Rust suite: 610 passed / 2 failed / 5 ignored; one failure is the documented MCP fixture issue, and the read-only test also fails in isolation (cause unresolved). Full test gates remain red; tests unchanged. Lint unavailable; diff/version consistency pass. Manual: installation/version, window/history/providers, recent UI fixes and MCP read-only behavior.
+- Commit: uncommitted.
+
 ## 2026-10-05 — Session Manager pane: simple slide instead of card morph
 - What: Removed the expand-from-card / collapse-into-card animation. The session pane now slides and fades in and out (200ms) like the Tasks peek pane and other side panes; the board takes its split width at once.
 - Files: `src/features/session-board/ui/SessionBoardView.tsx`

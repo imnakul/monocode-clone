@@ -2342,7 +2342,7 @@ dependencies = [
 
 [[package]]
 name = "monocode"
-version = "0.7.0-local4-upstream-sync"
+version = "0.7.0-local5-upstream-sync-fixes"
 dependencies = [
  "arboard",
  "base64 0.22.1",
