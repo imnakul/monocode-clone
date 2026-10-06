@@ -69,7 +69,7 @@ another session can resume without repeating or dropping work.
 - [x] Incorporate pending local implementation and approved upstream changes.
 - [x] Verify all upstream-added paths and local feature preservation.
 - [x] Pass full checks/build; update feature register and conflict notes.
-- [ ] Push new branch and verify remote commit/ancestry.
+- [x] Push new branch and verify remote commit/ancestry.
 - [x] Record separate manual desktop/provider checklist.
 
 ## Issues and fixes
@@ -110,10 +110,12 @@ another session can resume without repeating or dropping work.
 
 ## Done
 
-Intake, approvals, original 0.7.0 publication and new tracking branch are complete.
-Source merge is in progress. Resume from the active checkpoint below, inspect
-Git status and the single Luna agent's messages, and continue verification.
-Do not restart the merge or spawn a second implementation agent.
+Approved keep-both source merge and native Find follow-up are implemented,
+fully checked and normally published on the new 0.8.0 branch. Source merge
+commit is `4589270762bbcd06f2185fecd8d4c9255e0dcaf3`; its remote hash and both
+parents/ancestries were verified. Remaining work is the separate signed-in
+Windows/provider/phone checklist. Earlier checkpoints below are historical;
+read the final publication checkpoint before resuming. No merge remains active.
 
 ## Approved base publication checkpoint
 
@@ -135,7 +137,7 @@ Upstream target is still exact `9ccfc09`. Publish this initial tracking
 checkpoint on the new branch, then merge approved source changes. The
 checkpoint is a starting point, not a finished 0.8.0 implementation.
 
-## Active merge checkpoint
+## Historical active merge checkpoint
 
 Initial new-branch checkpoint `dbb3264` was normally published with upstream
 tracking to `origin/nakul/windows-support-upstream-0.8.0`. Source merge
@@ -243,7 +245,7 @@ intact. Do not advertise remote-host Antigravity CLI support from this merge.
 This extra host result is separate from the required npm run check bar.
 
 
-## Final automated verification — ready for publication
+## Final automated verification
 
 The final literal `npm run check` passed: 6,268 web tests in 576 files,
 TypeScript, Rust format, Clippy with warnings denied, and 661 Rust tests
@@ -260,3 +262,24 @@ legacy untracked 0.7.0 spec files untouched. Merge commit message:
 Next: normal push to origin/new 0.8.0 branch, verify both upstream/fork ancestry
 and remote head, then record publication. Windows/provider/phone visual
 checks remain separate and are not claimed as performed.
+
+
+## Final publication checkpoint
+
+Source merge `4589270762bbcd06f2185fecd8d4c9255e0dcaf3` was normally pushed to
+`origin/nakul/windows-support-upstream-0.8.0`, then verified with ls-remote.
+It has two parents: `dbb32644a7e52a0b661e2b4520d7aa61721dab94` (fork checkpoint)
+and `9ccfc094615aa3170c01ae77a44298aefacdc9de` (upstream Main/v0.8.0).
+Ancestry checks prove inclusion of that upstream target and the published
+0.7.0 base `2a35625e110efdfec47ab34ded0e146d8c79a5f1`. Original 0.7.0 remote
+still matches that base. Main/tag were rechecked before publication and still
+match 9ccfc09, with no later commits at that check.
+
+Staged preservation audit: no unmerged entries/markers, all 99 additions,
+67/70 protected files byte-identical and three intentional Find changes,
+six aligned version fields. Two pre-existing untracked legacy specs remain
+untouched. This ensuing documentation-only checkpoint records publication;
+its application source/tests are byte-identical to the fully passed merge.
+The remote branch's latest documentation hash is obtainable with git log;
+no further code changes or merge work remain. Status stays Review for human
+Windows/provider/phone checks, not another implementation-agent UI session.

@@ -1,6 +1,7 @@
 # Review — Add native Claude Code / Codex session
 
-Branch: `nakul/windows-support-upstream-0.7.0`
+Initial branch: `nakul/windows-support-upstream-0.7.0`
+Find follow-up: `nakul/windows-support-upstream-0.8.0`, published source `4589270`
 Base: `147aea750718969dff37014dae24856d40cea2f3`
 Created: 2026-10-06. Tier: Large (provider work).
 
@@ -230,7 +231,8 @@ ID or restoring automatic provider folders. Implement on the active
 
 Status: implemented on the 0.8.0 branch; final merge gate passed (6,268 web,
 661 Rust with two ignored, TypeScript, format and Clippy), and cargo check/build
-passed. Publication is tracked in the upstream sync spec. Uses the existing list and modal. Find
+passed. Source `4589270` was normally pushed and remote-verified on 0.8.0; the
+publication/ancestry checkpoint is in the upstream sync spec. Uses the existing list and modal. Find
 starts no native process; full-result name/ID/folder search and project
 filtering run before paging, with archived visibility in the existing list
 filter. Provider/account changes invalidate prior results. Native timestamps

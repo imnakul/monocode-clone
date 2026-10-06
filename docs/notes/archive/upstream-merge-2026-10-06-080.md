@@ -107,3 +107,11 @@ subreaper for unchanged process-group tests because PID 1 leaves zombie
 orphans; production/test source remains unchanged. Extra host suite:
 102 passed, five skipped, one pre-existing Antigravity CLI remote-provider
 parity failure. See the sync spec for attribution and publication.
+
+
+## Publication
+
+Source merge `4589270762bbcd06f2185fecd8d4c9255e0dcaf3` was normally pushed to the new 0.8.0 branch
+and remote-verified. Both upstream 9ccfc09 and published 0.7.0 base 2a35625 are
+ancestors. The original 0.7.0 branch is unchanged. Publication/docs checkpoint
+and outstanding human Windows/provider/phone checks are in the sync spec.
