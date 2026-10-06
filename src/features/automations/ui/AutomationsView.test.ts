@@ -130,8 +130,17 @@ it("edits and persists a custom schedule and Operator while blocking invalid inp
   await openEditor(automation);
   expect(container.querySelector('[aria-label="Cron expression"]')).not.toBeNull();
   expect(container.querySelector('[aria-label="Cron hour"]')).not.toBeNull();
+  expect(container.textContent).toContain("At 21:00; every day; every month.");
+  expect(container.textContent).toContain("Next run");
+  expect(container.textContent).not.toMatch(/GMT[^·]+ · Next run/);
+  await input("Cron expression", "* */2 * * *");
+  expect(container.textContent).toContain("Every minute during hours 00, 02, 04");
+  await input("Cron minute", "0");
+  expect(container.textContent).toContain("At minute 00 during hours 00, 02, 04");
+  expect(container.textContent).not.toContain("Every minute during hours");
   await input("Cron expression", "* * 2 *");
   expect(container.textContent).toContain("Use five fields");
+  expect(container.textContent).not.toContain("Uses this computer's local timezone.");
   expect(container.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled).toBe(true);
   await input("Cron expression", "*/15 9-17 * * 1-5");
   await input("Cron hour", "21");

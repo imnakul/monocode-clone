@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   applyTriggers,
   automationSubmissionPrompt,
@@ -182,6 +182,26 @@ describe("automation schedules", () => {
       /^GMT[+-]\d/,
     );
     expect(nextRunPreview(at("2026-09-21T09:00:00"))).toMatch(/^Next run /);
+  });
+
+  it.each(["Asia/Kolkata", "Asia/Calcutta"])("labels India next-run times once as IST (%s)", (timezone) => {
+    vi.stubEnv("TZ", timezone);
+    try {
+      const preview = nextRunPreview(at("2026-10-06T16:00:00+05:30"));
+      expect(preview).toMatch(/, 16:00 IST$/);
+      expect(preview).not.toContain("GMT");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("keeps the local timezone for computers outside India", () => {
+    vi.stubEnv("TZ", "UTC");
+    try {
+      expect(nextRunPreview(at("2026-10-06T16:00:00Z"))).toMatch(/, 16:00 UTC$/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("hydrates missing trigger arrays from legacy fields", () => {

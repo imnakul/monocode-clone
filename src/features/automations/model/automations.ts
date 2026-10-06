@@ -296,11 +296,15 @@ export function nextRunPreview(at: number): string {
     })
     .replace(/,/g, "");
   const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  const formatter = new Intl.DateTimeFormat(undefined, { timeZoneName: "short" });
+  const timezone = formatter.resolvedOptions().timeZone;
   const zone =
-    new Intl.DateTimeFormat(undefined, { timeZoneName: "short" })
-      .formatToParts(date)
-      .find((part) => part.type === "timeZoneName")?.value ??
-    gmtOffsetLabel(date);
+    timezone === "Asia/Kolkata" || timezone === "Asia/Calcutta"
+      ? "IST"
+      : (formatter
+          .formatToParts(date)
+          .find((part) => part.type === "timeZoneName")?.value ??
+        gmtOffsetLabel(date));
   return `Next run ${day}, ${time} ${zone}`;
 }
 

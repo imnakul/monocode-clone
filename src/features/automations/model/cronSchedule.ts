@@ -78,6 +78,81 @@ export function cronScheduleError(expression: string): string | null {
   }
 }
 
+/** Describe the actual clock selections, not an assumed elapsed-time interval. */
+export function cronScheduleMeaning(expression: string): string | null {
+  let fields: CronField[];
+  try {
+    fields = parseCronSchedule(expression).fields;
+  } catch {
+    return null;
+  }
+  const [minute, hour, monthDay, month, weekDay] = fields as [
+    CronField,
+    CronField,
+    CronField,
+    CronField,
+    CronField,
+  ];
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  const times =
+    minute.values.length === 1 && hour.values.length === 1
+      ? `At ${pad(hour.values[0]!)}:${pad(minute.values[0]!)}`
+      : `${
+          minute.values.length === 60
+            ? "Every minute"
+            : `At minute${minute.values.length === 1 ? "" : "s"} ${minute.values.map(pad).join(", ")}`
+        } ${
+          hour.values.length === 24
+            ? "of every hour"
+            : `during hours ${hour.values.map(pad).join(", ")}`
+        }`;
+  const weekdays = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  const months = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+  const everyDate = monthDay.values.length === 31;
+  const everyWeekday = weekDay.values.length === 7;
+  const dateSelection = `on day${monthDay.values.length === 1 ? "" : "s"} ${monthDay.values.join(", ")} of the month`;
+  const weekdaySelection = `on ${weekDay.values.map((value) => weekdays[value]).join(", ")}`;
+  // Mirror the scheduler: wildcard-prefixed day fields intersect; otherwise OR.
+  const days =
+    monthDay.wildcard || weekDay.wildcard
+      ? everyDate && everyWeekday
+        ? "every day"
+        : everyDate
+          ? weekdaySelection
+          : everyWeekday
+            ? dateSelection
+            : `${dateSelection} AND ${weekdaySelection}`
+      : everyDate || everyWeekday
+        ? "every day"
+        : `${dateSelection} OR ${weekdaySelection}`;
+  const selectedMonths =
+    month.values.length === 12
+      ? "every month"
+      : `in ${month.values.map((value) => months[value - 1]).join(", ")}`;
+  return `${times}; ${days}; ${selectedMonths}. Uses this computer's local timezone.`;
+}
+
 /** Skip by calendar days; rare schedules never scan millions of minutes. */
 export function nextCronRunAt(expression: string, after = Date.now()): number {
   const { fields } = parseCronSchedule(expression);

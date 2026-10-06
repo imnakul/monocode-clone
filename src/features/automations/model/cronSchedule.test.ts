@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cronFromSimpleSchedule,
   cronScheduleError,
+  cronScheduleMeaning,
   nextCronRunAt,
   parseCronSchedule,
 } from "./cronSchedule";
@@ -10,6 +11,29 @@ const at = (value: string): number => new Date(value).getTime();
 afterEach(() => vi.unstubAllEnvs());
 
 describe("numeric custom schedules", () => {
+  it("distinguishes every minute during even hours from once every two hours", () => {
+    expect(cronScheduleMeaning("* */2 * * *")).toContain(
+      "Every minute during hours 00, 02, 04, 06, 08, 10, 12, 14, 16, 18, 20, 22",
+    );
+    expect(cronScheduleMeaning("0 */2 * * *")).toContain(
+      "At minute 00 during hours 00, 02, 04, 06, 08, 10, 12, 14, 16, 18, 20, 22",
+    );
+  });
+
+  it("describes lists, steps, named weekdays/months and day matching rules", () => {
+    expect(cronScheduleMeaning("5/15 9 * 1 1-5")).toBe(
+      "At minutes 05, 20, 35, 50 during hours 09; on Monday, Tuesday, Wednesday, Thursday, Friday; in January. Uses this computer's local timezone.",
+    );
+    expect(cronScheduleMeaning("0 21 2 * 0,7")).toContain(
+      "At 21:00; on day 2 of the month OR on Sunday; every month",
+    );
+    expect(cronScheduleMeaning("0 0 */2 * 1")).toContain("AND on Monday");
+    expect(cronScheduleMeaning("0 0 1-31 * 1")).toContain("every day");
+    expect(cronScheduleMeaning("* * * * *")).toContain(
+      "Every minute of every hour; every day",
+    );
+    expect(cronScheduleMeaning("* * 2 *")).toBeNull();
+  });
   it.each([
     "* * 2 *",
     "0 * * * * *",

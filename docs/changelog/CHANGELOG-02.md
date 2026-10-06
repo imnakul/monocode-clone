@@ -1,3 +1,27 @@
+## 2026-10-06 — Publish schedule meaning, IST preview and CLI test handoff
+- What: Carried local schedule-meaning/IST edits and the selected Antigravity roadmap/test handoff onto remote `fda6d39`, retaining local5 metadata and release records. Conversation folders remain unchanged. The two pre-existing untracked upstream-sync specs remain untouched and excluded. No provider capability implementation or installer added.
+- Files: automation model/UI and regression tests; L-65, roadmap, changelog, spec index and the two new specs.
+- Verified: final-source TypeScript ✅ full web suite ✅ (5,630 / 518 files) production frontend build ✅ diff check ✅. Manual editor/real signed-in CLI checks remain in the specs. Logs: `/tmp/monocode-publication-oct6-{tsc,web,build}.log`.
+- Commit: source commit containing this entry.
+
+## 2026-10-06 — Show automation timezone once
+- What: Removed the duplicate GMT label in advanced and simple trigger previews. India local timezones display IST once after the next-run time; other computers retain their local zone. No scheduling change.
+- Files: `src/features/automations/model/automations.ts` → `nextRunPreview`; `ui/AutomationsView.tsx`; adjacent regression tests; L-65 and schedule-meaning spec.
+- Verified: TypeScript ✅ targeted automation tests ✅ (50 / 3 files); `git diff --check` clean. Manual: confirm next-run preview ends in IST on the India desktop. Prior full-suite/build evidence applies to the preceding schedule-meaning checkpoint.
+- Commit: source commit containing this entry.
+
+## 2026-10-06 — Local Antigravity capability verification handoff
+- What: Recorded a local Windows agent test spec for the exact headless transport, quota reports, MCP configuration/health, phone-originated Remote Control turns and native fork. Additional CLI modes are research only; desktop UI checks remain a separate human follow-up. Read-only remote inspection confirms `fda6d39` retains provider/probe implementation `d26c9a2`; no merge or push performed.
+- Files: `docs/specs/antigravity-cli-local-capability-verification.md`; spec index.
+- Verified: source and remote ancestry reviewed; `git diff --check` clean. Docs only; real signed-in Windows/provider wire tests await the local report.
+- Commit: source commit containing this entry.
+
+## 2026-10-06 — Explain advanced automation schedules
+- What: Advanced cron now displays its actual minute/hour/calendar meaning alongside Next run and timezone. Added a once-every-two-hours example; scheduler, catch-up and saved expressions stay unchanged at the user's request. Recorded only the four selected Antigravity CLI follow-ups in `PLANNED.md`.
+- Files: `src/features/automations/model/cronSchedule.ts` → `cronScheduleMeaning`; `ui/AutomationsView.tsx` → existing advanced editor; adjacent tests; L-65, spec/index and roadmap.
+- Verified: TypeScript ✅ targeted tests ✅ (29) full web suite ✅ (5,627 tests / 518 files) build ✅. Manual: check the explanation in the updated desktop editor.
+- Commit: source commit containing this entry.
+
 ## 2026-10-06 12:05 IST — Complete merge preserving both changelog sides
 - What: Resolved the changelog-only conflict by retaining the local5 installer record and all incoming execution-default/Antigravity CLI records, then completed the merge of local `d0ab02c` and incoming `1d2254b` at Nakul's request. Already-staged source and other documentation were left untouched. No push or new installer.
 - Files: `docs/changelog/CHANGELOG-02.md` (both sides retained; conflict markers removed).

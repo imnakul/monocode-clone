@@ -46,6 +46,7 @@ import {
   CRON_FIELDS,
   cronFromSimpleSchedule,
   cronScheduleError,
+  cronScheduleMeaning,
 } from "../model/cronSchedule";
 import { SkillPromptField } from "../../skills/ui/SkillPromptField";
 import { OverlayNav } from "../../../app/shell/TitleBar";
@@ -64,7 +65,6 @@ import {
   draftFromTemplate,
   formatAutomationRunAt,
   formatAutomationRunDuration,
-  gmtOffsetLabel,
   listAutomationRuns,
   listAutomations,
   newAutomationDraft,
@@ -1939,12 +1939,18 @@ function TimeTriggerSentence({
             { value: "0 21 * * *", label: "Every day at 9pm" },
             { value: "0 21 * * 1-5", label: "Weekdays at 9pm" },
             { value: "*/15 * * * *", label: "Every 15 minutes" },
+            { value: "0 */2 * * *", label: "Every two hours, at minute 00" },
             { value: "0 21 2 * *", label: "2nd of each month at 9pm" },
           ]}
           onChange={(cron) => onChange({ ...trigger, cron })}
         />
         {error ? <p id={errorId} role="alert" className="text-[12px] text-red-400">{error}</p> : (
-          <span className="text-[11px] text-content/45">{gmtOffsetLabel()} · {nextRunPreview(nextAt)}</span>
+          <>
+            <p className="text-[12px] text-content/70" aria-live="polite">
+              {cronScheduleMeaning(expression)}
+            </p>
+            <span className="text-[11px] text-content/45">{nextRunPreview(nextAt)}</span>
+          </>
         )}
       </div>
     );
@@ -1996,7 +2002,6 @@ function TimeTriggerSentence({
           onChange={(value) => onChange({ ...trigger, time: value })}
         />
       )}
-      <span className="text-content/45">{gmtOffsetLabel()}</span>
       <span className="ml-1 text-content/35">{nextRunPreview(nextAt)}</span>
       {advanced}
     </>
