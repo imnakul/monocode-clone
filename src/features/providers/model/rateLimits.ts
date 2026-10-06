@@ -1,6 +1,6 @@
 import { asRecord } from "../../../integrations/harness/providers/codex/codexProtocol";
 
-export type RateLimitProvider = "claude" | "codex" | "opencode";
+export type RateLimitProvider = "claude" | "codex" | "opencode" | "antigravity-cli";
 
 export type RateLimitStatus =
   "idle" | "fetching" | "ok" | "error" | "unavailable";
@@ -32,6 +32,10 @@ export type RateLimitResetCredits = {
 
 export type ProviderRateLimits = {
   provider: RateLimitProvider;
+  /** CLI model-family quotas; never combined into an invented account window. */
+  modelGroups?: { name: "Gemini" | "Claude" | "GPT" | "Claude & GPT"; session: RateLimitWindow | null; weekly: RateLimitWindow | null }[];
+  creditBalance?: number;
+  creditError?: string;
   session: RateLimitWindow | null;
   weekly: RateLimitWindow | null;
   monthly: RateLimitWindow | null;
@@ -74,7 +78,9 @@ export function fetchingRateLimits(
     (previous.session ||
       previous.weekly ||
       previous.monthly ||
-      previous.resetCredits)
+      previous.resetCredits ||
+      previous.modelGroups?.length ||
+      previous.creditBalance !== undefined)
   ) {
     return { ...previous, status: "fetching" };
   }
@@ -116,7 +122,9 @@ export function errorRateLimits(
     (previous.session ||
       previous.weekly ||
       previous.monthly ||
-      previous.resetCredits)
+      previous.resetCredits ||
+      previous.modelGroups?.length ||
+      previous.creditBalance !== undefined)
   ) {
     return {
       ...previous,

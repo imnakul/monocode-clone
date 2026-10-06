@@ -118,7 +118,8 @@ export function UsageProviderChip({
     (limits.status === "fetching" &&
       !limits.session &&
       !limits.weekly &&
-      !limits.monthly);
+      !limits.monthly &&
+      !limits.modelGroups?.length);
   const disconnected = limits.status === "unavailable";
   const windows = usageWindows(limits);
   const loginView = Boolean(
@@ -403,13 +404,24 @@ export function UsageProviderChip({
                 ) : null}
               </div>
 
-              {limits.status === "error" && windows.length > 0 ? (
+              {limits.status === "error" && (windows.length > 0 || Boolean(limits.modelGroups?.length)) ? (
                 <p className="mb-2 rounded-lg bg-amber-400/10 px-2.5 py-2 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
                   Couldn’t refresh. Showing the last available snapshot.
+                  {limits.provider === "antigravity-cli" && limits.error ? ` ${limits.error}` : ""}
                 </p>
               ) : null}
 
-              {windows.length > 0 ? (
+              {limits.modelGroups?.length ? (
+                <div className="flex flex-col gap-3">
+                  {limits.modelGroups.map((group) => (
+                    <section key={group.name} aria-label={`${group.name} model quotas`} className="flex flex-col gap-1.5">
+                      <h3 className="px-1 text-[11px] font-medium text-content/70">{group.name} models</h3>
+                      {group.session ? <UsageWindowCard kind="session" window={group.session} now={now} /> : null}
+                      {group.weekly ? <UsageWindowCard kind="weekly" window={group.weekly} now={now} /> : null}
+                    </section>
+                  ))}
+                </div>
+              ) : windows.length > 0 ? (
                 <div className="flex flex-col gap-1.5">
                   {windows.map((entry) => (
                     <UsageWindowCard
@@ -424,6 +436,11 @@ export function UsageProviderChip({
                 <EmptyUsageState limits={limits} loading={loading} />
               )}
 
+              {limits.creditBalance !== undefined ? (
+                <p className="mt-2 px-1 text-[11px] text-content/70">Remaining credits: {limits.creditBalance.toLocaleString()}</p>
+              ) : limits.creditError ? (
+                <p role="status" className="mt-2 px-1 text-[11px] text-amber-400">{limits.creditError}</p>
+              ) : null}
               {suggestion && onSelectAccount ? (
                 <SwitchSuggestion
                   account={suggestion}
@@ -1161,6 +1178,8 @@ function isResetOutcome(
 }
 
 function emptyUsageLabel(limits: ProviderRateLimits): string {
+  if (limits.modelGroups?.length) return "Model quotas";
+  if (limits.provider === "antigravity-cli" && limits.status === "error") return "Usage unavailable";
   if (limits.status !== "error") return "—";
   const text = limits.error?.toLowerCase() ?? "";
   if (text.includes("expired") || text.includes("sign-in")) return "expired";

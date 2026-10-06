@@ -95,7 +95,7 @@ describe("official agy headless protocol", () => {
     ).toMatchObject({ input: 0, output: 0 });
   });
   it("keeps read-only reports outside the stream and rejects terminal-only commands", () => {
-    expect(reportArgs("/usage")).toEqual(["--print", "/usage"]);
+    expect(reportArgs("/usage")).toEqual(["--print", "/usage", "--print-timeout", "30s"]);
     expect(reportArgs("/models")).toEqual(["models"]);
     expect(reportArgs("hello")).toBeUndefined();
     expect(() => validateCliPrompt("/remote-control on")).toThrow(
@@ -103,4 +103,13 @@ describe("official agy headless protocol", () => {
     );
     expect(() => validateCliPrompt("/compact")).toThrow();
   });
+});
+
+it("passes a custom agent as a separate argument and rejects paths or option injection", () => {
+  const args = cliSpawnArgs({ ...input, modelSettings: { antigravityAgent: "reviewer" } }, id);
+  expect(args.slice(args.indexOf("--agent"), args.indexOf("--agent") + 2)).toEqual(["--agent", "reviewer"]);
+  expect(cliSpawnArgs({ ...input, modelSettings: { antigravityAgent: "default" } })).not.toContain("--agent");
+  for (const agent of ["../other", "--dangerously-skip-permissions", "bad name", ""]) {
+    expect(() => cliSpawnArgs({ ...input, modelSettings: { antigravityAgent: agent } })).toThrow("Invalid");
+  }
 });

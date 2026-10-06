@@ -2,6 +2,7 @@ use tauri::Manager;
 
 mod account_identity;
 pub mod antigravity_acp;
+mod antigravity_cli;
 mod automations;
 mod azure_devops;
 mod chat_background;
@@ -540,6 +541,7 @@ pub fn run() {
             harness::provider_account_remove,
             account_identity::provider_account_identity,
             pi_usage::fetch_pi_usage,
+            antigravity_cli::antigravity_cli_agents,
             rate_limits::fetch_claude_usage,
             rate_limits::fetch_opencode_go_usage,
             pty::pty_spawn,

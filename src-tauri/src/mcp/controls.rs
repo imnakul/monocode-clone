@@ -49,8 +49,14 @@ fn set_enabled(
     name: &str,
     enabled: bool,
 ) -> Result<(), String> {
-    if !matches!(provider, "claude" | "codex" | "opencode") {
-        return Err("Enable/Disable is supported for Claude Code, Codex and OpenCode".into());
+    if !matches!(
+        provider,
+        "claude" | "codex" | "opencode" | "antigravity-cli"
+    ) {
+        return Err(
+            "Enable/Disable is supported for Claude Code, Codex, OpenCode and Antigravity CLI"
+                .into(),
+        );
     }
     if !project.is_dir() {
         return Err("Project directory does not exist".into());
@@ -95,6 +101,7 @@ fn set_enabled(
         update_file(&selected, |raw| match provider {
             "codex" => edit_codex(raw, name, enabled),
             "opencode" => edit_opencode(raw, name, enabled),
+            "antigravity-cli" => edit_antigravity_cli(raw, name, enabled),
             _ => unreachable!(),
         })
     }
@@ -171,6 +178,26 @@ fn edit_codex(raw: &str, name: &str, enabled: bool) -> Result<String, String> {
     } else {
         result
     })
+}
+
+fn edit_antigravity_cli(raw: &str, name: &str, enabled: bool) -> Result<String, String> {
+    let config = json_value(raw)?;
+    let server = config
+        .get("mcpServers")
+        .and_then(|servers| servers.get(name))
+        .filter(|server| server.is_object())
+        .ok_or("This MCP entry disappeared; refresh and try again")?;
+    if server
+        .get("disabled")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err("Antigravity CLI disabled must be a boolean".into());
+    }
+    set_json_path(
+        raw,
+        &["mcpServers", name, "disabled"],
+        Value::Bool(!enabled),
+    )
 }
 
 fn edit_opencode(raw: &str, name: &str, enabled: bool) -> Result<String, String> {

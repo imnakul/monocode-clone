@@ -735,3 +735,13 @@ describe("every bundled model resolves to its own native id", () => {
     expect(wrong).toEqual([]);
   });
 });
+
+it("keeps an Antigravity CLI chat's selected agent across models and isolates other providers", () => {
+  const model = resolveModel("antigravity-cli", "antigravity-cli:default");
+  expect(mergeModelSettings(model, { antigravityAgent: "reviewer", agent: "build" })).toMatchObject({ antigravityAgent: "reviewer" });
+  saveLastModelSettings({ antigravityAgent: "other" });
+  expect(preferredModelSettings(model, { antigravityAgent: "reviewer" }).antigravityAgent).toBe("reviewer");
+  expect(preferredModelSettings(model, { effort: "medium" }).antigravityAgent).toBe("default");
+  expect(preferredModelSettings(model).antigravityAgent).toBe("default");
+  expect(mergeModelSettings(opus, { antigravityAgent: "reviewer" })).not.toHaveProperty("antigravityAgent");
+});

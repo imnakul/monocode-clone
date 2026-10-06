@@ -344,3 +344,6 @@ that did not have the docs; file lists name the main files only.
 - Files: merge commit; see `git show --stat 9dcc239`
 - Verified: per merge message (full web suite, TypeScript, build, host tests, Rust fmt/clippy/tests, Windows GNU cross-compile) | manual: native desktop and installer checks
 - Commit: 9dcc239
+
+---
+Continued in [Changelog 03](CHANGELOG-03.md) from 2026-10-06.

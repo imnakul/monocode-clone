@@ -1447,6 +1447,9 @@ const EXEC_ALLOWED_ARGS: &[&[&str]] = &[
     &["--output-format", "json", "models"],
     &["status", "--json"],
     &["agent", "list"],
+    &["--print", "/usage", "--print-timeout", "30s"],
+    &["--print", "/quota", "--print-timeout", "30s"],
+    &["--print", "/credits", "--print-timeout", "30s"],
 ];
 
 fn exec_args_allowed(args: &[String]) -> bool {
@@ -1505,10 +1508,24 @@ pub async fn harness_exec(
     if !exec_args_allowed(&args) {
         return Err("harness_exec: unsupported arguments".into());
     }
+    let cli_report = args.first().is_some_and(|arg| arg == "--print");
+    if cli_report && binary_provider.as_deref() != Some("antigravity-cli") {
+        return Err("Read-only agy reports require the Antigravity CLI provider".into());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         if !is_resolved_harness_binary(&command, binary_provider.as_deref(), binary_path.as_deref())
         {
             return Err("harness_exec: not a resolved harness CLI".to_string());
+        }
+        if cli_report {
+            let output = exec_output(&command, &args, cwd.as_deref(), Duration::from_secs(35))?;
+            if !output.status.success() {
+                return Err(format!(
+                    "Antigravity CLI report failed: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ));
+            }
+            return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
         }
         exec_capture(&command, &args, cwd.as_deref())
     })
@@ -4839,6 +4856,20 @@ mod tests {
             key == std::ffi::OsStr::new(HARNESS_PARENT_ENV)
                 && value == Some(std::ffi::OsStr::new(pid.as_str()))
         }));
+    }
+
+    #[test]
+    fn allows_only_fixed_read_only_antigravity_reports() {
+        for report in ["/usage", "/quota", "/credits"] {
+            assert!(exec_args_allowed(
+                &["--print", report, "--print-timeout", "30s"].map(String::from)
+            ));
+        }
+        for report in ["hello", "/learn", "/remote-control", "/fork"] {
+            assert!(!exec_args_allowed(
+                &["--print", report, "--print-timeout", "30s"].map(String::from)
+            ));
+        }
     }
 
     #[test]

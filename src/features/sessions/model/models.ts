@@ -560,6 +560,8 @@ export function mergeModelSettings(
   if (modelsFor(model.harness).length === 0) return { ...current };
   const next = defaultModelSettings(model);
   if (!current) return next;
+  if (model.harness === "antigravity-cli" && current.antigravityAgent !== undefined)
+    next.antigravityAgent = current.antigravityAgent;
   for (const setting of model.settings ?? []) {
     const value = compatibleSettingValue(setting, current[setting.id]);
     if (value != null) next[setting.id] = value;
@@ -614,6 +616,10 @@ export function preferredModelSettings(
   return mergeModelSettings(model, {
     ...current,
     ...loadLastModelSettings(),
+    // Agent definitions belong to a chat/project, never the global last-model preference.
+    ...(model.harness === "antigravity-cli"
+      ? { antigravityAgent: current?.antigravityAgent ?? "default" }
+      : {}),
   });
 }
 

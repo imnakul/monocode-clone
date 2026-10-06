@@ -3,6 +3,7 @@ import {
   killChild,
   probeHarnessBinary,
   resolveAntigravityCliBinary,
+  readAntigravityCliAgents,
   spawnChild,
   unwatchChild,
   watchChild,
@@ -19,6 +20,7 @@ import {
   CLI_HELP,
   CLI_POLICY,
   cliSpawnArgs,
+  cliAgentName,
   cliUsage,
   nativeConversationId,
   record,
@@ -38,6 +40,7 @@ type Active = {
   doneSteps: Set<number>;
 };
 type Live = {
+  agent: string;
   instanceId: string;
   key: string;
   ready: Promise<void>;
@@ -52,7 +55,7 @@ type Live = {
   lastStep: number;
 };
 const lives = new Map<string, Live>();
-const resumes = new Map<string, { id: string; cwd: string }>();
+const resumes = new Map<string, { id: string; cwd: string; agent?: string }>();
 const epochs = new Map<string, number>();
 const serial = new Map<string, Promise<void>>();
 const TURN_TIMEOUT_MS = 30 * 60_000;
@@ -76,7 +79,7 @@ export function bindCliSession(
     throw new Error(
       "Cannot bind this chat to a different Antigravity CLI conversation. Start a separate chat.",
     );
-  resumes.set(threadId, { id, cwd });
+  resumes.set(threadId, { id, cwd, agent: lives.get(threadId)?.agent ?? resumes.get(threadId)?.agent });
 }
 
 /** Stop kills this CLI only; native identity survives for the next exact resume. */
@@ -158,12 +161,18 @@ export function sendCliTurn(input: SendTurnInput): Promise<void> {
         return;
       }
       validateCliPrompt(input.text);
+      const agent = cliAgentName(input.modelSettings);
+      const boundAgent = lives.get(input.sessionId)?.agent ?? resumes.get(input.sessionId)?.agent;
+      if (boundAgent !== undefined && boundAgent !== agent)
+        throw new Error("The Antigravity CLI agent is fixed for this conversation. Start a new chat to choose another agent.");
       let live: Live | undefined;
       try {
         live = await ensureLive(input, startedAt);
         if (!live || live.stopped || epoch(input.sessionId) !== startedAt)
           return;
         input.onEvent({ type: "session.started" });
+        if (input.modelSettings?.antigravityAgent !== live.agent)
+          input.onEvent({ type: "session.configChanged", modelSettings: { antigravityAgent: live.agent } });
         if (live.nativeId)
           input.onEvent({
             type: "session.providerBound",
@@ -223,6 +232,7 @@ async function ensureLive(
   input: HarnessSessionInput,
   startedAt: number,
 ): Promise<Live | undefined> {
+  const agent = cliAgentName(input.modelSettings);
   const { path } = await resolveAntigravityCliBinary();
   if (epoch(input.sessionId) !== startedAt) return undefined;
   const key = JSON.stringify([
@@ -230,11 +240,18 @@ async function ensureLive(
     input.cwd,
     input.model,
     input.modelSettings?.effort,
+    agent,
     input.runtimeMode,
   ]);
   const previous = lives.get(input.sessionId);
   if (previous?.startupError) throw previous.startupError;
   if (previous?.key === key && !previous.stopped) return previous;
+  if (agent !== "default") {
+    const available = await readAntigravityCliAgents(input.cwd);
+    if (!available.some((item) => item.id === agent))
+      throw new Error(`Antigravity CLI agent "${agent}" is unavailable in this project. Restore its definition or choose an available agent in a new chat.`);
+    if (epoch(input.sessionId) !== startedAt) return undefined;
+  }
   const inspected = await probeHarnessBinary("antigravity-cli");
   if (epoch(input.sessionId) !== startedAt) return undefined;
   if (inspected.path !== path)
@@ -275,6 +292,7 @@ async function ensureLive(
   void ready.catch((): void => {});
   const live: Live = {
     instanceId: crypto.randomUUID(),
+    agent,
     key,
     ready,
     initialize,
@@ -387,7 +405,7 @@ function bindIdentity(
       "Antigravity CLI returned a different conversation while resuming. The chat was stopped to protect its native context.",
     );
   live.nativeId = id;
-  resumes.set(threadId, { id, cwd });
+  resumes.set(threadId, { id, cwd, agent: live.agent });
   live.active?.emit({ type: "session.providerBound", providerSessionId: id });
 }
 

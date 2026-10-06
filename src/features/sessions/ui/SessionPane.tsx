@@ -701,6 +701,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
       harness={session.harness}
       model={session.model}
       modelSettings={session.modelSettings}
+      nativeSessionBound={Boolean(session.providerSessionId)}
       runtimeMode={session.runtimeMode}
       cwd={session.cwd}
       executionCwd={workCwd}

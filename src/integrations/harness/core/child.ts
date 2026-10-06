@@ -30,6 +30,11 @@ export function hasHeadlessChildBackend(): boolean {
 }
 
 /** Provider-owned transcript files are read on the machine running the child. */
+/** Agent definitions stay on the machine running the CLI; only identities are returned. */
+export function readAntigravityCliAgents(cwd: string): Promise<{ id: string; scope: string }[]> {
+  return invoke("antigravity_cli_agents", { cwd });
+}
+
 export function readHarnessTextFile(path: string): Promise<string> {
   return invoke<string>(backend ? "harness_read_text_file" : "read_text_file", {
     path,

@@ -1940,7 +1940,8 @@ function Workspace({
     if (
       active?.harness === "claude" ||
       active?.harness === "codex" ||
-      active?.harness === "opencode"
+      active?.harness === "opencode" ||
+      active?.harness === "antigravity-cli"
     ) {
       return [active.harness];
     }

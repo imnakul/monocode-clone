@@ -23,6 +23,13 @@ export function nativeConversationId(value: unknown): string | undefined {
     : undefined;
 }
 
+export function cliAgentName(settings?: Record<string, string>): string {
+  const agent = settings?.antigravityAgent ?? "default";
+  if (!/^[a-z\d][a-z\d_.-]{0,127}$/i.test(agent))
+    throw new Error("Invalid Antigravity CLI agent name. Choose an available agent or Default agent.");
+  return agent;
+}
+
 export function cliSpawnArgs(
   input: HarnessSessionInput,
   nativeId?: string,
@@ -35,6 +42,8 @@ export function cliSpawnArgs(
     "--print-timeout",
     "30m",
   ];
+  const agent = cliAgentName(input.modelSettings);
+  if (agent !== "default") args.push("--agent", agent);
   const model = input.model.startsWith("antigravity-cli:")
     ? input.model.slice("antigravity-cli:".length)
     : input.model;
@@ -147,7 +156,7 @@ export function usageDelta(
 export function reportArgs(text: string): string[] | undefined {
   const command = text.trim().toLowerCase();
   if (["/usage", "/quota", "/credits"].includes(command))
-    return ["--print", command];
+    return ["--print", command, "--print-timeout", "30s"];
   if (["/models", "/model"].includes(command)) return ["models"];
   return undefined;
 }

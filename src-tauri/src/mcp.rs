@@ -481,6 +481,21 @@ fn discover(
                 .and_then(|entry| entry.get("mcpServers")),
         );
     }
+    // CLI uses dedicated user/workspace files; do not scan ACP/IDE settings.
+    add_json_file(
+        &mut connections,
+        "antigravity-cli",
+        "user",
+        &home.join(".gemini/config/mcp_config.json"),
+        "mcpServers",
+    );
+    add_json_file(
+        &mut connections,
+        "antigravity-cli",
+        "project",
+        &project.join(".agents/mcp_config.json"),
+        "mcpServers",
+    );
     let cursor = home.join(".cursor/mcp.json");
     add_json_file(&mut connections, "cursor", "user", &cursor, "mcpServers");
     add_json_file(
@@ -636,7 +651,10 @@ fn add_json_servers(
             config_path: path.to_string_lossy().into_owned(),
             transport: transport(config).into(),
             enabled: provider == "claude"
-                || (config.get("enabled").and_then(Value::as_bool) != Some(false)
+                || (provider == "antigravity-cli"
+                    && config.get("disabled").and_then(Value::as_bool) != Some(true))
+                || (provider != "antigravity-cli"
+                    && config.get("enabled").and_then(Value::as_bool) != Some(false)
                     && config.get("disabled").and_then(Value::as_bool) != Some(true)),
         });
     }
@@ -674,7 +692,7 @@ fn transport(config: &Value) -> &str {
         .get("type")
         .and_then(Value::as_str)
         .unwrap_or_else(|| {
-            if config.get("url").is_some() {
+            if config.get("url").is_some() || config.get("serverUrl").is_some() {
                 "http"
             } else {
                 "stdio"

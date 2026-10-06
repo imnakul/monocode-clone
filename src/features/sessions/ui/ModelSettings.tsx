@@ -21,6 +21,8 @@ type Props = {
   values: Record<string, string>;
   onChange: (settings: Record<string, string>) => void;
   onClose?: () => void;
+  settingsOverride?: ModelSetting[];
+  disabled?: boolean;
 };
 
 const MENU_WIDTH = 220;
@@ -31,11 +33,13 @@ export function ModelSettings({
   values,
   onChange,
   onClose,
+  settingsOverride,
+  disabled = false,
 }: Props) {
   const catalog = useSyncCatalog();
   const settings = useMemo(() => {
     void catalog;
-    const list = (resolveModel(harness, model).settings ?? []).filter(
+    const list = (settingsOverride ?? resolveModel(harness, model).settings ?? []).filter(
       (setting) => !(harness === "opencode" && setting.id === "agent"),
     );
     const order = [
@@ -52,7 +56,7 @@ export function ModelSettings({
       const bi = order.indexOf(b.id);
       return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
     });
-  }, [catalog, harness, model]);
+  }, [catalog, harness, model, settingsOverride]);
 
   if (settings.length === 0) return null;
 
@@ -67,6 +71,7 @@ export function ModelSettings({
           <ToggleSetting
             key={setting.id}
             setting={setting}
+            disabled={disabled}
             value={values[setting.id] ?? setting.value}
             onChange={(value) => setValue(setting.id, value)}
           />
@@ -74,6 +79,7 @@ export function ModelSettings({
           <SelectSetting
             key={setting.id}
             setting={setting}
+            disabled={disabled}
             value={values[setting.id] ?? setting.value}
             onChange={(value) => setValue(setting.id, value)}
             onClose={onClose}
@@ -94,10 +100,12 @@ function ToggleSetting({
   setting,
   value,
   onChange,
+  disabled = false,
 }: {
   setting: ModelSetting;
   value: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   const on = value === "true";
   const Icon =
@@ -108,6 +116,7 @@ function ToggleSetting({
       title={setting.description ?? setting.label}
       aria-label={setting.label}
       aria-pressed={on}
+      disabled={disabled}
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => onChange(on ? "false" : "true")}
       className={`flex h-6.5 items-center gap-1 rounded-md px-1.5 ${
@@ -127,11 +136,13 @@ function SelectSetting({
   value,
   onChange,
   onClose,
+  disabled = false,
 }: {
   setting: ModelSetting;
   value: string;
   onChange: (value: string) => void;
   onClose?: () => void;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(() =>
@@ -164,6 +175,7 @@ function SelectSetting({
   }, [open, setting.options, value]);
 
   const pick = (next: string) => {
+    if (disabled) return;
     onChange(next);
     dismiss(true);
   };
@@ -192,7 +204,8 @@ function SelectSetting({
         type="button"
         title={setting.description ?? setting.label}
         aria-label={`${setting.label}: ${current?.label ?? value}`}
-        aria-expanded={open}
+        aria-expanded={open && !disabled}
+        disabled={disabled}
         aria-haspopup="listbox"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
@@ -217,7 +230,7 @@ function SelectSetting({
           strokeWidth={1.75}
         />
       </button>
-      {open ? (
+      {open && !disabled ? (
         <Popover
           anchor={root}
           side="top"

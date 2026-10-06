@@ -1,3 +1,6 @@
+import { antigravityCliLimitsForModel } from "../../features/providers/model/antigravityCliUsage";
+import { runtimeProviderBinaryPath } from "../../features/providers/model/providerBinaryPaths";
+import { getCustomBinary } from "../../integrations/harness/core/customBinary";
 import { RefreshCw, Terminal } from "../../shared/ui/icons";
 import {
   useCallback,
@@ -13,6 +16,8 @@ import {
   errorRateLimits,
   unavailableRateLimits,
   type RateLimitProvider,
+  RATE_LIMIT_POLL_MS,
+  RATE_LIMIT_MIN_REFETCH_MS,
 } from "../../features/providers/model/rateLimits";
 import {
   getCachedRateLimits,
@@ -96,6 +101,9 @@ export function UsageFooter({
   const wantClaude = providers.includes("claude");
   const wantCodex = providers.includes("codex");
   const wantOpencode = providers.includes("opencode");
+  const wantCli = providers.includes("antigravity-cli");
+  const cliAccountKey = runtimeProviderBinaryPath("antigravity-cli") ?? getCustomBinary("antigravity-cli") ?? "default";
+  const cliLimits = antigravityCliLimitsForModel(useCachedRateLimits("antigravity-cli", cliAccountKey), session?.model);
   const [now, setNow] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
   const [, setAccountsVersion] = useState(0);
@@ -145,6 +153,7 @@ export function UsageFooter({
     if (wantCodex && codexAccountAvailable)
       void loadRateLimits("codex", codexAccountId);
     if (wantOpencode) void loadRateLimits("opencode");
+    if (wantCli) void loadRateLimits("antigravity-cli", cliAccountKey);
   }, [
     claudeAccountAvailable,
     claudeAccountId,
@@ -153,6 +162,8 @@ export function UsageFooter({
     wantClaude,
     wantCodex,
     wantOpencode,
+    wantCli,
+    cliAccountKey,
   ]);
 
   const refresh = useCallback(() => {
@@ -164,6 +175,7 @@ export function UsageFooter({
     if (wantCodex && codexAccountAvailable)
       jobs.push(loadRateLimits("codex", codexAccountId, true));
     if (wantOpencode) jobs.push(loadRateLimits("opencode", "default", true));
+    if (wantCli) jobs.push(loadRateLimits("antigravity-cli", cliAccountKey, true));
     const run = Promise.allSettled(jobs)
       .then(() => undefined)
       .finally(() => {
@@ -180,7 +192,26 @@ export function UsageFooter({
     wantClaude,
     wantCodex,
     wantOpencode,
+    wantCli,
+    cliAccountKey,
   ]);
+
+  useEffect(() => {
+    if (!wantCli) return;
+    const poll = (): void => {
+      const cached = getCachedRateLimits("antigravity-cli", cliAccountKey);
+      if (document.visibilityState !== "visible" || Date.now() - cached.updatedAt < RATE_LIMIT_MIN_REFETCH_MS) return;
+      void loadRateLimits("antigravity-cli", cliAccountKey, true);
+    };
+    const timer = window.setInterval(poll, RATE_LIMIT_POLL_MS);
+    window.addEventListener("focus", poll);
+    document.addEventListener("visibilitychange", poll);
+    return (): void => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", poll);
+      document.removeEventListener("visibilitychange", poll);
+    };
+  }, [wantCli, cliAccountKey]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), CLOCK_MS);
@@ -306,7 +337,7 @@ export function UsageFooter({
   );
 
   const showOpencodeChip = wantOpencode && opencode.status !== "unavailable";
-  const showUsage = wantClaude || wantCodex || showOpencodeChip;
+  const showUsage = wantClaude || wantCodex || showOpencodeChip || wantCli;
   const showTerminals = terminals.length > 0;
   const showTerminalButton = Boolean(onNewTerminal || onShowTerminal);
   const terminalLabel = projectTerminalActive
@@ -369,6 +400,14 @@ export function UsageFooter({
               }
               onConsumeReset={consumeCodexReset}
               onReconnect={reconnectCodex}
+            />
+          ) : null}
+          {wantCli ? (
+            <UsageProviderChip
+              limits={cliLimits}
+              now={now}
+              remainingQuota={remainingQuota}
+              presentation={{ harness: "antigravity-cli", label: "Antigravity CLI", sourceLabel: "Quota and credits from the CLI’s saved account" }}
             />
           ) : null}
           {showOpencodeChip ? (

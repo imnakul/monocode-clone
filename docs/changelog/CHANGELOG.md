@@ -7,7 +7,8 @@ Entry format: see "Records" in `docs/WORKING-AGREEMENT.md`.
 
 | File | Period | Highlights | Status |
 |---|---|---|---|
-| [CHANGELOG-02.md](CHANGELOG-02.md) | 2026-10-02 → — | Task Manager and Session Manager, Quick Composer on Windows, gliding hover everywhere, upstream 0.6.0 and 0.7.0, performance overlay, docs process | Current |
+| [CHANGELOG-03.md](CHANGELOG-03.md) | 2026-10-06 → — | Antigravity CLI quota footer, MCP controls and custom agents | Current |
+| [CHANGELOG-02.md](CHANGELOG-02.md) | 2026-10-02 → 2026-10-06 | Task Manager and Session Manager, Quick Composer on Windows, gliding hover everywhere, upstream 0.6.0 and 0.7.0, performance overlay, docs process | Archived |
 | [CHANGELOG-01.md](CHANGELOG-01.md) | 2026-09-05 → 2026-10-02 | Windows support, skills, queue durability, context usage, upstream merges, providers, wallpaper, Hari, orchestration, documentation indexes | Archived |
 
 Roll over when the Current file passes about 40 KB: finish the current entry, add a closing

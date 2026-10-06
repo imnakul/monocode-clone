@@ -5,14 +5,16 @@ current state third, and suggestions/quick wins on top at the end.
 
 ## Antigravity CLI follow-ups — selected 2026-10-06
 
-Keep these four items for the separate `antigravity-cli` provider; preserve ACP:
-- [ ] Usage footer: model quota/credits from read-only CLI reports in the existing usage UI; per-turn token accounting remains separate.
-- [ ] MCP discovery: show CLI-configured servers in the existing MCP panel. Distinguish configured/enabled from verified connected; validate provider-specific controls before exposing them.
-- [ ] Remote Control toggle/link: verify streaming compatibility and phone-originated turns, then add the existing control UI with same-conversation synchronization, approvals, reconnect and duplicate prevention. User reports the CLI test worked; full wire behavior still needs confirmation.
-- [ ] Native fork: verify the provider's fork entry point and new native ID, then wire the existing MonoCode fork action without converting it to a summary transfer.
+Keep these items for the separate `antigravity-cli` provider; preserve ACP:
+- [x] Usage footer (implemented; Windows format/UI check pending): model quota/credits from read-only CLI reports in the existing usage UI; per-turn token accounting remains separate.
+- [x] MCP discovery and native disabled switches (implemented; Windows UI check pending): show CLI-configured servers in the existing MCP panel. Native user/workspace files show Configured/Disabled; JSONC-preserving switches edit the documented disabled flag. Add/remove/OAuth and live connection probes are outside this slice.
+- [ ] Remote Control toggle/link (deferred by user 2026-10-06): verify streaming compatibility and phone-originated turns, then add the existing control UI with same-conversation synchronization, approvals, reconnect and duplicate prevention. User reports the CLI test worked; full wire behavior still needs confirmation.
+- [ ] Native fork (deferred by user 2026-10-06): verify the provider's fork entry point and new native ID, then wire the existing MonoCode fork action without converting it to a summary transfer.
+
+- [x] Custom agents (implemented; Windows UI check pending): existing selector in chat/Quick Composer/automations; native local/global agent definitions, selection fixed after native bind and preserved across Stop/resume.
 
 Other CLI UI additions discussed in this conversation are dropped from this follow-up scope.
-Custom agents, planning, fast mode, learn and teamwork are research/explanation only.
+Planning, fast mode, learn and teamwork remain out of scope. Latest implementation checkpoint: [usage/MCP/agents plan](specs/antigravity-cli-usage-mcp-agents-plan.md).
 
 ## Where things stand — 2026-10-03
 

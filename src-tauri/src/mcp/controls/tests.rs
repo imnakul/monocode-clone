@@ -389,3 +389,70 @@ fn readonly_configuration_is_reported_without_replacing_it() {
     // Restore this test fixture's permissions before its RAII cleanup.
     std::fs::set_permissions(path, original).unwrap();
 }
+
+#[test]
+fn antigravity_cli_discovery_and_toggle_preserve_scope_transport_and_config() {
+    let f = Fixture::new();
+    let user = f.home().join(".gemini/config/mcp_config.json");
+    let project = f.project().join(".agents/mcp_config.json");
+    let raw = "{\r\n // keep\r\n \"mcpServers\": {\"docs\": {\"serverUrl\": \"https://example.test/mcp\", \"headers\": {\"Auth\": \"keep\"}, \"disabled\": false,}, \"other\": {\"command\": \"node\"}},\r\n}\r\n";
+    f.write(&project, raw);
+    f.write(
+        &user,
+        r#"{"mcpServers":{"docs":{"command":"node","disabled":true}}}"#,
+    );
+    let rows = f.rows();
+    let cli: Vec<_> = rows
+        .iter()
+        .filter(|row| row.provider == "antigravity-cli")
+        .collect();
+    assert_eq!(cli.len(), 3);
+    let local = cli
+        .iter()
+        .find(|row| row.name == "docs" && row.scope == "project")
+        .unwrap();
+    assert_eq!(local.transport, "http");
+    assert!(local.enabled);
+    assert!(!cli.iter().find(|row| row.scope == "user").unwrap().enabled);
+    f.toggle("antigravity-cli", "project", &project, "docs", false)
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&project).unwrap(),
+        raw.replace("false", "true")
+    );
+    assert_eq!(
+        json_value(&std::fs::read_to_string(&user).unwrap()).unwrap()["mcpServers"]["docs"]
+            ["disabled"],
+        true
+    );
+    f.toggle("antigravity-cli", "project", &project, "docs", true)
+        .unwrap();
+    assert_eq!(std::fs::read_to_string(&project).unwrap(), raw);
+    f.toggle("antigravity-cli", "user", &user, "docs", true)
+        .unwrap();
+    assert!(
+        f.rows()
+            .iter()
+            .find(|row| row.provider == "antigravity-cli" && row.scope == "user")
+            .unwrap()
+            .enabled
+    );
+}
+
+#[test]
+fn antigravity_cli_rejects_invalid_flags_and_undiscovered_paths() {
+    let f = Fixture::new();
+    let path = f.project().join(".agents/mcp_config.json");
+    let raw = r#"{"mcpServers":{"docs":{"command":"node","disabled":"false"}}}"#;
+    f.write(&path, raw);
+    assert!(f
+        .toggle("antigravity-cli", "project", &path, "docs", false)
+        .unwrap_err()
+        .contains("boolean"));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), raw);
+    let unrelated = f.0.join("outside.json");
+    f.write(&unrelated, r#"{"mcpServers":{"docs":{"command":"node"}}}"#);
+    assert!(f
+        .toggle("antigravity-cli", "user", &unrelated, "docs", false)
+        .is_err());
+}

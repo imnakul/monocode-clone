@@ -797,3 +797,22 @@ it("uses the shared project picker and caches each project's list", async () => 
   expect(invoke).toHaveBeenCalledTimes(6);
   expect(invoke).toHaveBeenLastCalledWith("claude_mcp_list", { cwd: "/other" });
 });
+
+it("shows Antigravity CLI configured servers and uses its native switch without claiming connection", async () => {
+  invoke.mockImplementation(async (command: string) =>
+    command === "mcp_discover"
+      ? [{ provider: "antigravity-cli", name: "agy-docs", scope: "project", configPath: "/repo/.agents/mcp_config.json", transport: "http", enabled: true }]
+      : undefined,
+  );
+  await act(async () => root.render(createElement(McpSettings, { cwd: "/repo" })));
+  expect(container.textContent).toContain("Antigravity CLI");
+  expect(container.textContent).toContain("Configured");
+  expect(container.textContent).not.toContain("Connected");
+  expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Sign in")).toBe(false);
+  const toggle = container.querySelector<HTMLButtonElement>('[role="switch"][aria-label^="Disable agy-docs"]');
+  expect(toggle).not.toBeNull();
+  await act(async () => toggle!.click());
+  expect(invoke).toHaveBeenCalledWith("mcp_set_enabled", {
+    cwd: "/repo", provider: "antigravity-cli", scope: "project", configPath: "/repo/.agents/mcp_config.json", name: "agy-docs", enabled: false,
+  });
+});

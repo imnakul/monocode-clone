@@ -45,6 +45,7 @@ const PROVIDERS: Provider[] = [
   "codex",
   "cursor",
   "opencode",
+  "antigravity-cli",
 ];
 const SCOPES: Record<Provider, Scope[]> = {
   claude: ["local", "project", "user"],
@@ -52,6 +53,7 @@ const SCOPES: Record<Provider, Scope[]> = {
   codex: ["user"],
   cursor: ["project", "user"],
   opencode: ["project", "user"],
+  "antigravity-cli": ["project", "user"],
 };
 
 function serverRowIdentity(server: ServerRow): string {
@@ -71,7 +73,8 @@ function serverCanBeToggled(server: ServerRow): boolean {
     server.configPath.length > 0 &&
     (server.provider === "claude" ||
       server.provider === "codex" ||
-      server.provider === "opencode")
+      server.provider === "opencode" ||
+      server.provider === "antigravity-cli")
   );
 }
 
@@ -237,7 +240,7 @@ function AddServerModal({
           <McpPicker
             label="Provider"
             value={provider}
-            options={PROVIDERS.map((option) => ({
+            options={PROVIDERS.filter((option) => option !== "antigravity-cli").map((option) => ({
               value: option,
               label: MCP_PROVIDER_LABELS[option],
               icon: <ProviderIcon provider={option} />,
@@ -677,6 +680,7 @@ function McpConnections({
                   </span>
                 )}
                 {server.provider !== "claude_desktop" &&
+                server.provider !== "antigravity-cli" &&
                 server.transport &&
                 !["stdio", "local", "ws"].includes(server.transport) ? (
                   <button
@@ -743,14 +747,15 @@ function McpConnections({
       </p>
       <p className="text-xs text-content/45">
         Claude Code enablement applies to a server name across its config rows
-        for this project. Codex and OpenCode switches affect only the listed
+        for this project. Codex, OpenCode and Antigravity CLI switches affect only the listed
         config file. Changes take effect in new chats or after the provider
-        reloads.
+        reloads. For Antigravity CLI, start a new chat or Stop and resume to
+        reload its configuration.
       </p>
       {addOpen ? (
         <AddServerModal
           cwd={cwd}
-          initialProvider={filter === "all" ? "claude" : filter}
+          initialProvider={filter === "all" || filter === "antigravity-cli" ? "claude" : filter}
           onClose={() => setAddOpen(false)}
           onAdded={refresh}
         />

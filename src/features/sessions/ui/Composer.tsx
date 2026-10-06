@@ -1,3 +1,5 @@
+import { useAntigravityCliAgents } from "../../providers/model/antigravityCliAgents";
+import { ModelSettings } from "./ModelSettings";
 import {
   ArrowUp,
   AiIdea,
@@ -250,6 +252,7 @@ type Props = {
   cwd?: string;
   executionCwd: string;
   sessionId?: string;
+  nativeSessionBound?: boolean;
   branch?: string;
   recents?: RecentProject[];
   hideProjectPicker?: boolean;
@@ -614,6 +617,7 @@ export function Composer({
   cwd = "~",
   executionCwd,
   sessionId,
+  nativeSessionBound = false,
   branch,
   recents = [],
   hideProjectPicker = false,
@@ -760,6 +764,10 @@ export function Composer({
   const [mcpStatus, setMcpStatus] = useState<Map<string, string>>(new Map());
   const [mcpLoading, setMcpLoading] = useState(false);
   const [mcpError, setMcpError] = useState("");
+  const cliAgentLocked = busy || nativeSessionBound;
+  const cliAgents = useAntigravityCliAgents(
+    harness, executionCwd, modelSettings.antigravityAgent, cliAgentLocked,
+  );
   const [selectedMcp, setSelectedMcp] = useState<McpTag[]>(() =>
     sessionId ? getComposerMcpTags(sessionId) : [],
   );
@@ -2925,6 +2933,22 @@ export function Composer({
                     }
                     onClose={() => ref.current?.focus()}
                   />
+                ) : null}
+                {harness === "antigravity-cli" && !remoteSession ? (
+                  <ModelSettings
+                    harness={harness}
+                    model={model}
+                    values={modelSettings}
+                    settingsOverride={cliAgents.settings}
+                    disabled={cliAgentLocked || cliAgents.loading}
+                    onChange={(settings) => onModelSettingsChange?.(settings)}
+                    onClose={() => ref.current?.focus()}
+                  />
+                ) : null}
+                {cliAgents.error ? (
+                  <span role="status" className="text-[11px] text-amber-400" title={cliAgents.error}>
+                    Agents unavailable
+                  </span>
                 ) : null}
                 {!compact && harness !== "fx" ? (
                   <AccessPicker

@@ -1,3 +1,4 @@
+import { fetchAntigravityCliRateLimits } from "./antigravityCliUsage";
 import { useSyncExternalStore } from "react";
 import {
   errorRateLimits,
@@ -48,6 +49,7 @@ const idle: Record<RateLimitProvider, ProviderRateLimits> = {
   claude: idleRateLimits("claude"),
   codex: idleRateLimits("codex"),
   opencode: idleRateLimits("opencode"),
+  "antigravity-cli": idleRateLimits("antigravity-cli"),
 };
 
 export function useCachedRateLimits(
@@ -99,7 +101,9 @@ export function loadRateLimits(
           ? await fetchClaudeRateLimits(accountId)
           : provider === "codex"
             ? await fetchCodexRateLimits(accountId)
-            : await fetchOpencodeGoRateLimits();
+            : provider === "antigravity-cli"
+              ? await fetchAntigravityCliRateLimits()
+              : await fetchOpencodeGoRateLimits();
       publish(key, result);
       return result;
     } catch (error) {

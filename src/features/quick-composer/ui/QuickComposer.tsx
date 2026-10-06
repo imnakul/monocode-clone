@@ -1,3 +1,5 @@
+import { useAntigravityCliAgents } from "../../providers/model/antigravityCliAgents";
+import { ModelSettings } from "../../sessions/ui/ModelSettings";
 import { WorkInPicker } from "../../provider-sessions/ui/WorkInPicker";
 import { newChatExecutionFor } from "../../settings/model/settings";
 import { BranchPicker } from "../../source-control/ui/BranchPicker";
@@ -442,6 +444,7 @@ export function QuickComposer({
     name: "Loading model…",
   };
   const settings = mergeModelSettings(model, modelSettings);
+  const cliAgents = useAntigravityCliAgents(choice.harness, cwd ?? "~", settings.antigravityAgent);
   const optionCount =
     picker === "commands" ? commandOptions.length : projectOptions.length;
   const openPicker = (
@@ -1095,6 +1098,21 @@ export function QuickComposer({
             <span className="truncate">{model.name}</span>
             <ChevronDown className="size-3.5 shrink-0 opacity-60" />
           </button>
+        ) : null}
+        {!taskMode && choice.harness === "antigravity-cli" ? (
+          <ModelSettings
+            harness={choice.harness}
+            model={model.id}
+            values={settings}
+            settingsOverride={cliAgents.settings}
+            disabled={cliAgents.loading}
+            onChange={setModelSettings}
+          />
+        ) : null}
+        {!taskMode && cliAgents.error ? (
+          <span role="status" className="text-[11px] text-amber-400" title={cliAgents.error}>
+            Agents unavailable
+          </span>
         ) : null}
         {!taskMode && model.harness !== "fx" ? (
           <button

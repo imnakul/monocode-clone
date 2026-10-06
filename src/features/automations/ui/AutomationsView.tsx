@@ -1,3 +1,5 @@
+import { useAntigravityCliAgents } from "../../providers/model/antigravityCliAgents";
+import { ModelSettings } from "../../sessions/ui/ModelSettings";
 import {
   useCallback,
   useEffect,
@@ -829,6 +831,7 @@ function AutomationEditor({
   onDelete?: () => void;
   onOpenSession: (sessionId: string) => void | Promise<void>;
 }) {
+  const cliAgents = useAntigravityCliAgents(draft.harness, draft.cwd, draft.modelSettings.antigravityAgent);
   const [tab, setTab] = useState<"settings" | "history">("settings");
   const settingsTabId = useId();
   const historyTabId = useId();
@@ -1362,6 +1365,21 @@ function AutomationEditor({
                             update("modelSettings", modelSettings)
                           }
                         />
+                      ) : null}
+                      {draft.harness === "antigravity-cli" ? (
+                        <ModelSettings
+                          harness={draft.harness}
+                          model={draft.model}
+                          values={draft.modelSettings}
+                          settingsOverride={cliAgents.settings}
+                          disabled={cliAgents.loading}
+                          onChange={(settings) => update("modelSettings", settings)}
+                        />
+                      ) : null}
+                      {cliAgents.error ? (
+                        <span role="status" className="text-[11px] text-amber-400" title={cliAgents.error}>
+                          Agents unavailable
+                        </span>
                       ) : null}
                       {draft.harness !== "fx" ? (
                         <AccessPicker

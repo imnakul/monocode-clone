@@ -35,13 +35,15 @@ This table describes what MonoCode exposes, rather than every Antigravity TUI fe
 | Images/audio/PDF/files | Existing validated ACP attachment blocks | Text only; attachment controls hidden and adapter rejects attachment input |
 | Interactive permissions/questions | Existing ACP permission and question dialogs | No documented headless reply channel; confirmation requests are soft denied |
 | Permissions picker | Existing ACP modes/behavior | **CLI policy** uses the CLI's saved permissions; **Full access** explicitly adds the CLI bypass flag |
-| Usage | Existing ACP usage/context reporting | Per-turn input/output/cache/thinking usage when emitted; cumulative counters are differenced; `/usage`, `/quota`, `/credits` read account reports |
+| Usage | Existing ACP usage/context reporting | Per-turn counters remain separate; existing quota footer/popover now shows model-family windows/reset times and credits, plus read-only slash reports |
+| MCP settings | Existing ACP integration | User/workspace config discovery and native Enable/Disable switches; Configured/Disabled status, reload with new chat or Stop/resume |
+| Custom-agent selection | Existing ACP capability surface unchanged | Existing Agent dropdown in chat/Quick Composer/automations; selected before first turn, fixed for exact resume |
 | Context occupancy/cost estimates | Existing provider-reported fields | No invented occupancy or pricing; unavailable fields remain absent |
 | Models | Existing ACP catalog | `agy models` discovery and optional low/medium/high effort selection for discovered models |
 | Compaction | Existing ACP behavior; no separate manual MonoCode compaction control | CLI engine compaction retained; no verified manual streaming command, so no manual button |
 | Plan / orchestration lead mode | Existing ACP workflow | No verified headless planning control; rejected before any process/input rather than running with edit access |
 | Mid-turn steering/native fork | Existing ACP capability limits | Unavailable; queue a follow-up or start a separate chat |
-| AI helpers (commit/PR text) | Existing ACP helper integration | Not exposed in this first integration |
+| AI helpers (commit/PR text) | Existing ACP helper integration | Not exposed for CLI |
 | Multiple MonoCode account profiles | Existing ACP/account behavior | Uses the CLI's own signed-in account |
 | MonoCode Remote/Cloud controls | Existing provider capability limits | Not exposed for this provider |
 | Native conversation discovery folder | Existing Claude/Codex-only folders | No new Antigravity discovery folder in this change; MonoCode-created CLI sessions persist normally |
@@ -62,6 +64,28 @@ message or create a CLI conversation.
 The CLI can avoid ACP's helper/runtime requirement. It still stores its own
 configuration, conversations and caches under the user profile; on Windows that
 can be C:. No zero-disk-use or measured speed claim is made.
+
+## Usage, MCP and agent additions — 2026-10-06
+
+The separate CLI now reuses MonoCode’s quota footer/popover for native model-group
+windows/reset times and credit balance. Cumulative conversation tokens remain separate.
+Configured/unknown model shows all groups in the popup instead of borrowing Gemini’s
+quota. Unknown report formats and failed refreshes are visible; `/usage` and `/credits`
+now pass the backend’s exact read-only allowlist. The user’s capability report verified
+those direct CLI commands; their exact native table/credits output is covered by
+regression tests, including UTC reset values and the shared Claude & GPT quota.
+The new desktop UI still needs a signed-in Windows check.
+
+Settings → MCP includes Antigravity CLI user/workspace configuration and existing
+Enable/Disable switches. Only the native `disabled` flag is changed. Rows say
+Configured/Disabled, not Connected. New chats or Stop/resume reload the configuration;
+MonoCode does not kill a running turn when a switch changes.
+
+The existing Agent selector appears in the chat composer, Quick Composer and automation
+editor for CLI models. It discovers documented user/workspace definitions, saves the
+choice, validates it before launch and passes `--agent` when selected. Native-bound chats
+keep that agent; switching agents/forking is deferred. ACP receives none of these CLI
+flags and its existing integration remains intact.
 
 ## Remote Control research
 

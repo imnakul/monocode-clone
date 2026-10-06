@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   exec: vi.fn(),
   binary: vi.fn(),
   probe: vi.fn(),
+  agents: vi.fn(),
 }));
 vi.mock("../../core/child", () => ({
   watchChild: mocks.watch,
@@ -20,6 +21,7 @@ vi.mock("../../core/child", () => ({
   execChild: mocks.exec,
   resolveAntigravityCliBinary: mocks.binary,
   probeHarnessBinary: mocks.probe,
+  readAntigravityCliAgents: mocks.agents,
 }));
 const nativeId = "055a398f-db14-4c5f-abbb-1bf03f8120a7";
 const otherId = "155a398f-db14-4c5f-abbb-1bf03f8120a7";
@@ -69,6 +71,7 @@ beforeEach(() => {
   };
   mocks.binary.mockResolvedValue({ path: "/bin/agy" });
   mocks.probe.mockResolvedValue({ path: "/bin/agy" });
+  mocks.agents.mockResolvedValue([{ id: "reviewer", scope: "project" }]);
   mocks.kill.mockResolvedValue(undefined);
   mocks.write.mockResolvedValue(undefined);
   mocks.exec.mockResolvedValue("quota report");
@@ -120,6 +123,7 @@ it("streams text and tools without duplicating the final response, keeps a warme
       .join(""),
   ).toBe("hello");
   expect(events.some((e) => e.type === "tool.started")).toBe(true);
+  expect(events).toContainEqual({ type: "session.configChanged", modelSettings: { antigravityAgent: "default" } });
   mocks.write.mockClear();
   events = [];
   const next = cli.sendCliTurn({ ...input, text: "next" });
@@ -238,7 +242,7 @@ it("runs read-only usage reports without starting a conversation or writing stre
   await cli.sendCliTurn({ ...input, text: "/usage" });
   expect(mocks.exec).toHaveBeenCalledWith(
     "/bin/agy",
-    ["--print", "/usage"],
+    ["--print", "/usage", "--print-timeout", "30s"],
     "/repo",
     "antigravity-cli",
   );
@@ -359,4 +363,39 @@ it("rejects changing the conversation of a warmed-up chat without touching its n
   await next;
   expect(mocks.spawn).toHaveBeenCalledTimes(1);
   await cli.forgetCliSession("one");
+});
+
+it("retains the selected agent on Stop/resume and rejects switching before spawning or writing", async () => {
+  const cli = await import("./antigravityCli");
+  const custom = { ...input, modelSettings: { antigravityAgent: "reviewer" } };
+  const first = cli.sendCliTurn(custom);
+  await written();
+  emit("one", result());
+  await first;
+  await cli.stopCliSession("one");
+  mocks.write.mockClear();
+  const resumed = cli.sendCliTurn({ ...custom, nativeResume: { providerSessionId: nativeId } });
+  await written();
+  const args = mocks.spawn.mock.calls.at(-1)![2];
+  expect(args).toContain("--agent");
+  expect(args).toContain("reviewer");
+  expect(args).toContain(nativeId);
+  emit("one", result("resumed", 2));
+  await resumed;
+  mocks.write.mockClear();
+  mocks.spawn.mockClear();
+  mocks.kill.mockClear();
+  await expect(cli.sendCliTurn({ ...input, modelSettings: { antigravityAgent: "builder" }, nativeResume: { providerSessionId: nativeId } })).rejects.toThrow("fixed");
+  expect(mocks.write).not.toHaveBeenCalled();
+  expect(mocks.spawn).not.toHaveBeenCalled();
+  expect(mocks.kill).not.toHaveBeenCalled();
+  await cli.forgetCliSession("one");
+});
+
+it("fails before spawning or sending if a selected custom agent disappeared", async () => {
+  const cli = await import("./antigravityCli");
+  mocks.agents.mockResolvedValue([]);
+  await expect(cli.sendCliTurn({ ...input, modelSettings: { antigravityAgent: "reviewer" } })).rejects.toThrow("unavailable in this project");
+  expect(mocks.spawn).not.toHaveBeenCalled();
+  expect(mocks.write).not.toHaveBeenCalled();
 });
