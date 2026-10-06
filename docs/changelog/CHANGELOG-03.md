@@ -4,7 +4,7 @@
 - What: The week strip no longer spans its own full-width row. It sits in the toolbar centre: 3 days, Focus (in today's place), 3 days, then All, with compact two-line day chips and one gliding hover across the days and Focus. In another week, Focus sits between the 3rd and 4th day and still jumps back to today.
 - Files: `src/features/tasks/ui/TaskWeekStrip.tsx` (`center` prop, compact day chips, `renderDay`); `src/features/tasks/ui/TasksView.tsx` (strip in the toolbar centre); `TaskWeekStrip.test.ts`, `TasksView.test.ts`
 - Verified: tsc ✅ tests ✅ (5,669) build ✅ | manual: strip spacing beside Focus at narrow and wide window widths
-- Commit: uncommitted
+- Commit: 0058a2b
 
 ## 2026-10-06 — Task Manager week strip, focus days, Settings-style board columns
 - What: Week strip (3 days, today, 3 days + All) under the Task Manager toolbar with gliding hover, sliding weeks and keyboard; Focus means Today selected with jump-to-today. Tasks record past focus days when a day passes in focus (nothing runs at midnight); right-click "Focus on" plans Today/Tomorrow/+2/+3 or removes; cards show Since/Done chips and details gain a Timeline; day views group Completed/In focus and include archived tasks. Board columns in both managers use the Settings card surface with no blur (the Menu blur slider no longer affects them).
