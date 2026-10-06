@@ -521,6 +521,7 @@ pub fn run() {
             harness::harness_resolve_fx,
             harness::harness_resolve_grok,
             harness::harness_resolve_antigravity,
+            harness::harness_resolve_antigravity_cli,
             harness::harness_resolve_cline,
             harness::harness_probe_provider,
             harness::harness_resolve_hermes,

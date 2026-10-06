@@ -234,6 +234,7 @@ import {
   parseOpenCodeVersion,
 } from "../../../integrations/harness/providers/opencode/opencodeProtocol";
 import { refreshHarnessCatalogs } from "../../../integrations/harness/core/registry";
+import { getCliCatalogSnapshot, subscribeCliCatalog } from "../../../integrations/harness/providers/antigravity-cli/antigravityCliCatalog";
 import { HELPER_ISOLATION } from "../../../integrations/harness/core/helperIsolation";
 import { loginHarness } from "../../../integrations/harness/core/auth";
 import {
@@ -376,7 +377,7 @@ import {
   loadAiHelperSettings,
   currentKeybindings,
   loadClaudeHooks,
-  loadClaudeRemoteControlDefault,
+  loadNewChatExecution,
   loadCloseToTray,
   loadCollapsedProjectRailMode,
   loadComposerRunner,
@@ -396,7 +397,8 @@ import {
   loadQuickComposerShortcut,
   loadTabAnimationsEnabled,
   saveClaudeHooks,
-  saveClaudeRemoteControlDefault,
+  saveNewChatExecution,
+  type NewChatExecution,
   saveCloseToTray,
   saveCollapsedProjectRailMode,
   saveComposerRunner,
@@ -4035,8 +4037,8 @@ export function ProvidersPage({
   >("checking");
   const initialLoading = initialStatus === "checking";
   const [claudeHooks, setClaudeHooks] = useState(loadClaudeHooks);
-  const [claudeRemoteControl, setClaudeRemoteControl] = useState(
-    loadClaudeRemoteControlDefault,
+  const [newChatExecution, setNewChatExecution] = useState(
+    loadNewChatExecution,
   );
   const [updateNotices, setUpdateNotices] = useState<CliUpdateNotice[]>([]);
   const notifiedRef = useRef<Set<HarnessId>>(new Set());
@@ -4137,9 +4139,9 @@ export function ProvidersPage({
     setClaudeHooks(next);
   };
 
-  const onClaudeRemoteControl = (next: boolean) => {
-    saveClaudeRemoteControlDefault(next);
-    setClaudeRemoteControl(next);
+  const onNewChatExecution = (next: NewChatExecution): void => {
+    saveNewChatExecution(next);
+    setNewChatExecution(next);
   };
 
   const onModelChange = (harness: HarnessId, model: string) => {
@@ -4292,13 +4294,18 @@ export function ProvidersPage({
         </Row>
         <Row
           id="claude-remote-control"
-          label="Turn on Remote Control for new Claude chats"
-          description="Lets you continue a new local Claude chat from your phone. It applies only to chats you start after turning this on; each chat keeps its own Remote Control switch. Nothing is started when MonoCode launches, and a chat connects when you first send a message."
+          label="Default location for new chats"
+          description="Choose where new chats start. Remote runs Claude here with phone control; Cloud uses supported Claude/Codex cloud execution and may require an environment. Other providers stay local. Each new chat can override this choice; existing conversations keep their settings. Nothing starts until you send."
         >
-          <Toggle
-            label="Turn on Remote Control for new Claude chats"
-            on={claudeRemoteControl}
-            onChange={onClaudeRemoteControl}
+          <Segmented
+            label="Default location for new chats"
+            value={newChatExecution}
+            options={[
+              { value: "local", label: "Local" },
+              { value: "remote", label: "Remote" },
+              { value: "cloud", label: "Cloud" },
+            ]}
+            onChange={onNewChatExecution}
           />
         </Row>
       </Group>
@@ -4715,6 +4722,7 @@ function ProviderRow({
   const models = modelsFor(harness);
   const available = isHarnessAvailable(harness);
   const catalog = useAntigravityCatalogSnapshot();
+  const cliCatalog = useSyncExternalStore(subscribeCliCatalog, getCliCatalogSnapshot, getCliCatalogSnapshot);
   const current = models.length > 0 ? resolveModel(harness, selectedModel) : null;
   const [rechecking, setRechecking] = useState(false);
   const initialDiscoveryFinished = useRef(false);
@@ -4769,7 +4777,13 @@ function ProviderRow({
           </div>
         }
         description={
-          harness === "antigravity" && catalog.phase === "error"
+          harness === "antigravity-cli" && available
+            ? cliCatalog.phase === "error"
+              ? `CLI model discovery failed: ${cliCatalog.error}. Sign in with agy in a terminal, then Recheck. The configured CLI model remains available.`
+              : cliCatalog.phase === "loading"
+                ? "Reading Antigravity CLI models…"
+                : "Official agy CLI: text streaming and native resume. Sign in with agy in a terminal. CLI policy denies requests needing approval; Full access is explicit. Use /usage in chat for quotas. Attachments and interactive controls use ACP."
+            : harness === "antigravity" && catalog.phase === "error"
             ? "Antigravity setup needs attention — see the note above."
             : available
               ? models.length + (models.length === 1 ? " model" : " models") + " available."

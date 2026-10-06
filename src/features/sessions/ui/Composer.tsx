@@ -2928,6 +2928,7 @@ export function Composer({
                 ) : null}
                 {!compact && harness !== "fx" ? (
                   <AccessPicker
+                    harness={harness}
                     value={runtimeMode}
                     busy={busy}
                     onChange={onRuntimeModeChange}

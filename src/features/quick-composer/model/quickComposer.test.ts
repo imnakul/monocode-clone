@@ -159,3 +159,11 @@ describe("filterQuickModels", () => {
     ]);
   });
 });
+
+
+it("retains explicit Remote and Local choices across quick delivery", () => {
+  const base = { prompt: "hi", cwd: "/project", harness: "claude", reveal: false };
+  expect(parseQuickLaunch({ ...base, remoteControl: true })?.remoteControl).toBe(true);
+  expect(parseQuickLaunch({ ...base, remoteControl: false })?.remoteControl).toBe(false);
+  expect(parseQuickLaunch({ ...base, remoteControl: "true" })).not.toHaveProperty("remoteControl");
+});

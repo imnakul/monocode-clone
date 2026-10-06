@@ -96,6 +96,7 @@ describe("automatic native provider conversations", () => {
     expect(result.id).toBe("stable-mono");
     expect(result.harness).toBe("claude");
     expect(result.blocks).toEqual([]);
+    expect(result.providerSessionId).toBe("native-one");
     expect(result.composerSeed).toBeUndefined();
     expect(bind).toHaveBeenCalledWith(
       "claude",

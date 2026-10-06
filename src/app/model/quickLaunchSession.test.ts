@@ -442,3 +442,18 @@ it("does not submit an accepted prompt again after a lost ACK", async () => {
   expect(workspace.submit).toHaveBeenCalledOnce();
   expect(queue).toHaveLength(0);
 });
+
+
+it.each([true, false])("configures quick Claude RC=%s before submitting once", async (enabled) => {
+  const { request, workspace, state } = setup();
+  const configureRemoteControl = vi.fn((session: Session, value: boolean): void => {
+    expect(session.harness).toBe("claude");
+    expect(value).toBe(enabled);
+    expect(workspace.submit).not.toHaveBeenCalled();
+  });
+  await acceptQuickLaunch({ ...request, harness: "claude", remoteControl: enabled },
+    "rc-session", { ...workspace, configureRemoteControl });
+  expect(configureRemoteControl).toHaveBeenCalledTimes(1);
+  expect(workspace.submit).toHaveBeenCalledTimes(1);
+  expect(state.sessions.find((session) => session.id === "rc-session")?.quickLaunchAccepted).toBe(true);
+});

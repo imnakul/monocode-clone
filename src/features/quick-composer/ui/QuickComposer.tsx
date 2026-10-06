@@ -1,3 +1,5 @@
+import { WorkInPicker } from "../../provider-sessions/ui/WorkInPicker";
+import { newChatExecutionFor } from "../../settings/model/settings";
 import { BranchPicker } from "../../source-control/ui/BranchPicker";
 import { IS_MAC, MOD } from "../../../platform/tauri/platform";
 import { WorkspacePicker } from "../../workspace/ui/WorkspacePicker";
@@ -64,7 +66,7 @@ import {
   DEFAULT_RUNTIME_MODE,
   HARNESS_TITLE,
   HARNESSES,
-  RUNTIME_MODE_LABEL,
+  runtimeModeLabel,
   type HarnessId,
   type RuntimeMode,
   harnessSupportsAttachments,
@@ -285,9 +287,23 @@ export function QuickComposer({
     blocksCount: 0,
     remote: false,
     nativeResume: false,
+    initialExecution: typeof initialLaunch?.remoteControl === "boolean" ? "local" : undefined,
     disabledReason: cloudDisabledReason,
     onOutcome: reportCloudLaunchOutcome,
   });
+  const remoteDraftKey = `${choice.harness}:${cwd ?? ""}`;
+  const [remoteChoice, setRemoteChoice] = useState<{
+    key: string;
+    enabled: boolean;
+  } | null>(() => typeof initialLaunch?.remoteControl === "boolean"
+    ? { key: remoteDraftKey, enabled: initialLaunch.remoteControl }
+    : null);
+  const remoteDesired =
+    choice.harness === "claude" &&
+    !cloudLaunch?.active &&
+    (remoteChoice?.key === remoteDraftKey
+      ? remoteChoice.enabled
+      : newChatExecutionFor(choice.harness) === "remote");
   const attachmentsSupported = harnessSupportsAttachments(choice.harness);
   const attachments = useQuickAttachments(
     attachmentsSupported && !busy && !taskMode,
@@ -620,6 +636,7 @@ export function QuickComposer({
           ...picked,
           modelSettings: settings,
           runtimeMode,
+          ...(picked.harness === "claude" ? { remoteControl: remoteDesired } : {}),
           attachments: quickLaunchAttachments(attachments.files),
           ...(await quickWorkspaceLaunch(workspace)),
           reveal,
@@ -638,6 +655,7 @@ export function QuickComposer({
       saveLastModelSettings(settings);
       saveRecentModelChoice(picked.harness, picked.model);
       setPrompt("");
+      setRemoteChoice(null);
       setPicker(null);
       setSlash(null);
       attachments.clear();
@@ -1007,6 +1025,17 @@ export function QuickComposer({
       ) : null}
       <div className="flex shrink-0 items-center gap-1 border-t border-stroke px-2.5 py-2">
         {!taskMode ? (
+          <WorkInPicker
+            started={false}
+            enabled={!busy}
+            cloud={cloudLaunch}
+            remote={choice.harness === "claude" ? {
+              desired: remoteDesired,
+              onChange: (enabled) => setRemoteChoice({ key: remoteDraftKey, enabled }),
+            } : undefined}
+          />
+        ) : null}
+        {!taskMode ? (
           <button
             type="button"
             ref={plusRef}
@@ -1080,7 +1109,7 @@ export function QuickComposer({
               mode={runtimeMode}
               className="size-3.5 shrink-0"
             />
-            <span className="truncate">{RUNTIME_MODE_LABEL[runtimeMode]}</span>
+            <span className="truncate">{runtimeModeLabel(runtimeMode, choice.harness)}</span>
             <ChevronDown className="size-3.5 shrink-0 opacity-60" />
           </button>
         ) : null}
@@ -1293,6 +1322,7 @@ export function QuickComposer({
 
           {picker === "permissions" ? (
             <QuickPermissions
+              harness={choice.harness}
               value={runtimeMode}
               onChange={setRuntimeMode}
               onClose={closePicker}

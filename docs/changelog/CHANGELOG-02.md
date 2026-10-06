@@ -1,8 +1,32 @@
+## 2026-10-06 12:05 IST — Complete merge preserving both changelog sides
+- What: Resolved the changelog-only conflict by retaining the local5 installer record and all incoming execution-default/Antigravity CLI records, then completed the merge of local `d0ab02c` and incoming `1d2254b` at Nakul's request. Already-staged source and other documentation were left untouched. No push or new installer.
+- Files: `docs/changelog/CHANGELOG-02.md` (both sides retained; conflict markers removed).
+- Verified: Both changelog sides retained; incoming source matches MERGE_HEAD exactly. TypeScript, Cargo check, Rust fmt/Clippy, production frontend build and staged diff check pass. Full web suite: 5,623 passed / 2 known Windows shortcut failures. Rust: 611 passed / 2 existing MCP failures / 5 ignored. Failing test/implementation files are identical in both merge parents; full test gates remain red, with no test weakening. Logs: `.git/local5-merge-web.log`, `.git/local5-merge-typecheck.log`, `.git/local5-merge-rust.log`, `.git/local5-merge-cargo-check.log`, `.git/local5-merge-build.log`. Lint unavailable; desktop/provider verification remains manual.
+- Commit: merge commit containing this entry (see git log).
+
 ## 2026-10-06 09:46 IST — Windows 0.7.0-local5-upstream-sync-fixes installer
 - What: Built the requested local5 version from current branch HEAD `4b8c026` and archived the unsigned NSIS installer alongside earlier versions. The initial attempt stopped on Rust tests; after those results were disclosed, Nakul reiterated the exact build request and packaging resumed without source/test edits. No commit, push or installation.
 - Files: `package.json`, `package-lock.json`, `Cargo.toml`, `Cargo.lock`, `src-tauri/tauri.conf.json` (version metadata); [blocked build record and logs](../notes/windows-070-local5-upstream-sync-fixes-build/README.md).
 - Verified: TypeScript, Cargo format/check, Clippy, production frontend, native release and NSIS pass. Archive/source SHA-256 matches; FileVersion/ProductVersion match. Web suite: 5,583 passed / 2 documented Windows shortcut failures. Rust suite: 610 passed / 2 failed / 5 ignored; one failure is the documented MCP fixture issue, and the read-only test also fails in isolation (cause unresolved). Full test gates remain red; tests unchanged. Lint unavailable; diff/version consistency pass. Manual: installation/version, window/history/providers, recent UI fixes and MCP read-only behavior.
 - Commit: uncommitted.
+
+## 2026-10-06 — Publish execution defaults and Antigravity CLI
+- What: Published the Local/Remote/Cloud default (`3c66574`) and separate Antigravity CLI (`d26c9a2`) as two commits on the original 0.7.0 branch, preserving ACP and prior features. Remote branch verified at `d26c9a2`; source matches the reviewed implementation. The two pre-existing upstream-sync specs remain untouched and excluded.
+- Files: Publication records in both feature specs, spec index, local-feature register and this changelog; no new source changes.
+- Verified: final full check passes (5,625 web / 518 files; TypeScript; Rust fmt/Clippy; 615 Rust / 2 ignored). Previously verified production build preserved. Manual Windows/provider/phone/desktop checks remain; no installer or daemon added.
+- Commit: documentation commit containing this entry.
+
+## 2026-10-06 — Antigravity CLI alongside ACP
+- What: Added separately selectable Antigravity CLI using official agy streaming, exact native resume, Stop/queued follow-ups, per-turn usage and read-only account reports. Existing ACP stays intact. Reused provider/model/permission components; CLI policy and explicit Full access reflect headless limitations. Model discovery errors are visible; unsupported attachments, interactive approvals, Plan/native fork and unverified remote/manual-compaction controls cannot silently pretend to work.
+- Files: New `src/integrations/harness/providers/antigravity-cli/`; harness/model/availability/binary registration; Rust CLI resolver/probe; existing provider/settings/model/permission UI; tests; [comparison and setup](../notes/antigravity-acp-cli-comparison.md); [spec](../specs/antigravity-cli-plan.md); L-69.
+- Verified: full check (5,624 web / 518 files; 615 Rust / 2 ignored), cargo check, final-source focused regressions (168 / 9 files), TypeScript and production frontend build pass. Manual: actual signed-in Windows agy, native desktop controls/resume/attachments remain; no installed agy in this environment. Existing build warnings unchanged.
+- Commit: `d26c9a2` (source), published and remote-verified 2026-10-06; no installer or Remote Control daemon installation.
+
+## 2026-10-06 — New-chat Local / Remote / Cloud default
+- What: Replaced the Claude default checkbox with a global execution choice, reflected before first send in normal and quick composers. Preserved explicit Local/Remote and named-draft Local/Cloud choices, including reopening; discovered chats retain their validated native ID before composer/default initialization.
+- Files: Settings model/UI; provider remote preferences, native discovery and cloud hook; App/SessionPane; QuickComposer and TS/Rust launch delivery; tests; `docs/specs/new-chat-execution-default-plan.md`.
+- Verified: full web suite (5,599 tests / 515 files), focused regressions, TypeScript and final-source production build pass; Rust formatting/check and extracted production delivery tests (3) pass. Manual: normal/floating/embedded composers and actual provider/phone/cloud behavior pending.
+- Commit: `3c66574` (source), published and remote-verified 2026-10-06.
 
 ## 2026-10-05 — Session Manager pane: simple slide instead of card morph
 - What: Removed the expand-from-card / collapse-into-card animation. The session pane now slides and fades in and out (200ms) like the Tasks peek pane and other side panes; the board takes its split width at once.

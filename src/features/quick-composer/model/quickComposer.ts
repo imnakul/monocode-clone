@@ -63,6 +63,8 @@ export type QuickLaunch = {
   model?: string;
   modelSettings?: Record<string, string>;
   runtimeMode?: RuntimeMode;
+  /** Explicit Local/Remote choice from the quick composer; no provider starts here. */
+  remoteControl?: boolean;
   attachments?: Attachment[];
   workspaceMode?: WorkspaceMode;
   worktreeBase?: string;
@@ -153,6 +155,7 @@ export function parseQuickLaunch(value: unknown): QuickLaunch | null {
     ...(RUNTIME_MODES.includes(raw.runtimeMode as RuntimeMode)
       ? { runtimeMode: raw.runtimeMode as RuntimeMode }
       : {}),
+    ...(typeof raw.remoteControl === "boolean" ? { remoteControl: raw.remoteControl } : {}),
     reveal: raw.reveal === true,
   };
 }

@@ -7,9 +7,10 @@ import {
   Sparkles,
 } from "../../../shared/ui/icons";
 import {
-  RUNTIME_MODES,
-  RUNTIME_MODE_HINT,
-  RUNTIME_MODE_LABEL,
+  runtimeModesForHarness,
+  type HarnessId,
+  runtimeModeHint,
+  runtimeModeLabel,
   type RuntimeMode,
 } from "../../sessions/model/session";
 
@@ -38,16 +39,19 @@ export function QuickPermissionIcon({
 
 export function QuickPermissions({
   value,
+  harness,
   onChange,
   onClose,
 }: {
   value: RuntimeMode;
+  harness?: HarnessId;
   onChange: (mode: RuntimeMode) => void;
   onClose: () => void;
 }) {
+  const modes = runtimeModesForHarness(harness);
   const root = useRef<HTMLDivElement>(null);
   const id = useId();
-  const [active, setActive] = useState(RUNTIME_MODES.indexOf(value));
+  const [active, setActive] = useState(Math.max(0, modes.indexOf(value)));
   useEffect(() => {
     root.current?.focus({ preventScroll: true });
   }, []);
@@ -74,15 +78,15 @@ export function QuickPermissions({
           const step = event.key === "ArrowDown" ? 1 : -1;
           setActive(
             (index) =>
-              (index + step + RUNTIME_MODES.length) % RUNTIME_MODES.length,
+              (index + step + modes.length) % modes.length,
           );
         } else if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          pick(RUNTIME_MODES[active]);
+          pick(modes[active]);
         }
       }}
     >
-      {RUNTIME_MODES.map((mode, index) => (
+      {modes.map((mode, index) => (
         <button
           key={mode}
           id={`${id}-${index}`}
@@ -101,10 +105,10 @@ export function QuickPermissions({
           <QuickPermissionIcon mode={mode} className="size-4 shrink-0" />
           <span className="min-w-0 flex-1">
             <span className="block text-[13px] font-medium">
-              {RUNTIME_MODE_LABEL[mode]}
+              {runtimeModeLabel(mode, harness)}
             </span>
             <span className="mt-0.5 block text-[11px] text-content/45">
-              {RUNTIME_MODE_HINT[mode]}
+              {runtimeModeHint(mode, harness)}
             </span>
           </span>
           {value === mode ? (

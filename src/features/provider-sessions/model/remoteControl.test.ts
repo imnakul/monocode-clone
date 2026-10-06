@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("../../settings/model/settings", () => ({
   loadClaudeRemoteControlDefault: mocks.loadDefault,
+  loadRemoteControlChoices: () => new Set<string>(),
+  saveRemoteControlChoices: vi.fn(),
   loadRemoteControlSessions: mocks.load,
   saveRemoteControlSessions: mocks.save,
 }));

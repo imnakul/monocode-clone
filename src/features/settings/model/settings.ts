@@ -483,8 +483,8 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   {
     id: "claude-remote-control",
     section: "providers",
-    label: "Turn on Remote Control for new Claude chats",
-    keywords: "remote control phone mobile continue claude new chats default",
+    label: "Default location for new chats",
+    keywords: "local remote cloud control phone mobile claude codex new chats default",
   },
   {
     id: "project-notifications",
@@ -1207,17 +1207,61 @@ const CLAUDE_REMOTE_CONTROL_DEFAULT_KEY =
 const CLAUDE_REMOTE_CONTROL_SESSIONS_KEY =
   "monocode.claudeRemoteControlSessions";
 
+export type NewChatExecution = "local" | "remote" | "cloud";
+const NEW_CHAT_EXECUTION_KEY = "monocode.newChatExecution";
+
+export function loadNewChatExecution(): NewChatExecution {
+  try {
+    const value = localStorage.getItem(NEW_CHAT_EXECUTION_KEY);
+    if (value === "local" || value === "remote" || value === "cloud") return value;
+  } catch {
+    // Fall back to the previous preference when storage is unavailable.
+  }
+  return readFlag(CLAUDE_REMOTE_CONTROL_DEFAULT_KEY) ? "remote" : "local";
+}
+
+export function saveNewChatExecution(value: NewChatExecution): void {
+  try {
+    localStorage.setItem(NEW_CHAT_EXECUTION_KEY, value);
+  } catch {
+    // Private mode / quota.
+  }
+}
+
+/** Remote is available only for Claude; Cloud only for eligible provider chats. */
+export function newChatExecutionFor(harness: HarnessId): NewChatExecution {
+  const value = loadNewChatExecution();
+  if (value === "remote" && harness !== "claude") return "local";
+  if (value === "cloud" && harness !== "claude" && harness !== "codex") return "local";
+  return value;
+}
+
 export function loadClaudeRemoteControlDefault(): boolean {
-  return readFlag(CLAUDE_REMOTE_CONTROL_DEFAULT_KEY) ?? false;
+  return loadNewChatExecution() === "remote";
 }
 
 export function saveClaudeRemoteControlDefault(value: boolean): void {
   writeFlag(CLAUDE_REMOTE_CONTROL_DEFAULT_KEY, value);
+  saveNewChatExecution(value ? "remote" : "local");
+}
+
+const REMOTE_CONTROL_CHOICES_KEY = "monocode.claudeRemoteControlChoices";
+
+export function loadRemoteControlChoices(): Set<string> {
+  return new Set([...loadRemoteControlIds(REMOTE_CONTROL_CHOICES_KEY), ...loadRemoteControlSessions()]);
+}
+
+export function saveRemoteControlChoices(ids: Iterable<string>): void {
+  saveRemoteControlIds(ids, REMOTE_CONTROL_CHOICES_KEY);
 }
 
 export function loadRemoteControlSessions(): Set<string> {
+  return loadRemoteControlIds(CLAUDE_REMOTE_CONTROL_SESSIONS_KEY);
+}
+
+function loadRemoteControlIds(key: string): Set<string> {
   try {
-    const raw = localStorage.getItem(CLAUDE_REMOTE_CONTROL_SESSIONS_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return new Set();
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return new Set();
@@ -1233,12 +1277,16 @@ export function loadRemoteControlSessions(): Set<string> {
 }
 
 export function saveRemoteControlSessions(ids: Iterable<string>): void {
+  saveRemoteControlIds(ids, CLAUDE_REMOTE_CONTROL_SESSIONS_KEY);
+}
+
+function saveRemoteControlIds(ids: Iterable<string>, key: string): void {
   try {
     const normalized = [...new Set(
       [...ids].map((id) => id.trim()).filter(Boolean),
     )].sort();
     localStorage.setItem(
-      CLAUDE_REMOTE_CONTROL_SESSIONS_KEY,
+      key,
       JSON.stringify(normalized),
     );
   } catch {

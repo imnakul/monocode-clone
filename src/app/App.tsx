@@ -683,6 +683,7 @@ import {
 } from "../features/inbox/model/azureDevOps";
 import {
   loadRemoteControlSessions,
+  loadRemoteControlChoices,
   loadCloseToTray,
   loadAutosave,
   loadCollapsedProjectRailMode,
@@ -1172,7 +1173,8 @@ function Workspace({
     ReadonlySet<string>
   >(loadRemoteControlSessions);
   const remoteControlSeeded = useRef(new Set<string>());
-  const remoteControlInitialized = useRef(new Set<string>());
+  const [initialRemoteControlChoices] = useState(loadRemoteControlChoices);
+  const remoteControlInitialized = useRef(initialRemoteControlChoices);
   const tabCloseScope = "project" as const;
   const currentProjectDock = findProjectTerminal(projectTerminals, projectCwd);
   const dockVisible = !!currentProjectDock?.open;
@@ -5463,6 +5465,18 @@ function Workspace({
     for (const session of fresh) remoteControlSeeded.current.add(session.id);
     try {
       restoreClaudeRemoteControlPreferences(fresh);
+      for (const id of loadRemoteControlChoices())
+        remoteControlInitialized.current.add(id);
+      for (const session of fresh) {
+        if (
+          session.blocks.length === 0 && !session.providerSessionId &&
+          !session.sidechat && !session.inboxAsk &&
+          !remoteControlInitialized.current.has(session.id)
+        ) {
+          initializeNewClaudeRemoteControlPreference(session);
+          remoteControlInitialized.current.add(session.id);
+        }
+      }
     } catch {
       // The adapter may be unavailable; the saved choice itself is untouched.
     }
@@ -8313,6 +8327,11 @@ function Workspace({
   const launchQuickSession = useCallback(
     (launch: QuickLaunch, deliveryId: string, placement?: AppSessionPlacement) =>
       acceptQuickLaunch(launch, deliveryId, {
+        configureRemoteControl: (session, enabled) => {
+          initializeNewClaudeRemoteControlPreference(session, enabled);
+          remoteControlInitialized.current.add(session.id);
+          setRemoteControlDesired(loadRemoteControlSessions());
+        },
         getSessions: () => sessionsRef.current,
         updateSessions: (update) => {
           sessionsRef.current = update(sessionsRef.current);

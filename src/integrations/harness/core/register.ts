@@ -7,6 +7,7 @@ import { ensureHermesRegistered } from "../providers/hermes/hermesAdapter";
 import { ensureOpenCodeRegistered } from "../providers/opencode/opencodeAdapter";
 import { ensureOmpRegistered } from "../providers/omp/ompAdapter";
 import { ensurePiRegistered } from "../providers/pi/piAdapter";
+import { ensureAntigravityCliRegistered } from "../providers/antigravity-cli/antigravityCliAdapter";
 import { ensureAntigravityRegistered } from "./antigravityAdapter";
 import { ensureClineRegistered } from "./clineAdapter";
 
@@ -22,5 +23,6 @@ export function registerBuiltinHarnesses(): void {
   ensureFxRegistered();
   ensureHermesRegistered();
   ensureAntigravityRegistered();
+  ensureAntigravityCliRegistered();
   ensureClineRegistered();
 }

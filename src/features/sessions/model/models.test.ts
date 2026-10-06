@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { newSession, type HarnessId } from "./session";
 import {
   MODELS,
+  allModels,
   coerceModelPickerTab,
   defaultModelId,
   defaultSessionChoice,
@@ -328,6 +329,23 @@ describe("model picker tabs", () => {
       "cursor",
       "fx",
     ]);
+  });
+
+  it("lists ACP and CLI as separate providers with distinct native model identities", () => {
+    expect(
+      modelPickerTabs((id) => id === "antigravity" || id === "antigravity-cli"),
+    ).toEqual(["favorites", "antigravity", "antigravity-cli"]);
+    const antigravityModels = allModels().filter((model) =>
+      model.harness.startsWith("antigravity"),
+    );
+    expect(new Set(antigravityModels.map((model) => model.id)).size).toBe(
+      antigravityModels.length,
+    );
+    expect(
+      resolveModel("antigravity-cli", defaultModelId("antigravity-cli"))
+        .harness,
+    ).toBe("antigravity-cli");
+    expect(nativeModelId("antigravity-cli:default")).toBe("");
   });
 
   it("wraps left and right across favorites and providers", () => {

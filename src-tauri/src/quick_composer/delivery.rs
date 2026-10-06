@@ -61,12 +61,13 @@ mod tests {
     fn launch_mode_fields_survive_the_bridge() {
         let launch: QuickLaunch = serde_json::from_value(serde_json::json!({
             "prompt": "p", "cwd": "/repo", "harness": "codex", "reveal": false,
-            "draft": true, "intent": "plan"
+            "draft": true, "intent": "plan", "remoteControl": false
         }))
         .unwrap();
         let value = serde_json::to_value(&launch).unwrap();
         assert_eq!(value["draft"], true);
         assert_eq!(value["intent"], "plan");
+        assert_eq!(value["remoteControl"], false);
         let plain = serde_json::to_value(request("p")).unwrap();
         assert!(plain.get("draft").is_none() && plain.get("intent").is_none());
     }
