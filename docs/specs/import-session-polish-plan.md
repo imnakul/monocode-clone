@@ -1,4 +1,4 @@
-# Todo — Import session in Settings, accent toggles, sidebar card order, Session Manager spacing
+# Todo — Import session in Settings, accent toggles, sidebar card order, Session Manager spacing, Mono task access
 
 - Tier: standard · Snapshot: `f16c498` on `nakul/windows-support-upstream-0.8.0`, 2026-10-07 · Status: Todo
 - Branch: work on `nakul/windows-support-upstream-0.8.0` only (not 0.7.0).
@@ -13,6 +13,7 @@ Four polish items:
 2. **Import session:** "Add session" leaves the main sidebar and becomes an **Import session** button in Settings → Migration. Its dialog is redesigned around the existing components, with less text and controls of matching size.
 3. **Toggles follow Appearance → Accent color**, instead of the fixed default blue.
 4. **Sidebar session cards** read title first, then branch, then model.
+5. **Monos use Tasks for their projects.** The app CLI already lets a Mono read and write tasks in its assigned projects, but the Mono's instructions never mention Tasks, and the project parameter is named differently from the other actions. Make Tasks discoverable and consistent.
 
 ## Out of scope
 
@@ -82,6 +83,16 @@ Four polish items:
 - Compact `Model: {model}` label (`:3885-3892`), then `OrchestrationSidebarAgents` (`:3894`).
 - **Line 3:** branch (`GitBranch`, `:3909`) plus archive / work item / automation / Remote Control on the right.
 
+**5. Mono access to Tasks**
+- The app CLI exposes `tasks.list`, `tasks.read`, `tasks.write` and `tasks.delete` (`src-tauri/src/control_cli.rs:106-108`, usage `:228-260`; handlers `src/features/agent-app/model/agentApp.ts:1343-1520`).
+- Mono scoping is already enforced:
+  - `tasks.list` without `projectCwd` keeps only tasks in the Mono's projects (`agentApp.ts:~1401-1410`);
+  - `projectCwd: null` (Personal) is rejected for a Mono ("Mono task access requires an assigned project");
+  - `tasks.read`, `tasks.delete` and `tasks.write` call `assertMonoProjectAccess` ("This project is not assigned to your Mono", `:420-428`);
+  - new tasks default to `defaultAssignedProject` (`:430-445`).
+- The Mono instructions (`src/features/monos/model/monoFiles.ts:341`, the `<mono>` block) say: "Through the app CLI you can also see and drive those projects' sessions, worktrees and notes (pass "project":"<path>" to choose one)…". Tasks are not mentioned, so a Mono does not know it can use them.
+- Parameter mismatch: sessions/worktrees/folders take `"project"` (a path or a name; `requireProject`, `:373-406`), but tasks take `"projectCwd"` (a path only; `taskProject`, `:~360-367`). A Mono following its instructions would pass `"project"` to `tasks.*`, and it would be ignored.
+
 ## Proposed behavior and invariants
 
 - I-1: Session Manager shows the same 12px gap above the toolbar controls as below them.
@@ -90,6 +101,7 @@ Four polish items:
 - I-4: The dialog keeps every existing guard and behaviour: provider/account checks, archived restore, the busy lock, paste-ID parsing, and dialog-layer menus with Escape keeping the dialog open.
 - I-5: Every switch with `role="switch"` and `aria-checked="true"` uses the user's accent when one is set, and keeps the default accent otherwise. The danger switch keeps red.
 - I-6: Sidebar cards read title, then branch, then model, in both normal and compact modes.
+- I-7: A Mono can list, read, create, edit and delete tasks only in its assigned projects (unchanged enforcement). Its instructions tell it Tasks exist, and `tasks.*` accept the same `"project"` (path or name) as the other Mono actions.
 
 ## Implementation plan
 
@@ -201,6 +213,18 @@ When orchestration is expanded, `OrchestrationSidebarAgents` stays directly afte
 
 Keep the drop-target and selection styling, handlers and `title` attributes unchanged.
 
+### 5. Mono access to Tasks
+
+- **Instructions:** `monoFiles.ts:341`. Change "sessions, worktrees and notes (pass "project":"<path>" to choose one)" to "sessions, worktrees, notes and tasks (pass "project":"<path>" to choose one)". Then append one sentence to the same `<mono>` block, after the habits sentence: `Keep the user's to-dos for your projects in Tasks (app tasks.list / tasks.write): check them when planning, add new ones when the user asks you to remember work, and mark them done when finished.` Update any snapshot or string test that asserts the old wording (`grep -rn "worktrees and notes" src`).
+- **`project` alias for tasks:** in `agentApp.ts`:
+  - **`tasks.list`:** when `input.project` is given and the caller is a Mono, resolve it with `requireProject(source, input, host)` and use it as `filters.projectCwd`. Passing both `project` and `projectCwd` throws `Use project or projectCwd, not both`. For a non-Mono session, `project` keeps throwing the existing `project is only for a Mono` (from `requireProject`).
+  - **`tasks.write`:** when `input.project` is given, resolve it the same way and treat the result as `changes.projectCwd` (the existing `assertMonoProjectAccess` then passes). The same both-given error applies.
+  - **`tasks.read` / `tasks.delete`:** unchanged (they take `id`).
+  - **Allowlists:** add `"project"` to the allowed keys for `tasks.list` and `tasks.write` in the action schema (`agentApp.ts:~233-263`).
+- **CLI help** (`control_cli.rs`, `tasks.list` and `tasks.write` usage): add a line under each: `A Mono may pass "project":"<path or name>" instead of projectCwd.` Also add `tasks.*` to the "A Mono works on several projects…" paragraph (`:132-134`), so it reads `…to the sessions.*, worktrees.*, folders.* and tasks.* actions…`.
+- **No change to:** who may access which project, Personal tasks (still not available to Monos), or the UI.
+- **Records:** add a `LOCAL-FEATURES.md` row: "Monos can use Tasks for their assigned projects (instructions + project alias)". Tasks are fork-only, so this is a fork feature.
+
 ## UI copy
 
 | Where | Text |
@@ -230,6 +254,14 @@ Existing validation and error messages stay unchanged.
 - AC-5: All existing dialog behaviours pass: row open, archive, paste-ID import, provider/account guards, busy lock, and the menu layer/Escape tests from `f3f0656`.
 - AC-6: With an accent set, every on switch except the danger one uses it. With no accent, switches keep the default accent.
 - AC-7: Sidebar cards show title, then branch, then model (compact: title, branch, `Model:`), with status/time on the title line.
+- AC-8: A Mono's instructions mention tasks. As a Mono with projects A and B:
+  - `tasks.write {"project":"A","title":"x"}` creates a task in A;
+  - `tasks.list {"project":"B"}` lists only B's tasks;
+  - `tasks.list {}` lists A and B tasks only;
+  - `tasks.write {"project":"C",…}` (not assigned) fails with `Not one of your projects…`;
+  - `projectCwd: null` still fails;
+  - passing both `project` and `projectCwd` fails;
+  - a non-Mono session passing `project` fails with `project is only for a Mono`.
 
 ## Test matrix
 
@@ -241,12 +273,15 @@ Existing validation and error messages stay unchanged.
 | AC-4 | feature | `ImportSessionDialog.test.ts` | The list request starts on mount without clicking Find; switching provider, account or project triggers a new request; Enter in search triggers one; clearing the search triggers one; the provider switch shows only with 2 providers; the account select only with 2+ accounts; no "Find", "Resume session" or "Cancel" button; the long paragraph is absent; the paste input and Import button have `h-9` |
 | AC-5 | feature | `ImportSessionDialog.test.ts`, `ImportSessionDialog.menu.test.ts` | Existing cases pass after the rename, adjusted only for removed buttons (use form submit for paste, row click for open) |
 | AC-6 | unit | `src/shared/ui/Toggle.test.ts` (extend) | Read `src/styles/index.css` as text and assert the `html.has-user-accent [role="switch"][aria-checked="true"]` rule with the danger exclusion; `Toggle` renders `aria-checked`; `DeleteWorktreeDialog`'s switch has `data-switch-tone="danger"` |
+| AC-8 | unit | the existing agentApp task tests (`grep -rln "tasks.write" src --include=*.test.ts`) and `src/features/monos/model/monoFiles.test.ts` | Every AC-8 case with a fake host whose `monoOf` returns projects A and B; the instructions string contains "notes and tasks" and "app tasks.list" |
+| AC-8 | Rust unit | `src-tauri/src/control_cli.rs` tests | `app_help()` contains the `tasks.*` project line |
 | AC-7 | feature | the sidebar card tests (`grep -rln "data-session-select" src --include=*.test.ts`) | In DOM order the title comes before the branch label, which comes before the model; compact mode: title, branch, `Model:` |
 
 ## Verification
 
 - `npx tsc --noEmit -p .`
-- `npx vitest run src/app/shell src/features/provider-sessions src/features/settings src/features/session-board src/shared/ui`
+- `npx vitest run src/app/shell src/features/provider-sessions src/features/settings src/features/session-board src/shared/ui src/features/agent-app src/features/monos`
+- `cargo test control_cli` (from `src-tauri`)
 - Later full checks (not the implementer): `npx vitest run`, `npm run build`.
 
 ## Manual checklist (Nakul, desktop)
@@ -261,6 +296,7 @@ Existing validation and error messages stay unchanged.
    - a successful import closes Settings and opens the session.
 4. Appearance → pick an accent: switches in Settings, Skills, the model picker and Automations follow it. Clear it: they return to the default. The delete-worktree switch stays red.
 5. Sidebar session cards: title, then branch, then model; compact mode in the same order.
+6. In a Mono chat, ask it to "add a task to <project> to …" and then "what tasks are open on <project>?". It uses Tasks, and the task appears in Task Manager under that project.
 
 ## Facts, decisions, assumptions
 
