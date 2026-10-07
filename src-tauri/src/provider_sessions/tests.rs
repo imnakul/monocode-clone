@@ -482,6 +482,43 @@ fn find_filters_full_discovery_before_paging_and_keeps_native_titles() {
 }
 
 #[test]
+fn find_discovers_and_filters_by_full_claude_saved_title() {
+    let (dir, conn) = setup();
+    let project = dir.path().join("projects/-repo");
+    fs::create_dir_all(&project).unwrap();
+    let title = format!("Project: {} searchable-tail", "設計".repeat(80));
+    let transcript = [
+        serde_json::json!({
+            "type": "user",
+            "sessionId": "saved-native",
+            "cwd": "/repo",
+            "timestamp": "2026-10-07T12:34:56Z",
+            "message": { "content": "Original first prompt" }
+        })
+        .to_string(),
+        serde_json::json!({
+            "type": "summary",
+            "sessionId": "saved-native",
+            "summary": "Legacy summary",
+            "customTitle": title
+        })
+        .to_string(),
+    ]
+    .join("\n");
+    fs::write(project.join("saved-native.jsonl"), transcript).unwrap();
+
+    let (rows, diagnostics) = discover_at(Provider::Claude, dir.path(), "default");
+    let filtered = filter_conversations(rows, Some("searchable-tail"), Some("/repo"));
+    let page = page_with_state(&conn, filtered, diagnostics, false, 10, 0).unwrap();
+    assert_eq!(page.conversations.len(), 1);
+    let conversation = &page.conversations[0];
+    assert_eq!(conversation.native_id, "saved-native");
+    assert_eq!(conversation.title, title);
+    assert_eq!(conversation.updated_at, 1_791_376_496);
+    assert!(page.next_offset.is_none());
+}
+
+#[test]
 fn codex_millisecond_metadata_becomes_seconds_once_without_losing_title() {
     let (dir, conn) = setup();
     let db = Connection::open(dir.path().join("state_5.sqlite")).unwrap();

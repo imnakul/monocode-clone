@@ -39,6 +39,8 @@ type Props = (
   ariaLabel?: string;
   header?: ReactNode;
   width?: number;
+  /** Optional stacking layer for menus opened from a dialog or another surface. */
+  layer?: number;
   onPick: (id: string) => void;
   onClose: () => void;
   onMouseEnter?: () => void;
@@ -71,6 +73,7 @@ export function ExplorerMenu({
   ariaLabel = "File actions",
   header,
   width = MENU_WIDTH,
+  layer,
   onPick,
   onClose,
   onMouseEnter,
@@ -89,6 +92,9 @@ export function ExplorerMenu({
   const submenuItem = submenu ? items[submenu.index] : undefined;
   const submenuItems =
     submenuItem?.kind === "item" ? submenuItem.submenu : undefined;
+  const menuLayer = layer ?? (anchor ? LAYER.submenu : undefined);
+  const submenuLayer = layer === undefined ? LAYER.submenu : layer + 1;
+  const isDialogMenu = layer !== undefined && layer >= LAYER.dialogPopover;
 
   const cancelClose = () => {
     if (closeTimer.current != null) clearTimeout(closeTimer.current);
@@ -296,7 +302,8 @@ export function ExplorerMenu({
         anchor={anchor ?? { x: x ?? 0, y: y ?? 0 }}
         side={anchor ? "right" : undefined}
         gap={anchor ? 4 : 0}
-        layer={anchor ? LAYER.submenu : undefined}
+        layer={menuLayer}
+        data-dialog-popover={isDialogMenu ? "" : undefined}
         data-menu-owner={ownerId}
         width={width}
         autoFocus
@@ -349,7 +356,8 @@ export function ExplorerMenu({
           side="right"
           gap={4}
           width={MENU_WIDTH}
-          layer={LAYER.submenu}
+          layer={submenuLayer}
+          data-dialog-popover={isDialogMenu ? "" : undefined}
           autoFocus
           role="menu"
           tabIndex={-1}

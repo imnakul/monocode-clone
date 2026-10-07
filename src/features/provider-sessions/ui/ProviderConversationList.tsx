@@ -56,6 +56,8 @@ type Props = {
   /** Cloud tasks MonoCode launched for this provider. */
   cloudRecords?: readonly CloudSession[];
   onOpenCloud?: (record: CloudSession) => void;
+  /** Stacking layer for menus when this list is rendered inside a dialog. */
+  menuLayer?: number;
 };
 
 const SKELETON_ROWS = [0, 1, 2, 3];
@@ -97,6 +99,7 @@ export function ProviderConversationList({
   onDismissActionError,
   cloudRecords = [],
   onOpenCloud,
+  menuLayer,
 }: Props): ReactElement {
   const label = PROVIDER_LABEL[provider];
   const motionScope = `provider:${provider}`;
@@ -376,6 +379,7 @@ export function ProviderConversationList({
         <ExplorerMenu
           x={menu.x}
           y={menu.y}
+          layer={menuLayer}
           ariaLabel="Conversation actions"
           items={menuItems}
           onPick={(id) => {
@@ -389,6 +393,7 @@ export function ProviderConversationList({
       {filterAnchor ? (
         <ExplorerMenu
           anchor={filterAnchor}
+          layer={menuLayer}
           ariaLabel="Conversation filters"
           items={[
             {

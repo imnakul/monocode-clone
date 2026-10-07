@@ -9,6 +9,7 @@ import {
 import { Modal } from "../../../shared/ui/Modal";
 import { SearchableSelect } from "../../../shared/ui/SearchableSelect";
 import { SecondaryButton } from "../../../shared/ui/SecondaryButton";
+import { LAYER } from "../../../shared/lib/layers";
 import {
   providerAccounts,
   subscribeProviderAccounts,
@@ -269,6 +270,7 @@ export function AddNativeSessionDialog({
           >
             <ProviderConversationList
               provider={provider}
+              menuLayer={LAYER.dialogPopover}
               state={lists[provider]}
               showArchived={store.getIncludeArchived()}
               openingKey={openingKey}

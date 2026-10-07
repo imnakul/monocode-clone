@@ -1,5 +1,11 @@
 # Changelog 03 — MonoCode Windows fork
 
+## 2026-10-07 — Keep Claude saved names searchable and menus above Add session
+- What: Claude Find now prefers the latest session-scoped saved custom title, then AI title, legacy summary and first prompt; full saved names remain searchable, including late metadata beyond the capped head scan. Add session filter/context menus use the dialog layer, and Escape closes nested menus one level at a time.
+- Files: `src-tauri/src/session_import.rs` / tests; `src-tauri/src/provider_sessions/tests.rs`; `src/features/files/ui/ExplorerMenu.tsx`; `src/features/provider-sessions/ui/ProviderConversationList.tsx`, `AddNativeSessionDialog.tsx`, and menu DOM test; L-71 and [repair plan](../specs/native-session-title-menu-repair-plan.md).
+- Verified: web + TypeScript ✅ (6,271 tests / 577 files); `npm run check:rust` ✅ (669 Rust tests, 2 ignored; format and Clippy clean); `cargo check --workspace` ✅; `npm run build` ✅. Existing CSS pseudo-element and large-chunk warnings remain. Manual: compare Find names/search with Claude Desktop/CLI, including a renamed older chat; check filter/context menus above the dialog and Escape behavior on Windows.
+- Review: primary review passed. Source publication is pending; human Windows checks remain.
+
 ## 2026-10-06 — Merge upstream 0.8.0 and add on-demand native session discovery
 - What: Incorporated upstream Main/tag `9ccfc09` (38 commits, all 99 additions), preserving local Windows/provider, MCP, Operator, automation, task, cloud/RC, native resume and UI behavior under the approved keep-both conflict decisions. Add session now offers Claude Code/Codex → Find, native names/activity ages, project/name/ID filters and ten-row paging using existing components; optional ID entry remains. Discovery is read-only, resume keeps native context, and stale reads/Stop/double-submit guards remain.
 - Files: Approved 46-path merge plus incoming additions; `src/app/App.tsx`, session/storage/provider integrations, shared shell/UI; `src/features/provider-sessions/ui/AddNativeSessionDialog.tsx`, `model/providerSessions.ts`, Rust discovery command/tests. Full inventory and decisions: [merge record](../notes/archive/upstream-merge-2026-10-06-080.md); [tracking spec](../specs/upstream-0.8.0-sync-plan.md); L-71.

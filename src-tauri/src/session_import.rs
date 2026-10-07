@@ -16,6 +16,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Cap per-file line scanning so a pathological transcript cannot stall the
 /// wizard. Real transcripts are tens of thousands of lines at most.
 const MAX_LINES_PER_FILE: usize = 200_000;
+/// Inspect only a small byte tail for title metadata after the message scan
+/// reaches its cap. Keep this aligned with the SDK's bounded head/tail reader.
+const MAX_TAIL_BYTES_PER_FILE: usize = 64 * 1024;
 /// Cap title length (chars).
 const MAX_TITLE_CHARS: usize = 120;
 
@@ -234,11 +237,51 @@ fn scan_claude_dir(projects: &Path, out: &mut Vec<(u64, ExternalSession)>) {
 struct ClaudeAcc {
     session_id: Option<String>,
     cwd: Option<String>,
-    summary: Option<String>,
+    custom_title: ClaudeTitleCandidates,
+    ai_title: ClaudeTitleCandidates,
+    summary_title: ClaudeTitleCandidates,
     first_user_text: Option<String>,
     max_epoch: u64,
     max_timestamp: Option<String>,
     message_count: u32,
+}
+
+#[derive(Default)]
+struct ClaudeTitleCandidates {
+    scoped: std::collections::BTreeMap<String, (usize, String)>,
+    unscoped: Option<(usize, String)>,
+}
+
+impl ClaudeTitleCandidates {
+    fn record(&mut self, session_id: Option<&str>, order: usize, title: &str) {
+        let candidate = (order, title.to_string());
+        if let Some(session_id) = session_id {
+            let current = self.scoped.entry(session_id.to_string()).or_default();
+            if current.1.is_empty() || current.0 <= order {
+                *current = candidate;
+            }
+        } else if self
+            .unscoped
+            .as_ref()
+            .is_none_or(|(current_order, _)| *current_order <= order)
+        {
+            self.unscoped = Some(candidate);
+        }
+    }
+
+    fn latest_for(&self, session_id: &str) -> Option<&str> {
+        match (self.scoped.get(session_id), self.unscoped.as_ref()) {
+            (Some((scoped_order, scoped_title)), Some((unscoped_order, unscoped_title))) => {
+                Some(if scoped_order >= unscoped_order {
+                    scoped_title
+                } else {
+                    unscoped_title
+                })
+            }
+            (Some((_, title)), None) | (None, Some((_, title))) => Some(title),
+            (None, None) => None,
+        }
+    }
 }
 
 pub(crate) fn parse_claude_file(path: &Path, slug: &str) -> Option<(u64, ExternalSession)> {
@@ -248,26 +291,30 @@ pub(crate) fn parse_claude_file(path: &Path, slug: &str) -> Option<(u64, Externa
     // messages) are garbage, not sessions — the filename-stem fallback
     // below must not resurrect them.
     let mut signals = 0u32;
-    for (index, line) in text.lines().enumerate() {
-        if index >= MAX_LINES_PER_FILE {
-            break;
+    let mut head_end = 0;
+    for (index, line) in text
+        .split_inclusive('\n')
+        .take(MAX_LINES_PER_FILE)
+        .enumerate()
+    {
+        head_end += line.len();
+        signals += ingest_claude_text_line(line, index, &mut acc);
+    }
+    if head_end < text.len() {
+        let mut tail_start = text.len().saturating_sub(MAX_TAIL_BYTES_PER_FILE);
+        while !text.is_char_boundary(tail_start) {
+            tail_start += 1;
         }
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
+        if tail_start > 0 && text.as_bytes().get(tail_start - 1) != Some(&b'\n') {
+            tail_start = text[tail_start..]
+                .find('\n')
+                .map(|offset| tail_start + offset + 1)
+                .unwrap_or(text.len());
         }
-        // Cheap pre-filter: only lines that can matter pay for JSON parsing.
-        if !line.contains("\"type\"") {
-            if let Some(epoch) = extract_epoch(line) {
-                signals += 1;
-                acc.bump_time(epoch, extract_timestamp(line));
-            }
-            continue;
+        tail_start = tail_start.max(head_end);
+        for (offset, line) in text[tail_start..].split_inclusive('\n').enumerate() {
+            ingest_claude_title_text_line(line, MAX_LINES_PER_FILE + offset, &mut acc);
         }
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
-        signals += ingest_claude_line(&value, &mut acc);
     }
     if signals == 0 {
         return None;
@@ -284,9 +331,12 @@ pub(crate) fn parse_claude_file(path: &Path, slug: &str) -> Option<(u64, Externa
         .or_else(|| decode_claude_slug(slug))
         .unwrap_or_else(|| slug.to_string());
     let title = acc
-        .summary
-        .or(acc.first_user_text)
-        .map(|text| truncate_title(&text))
+        .custom_title
+        .latest_for(&id)
+        .or_else(|| acc.ai_title.latest_for(&id))
+        .map(str::to_string)
+        .or_else(|| acc.summary_title.latest_for(&id).map(truncate_title))
+        .or_else(|| acc.first_user_text.map(|text| truncate_title(&text)))
         .unwrap_or_else(|| "Untitled session".to_string());
     let updated_at = acc.max_timestamp.clone();
     // Recency prefers transcript timestamps; file mtime is only a fallback
@@ -311,7 +361,37 @@ pub(crate) fn parse_claude_file(path: &Path, slug: &str) -> Option<(u64, Externa
     ))
 }
 
-fn ingest_claude_line(value: &serde_json::Value, acc: &mut ClaudeAcc) -> u32 {
+fn ingest_claude_text_line(line: &str, index: usize, acc: &mut ClaudeAcc) -> u32 {
+    let line = line.trim();
+    if line.is_empty() {
+        return 0;
+    }
+    // Cheap pre-filter: only lines that can matter pay for JSON parsing.
+    if !line.contains("\"type\"") {
+        if let Some(epoch) = extract_epoch(line) {
+            acc.bump_time(epoch, extract_timestamp(line));
+            return 1;
+        }
+        return 0;
+    }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        return 0;
+    };
+    ingest_claude_line(&value, index, acc)
+}
+
+fn ingest_claude_title_text_line(line: &str, order: usize, acc: &mut ClaudeAcc) {
+    let line = line.trim();
+    if line.is_empty() || !line.contains("\"type\"") {
+        return;
+    }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        return;
+    };
+    collect_claude_title_metadata(&value, order, acc);
+}
+
+fn ingest_claude_line(value: &serde_json::Value, order: usize, acc: &mut ClaudeAcc) -> u32 {
     let mut signals = 0u32;
     if let Some(epoch) = value
         .get("timestamp")
@@ -327,33 +407,31 @@ fn ingest_claude_line(value: &serde_json::Value, acc: &mut ClaudeAcc) -> u32 {
                 .map(str::to_string),
         );
     }
-    if acc.session_id.is_none() {
-        if let Some(sid) = value.get("sessionId").and_then(|v| v.as_str()) {
-            if !sid.is_empty() {
-                signals += 1;
-                acc.session_id = Some(sid.to_string());
-            }
-        }
-    }
-    if acc.cwd.is_none() {
-        if let Some(cwd) = value.get("cwd").and_then(|v| v.as_str()) {
-            if !cwd.is_empty() {
-                signals += 1;
-                acc.cwd = Some(cwd.to_string());
-            }
-        }
-    }
     let kind = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    match kind {
-        "summary" => {
-            signals += 1;
-            if acc.summary.is_none() {
-                if let Some(summary) = value.get("summary").and_then(|v| v.as_str()) {
-                    let summary = summary.trim();
-                    if !summary.is_empty() {
-                        acc.summary = Some(summary.to_string());
-                    }
+    let is_title_metadata = matches!(kind, "custom-title" | "ai-title" | "summary");
+    if !is_title_metadata {
+        if acc.session_id.is_none() {
+            if let Some(sid) = value.get("sessionId").and_then(|v| v.as_str()) {
+                if !sid.is_empty() {
+                    signals += 1;
+                    acc.session_id = Some(sid.to_string());
                 }
+            }
+        }
+        if acc.cwd.is_none() {
+            if let Some(cwd) = value.get("cwd").and_then(|v| v.as_str()) {
+                if !cwd.is_empty() {
+                    signals += 1;
+                    acc.cwd = Some(cwd.to_string());
+                }
+            }
+        }
+    }
+    match kind {
+        "custom-title" | "ai-title" | "summary" => {
+            let has_title = collect_claude_title_metadata(value, order, acc);
+            if kind == "summary" || has_title {
+                signals += 1;
             }
         }
         "user" => {
@@ -374,6 +452,58 @@ fn ingest_claude_line(value: &serde_json::Value, acc: &mut ClaudeAcc) -> u32 {
         _ => {}
     }
     signals
+}
+
+fn collect_claude_title_metadata(
+    value: &serde_json::Value,
+    order: usize,
+    acc: &mut ClaudeAcc,
+) -> bool {
+    let kind = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    if !matches!(kind, "custom-title" | "ai-title" | "summary") {
+        return false;
+    }
+    let Some(session_id) = claude_metadata_session_id(value) else {
+        return false;
+    };
+    let custom_title = record_claude_title(
+        value,
+        "customTitle",
+        &mut acc.custom_title,
+        session_id,
+        order,
+    );
+    let ai_title = record_claude_title(value, "aiTitle", &mut acc.ai_title, session_id, order);
+    let summary = kind == "summary"
+        && record_claude_title(value, "summary", &mut acc.summary_title, session_id, order);
+    custom_title || ai_title || summary
+}
+
+fn claude_metadata_session_id(value: &serde_json::Value) -> Option<Option<&str>> {
+    match value.get("sessionId") {
+        None => Some(None),
+        Some(serde_json::Value::String(session_id)) if !session_id.trim().is_empty() => {
+            Some(Some(session_id))
+        }
+        Some(_) => None,
+    }
+}
+
+fn record_claude_title(
+    value: &serde_json::Value,
+    field: &str,
+    candidates: &mut ClaudeTitleCandidates,
+    session_id: Option<&str>,
+    order: usize,
+) -> bool {
+    let Some(title) = value.get(field).and_then(|title| title.as_str()) else {
+        return false;
+    };
+    if title.trim().is_empty() {
+        return false;
+    }
+    candidates.record(session_id, order, title);
+    true
 }
 
 /// First `{"type":"text"}` block of a user message, skipping tool_result and

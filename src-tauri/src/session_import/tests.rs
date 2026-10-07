@@ -157,6 +157,282 @@ fn skips_injected_instruction_dumps_for_titles() {
     assert!(!is_injected_instructions("Fix the login redirect loop"));
 }
 
+fn parse_claude_text(name: &str, text: &str) -> ExternalSession {
+    let root = temp_case(name);
+    let path = root.join("native-session.jsonl");
+    std::fs::write(&path, text).expect("write Claude transcript");
+    let session = parse_claude_file(&path, "-repo")
+        .expect("Claude transcript")
+        .1;
+    let _ = std::fs::remove_dir_all(root);
+    session
+}
+
+#[test]
+fn claude_custom_title_precedence_uses_latest_full_saved_name() {
+    let full_title = format!("User title — {}", "é東京🦀".repeat(45));
+    let lines = [
+        serde_json::json!({
+            "type": "summary",
+            "sessionId": "native-session",
+            "summary": "Older legacy summary",
+            "customTitle": "Earlier saved title",
+            "aiTitle": "Earlier AI title"
+        })
+        .to_string(),
+        serde_json::json!({
+            "type": "summary",
+            "sessionId": "native-session",
+            "summary": "Latest legacy summary",
+            "customTitle": full_title,
+            "aiTitle": "Latest AI title"
+        })
+        .to_string(),
+        serde_json::json!({
+            "type": "user",
+            "sessionId": "native-session",
+            "cwd": "/repo",
+            "message": { "content": "First prompt" }
+        })
+        .to_string(),
+    ]
+    .join("\n");
+
+    let session = parse_claude_text("saved-title-precedence", &lines);
+    assert_eq!(session.id, "native-session");
+    assert_eq!(session.title, full_title);
+    assert!(session.title.chars().count() > MAX_TITLE_CHARS);
+    assert_eq!(session.cwd, "/repo");
+    assert_eq!(session.message_count, 1);
+}
+
+#[test]
+fn claude_ai_title_beats_latest_legacy_summary() {
+    let lines = [
+        serde_json::json!({
+            "type": "summary",
+            "sessionId": "native-session",
+            "summary": "Older summary",
+            "aiTitle": "Earlier AI title"
+        })
+        .to_string(),
+        serde_json::json!({
+            "type": "summary",
+            "sessionId": "native-session",
+            "summary": "Latest summary",
+            "aiTitle": "Latest AI title"
+        })
+        .to_string(),
+        serde_json::json!({
+            "type": "user",
+            "sessionId": "native-session",
+            "message": { "content": "Prompt fallback" }
+        })
+        .to_string(),
+    ]
+    .join("\n");
+
+    let session = parse_claude_text("ai-title-precedence", &lines);
+    assert_eq!(session.title, "Latest AI title");
+}
+
+#[test]
+fn claude_accepts_dedicated_custom_and_ai_title_metadata_records() {
+    let lines = [
+        serde_json::json!({
+            "type": "ai-title",
+            "sessionId": "native-session",
+            "aiTitle": "AI generated title"
+        })
+        .to_string(),
+        serde_json::json!({
+            "type": "custom-title",
+            "sessionId": "native-session",
+            "customTitle": "User saved title"
+        })
+        .to_string(),
+        serde_json::json!({
+            "type": "user",
+            "sessionId": "native-session",
+            "message": { "content": "First prompt" }
+        })
+        .to_string(),
+    ]
+    .join("\n");
+
+    let session = parse_claude_text("dedicated-title-records", &lines);
+    assert_eq!(session.title, "User saved title");
+}
+
+#[test]
+fn claude_uses_latest_legacy_summary_then_first_utf8_prompt() {
+    let summaries = [
+        serde_json::json!({
+            "type": "summary",
+            "sessionId": "native-session",
+            "summary": "Older summary"
+        })
+        .to_string(),
+        serde_json::json!({
+            "type": "summary",
+            "sessionId": "native-session",
+            "summary": "Latest summary"
+        })
+        .to_string(),
+        serde_json::json!({
+            "type": "user",
+            "sessionId": "native-session",
+            "message": { "content": "Première question — 東京" }
+        })
+        .to_string(),
+    ]
+    .join("\n");
+    assert_eq!(
+        parse_claude_text("legacy-summary", &summaries).title,
+        "Latest summary"
+    );
+
+    let prompt = serde_json::json!({
+        "type": "user",
+        "sessionId": "native-session",
+        "message": { "content": "Réparer l’interface — 東京 🦀" }
+    })
+    .to_string();
+    assert_eq!(
+        parse_claude_text("utf8-prompt", &prompt).title,
+        "Réparer l’interface — 東京 🦀"
+    );
+}
+
+#[test]
+fn claude_ignores_blank_malformed_and_nested_title_lookalikes() {
+    let nested = serde_json::json!({
+        "type": "user",
+        "sessionId": "native-session",
+        "cwd": "/repo",
+        "message": {
+            "content": [
+                { "type": "text", "text": "Prompt é" },
+                { "type": "tool_use", "input": {
+                    "customTitle": "Nested custom title",
+                    "aiTitle": "Nested AI title",
+                    "summary": "Nested summary"
+                } }
+            ]
+        }
+    });
+    let malformed = r#"{"type":"custom-title","sessionId":"native-session","customTitle":"broken}"#;
+    let lines = [
+        malformed.to_string(),
+        serde_json::json!({
+            "type": "custom-title",
+            "sessionId": "native-session",
+            "customTitle": "  "
+        })
+        .to_string(),
+        serde_json::json!({
+            "type": "ai-title",
+            "sessionId": "native-session",
+            "aiTitle": 42
+        })
+        .to_string(),
+        serde_json::json!({
+            "type": "summary",
+            "sessionId": "native-session",
+            "summary": "\t\n"
+        })
+        .to_string(),
+        nested.to_string(),
+    ]
+    .join("\n");
+
+    let session = parse_claude_text("invalid-title-candidates", &lines);
+    assert_eq!(session.title, "Prompt é");
+    assert_eq!(session.message_count, 1);
+}
+
+#[test]
+fn claude_ignores_wrong_session_title_records_before_and_after_real_messages() {
+    let lines = [
+        serde_json::json!({
+            "type": "summary",
+            "sessionId": "wrong-session",
+            "cwd": "/wrong",
+            "customTitle": "Wrong early title"
+        })
+        .to_string(),
+        serde_json::json!({
+            "type": "user",
+            "sessionId": "native-session",
+            "cwd": "/actual",
+            "message": { "content": "Original prompt" }
+        })
+        .to_string(),
+        serde_json::json!({
+            "type": "summary",
+            "sessionId": "native-session",
+            "customTitle": "Actual saved title"
+        })
+        .to_string(),
+        serde_json::json!({
+            "type": "custom-title",
+            "sessionId": "wrong-session",
+            "cwd": "/also-wrong",
+            "customTitle": "Wrong late title"
+        })
+        .to_string(),
+    ]
+    .join("\n");
+
+    let session = parse_claude_text("title-scope", &lines);
+    assert_eq!(session.id, "native-session");
+    assert_eq!(session.title, "Actual saved title");
+    assert_eq!(session.cwd, "/actual");
+}
+
+#[test]
+fn claude_reads_saved_title_metadata_from_bounded_tail_after_line_cap() {
+    let mut transcript = serde_json::json!({
+        "type": "user",
+        "sessionId": "native-session",
+        "cwd": "/repo",
+        "timestamp": "2026-10-07T12:34:56Z",
+        "message": { "content": "First prompt" }
+    })
+    .to_string();
+    transcript.push('\n');
+    for _ in 0..MAX_LINES_PER_FILE {
+        transcript.push_str("{}\n");
+    }
+    transcript.push_str(
+        &serde_json::json!({
+            "type": "summary",
+            "sessionId": "native-session",
+            "customTitle": "Late saved name"
+        })
+        .to_string(),
+    );
+    transcript.push('\n');
+    transcript.push_str(
+        &serde_json::json!({
+            "type": "custom-title",
+            "sessionId": "other-session",
+            "cwd": "/wrong",
+            "timestamp": "2099-01-01T00:00:00Z",
+            "customTitle": "Other session title"
+        })
+        .to_string(),
+    );
+    transcript.push('\n');
+
+    let session = parse_claude_text("late-title-after-cap", &transcript);
+    assert_eq!(session.id, "native-session");
+    assert_eq!(session.title, "Late saved name");
+    assert_eq!(session.cwd, "/repo");
+    assert_eq!(session.updated_at.as_deref(), Some("2026-10-07T12:34:56Z"));
+    assert_eq!(session.message_count, 1);
+}
+
 /// Live validation against this machine's real agent stores. Ignored by
 /// default (needs the installs); run with
 /// `cargo test -p monocode session_import_live -- --ignored --nocapture`.
