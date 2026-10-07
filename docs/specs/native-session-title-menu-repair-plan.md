@@ -66,8 +66,9 @@ Use existing components and preserve native resume/account/dispatch behavior.
    process tests. VITEST_MAX_FORKS=2 and VITEST_MIN_FORKS=2 speed collection.
 7. Update L-71, Current changelog, this spec and index. Preserve all local features,
    0.7.0 branch and two unrelated untracked legacy specs. Primary review passed;
-   source publication is pending, followed by the human Windows checklist. No
-   unrelated changes or force pushes.
+   source commit `f3f06563864e1fffada664cdc45b3b76c5013bf6` was pushed normally to
+   `origin/nakul/windows-support-upstream-0.8.0` and remote-verified. Only the human
+   Windows checklist remains. No unrelated changes or force pushes.
 
 ## Todos
 
@@ -75,7 +76,7 @@ Use existing components and preserve native resume/account/dispatch behavior.
 - [x] Implement title and menu fixes with existing components.
 - [x] Pass focused and full required gates/build; audit final changes.
 - [x] Update records; primary review passed.
-- [ ] Publish the reviewed source and publication checkpoint normally.
+- [x] Publish the reviewed source normally and verify its remote hash.
 - [ ] Human Windows check: Find names match CLI/Desktop; renamed/older chat search;
       each dropdown/filter/context menu is above dialog and Escape closes only menu.
 
@@ -110,5 +111,5 @@ fixed, then `npm run check:rust` passed format, Clippy and 669 Rust tests (two
 existing ignored). Workspace `cargo check` and production `npm run build` passed.
 Focused regressions passed (33 frontend and 23 Claude-focused Rust tests). Logs
 are under `/tmp/monocode-native-title-menu-repair/`. Final source/docs audit is
-clean and primary review passed. Source publication and the signed-in Windows
-checks above remain pending.
+clean and primary review passed. Source `f3f06563864e1fffada664cdc45b3b76c5013bf6`
+is pushed and remote-verified. Only the signed-in Windows checks above remain.
