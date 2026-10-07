@@ -1,4 +1,4 @@
-# Todo — "Verify" status label, startup provider check, Refresh all, Remote Control for existing Claude chats
+# Todo — Verify label, focus history by status, Resume session, startup provider check, Refresh all, Remote Control for existing chats
 
 - Tier: standard · Snapshot: `92f641f` on `nakul/windows-support-upstream-0.8.0`, 2026-10-07 · Status: Todo
 - Branch: work on `nakul/windows-support-upstream-0.8.0` only.
@@ -11,6 +11,9 @@
 2. **A light provider check runs once after the app opens.** A title-bar indicator shows when it is done, so Nakul knows when to start working.
 3. **Settings → Providers stops re-checking on every visit.** It shows the results it already has, and a **Refresh all** button forces a fresh check.
 4. **Remote Control can be turned on for an existing Claude chat** from the composer's "Work in" chip. This is a regression from `1f5d585`.
+5. **Focus history follows the task's status:** moving a Todo task records nothing, and moving a task you worked on records the day. This replaces the "past days only" rule pushed in `92f641f`.
+6. **"Import session" is renamed "Resume session".** It resumes the original conversation; it doesn't import a copy.
+7. **Resumed Claude history hides Claude Code's auto-compaction summary.** Today that summary shows as a user message.
 
 ## Out of scope
 
@@ -52,6 +55,18 @@
   So once a chat has a message there is no way to turn Remote Control on. That includes resumed native Claude sessions.
 - The backend supports it. `setClaudeRemoteControl` (`src/integrations/harness/providers/claude/claude.ts:387-…`) calls `ensureLive(input, true)`, which starts or resumes the process when needed. `RemoteControlButton` (`src/features/provider-sessions/ui/RemoteControlButton.tsx:44-50`) already offers "Turn on Remote Control" when `view.canTurnOn`.
 
+**5. Focus history** (`src-tauri/src/tasks.rs`)
+- `focus_history_addition` (`:345-363`), called from `upsert_task` (`:376`, call at `:417`), currently ends with `(old < today).then(...)`. So moving a task pinned *today* to another day never records today. That was pushed in `92f641f` and replaced the original L-70 R2 (`docs/specs/task-week-strip-plan.md:50`), which recorded today when today's pin moved to another day. With the original rule, every deferred task stayed in Today's focus, even an untouched Todo. With the current rule, a task you worked on all day disappears from that day's history.
+- Inside `upsert_task`, `previous` (`:394`) is the stored row (with `status`), and `input.status` is the new status.
+
+**6. Naming**
+- The dialog is `src/features/provider-sessions/ui/ImportSessionDialog.tsx`, with tests `ImportSessionDialog.test.ts` and `ImportSessionDialog.menu.test.ts`.
+- App wiring is `App.tsx:464, 13598` (state and handler names from `92f641f`), and the Settings → Migration button is `SettingsView.tsx:550, 706` ("Import session").
+
+**7. Compaction text**
+- `claudeItems` (`src/features/provider-sessions/model/history.ts:69-102`) skips only `isSidechain` and `isMeta` records, plus the injected texts matched by `injectedUserText` (`:48-52`).
+- When a conversation runs out of context, Claude Code writes a user record starting "This session is being continued from a previous conversation that ran out of context." It is marked `isCompactSummary: true`; this flag is documented by Claude Code transcripts but has not been verified against a local file here. The record currently renders as a user bubble in resumed history.
+
 ## Proposed behavior and invariants
 
 - I-1: The task status shows as "Verify" everywhere a task status label is shown. The stored value stays `review`.
@@ -59,6 +74,9 @@
 - I-3: One shared check state drives the title-bar indicator and the Providers page. Two checks never run at once: a manual Refresh all while the startup check is running waits for it and then forces a new run.
 - I-4: The Providers page runs a check on open only when no check has completed in this app run.
 - I-5: Any started local Claude chat can turn Remote Control on or off from its "Work in" chip.
+- I-6: When a task's `focusDate` changes away from day O, O is added to `focusDays` only if O < today, or O == today and the new value is another day, and the task's status before or after the update is `in_progress`, `blocked`, `review` or `completed`. `draft` and `todo` record nothing. R3 (created day as O) follows the same status condition.
+- I-7: The feature is called "Resume session" everywhere a user sees it.
+- I-8: Compaction summary records never appear as messages in resumed history.
 
 ## Implementation plan
 
@@ -131,6 +149,34 @@ useEffect(() => {
 - Colour: `RemoteControlButton` applies `REMOTE_CONTROL_ICON_CLASS[view.label]`. `Off` is already `text-content/45` (`src/features/provider-sessions/ui/RemoteControlIndicator.tsx:10`), matching the old muted "This computer" text. No change is needed.
 - Turning it on for a parked or resumed chat starts its process (`ensureLive`). Show the existing `connecting` status meanwhile; no new UI is needed.
 
+### 5. Focus history by status
+
+- `tasks.rs` `focus_history_addition`: add two parameters, `old_status: &str` and `new_status: &str`. Return `None` unless either status is one of `in_progress`, `blocked`, `review`, `completed`. Then restore the original rule:
+  - O < today → record O;
+  - O == today and the new date is `Some(other day)` → record O;
+  - otherwise → `None`.
+- At the call site (`:417`), pass `stored.status.as_str()` (or the stored value's string form) and `status` (`:379`).
+- Update `docs/specs/task-week-strip-plan.md` R2 (`:50`) to the rule in I-6, and drop the "past days only" note that `92f641f` added.
+- The frontend (`inFocusOn`, `src/features/tasks/tasks.ts`) is unchanged: Today and past days both consult `focusDays`. That is correct now, because a Todo task moved away no longer records today.
+- Existing data: a row that already recorded today under the old rule keeps it. No migration is needed; it affects at most a few tasks from today.
+
+### 6. Rename to "Resume session"
+
+- File and component: `ImportSessionDialog` → `ResumeSessionDialog`, including both test files and their imports.
+- App: rename `importSessionOpen` / `setImportSessionOpen` / `onImportNativeSession` / `onImportSession` to `resumeSessionOpen` / `setResumeSessionOpen` / `onResumeNativeSession` / `onResumeSession` (use `grep -rn "ImportSession\|importSession" src` to find all of them).
+- Copy:
+  - the Settings → Migration header button: `Resume session` (`SettingsView.tsx:706`), plus its JSDoc (`:550`);
+  - dialog title `Resume session`; description unchanged (`Continue a Claude Code or Codex conversation from this computer.`);
+  - the paste button: `Resume` / `Resuming…`;
+  - the paste disclosure: `Paste a session ID instead` (unchanged).
+- Update the L-71 wording in `LOCAL-FEATURES.md` and the Import session spec's copy table (`docs/specs/import-session-polish-plan.md`) to "Resume session".
+
+### 7. Hide the compaction summary
+
+- `history.ts` `claudeItems`: `continue` when `rec.isCompactSummary === true || rec.isVisibleInTranscriptOnly === true`.
+- `injectedUserText`: also return true for text starting with `This session is being continued from a previous conversation`. This is a safety net if the flag is absent.
+- Don't render any replacement divider.
+
 ## Acceptance criteria
 
 - AC-1: Task status chips, column headers, filters and the Status submenu show "Verify". Stored tasks keep `review`, and `tasks.write {"status":"review"}` still works.
@@ -139,6 +185,16 @@ useEffect(() => {
 - AC-4: The title bar shows "Checking providers…" while checking, then "Providers ready" for 2 s and nothing afterwards. On failure it shows an amber dot that opens Settings → Providers.
 - AC-5: Opening Providers after a completed check shows results immediately, with no new check. Refresh all forces a check including Antigravity, its button is disabled while running, and clicking it during the startup check waits and then forces a new run.
 - AC-6: A started local Claude chat's "Work in" chip reads "This computer" and opens a menu with "Turn on Remote Control". Turning it on changes the chip to "Remote" (connecting, then on). Turning it off returns it to "This computer". Codex chats show no chip change.
+
+- AC-7 (focus by status):
+  - a `todo` task pinned today and moved to today+3 → `focusDays` unchanged, and it leaves Today's focus;
+  - an `in_progress` task moved from today to tomorrow → today recorded;
+  - `in_progress` carried from yesterday → yesterday recorded;
+  - `todo` carried from yesterday → nothing;
+  - `todo` changed to `completed` in the same update while moving → recorded;
+  - unpinning today (new value none) → nothing, whatever the status.
+- AC-8: No user-visible "Import session" remains (`grep -rn "Import session" src` is empty except tests asserting its absence). The button and dialog read "Resume session", and the paste button reads "Resume".
+- AC-9: Resumed Claude history doesn't show the "This session is being continued from a previous conversation…" message, whether it is flagged `isCompactSummary` or only matched by its text.
 
 ## Test matrix
 
@@ -151,11 +207,16 @@ useEffect(() => {
 | AC-5 | feature | the existing ProvidersPage tests (`grep -rln "Checking providers" src --include=*.test.ts`) | Completed store means no probe on mount; idle store means a probe; Refresh all calls force + Antigravity and is disabled while checking |
 | AC-6 | component | `src/features/provider-sessions/ui/WorkInPicker.test.ts` (exists) | started + local + remote → button "This computer" with a "Turn on Remote Control" menu item that calls `onChange(true)`; started + desired → "Remote" with Turn off; started without remote → null |
 
+| AC-7 | Rust unit | `src-tauri/src/tasks.rs` tests (the `focus_history` tests) | Each AC-7 case through `upsert_task` with real old/new statuses |
+| AC-7 | feature | `src/features/tasks/tasks.test.ts` or `TasksView.test.ts` | A todo task moved from today to the 10th is not in Today's focus |
+| AC-8 | feature | `ResumeSessionDialog.test.ts`, `SettingsView.test.ts` | Title "Resume session", button "Resume", Migration button "Resume session" |
+| AC-9 | unit | the history tests (`grep -rln "parseProviderHistory" src --include=*.test.ts`) | JSONL with an `isCompactSummary` user record and with only the text prefix → neither appears; normal user text still appears |
+
 ## Verification
 
 - `npx tsc --noEmit -p .`
 - `npx vitest run src/features/tasks src/features/providers src/features/provider-sessions src/features/settings src/app/shell`
-- `cargo test control_cli` (from `src-tauri`), only if `control_cli.rs` changed.
+- `cargo test focus_history` and `cargo fmt --check` (from `src-tauri`); `cargo test control_cli` only if `control_cli.rs` changed.
 - Later full checks (not the implementer): `npx vitest run`, `npm run build`.
 
 ## Records
@@ -163,7 +224,8 @@ useEffect(() => {
 - `LOCAL-FEATURES.md`:
   - a new row: startup provider check + title indicator + Refresh all;
   - update the L-67 (Work in / Remote Control) row: existing chats can turn on Remote Control;
-  - a note on the Tasks row: Review is shown as Verify.
+  - a note on the Tasks row (L-70): Review is shown as Verify, and focus history records a day only for worked statuses;
+  - L-71: "Resume session" naming and the hidden compaction summary.
 - Changelog entry in the Current file.
 - Add to the lazy-startup section of `WINDOWS-CHANGES.md`: a short dated addendum saying a delayed, opt-out light check now runs 2 s after launch (no Antigravity handshake, no session normalisation). Do not rewrite the older text.
 
@@ -174,6 +236,9 @@ useEffect(() => {
 3. Turn the setting off and relaunch: no indicator. Opening Providers runs the check once.
 4. Open an existing Claude chat. "Work in: This computer" opens a menu; choose Turn on Remote Control, and the chip becomes "Remote". The phone can connect. Turn it off.
 5. Tasks show "Verify" in place of "Review".
+6. Pin a Todo task to today, then Focus on → a later day: it leaves Today. Set another task In progress, pin it today, move it to tomorrow: it stays listed for today, and tomorrow it shows on today's date in the strip.
+7. Settings → Migration shows "Resume session"; the dialog and its paste button say Resume.
+8. Resume a long Claude conversation that was compacted: no "This session is being continued…" bubble.
 
 ## Facts, decisions, assumptions
 
@@ -194,7 +259,7 @@ useEffect(() => {
 
 ## Implementer report format
 
-- Per AC: done / partial / not done, with `file:line` or the test name.
+- Per AC (AC-1 … AC-9): done / partial / not done, with `file:line` or the test name.
 - Deviations; checks run, with counts; files changed.
 
 ## Handoff retro
