@@ -1,5 +1,11 @@
 # Changelog 03 — MonoCode Windows fork
 
+## 2026-10-07 — Task title and description keep the caret while autosaving
+- What: The task editor no longer drops a typed edit as soon as the save returns. It keeps it until the open task shows the saved value, so the field never falls back to the old text between the save and the list refresh, and the caret no longer jumps to the end.
+- Files: `src/features/tasks/ui/TaskEditor.tsx` (`save`, new catch-up effect, `shownValue`); `src/features/tasks/ui/TasksView.test.ts` (stale-list regression test)
+- Verified: tsc ✅ tests ✅ (6,283) build ✅ | manual: type a new task title with pauses
+- Commit: see git log ("Keep task edits until the open task catches up")
+
 ## 2026-10-07 — Task and import-dialog follow-ups
 - What: A task moved off today's pin to another day no longer lingers in Today's focus (today is no longer recorded as focus history on deferral; tasks already carrying today in their history keep it). The carry-over line has top spacing so it no longer touches New task. "Filter tasks" is a small icon button that expands smoothly into the input on click/focus or while a query is set. The Import session filter menu ("Show archived") is now compact.
 - Files: `src-tauri/src/tasks.rs` (`focus_history_addition` + test); `src/features/tasks/ui/TasksToolbar.tsx`; `src/features/tasks/ui/TasksView.tsx`; `src/features/provider-sessions/ui/ProviderConversationList.tsx`; `docs/specs/task-week-strip-plan.md` (R2 note).

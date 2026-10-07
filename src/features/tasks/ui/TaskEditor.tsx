@@ -94,17 +94,20 @@ export function TaskEditor({
     if (!Object.keys(snapshot).length || deletingRef.current) return;
     try {
       const saved = await updateTask(task.id, snapshot);
-      const remaining = { ...editsRef.current };
+      // Keep every edit until the task shown here has caught up (the effect
+      // below drops it): clearing it now would show the old value until the
+      // list refresh lands, then jump the caret to the end.
+      let remaining: TaskChanges = { ...editsRef.current };
       for (const key of Object.keys(snapshot) as (keyof TaskChanges)[]) {
-        // Keep the typed title while the field has focus if saving trimmed it
-        // ("Fix the " -> "Fix the"); blur normalises it.
-        if (
-          key === "title" &&
-          titleFocused.current &&
-          saved.title !== snapshot.title
-        )
-          continue;
-        if (remaining[key] === snapshot[key]) delete remaining[key];
+        if (remaining[key] !== snapshot[key]) continue; // typed again since
+        // The typed title stays while the field has focus ("Fix the " is
+        // saved as "Fix the"); blur normalises it.
+        if (key === "title" && titleFocused.current) continue;
+        const stored = shownValue(saved, key);
+        // Fields this editor does not show are done once saved.
+        if (!stored) delete remaining[key];
+        // Otherwise show what was stored (it may be normalised).
+        else remaining = { ...remaining, [key]: stored.value };
       }
       editsRef.current = remaining;
       if (alive.current) {
@@ -115,6 +118,22 @@ export function TaskEditor({
       if (alive.current) setError(message(error));
     }
   }, [task.id]);
+  // Drop an edit once the task prop shows the same value.
+  useEffect(() => {
+    const current = editsRef.current;
+    const keys = (Object.keys(current) as (keyof TaskChanges)[]).filter(
+      (key) => {
+        if (key === "title" && titleFocused.current) return false;
+        const shown = shownValue(task, key);
+        return !!shown && sameChange(current[key], shown.value);
+      },
+    );
+    if (!keys.length) return;
+    const next = { ...current };
+    for (const key of keys) delete next[key];
+    editsRef.current = next;
+    setEdits(next);
+  }, [task]);
   const edit = (changes: TaskChanges, immediate = false) => {
     editsRef.current = { ...editsRef.current, ...changes };
     setEdits(editsRef.current);
@@ -386,4 +405,34 @@ export function TaskEditor({
       </div>
     </div>
   );
+}
+
+/**
+ * The value the editor shows for one field, as `TaskChanges` would hold it
+ * (cleared fields are null), or null for fields the editor does not show.
+ */
+function shownValue(
+  task: Task,
+  key: keyof TaskChanges,
+): { value: TaskChanges[keyof TaskChanges] } | null {
+  switch (key) {
+    case "title":
+      return { value: task.title };
+    case "body":
+      return { value: task.body };
+    case "status":
+      return { value: task.status };
+    case "tags":
+      return { value: task.tags };
+    case "projectCwd":
+      return { value: task.projectCwd ?? null };
+    case "focusDate":
+      return { value: task.focusDate ?? null };
+    default:
+      return null;
+  }
+}
+
+function sameChange(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
