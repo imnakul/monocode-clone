@@ -518,6 +518,41 @@ describe("selection and peek", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("never shows a stale title or body while a save waits for the list refresh", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    // Hold every list refresh after the save, so the open task prop stays stale.
+    const original = vi.mocked(invoke).getMockImplementation()!;
+    let releaseList: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      releaseList = resolve;
+    });
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "tasks_list") await held;
+      return original(command, args);
+    });
+    const field = input("Task title");
+    await act(async () => field.focus());
+    await change("Task title", "Fix installer now");
+    const seen: string[] = [];
+    const observer = new MutationObserver(() => seen.push(field.value));
+    observer.observe(field, { attributes: true });
+    const values = () => [...seen, field.value];
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    });
+    // The save went through, but the list is still stale: the field keeps the typed text.
+    expect(rows.get("first")?.title).toBe("Fix installer now");
+    expect(field.value).toBe("Fix installer now");
+    await act(async () => {
+      releaseList();
+      await tick();
+    });
+    observer.disconnect();
+    expect(values().every((value) => value === "Fix installer now")).toBe(true);
+    expect(field.value).toBe("Fix installer now");
+  });
+
   it("flushes unsaved edits when the selection changes before the debounce", async () => {
     await render();
     await click(listRow("Fix installer"));
