@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { pathKey, projectName } from "../../../shared/lib/paths";
 import { Search, X } from "../../../shared/ui/icons";
 import {
@@ -88,6 +88,9 @@ export function TasksToolbar({
         })),
     [tasks, facets],
   );
+  const searchInput = useRef<HTMLInputElement>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchOpen = searchFocused || (filters.query ?? "") !== "";
   const tags = filters.tags ?? [];
   const statuses = filters.statuses ?? [];
   const projectValues = (filters.projectCwds ?? []).map((cwd) =>
@@ -104,18 +107,45 @@ export function TasksToolbar({
         }`}
       >
         {leading}
-        <div className="relative flex h-7 min-w-28 max-w-64 flex-1 items-center">
-          <Search className="pointer-events-none absolute left-2 size-3 shrink-0 opacity-50" />
+        {/* Collapsed to an icon button; grows into the input on click, focus or
+            while a query is set. Width animates because the pill must push the
+            neighbouring filters aside. */}
+        <div
+          className={`relative flex h-7 shrink-0 items-center overflow-hidden rounded-md transition-[width,background-color] duration-200 ease-out motion-reduce:transition-none ${
+            searchOpen ? "w-52 bg-content/5" : "w-7 hover:bg-content/10"
+          }`}
+        >
+          <button
+            type="button"
+            aria-label="Search tasks"
+            aria-expanded={searchOpen}
+            tabIndex={searchOpen ? -1 : 0}
+            onClick={() => {
+              setSearchFocused(true);
+              searchInput.current?.focus();
+            }}
+            className={`absolute left-0 top-0 flex size-7 items-center justify-center text-content/60 ${
+              searchOpen ? "pointer-events-none" : ""
+            }`}
+          >
+            <Search className="size-3 shrink-0 opacity-70" />
+          </button>
           <input
+            ref={searchInput}
             value={filters.query ?? ""}
             onChange={(event) =>
               onChange({ ...filters, query: event.target.value })
             }
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
             placeholder="Filter tasks"
             aria-label="Filter tasks"
+            tabIndex={searchOpen ? 0 : -1}
             spellCheck={false}
             autoComplete="off"
-            className="h-7 w-full rounded-md bg-transparent pl-7 pr-2 text-[12px] text-content outline-none placeholder:text-content/40"
+            className={`h-7 w-full rounded-md bg-transparent pl-7 pr-2 text-[12px] text-content outline-none transition-opacity duration-150 placeholder:text-content/40 motion-reduce:transition-none ${
+              searchOpen ? "opacity-100" : "opacity-0"
+            }`}
           />
         </div>
         <SearchableSelect

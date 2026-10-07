@@ -770,7 +770,7 @@ export function TasksView({
         />
       ) : null}
       {focusSelected && carryOver.length ? (
-        <div className="flex shrink-0 items-center gap-2 px-3 pb-1 text-[12px] text-content/60">
+        <div className="flex shrink-0 items-center gap-2 px-3 pb-1 pt-2 text-[12px] text-content/60">
           <Target
             aria-hidden
             className="size-3.5 text-amber-300"

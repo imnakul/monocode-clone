@@ -388,7 +388,6 @@ type Props = {
   providerEntries?: readonly ProviderRailEntry[];
   selectedProvider?: NativeProvider | null;
   onSelectProvider?: (provider: NativeProvider) => void;
-  onAddSession?: () => void;
   providerPanel?: ReactNode;
   /** The Monos on the rail; absent while Monos are off. */
   monos?: MonoRailProps;
@@ -502,7 +501,6 @@ function SidebarComponent({
   providerEntries,
   selectedProvider = null,
   onSelectProvider,
-  onAddSession,
   providerPanel,
   monos,
   monoViewActive = false,
@@ -2619,7 +2617,6 @@ function SidebarComponent({
           providerEntries={providerEntries}
           selectedProvider={selectedProvider}
           onSelectProvider={onSelectProvider}
-          onAddSession={onAddSession}
           monos={railMonos}
         />
       ) : null}
@@ -3842,28 +3839,7 @@ const SessionCard = memo(function SessionCard({
           }}
           className="rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
         >
-          {compact && !orchestrationExpanded ? null : (
-            <span className="relative flex items-center gap-2">
-              <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                <HarnessIcon
-                  harness={session.harness}
-                  className="size-3.5 shrink-0"
-                />
-                <span className="min-w-0 truncate text-[11px] text-content/50">
-                  {model}
-                </span>
-              </span>
-              <span className="flex shrink-0 items-center gap-1.5">
-                {linkedUpdateDot}
-                {status}
-              </span>
-            </span>
-          )}
-          <span
-            className={`relative flex min-w-0 items-center gap-1.5 ${
-              compact && !orchestrationExpanded ? "" : "mt-1"
-            }`}
-          >
+          <span className="relative flex min-w-0 items-center gap-1.5">
             {session.pinned ? (
               <Pin
                 className="size-3 shrink-0 text-content/45"
@@ -3874,22 +3850,12 @@ const SessionCard = memo(function SessionCard({
               text={title}
               className="line-clamp-1 text-[13px] font-semibold leading-snug text-content"
             />
-            {compact && !orchestrationExpanded ? (
-              <span className="flex shrink-0 items-center gap-1.5">
-                {linkedUpdateDot}
-                {status}
-              </span>
-            ) : null}
+            <span className="ml-auto flex shrink-0 items-center gap-1.5">
+              {linkedUpdateDot}
+              {status}
+            </span>
           </span>
         </div>
-        {compact && !orchestrationExpanded && compactModelLabels && model ? (
-          <span
-            title={`Model: ${model}`}
-            className="relative mt-0.5 min-w-0 truncate text-[10px] leading-tight text-content/45"
-          >
-            Model: {model}
-          </span>
-        ) : null}
         {orchestrationExpanded ? (
           <OrchestrationSidebarAgents
             leadId={session.id}
@@ -3984,6 +3950,26 @@ const SessionCard = memo(function SessionCard({
             ) : null}
           </span>
         </span>
+        {compact && !orchestrationExpanded ? (
+          compactModelLabels && model ? (
+            <span
+              title={`Model: ${model}`}
+              className="relative mt-0.5 min-w-0 truncate text-[10px] leading-tight text-content/45"
+            >
+              Model: {model}
+            </span>
+          ) : null
+        ) : model ? (
+          <span className="relative mt-0.5 flex min-w-0 items-center gap-1.5">
+            <HarnessIcon
+              harness={session.harness}
+              className="size-3 shrink-0"
+            />
+            <span className="min-w-0 truncate text-[11px] text-content/45">
+              {model}
+            </span>
+          </span>
+        ) : null}
       </div>
       {orchestration && orchestrationTooltipOpen ? (
         <Popover

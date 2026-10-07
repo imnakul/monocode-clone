@@ -3,7 +3,7 @@ import { act, createElement, StrictMode, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { AddNativeSessionDialog } from "./AddNativeSessionDialog";
+import { ImportSessionDialog } from "./ImportSessionDialog";
 import type {
   NativeProvider,
   ProviderConversation,
@@ -42,12 +42,17 @@ const row: ProviderConversation = {
 };
 let root: Root;
 let container: HTMLDivElement;
+const emptyPage = { conversations: [], diagnostics: [], nextOffset: null };
 const resume = vi.fn<(row: ProviderConversation) => Promise<void>>();
 const close = vi.fn();
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.clear();
-  vi.mocked(invoke).mockReset().mockResolvedValue(row);
+  vi.mocked(invoke)
+    .mockReset()
+    .mockImplementation(async (command: string) =>
+      command === "provider_sessions_find" ? emptyPage : row,
+    );
   resume.mockReset().mockResolvedValue();
   close.mockReset();
   container = document.createElement("div");
@@ -67,7 +72,7 @@ async function render(
       createElement(
         StrictMode,
         null,
-        createElement(AddNativeSessionDialog, {
+        createElement(ImportSessionDialog, {
           providers,
           onResume: resume,
           onClose: close,
@@ -95,15 +100,25 @@ async function submit(): Promise<void> {
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
   );
 }
-describe("Add session", () => {
+const resolveCalls = () =>
+  vi
+    .mocked(invoke)
+    .mock.calls.filter(([command]) => command === "provider_sessions_resolve");
+const findCalls = () =>
+  vi
+    .mocked(invoke)
+    .mock.calls.filter(([command]) => command === "provider_sessions_find");
+describe("Import session", () => {
   it("looks up the exact native ID and selected account before opening the same row", async () => {
     await render();
     await type("claude --resume native-one");
     await submit();
-    expect(invoke).toHaveBeenCalledExactlyOnceWith(
-      "provider_sessions_resolve",
-      { provider: "claude", nativeId: "native-one", accountId: "default" },
-    );
+    expect(resolveCalls()).toEqual([
+      [
+        "provider_sessions_resolve",
+        { provider: "claude", nativeId: "native-one", accountId: "default" },
+      ],
+    ]);
     expect(resume).toHaveBeenCalledExactlyOnceWith(row);
     expect(close).toHaveBeenCalledOnce();
   });
@@ -146,17 +161,17 @@ describe("Add session", () => {
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
       "Choose that provider",
     );
-    expect(invoke).not.toHaveBeenCalled();
+    expect(resolveCalls()).toHaveLength(0);
   });
   it("prevents duplicate submission and closing during attachment", async () => {
     let finish: (row: ProviderConversation) => void = () => undefined;
+    await render();
     vi.mocked(invoke).mockImplementationOnce(
       async () =>
         new Promise((resolve) => {
           finish = resolve;
         }),
     );
-    await render();
     await type("native-one");
     await submit();
     await submit();
@@ -165,7 +180,7 @@ describe("Add session", () => {
         .find((button) => button.textContent === "Close")!
         .click(),
     );
-    expect(invoke).toHaveBeenCalledOnce();
+    expect(resolveCalls()).toHaveLength(1);
     expect(close).not.toHaveBeenCalled();
     await act(async () => finish(row));
     expect(resume).toHaveBeenCalledOnce();
@@ -192,28 +207,49 @@ async function search(text: string): Promise<void> {
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
-describe("Find native sessions", () => {
-  it("does not scan on opening and finds named chats on demand without submitting a prompt", async () => {
+async function pressEnterInSearch(): Promise<void> {
+  await act(async () => {
+    container
+      .querySelector<HTMLInputElement>('[aria-label="Search conversations"]')!
+      .dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+  });
+}
+const page = (title: string, key = "k") => ({
+  conversations: [{ ...row, key, title }],
+  diagnostics: [],
+  nextOffset: null,
+});
+describe("Loading native sessions", () => {
+  it("loads the list on open without a Find button and opens a row", async () => {
+    vi.mocked(invoke).mockImplementation(async () => page("Original", row.key));
     await render();
-    expect(invoke).not.toHaveBeenCalled();
-    await search("Original");
-    vi.mocked(invoke).mockResolvedValueOnce({
-      conversations: [row],
-      diagnostics: [],
-      nextOffset: null,
-    });
-    await clickButton("Find");
-    expect(invoke).toHaveBeenCalledExactlyOnceWith("provider_sessions_find", {
-      provider: "claude",
-      accountId: "default",
-      request: {
-        includeArchived: false,
-        limit: 10,
-        offset: 0,
-        query: "Original",
-        projectCwd: "",
+    expect(findCalls().length).toBeGreaterThan(0);
+    expect(findCalls()[0]).toEqual([
+      "provider_sessions_find",
+      {
+        provider: "claude",
+        accountId: "default",
+        request: {
+          includeArchived: false,
+          limit: 10,
+          offset: 0,
+          query: "",
+          projectCwd: "",
+        },
       },
-    });
+    ]);
+    for (const label of ["Find", "Resume session", "Cancel"])
+      expect(
+        [...container.querySelectorAll("button")].some(
+          (button) => button.textContent === label,
+        ),
+      ).toBe(false);
     expect(container.textContent).toContain("Original");
     expect(resume).not.toHaveBeenCalled();
     await act(async () =>
@@ -223,6 +259,26 @@ describe("Find native sessions", () => {
     );
     expect(resume).toHaveBeenCalledExactlyOnceWith(row);
     expect(close).toHaveBeenCalledOnce();
+  });
+  it("reloads for Enter, a cleared search and a provider switch, not for typing", async () => {
+    await render();
+    const before = findCalls().length;
+    await search("landing");
+    expect(findCalls()).toHaveLength(before);
+    await pressEnterInSearch();
+    expect(findCalls()).toHaveLength(before + 1);
+    expect(findCalls().at(-1)![1]).toMatchObject({
+      request: { query: "landing" },
+    });
+    await search("");
+    expect(findCalls()).toHaveLength(before + 2);
+    expect(findCalls().at(-1)![1]).toMatchObject({ request: { query: "" } });
+    await act(async () =>
+      [...container.querySelectorAll<HTMLElement>('[role="tab"]')]
+        .find((tab) => tab.textContent === "Codex")!
+        .click(),
+    );
+    expect(findCalls().at(-1)![1]).toMatchObject({ provider: "codex" });
   });
   it("pages 10 at a time and retains the selected search filter", async () => {
     await render(["codex"]);
@@ -238,7 +294,7 @@ describe("Find native sessions", () => {
       diagnostics: [],
       nextOffset: 10,
     });
-    await clickButton("Find");
+    await pressEnterInSearch();
     vi.mocked(invoke).mockResolvedValueOnce({
       conversations: [
         {
@@ -266,46 +322,37 @@ describe("Find native sessions", () => {
     expect(container.textContent).toContain("Older landing task");
     expect(resume).not.toHaveBeenCalled();
   });
-  it("drops an older Find response after another search", async () => {
+  it("drops an older response after another search", async () => {
     let finish: (value: unknown) => void = () => undefined;
     await render();
+    await search("old");
     vi.mocked(invoke).mockImplementationOnce(
       async () =>
         new Promise((resolve) => {
           finish = resolve;
         }),
     );
-    await clickButton("Find");
+    await pressEnterInSearch();
     await search("new");
-    vi.mocked(invoke).mockResolvedValueOnce({
-      conversations: [{ ...row, key: "new", title: "New task" }],
-      diagnostics: [],
-      nextOffset: null,
-    });
-    await clickButton("Find");
-    await act(async () =>
-      finish({
-        conversations: [{ ...row, title: "Stale task" }],
-        diagnostics: [],
-        nextOffset: null,
-      }),
-    );
+    vi.mocked(invoke).mockResolvedValueOnce(page("New task", "new"));
+    await pressEnterInSearch();
+    await act(async () => finish(page("Stale task")));
     expect(container.textContent).toContain("New task");
     expect(container.textContent).not.toContain("Stale task");
   });
   it("shows discovery failures and blocks a wrong-account row", async () => {
-    await render();
     vi.mocked(invoke).mockRejectedValueOnce(
       new Error("Provider store is unavailable"),
     );
-    await clickButton("Find");
+    await render();
     expect(container.textContent).toContain("Provider store is unavailable");
+    await search("again");
     vi.mocked(invoke).mockResolvedValueOnce({
       conversations: [{ ...row, providerAccountId: "other" }],
       diagnostics: [],
       nextOffset: null,
     });
-    await clickButton("Find");
+    await pressEnterInSearch();
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>("[data-session-card]")!
@@ -313,5 +360,38 @@ describe("Find native sessions", () => {
     );
     expect(container.textContent).toContain("different or removed");
     expect(resume).not.toHaveBeenCalled();
+  });
+});
+describe("Import session layout", () => {
+  it("shows the provider switch only for two providers and no account select for one account", async () => {
+    await render();
+    expect(
+      container.querySelector('[role="tablist"][aria-label="Provider"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('[aria-label^="Account"]')).toBeNull();
+  });
+  it("hides the provider switch for a single provider", async () => {
+    await render(["codex"]);
+    expect(
+      container.querySelector('[role="tablist"][aria-label="Provider"]'),
+    ).toBeNull();
+  });
+  it("uses h-9 controls and drops the footer and long paragraph", async () => {
+    await render();
+    const searchInput = container.querySelector(
+      '[aria-label="Search conversations"]',
+    )!;
+    const paste = container.querySelector(
+      '[aria-label="Session ID or resume command"]',
+    )!;
+    const importButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Import",
+    )!;
+    for (const element of [searchInput, paste, importButton])
+      expect(element.classList.contains("h-9")).toBe(true);
+    expect(container.textContent).toContain(
+      "Must be on this computer. Close it in the other app first.",
+    );
+    expect(container.textContent).not.toContain("without a summary transfer");
   });
 });

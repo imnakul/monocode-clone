@@ -393,6 +393,7 @@ export function ProviderConversationList({
       {filterAnchor ? (
         <ExplorerMenu
           anchor={filterAnchor}
+          width={168}
           layer={menuLayer}
           ariaLabel="Conversation filters"
           items={[

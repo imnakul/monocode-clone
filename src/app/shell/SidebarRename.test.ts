@@ -3,6 +3,7 @@ import { act, createElement, StrictMode, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatSessionTitle } from "../../features/sessions/model/session";
+import { compactModelLabel } from "../../features/sessions/ui/useCompactModelLabels";
 import { formatReminderTime } from "../../features/sessions/model/sessionReminders";
 import { SHARED_HOVER_CONTINUITY_ATTR } from "../../features/sessions/ui/SharedHoverHighlight";
 import { Sidebar } from "./Sidebar";
@@ -164,6 +165,21 @@ it("leaves the resident agent and its description out of the session list", () =
   expect(container.querySelector('[data-session-card="resident"]')).toBeNull();
   expect(container.querySelector("[data-mono]")).toBeNull();
   expect(container.textContent).not.toContain("Resident agent description");
+});
+
+it("reads title, then branch, then model on a session card", () => {
+  props.sessions = [
+    { ...props.sessions[0], repo: "project", branch: "feature-x" },
+  ];
+  act(() => render());
+  const text = card().textContent ?? "";
+  const model = compactModelLabel(props.sessions[0]);
+  const titleAt = text.indexOf("Original conversation");
+  const branchAt = text.indexOf("project/feature-x");
+  const modelAt = text.indexOf(model);
+  expect(titleAt).toBeGreaterThanOrEqual(0);
+  expect(branchAt).toBeGreaterThan(titleAt);
+  expect(modelAt).toBeGreaterThan(branchAt);
 });
 
 describe("project rail visibility", () => {
@@ -1069,8 +1085,12 @@ describe("sidebar orchestration card", () => {
       expect(card().querySelectorAll('[aria-label^="Archive "]')).toHaveLength(
         1,
       );
-      expect(card().lastElementChild?.contains(orchestrationIcon)).toBe(true);
-      expect(card().lastElementChild?.contains(pullRequest)).toBe(true);
+      // The branch/actions row sits above the model line, which is last.
+      const footer = Array.from(card().children).find((child) =>
+        child.contains(pullRequest),
+      );
+      expect(footer?.contains(orchestrationIcon)).toBe(true);
+      expect(card().lastElementChild?.contains(pullRequest)).toBe(false);
       expect(archive.nextElementSibling).toBe(pullRequest);
       expect(orchestrationIcon?.parentElement?.lastElementChild).toBe(
         orchestrationIcon,
@@ -1315,7 +1335,9 @@ describe("sidebar linked work item updates", () => {
     const archive = card().querySelector('[aria-label^="Archive "]');
     const pullRequest = card().querySelector('[aria-label="Open PR #42"]');
     expect(card().querySelectorAll('img[alt=""]')).toHaveLength(1);
-    expect(rows.item(rows.length - 1)?.contains(pullRequest)).toBe(true);
+    // The model line follows the branch/actions row.
+    const footer = Array.from(rows).find((row) => row.contains(pullRequest));
+    expect(footer).toBe(rows.item(rows.length - 2));
     expect(archive?.parentElement).toBe(pullRequest?.parentElement);
     expect(archive?.nextElementSibling).toBe(pullRequest);
   });

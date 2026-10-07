@@ -1,6 +1,5 @@
 import { type ReactElement } from "react";
-import { Cloud, Plus } from "../../shared/ui/icons";
-import { SecondaryButton } from "../../shared/ui/SecondaryButton";
+import { Cloud } from "../../shared/ui/icons";
 import { HarnessIcon } from "../../features/sessions/ui/HarnessIcon";
 import type { NativeProvider } from "../../features/provider-sessions/model/providerSessions";
 
@@ -17,7 +16,6 @@ type Props = {
   entries: readonly ProviderRailEntry[];
   selected: NativeProvider | null;
   onSelect: (provider: NativeProvider) => void;
-  onAddSession?: () => void;
 };
 
 /** Explicit local attachment plus access to MonoCode-retained cloud sessions. */
@@ -25,17 +23,15 @@ export function ProviderRail({
   entries,
   selected,
   onSelect,
-  onAddSession,
 }: Props): ReactElement | null {
-  if (entries.length === 0 && !onAddSession) return null;
+  if (entries.length === 0) return null;
   return (
     <div className="mb-2 shrink-0" data-provider-rail>
       <div className="flex items-center gap-1 px-3 pb-1.5 pt-1">
         <span className="min-w-0 flex-1 truncate px-1 text-xs text-content/50">
-          Sessions
+          Cloud sessions
         </span>
       </div>
-      {onAddSession ? <div className="px-3 pb-2"><SecondaryButton onClick={onAddSession}><Plus className="size-3.5" />Add session</SecondaryButton></div> : null}
       <ul
         data-shared-hover-continuity
         aria-label="MonoCode cloud sessions"

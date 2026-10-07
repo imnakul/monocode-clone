@@ -779,6 +779,23 @@ describe("settings pages", () => {
     expect(onCollapsedProjectRailModeChange).toHaveBeenCalledWith("hidden");
   });
 
+  it("offers Import session in the Migration header only when a handler is given", async () => {
+    const importSession = () =>
+      [...container.querySelectorAll("button")].find(
+        (candidate) => candidate.textContent === "Import session",
+      );
+    await render("migration");
+    expect(importSession()).toBeUndefined();
+
+    const onImportSession = vi.fn();
+    await render("migration", { onImportSession });
+    await act(async () => importSession()!.click());
+    expect(onImportSession).toHaveBeenCalledOnce();
+
+    await render("general", { onImportSession });
+    expect(importSession()).toBeUndefined();
+  });
+
   // The search index is hand-maintained; this is what keeps it honest.
   it.each(
     [...new Set(SETTINGS_INDEX.map((entry) => entry.section))].map(

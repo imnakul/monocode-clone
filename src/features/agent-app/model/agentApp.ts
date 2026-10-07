@@ -237,6 +237,7 @@ const FIELDS = new Map<string, readonly string[]>([
       "tags",
       "tagMatch",
       "projectCwd",
+      "project",
       "query",
       "archived",
       "focus",
@@ -254,6 +255,7 @@ const FIELDS = new Map<string, readonly string[]>([
       "status",
       "tags",
       "projectCwd",
+      "project",
       "sourceSessionId",
       "sourceBlockId",
       "focusDate",
@@ -364,6 +366,21 @@ function taskProject(value: unknown): string | null {
   )
     throw new Error("projectCwd must be a project path, or null for Personal");
   return path;
+}
+
+/**
+ * `project` (path or name) as a task's project, the same way the other Mono
+ * actions take it. Undefined when not given; refuses `projectCwd` beside it.
+ */
+function taskProjectAlias(
+  source: Session,
+  input: Record<string, unknown>,
+  host: AgentAppHost,
+): string | undefined {
+  if (input.project === undefined) return undefined;
+  if (input.projectCwd !== undefined)
+    throw new Error("Use project or projectCwd, not both");
+  return requireProject(source, input, host);
 }
 
 /**
@@ -1360,6 +1377,8 @@ export async function handleAgentApp(
           throw new Error("tagMatch must be all or any");
         filters.tagMatch = input.tagMatch;
       }
+      const aliasedProject = taskProjectAlias(source, input, host);
+      if (aliasedProject) filters.projectCwd = aliasedProject;
       if (input.projectCwd !== undefined) {
         const projectCwd = taskProject(input.projectCwd);
         if (projectCwd === null && host.monoOf?.(source.id))
@@ -1398,7 +1417,7 @@ export async function handleAgentApp(
         throw new Error("offset must be a non-negative integer");
       let rows = filterTasks(await host.tasks(), filters);
       const mono = host.monoOf?.(source.id);
-      if (mono && input.projectCwd === undefined) {
+      if (mono && input.projectCwd === undefined && !aliasedProject) {
         rows = rows.filter(
           (task) =>
             !!task.projectCwd &&
@@ -1468,6 +1487,8 @@ export async function handleAgentApp(
         changes.today = localDay();
       }
       if (input.tags !== undefined) changes.tags = noteTags(input.tags);
+      const aliasedProject = taskProjectAlias(source, input, host);
+      if (aliasedProject) changes.projectCwd = aliasedProject;
       if (input.projectCwd !== undefined) {
         changes.projectCwd = taskProject(input.projectCwd);
         assertMonoProjectAccess(source, changes.projectCwd, host);

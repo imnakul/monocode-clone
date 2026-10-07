@@ -271,8 +271,9 @@ export function SessionBoardView({
         </button>
         {!IS_MAC ? <WindowControls /> : null}
       </div>
-      {/* px-3 matches the board's p-3 so Add Draft lines up with the columns. */}
-      <div className="flex h-9 shrink-0 items-center gap-1.5 px-3">
+      {/* px-3 matches the board's p-3 so Add Draft lines up with the columns.
+          items-end: the board's 12px top padding is the gap below. */}
+      <div className="flex h-10 shrink-0 items-end gap-1.5 px-3">
         {onAddTodo ? (
           <button
             type="button"

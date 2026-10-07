@@ -145,7 +145,6 @@ type Props = {
   providerEntries?: readonly ProviderRailEntry[];
   selectedProvider?: NativeProvider | null;
   onSelectProvider?: (provider: NativeProvider) => void;
-  onAddSession?: () => void;
   /** The Monos section above the projects; absent while Monos are off. */
   monos?: MonoRailProps;
 };
@@ -197,7 +196,6 @@ export function ProjectRail({
   providerEntries = [],
   selectedProvider = null,
   onSelectProvider,
-  onAddSession,
   monos,
 }: Props) {
   const resize = useDragResize({
@@ -564,7 +562,6 @@ export function ProjectRail({
                 entries={providerEntries}
                 selected={selectedProvider}
                 onSelect={onSelectProvider}
-                onAddSession={onAddSession}
               />
             ) : null}
           </div>

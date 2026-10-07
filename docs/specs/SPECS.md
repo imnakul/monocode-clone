@@ -55,7 +55,7 @@ Small tasks have no spec (see the tier table in `docs/WORKING-AGREEMENT.md`).
 
 | Created (IST) | Spec | Notes |
 |---|---|---|
-| 2026-10-07 | [Todo — Import session, accent toggles, sidebar card order, spacing, Mono task access](import-session-polish-plan.md) | 0.8.0 only. Sidebar "Add session" → "Import session" in Settings → Migration; dialog redesigned around shared controls, auto-loads the list (no Find), no footer; switches follow Appearance accent via one CSS rule; sidebar cards title → branch → model; Session Manager toolbar gets the even 12px gap; Monos told about Tasks and tasks.* accept "project". |
+| 2026-10-07 | [Review — Import session, accent toggles, sidebar card order, spacing, Mono task access](import-session-polish-plan.md) | 0.8.0 only. Sidebar "Add session" → "Import session" in Settings → Migration; dialog redesigned around shared controls, auto-loads the list (no Find), no footer; switches follow Appearance accent via one CSS rule; sidebar cards title → branch → model; Session Manager toolbar gets the even 12px gap; Monos told about Tasks and tasks.* accept "project". |
 
 
 ## Progress

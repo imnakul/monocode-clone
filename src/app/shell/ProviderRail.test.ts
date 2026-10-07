@@ -33,13 +33,12 @@ describe("ProviderRail", () => {
     expect(html).toContain("data-shared-hover-item");
   });
 
-  it("offers Add session even when there are no cloud records", () => {
-    const html = renderToStaticMarkup(createElement(ProviderRail, {
-      entries: [], selected: null, onSelect: vi.fn(), onAddSession: vi.fn(),
-    }));
-    expect(html).toContain("Add session");
-    expect(html).not.toContain("Claude cloud");
-    expect(html).not.toContain("Codex cloud");
+  it("has no Add session button and heads the cloud rows as Cloud sessions", () => {
+    const html = render();
+    expect(html).not.toContain("Add session");
+    expect(html).toContain("Cloud sessions");
+    expect(html).not.toContain(">Sessions<");
+    expect(render(null, [])).not.toContain("Add session");
   });
 
   it("marks the selected provider and reports refresh without an inline button", () => {

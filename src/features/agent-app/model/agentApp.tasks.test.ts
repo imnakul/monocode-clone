@@ -325,3 +325,57 @@ describe("Mono Tasks project boundary", () => {
     expect(host.updateTask).not.toHaveBeenCalled();
   });
 });
+
+describe("Mono Tasks project alias", () => {
+  const monoFixture = () => {
+    const f = fixture();
+    f.rows.set("d", {
+      id: "d",
+      title: "Other",
+      body: "",
+      status: "todo",
+      tags: [],
+      projectCwd: "D:/Other",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    f.host.monoOf = () => ({ id: "mono", projects: [f.source.cwd, "D:/Other"] });
+    return f;
+  };
+  it("writes into the named project, by path or name", async () => {
+    const { run, source } = monoFixture();
+    expect(await run("tasks.write", { project: source.cwd, title: "x" })).toMatchObject({
+      projectCwd: source.cwd,
+    });
+    expect(
+      await run("tasks.write", { project: "Other", title: "y" }, "second"),
+    ).toMatchObject({ projectCwd: "D:/Other" });
+  });
+  it("lists one project, or only assigned projects when none is named", async () => {
+    const { run } = monoFixture();
+    expect(await run("tasks.list", { project: "D:/Other" })).toMatchObject({
+      total: 1,
+      tasks: [{ id: "d" }],
+    });
+    expect(await run("tasks.list", {})).toMatchObject({ total: 3 });
+  });
+  it("refuses unassigned projects, Personal, both parameters, and non-Mono callers", async () => {
+    const { run, host, source } = monoFixture();
+    await expect(
+      run("tasks.write", { project: "C:/Nope", title: "z" }),
+    ).rejects.toThrow("Not one of your projects");
+    await expect(run("tasks.list", { projectCwd: null })).rejects.toThrow(
+      "assigned project",
+    );
+    await expect(
+      run("tasks.write", { project: "Other", projectCwd: "D:/Other", title: "z" }),
+    ).rejects.toThrow("Use project or projectCwd, not both");
+    await expect(
+      run("tasks.list", { project: "Other", projectCwd: "D:/Other" }),
+    ).rejects.toThrow("Use project or projectCwd, not both");
+    host.monoOf = undefined;
+    await expect(run("tasks.list", { project: source.cwd })).rejects.toThrow(
+      "project is only for a Mono",
+    );
+  });
+});

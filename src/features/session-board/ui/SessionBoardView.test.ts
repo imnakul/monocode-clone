@@ -546,3 +546,12 @@ it("slides the session pane in and out like the other side panes, with no card m
   expect(pane.className).toContain("translate-x-full");
   expect(pane.hasAttribute("inert")).toBe(true);
 });
+
+it("keeps the toolbar row bottom-aligned so the gap above matches the board padding", () => {
+  render();
+  const row = container.querySelector('[aria-label="Search board"]')!.closest(
+    ".flex.shrink-0",
+  )!;
+  expect(row.classList.contains("h-10")).toBe(true);
+  expect(row.classList.contains("items-end")).toBe(true);
+});

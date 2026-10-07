@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Toggle } from "./Toggle";
 
@@ -58,4 +59,21 @@ it("does not invoke handlers when disabled", () => {
   act(() => button.click());
   expect(onChange).not.toHaveBeenCalled();
   expect(onToggle).not.toHaveBeenCalled();
+});
+
+it("follows the Appearance accent in CSS, except opted-out switches", () => {
+  const css = readFileSync("src/styles/index.css", "utf8");
+  expect(css).toContain(
+    'html.has-user-accent [role="switch"][aria-checked="true"]:not([data-switch-tone]):not(:disabled)',
+  );
+  expect(css).toContain(
+    'html.has-user-accent input[role="switch"]:checked:not([data-switch-tone]) + span',
+  );
+  const danger = readFileSync(
+    "src/features/source-control/ui/DeleteWorktreeDialog.tsx",
+    "utf8",
+  );
+  expect(danger).toMatch(/role="switch"\s+data-switch-tone="danger"/);
+  const pin = readFileSync("src/features/prompts/ui/SavedPromptForm.tsx", "utf8");
+  expect(pin).toMatch(/role="switch"\s+data-switch-tone="plain"/);
 });

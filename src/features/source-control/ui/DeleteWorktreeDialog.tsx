@@ -157,6 +157,7 @@ export function DeleteWorktreeDialog({
             <button
               type="button"
               role="switch"
+              data-switch-tone="danger"
               aria-labelledby="delete-worktree-sessions-label"
               aria-checked={deleteSessions}
               disabled={busy}

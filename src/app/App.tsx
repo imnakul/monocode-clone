@@ -461,7 +461,7 @@ import {
   restoreClaudeRemoteControlPreferences,
 } from "../features/provider-sessions/model/remoteControl";
 import { useEnabledNativeProviders } from "../features/provider-sessions/ui/useProviderConversations";
-import { AddNativeSessionDialog } from "../features/provider-sessions/ui/AddNativeSessionDialog";
+import { ImportSessionDialog } from "../features/provider-sessions/ui/ImportSessionDialog";
 import { emptyProviderListState } from "../features/provider-sessions/model/conversationStore";
 import { CloudSessionDialog } from "../features/provider-sessions/ui/CloudSessionDialog";
 import { useCloudRecords } from "../features/provider-sessions/ui/useCloudRecords";
@@ -1273,7 +1273,7 @@ function Workspace({
     loadSessionSidebarOpen,
   );
   const enabledNativeProviders = useEnabledNativeProviders();
-  const [addNativeSessionOpen, setAddNativeSessionOpen] = useState(false);
+  const [importSessionOpen, setImportSessionOpen] = useState(false);
   const [selectedProviderRaw, setSelectedProvider] =
     useState<NativeProvider | null>(null);
   const selectedProvider =
@@ -6025,7 +6025,7 @@ function Workspace({
     saveSessionSidebarOpen(true);
   }, []);
 
-  const onAddNativeSession = useCallback(
+  const onImportNativeSession = useCallback(
     async (row: ProviderConversation): Promise<void> => {
       const dependencies = liveNativeDependencies({
         liveSessions: () => sessionsRef.current,
@@ -13594,11 +13594,11 @@ function Workspace({
         >
           {compactTitleBar ? workspaceTitleBar : null}
           <SavePromptDialogHost />
-          {addNativeSessionOpen ? (
-            <AddNativeSessionDialog
+          {importSessionOpen ? (
+            <ImportSessionDialog
               providers={enabledNativeProviders}
-              onResume={onAddNativeSession}
-              onClose={() => setAddNativeSessionOpen(false)}
+              onResume={onImportNativeSession}
+              onClose={() => setImportSessionOpen(false)}
             />
           ) : null}
           {cloudDialog ? (
@@ -13709,11 +13709,6 @@ function Workspace({
               providerEntries={providerRailEntries}
               selectedProvider={selectedProvider}
               onSelectProvider={onSelectProvider}
-              onAddSession={
-                enabledNativeProviders.length > 0
-                  ? () => setAddNativeSessionOpen(true)
-                  : undefined
-              }
               providerPanel={providerPanel}
               monos={
                 monosEnabled
@@ -14260,6 +14255,11 @@ function Workspace({
                   }
                   onOpenWhatsNew={onOpenWhatsNew}
                   onImportSessions={onImportSessions}
+                  onImportSession={
+                    enabledNativeProviders.length > 0
+                      ? () => setImportSessionOpen(true)
+                      : undefined
+                  }
                   collapsedProjectRailMode={collapsedProjectRailMode}
                   onCollapsedProjectRailModeChange={setCollapsedProjectRailMode}
                 />

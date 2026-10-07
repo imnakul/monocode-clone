@@ -8,7 +8,8 @@ import {
 } from "react";
 import { Modal } from "../../../shared/ui/Modal";
 import { SearchableSelect } from "../../../shared/ui/SearchableSelect";
-import { SecondaryButton } from "../../../shared/ui/SecondaryButton";
+import { SegmentedSwitch } from "../../../shared/ui/SegmentedSwitch";
+import { Loader, Search } from "../../../shared/ui/icons";
 import { LAYER } from "../../../shared/lib/layers";
 import {
   providerAccounts,
@@ -35,8 +36,15 @@ type Props = {
   onClose: () => void;
 };
 
-/** Existing dialog/selector/button primitives; no migration or prompt seeding. */
-export function AddNativeSessionDialog({
+const INPUT_CLASS =
+  "h-9 w-full rounded-md border border-content/10 bg-content/5 pr-2.5 text-[13px] text-content outline-none placeholder:text-content/30 focus:border-content/25 disabled:opacity-50";
+
+/**
+ * Imports a local Claude Code or Codex conversation. The list loads on open and
+ * whenever provider, account or project changes; search text applies on Enter
+ * (or when cleared) so typing never triggers a scan.
+ */
+export function ImportSessionDialog({
   providers,
   onResume,
   onClose,
@@ -95,7 +103,7 @@ export function AddNativeSessionDialog({
   const close = (): void => {
     if (!submitting.current) onClose();
   };
-  const find = (): void => {
+  const find = (overrides?: { query?: string }): void => {
     if (submitting.current) return;
     if (
       !providers.includes(provider) ||
@@ -105,8 +113,37 @@ export function AddNativeSessionDialog({
       return;
     }
     setError(null);
-    setRequest({ provider, accountId, query: query.trim(), projectCwd });
+    const next = {
+      provider,
+      accountId,
+      query: (overrides?.query ?? query).trim(),
+      projectCwd,
+    };
+    // An identical request keeps the loaded list instead of rescanning.
+    setRequest((current) =>
+      current &&
+      current.provider === next.provider &&
+      current.accountId === next.accountId &&
+      current.query === next.query &&
+      current.projectCwd === next.projectCwd
+        ? current
+        : next,
+    );
   };
+  // A removed account falls back to the first available one.
+  useEffect(() => {
+    if (!accounts.some((account) => account.id === accountId))
+      setAccountId(accounts[0]?.id ?? "default");
+  }, [accounts, accountId]);
+  // Load on open and on provider, account or project change. find() reads the
+  // current query on purpose: typing alone must not rescan.
+  useEffect(() => {
+    if (
+      providers.includes(provider) &&
+      accounts.some((account) => account.id === accountId)
+    )
+      find();
+  }, [provider, accountId, projectCwd]);
   const resumeRow = async (row: ProviderConversation): Promise<void> => {
     if (submitting.current) return;
     if (
@@ -174,94 +211,108 @@ export function AddNativeSessionDialog({
       setBusy(false);
     }
   };
+  const providerOptions = (["claude", "codex"] as const)
+    .filter((value) => providers.includes(value))
+    .map((value) => ({
+      id: value,
+      label: value === "claude" ? "Claude Code" : "Codex",
+    }));
+  const showProviderSwitch = providers.length > 1;
+  const showAccountSelect = accounts.length > 1;
   return (
     <Modal
-      title="Add session"
-      description="Choose a provider, find its local conversations, and resume one"
+      title="Import session"
+      description="Continue a Claude Code or Codex conversation from this computer."
       onClose={close}
       size="md"
       fitViewport
     >
       <form
-        className="flex flex-col gap-3 px-4 pb-4 pt-3"
+        className="flex flex-col gap-3 p-4"
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
         }}
         aria-busy={busy}
       >
-        <div className="grid grid-cols-2 gap-3">
-          <SearchableSelect
-            label="Provider"
-            value={provider}
-            options={providers.map((value) => ({
-              value,
-              label: value === "claude" ? "Claude Code" : "Codex",
-            }))}
-            disabled={busy}
-            searchable={false}
-            onChange={(value) => {
-              if (value !== "claude" && value !== "codex") return;
-              setProvider(value);
-              setAccountId("default");
-              setRequest(null);
-              setError(null);
-            }}
-          />
-          <SearchableSelect
-            label="Provider account"
-            value={accountId}
-            options={accounts.map((account) => ({
-              value: account.id,
-              label: account.label,
-            }))}
-            disabled={busy}
-            searchable={false}
-            onChange={(value) => {
-              setAccountId(value);
-              setRequest(null);
-              setError(null);
-            }}
-          />
-        </div>
-        <div className="flex items-end gap-2">
-          <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-[12px] text-content/70">
-            Search conversations
+        {showProviderSwitch || showAccountSelect ? (
+          <div className="flex items-center gap-2">
+            {showProviderSwitch ? (
+              <SegmentedSwitch
+                ariaLabel="Provider"
+                value={provider}
+                options={providerOptions}
+                onChange={(value) => {
+                  if (busy) return;
+                  setProvider(value);
+                  setAccountId("default");
+                  setError(null);
+                }}
+              />
+            ) : null}
+            {showAccountSelect ? (
+              <div className="ml-auto w-44 min-w-0">
+                <SearchableSelect
+                  label="Account"
+                  value={accountId}
+                  options={accounts.map((account) => ({
+                    value: account.id,
+                    label: account.label,
+                  }))}
+                  disabled={busy}
+                  searchable={false}
+                  layer={LAYER.dialogPopover}
+                  onChange={(value) => {
+                    setAccountId(value);
+                    setError(null);
+                  }}
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="flex items-center gap-2">
+          <div className="relative flex h-9 min-w-0 flex-1 items-center">
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-2.5 size-3.5 text-content/40"
+              strokeWidth={1.75}
+            />
             <input
               aria-label="Search conversations"
               value={query}
               disabled={busy}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                if (event.target.value.trim() === "") find({ query: "" });
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
                   find();
                 }
               }}
-              placeholder="Session name, first message, folder or ID"
-              className="w-full rounded-md border border-content/15 bg-content/5 px-3 py-2 text-[13px] text-content outline-none focus:border-accent"
+              placeholder="Search by name, message, folder or ID"
+              className={`${INPUT_CLASS} pl-8`}
             />
-          </label>
-          <SearchableSelect
-            label="Project"
-            value={projectCwd}
-            disabled={busy}
-            options={[
-              { value: "", label: "All projects" },
-              ...projects.map((project) => ({
-                value: project.path,
-                label: folderName(project.path),
-                description: project.path,
-              })),
-            ]}
-            onChange={setProjectCwd}
-          />
-          <SecondaryButton
-            onClick={find}
-            disabled={busy || providers.length === 0}
-          >
-            Find
-          </SecondaryButton>
+          </div>
+          <div className="w-40 shrink-0">
+            <SearchableSelect
+              label="Project"
+              value={projectCwd}
+              disabled={busy}
+              layer={LAYER.dialogPopover}
+              options={[
+                { value: "", label: "All projects" },
+                ...projects.map((project) => ({
+                  value: project.path,
+                  label: folderName(project.path),
+                  description: project.path,
+                })),
+              ]}
+              onChange={setProjectCwd}
+            />
+          </div>
         </div>
         {activeRequest ? (
           <div
@@ -292,12 +343,11 @@ export function AddNativeSessionDialog({
             />
           </div>
         ) : null}
-        <details className="text-[12px] text-content/55">
-          <summary className="cursor-pointer">
-            Or paste a session ID or resume command
+        <details>
+          <summary className="cursor-pointer text-[12px] text-content/55">
+            Paste a session ID instead
           </summary>
-          <label className="mt-2 flex flex-col gap-1.5 text-[12px] text-content/70">
-            Session ID or resume command
+          <div className="mt-2 flex items-center gap-2">
             <input
               aria-label="Session ID or resume command"
               value={input}
@@ -314,35 +364,31 @@ export function AddNativeSessionDialog({
                   ? "claude --resume <session-id>"
                   : "codex resume <session-id>"
               }
-              className="w-full rounded-md border border-content/15 bg-content/5 px-3 py-2 text-[13px] text-content outline-none focus:border-accent disabled:opacity-50"
+              className={`${INPUT_CLASS} min-w-0 flex-1 pl-2.5`}
             />
-          </label>
+            <button
+              type="submit"
+              disabled={busy || !input.trim() || providers.length === 0}
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-content px-3 text-[12px] font-medium text-background-base hover:bg-content/80 disabled:opacity-40"
+            >
+              {busy ? (
+                <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />
+              ) : null}
+              {busy ? "Importing…" : "Import"}
+            </button>
+          </div>
         </details>
-        <p className="text-[12px] leading-relaxed text-content/55">
-          Uses the original session and context, without a summary transfer. The
-          session must exist on this computer in the selected account. Finish or
-          stop its agent in the other app before sending here. Cloud and public
-          share links cannot be added.
+        <p className="text-[11px] leading-4 text-content/45">
+          Must be on this computer. Close it in the other app first.
         </p>
         {error ? (
           <p
             role="alert"
-            className="whitespace-pre-wrap break-words text-[12px] text-red-400"
+            className="whitespace-pre-wrap break-words text-[11px] leading-4 text-red-400/90"
           >
             {error}
           </p>
         ) : null}
-        <div className="flex justify-end gap-2">
-          <SecondaryButton onClick={close} disabled={busy}>
-            Cancel
-          </SecondaryButton>
-          <SecondaryButton
-            type="submit"
-            disabled={busy || !input.trim() || providers.length === 0}
-          >
-            {busy ? "Opening…" : "Resume session"}
-          </SecondaryButton>
-        </div>
       </form>
     </Modal>
   );

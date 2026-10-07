@@ -103,6 +103,7 @@ export function SavedPromptForm({
         <button
           type="button"
           role="switch"
+          data-switch-tone="plain"
           aria-checked={pinned}
           disabled={saving}
           onClick={() => setPinned((value) => !value)}

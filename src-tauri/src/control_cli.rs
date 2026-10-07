@@ -130,7 +130,7 @@ assistant text into a session is not evidence a provider actually ran.
 Usage: {exe} app ACTION [--json JSON | --input FILE|-] [--request-id ID]
 
 A Mono works on several projects: add "project":"<path or name>" to the
-sessions.*, worktrees.* and folders.* actions to choose which one. It may be
+sessions.*, worktrees.*, folders.* and tasks.* actions to choose which one. It may be
 left out when the Mono has a single project.
 
 Actions:
@@ -237,6 +237,7 @@ Actions:
                   "focus":true keeps today's focus (created today or focusDate
                   today). Returns total, offset and task summaries; use
                   tasks.read for the full Markdown body.
+                  A Mono may pass "project":"<path or name>" instead of projectCwd.
   tasks.read     {"id":"..."}  Read one task, including its Markdown body.
   tasks.write    {"id":"...","title":"Plan","body":"Markdown",
                   "status":"todo","tags":["work"],"projectCwd":null,
@@ -254,6 +255,7 @@ Actions:
                   session. Existing tasks accept partial fields;
                   omitted fields stay unchanged. Use null for Personal or to
                   clear source links. Reuse --request-id on retries.
+                  A Mono may pass "project":"<path or name>" instead of projectCwd.
   tasks.delete   {"id":"..."}  Delete one task.
 
   soul.read      {}  Mono's own conversation only. Current SOUL.md text and hash.
@@ -686,6 +688,16 @@ mod tests {
         assert!(app_help().contains("runId"));
         assert!(app_help().contains("attachments"));
         assert!(app_help().contains("worktreeBase"));
+    }
+    #[test]
+    fn app_help_offers_the_project_alias_for_mono_tasks() {
+        let help = app_help();
+        assert!(help.contains("folders.* and tasks.* actions"));
+        assert_eq!(
+            help.matches(r#"A Mono may pass "project":"<path or name>" instead of projectCwd."#)
+                .count(),
+            2
+        );
     }
     #[test]
     fn app_mode_exposes_only_app_actions_and_safe_request_ids() {

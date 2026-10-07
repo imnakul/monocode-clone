@@ -547,6 +547,8 @@ type Props = {
   onDeleteProject?: (path: string) => void;
   onOpenWhatsNew: (version: string) => void;
   onImportSessions: (sessions: Session[]) => void;
+  /** Opens the Import session dialog; absent while no native provider is enabled. */
+  onImportSession?: () => void;
   collapsedProjectRailMode?: CollapsedProjectRailMode;
   onCollapsedProjectRailModeChange?: (mode: CollapsedProjectRailMode) => void;
 };
@@ -573,6 +575,7 @@ export function SettingsView({
   onDeleteProject,
   onOpenWhatsNew,
   onImportSessions,
+  onImportSession,
   collapsedProjectRailMode,
   onCollapsedProjectRailModeChange,
 }: Props) {
@@ -692,6 +695,18 @@ export function SettingsView({
                 <PageHeader
                   title={settingsSectionLabel(section)}
                   description={settingsSectionDescription(section)}
+                  action={
+                    section === "migration" && onImportSession ? (
+                      <SecondaryButton onClick={onImportSession}>
+                        <ArrowDownCircle
+                          aria-hidden
+                          className="size-3.5"
+                          strokeWidth={1.75}
+                        />
+                        Import session
+                      </SecondaryButton>
+                    ) : undefined
+                  }
                 />
               )}
               {section === "general" ? (
@@ -2892,7 +2907,7 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         <Row
           id="accent-color"
           label="Accent color"
-          description="Used for the composer send button and your message bubbles."
+          description="Used for the send button, your message bubbles and switches."
         >
           <AccentColorPicker
             value={appearance.accentColor}

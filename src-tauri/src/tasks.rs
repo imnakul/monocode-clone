@@ -338,8 +338,9 @@ fn local_day_of(conn: &Connection, at_millis: i64) -> rusqlite::Result<String> {
 }
 
 /// R2/R3: on a change of `focus_date` from O to N (N = none included), the
-/// frontend sends `today`; the old day O is recorded when O < today, or when
-/// O == today and N is another day (not none). When O is none, R3 treats the
+/// frontend sends `today`; the old day O is recorded only when O < today.
+/// Moving today's pin to another day (deferring it) records nothing, so the
+/// task leaves today's focus instead of lingering there. When O is none, R3 treats the
 /// created day C as O when C < today.
 fn focus_history_addition(
     old_focus_date: Option<&str>,
@@ -358,16 +359,7 @@ fn focus_history_addition(
         },
     };
     let old = effective_old?;
-    if old < today {
-        Some(old.to_string())
-    } else if old == today {
-        match new_focus_date {
-            Some(next) if next != today => Some(old.to_string()),
-            _ => None,
-        }
-    } else {
-        None
-    }
+    (old < today).then(|| old.to_string())
 }
 
 fn normalize_focus_days(days: &[String]) -> Vec<String> {
@@ -1082,7 +1074,7 @@ mod tests {
     }
 
     #[test]
-    fn focus_history_records_today_only_when_planning_another_day() {
+    fn focus_history_does_not_keep_today_when_deferred_to_another_day() {
         let store = SessionStore::open_in_memory().unwrap();
         let conn = store.lock_conn().unwrap();
         let today = local_day(&conn, "");
@@ -1090,8 +1082,8 @@ mod tests {
         upsert_task(&conn, &with_focus("hist-2", Some(&today), None)).unwrap();
         let planned =
             upsert_task(&conn, &with_focus("hist-2", Some(&tomorrow), Some(&today))).unwrap();
-        assert_eq!(planned.focus_days, vec![today.clone()]);
-        // Unpinning today (a mistake undone) records nothing.
+        assert!(planned.focus_days.is_empty());
+        // Unpinning today (a mistake undone) records nothing either.
         upsert_task(&conn, &with_focus("hist-3", Some(&today), None)).unwrap();
         let unpinned = upsert_task(&conn, &with_focus("hist-3", None, Some(&today))).unwrap();
         assert!(unpinned.focus_days.is_empty());

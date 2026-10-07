@@ -119,6 +119,8 @@ it("says how to keep memory and update the soul only at the user's request", () 
   expect(full).toContain("You are Skull, a Mono in MonoCode");
   expect(full).toContain("these 2 projects (monocode and site)");
   expect(full).toContain("- site: /code/site");
+  expect(full).toContain("sessions, worktrees, notes and tasks");
+  expect(full).toContain("app tasks.list / tasks.write");
   expect(full).toContain("Be brief.");
   expect(full).toContain(
     "Only when the user asks you to change your soul or standing instructions",

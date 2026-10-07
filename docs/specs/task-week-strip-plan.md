@@ -48,8 +48,9 @@ Separately, board columns in Task Manager and Session Manager should use the Set
 **R1. Plan vs history.** `focusDate` is the current plan: today, a future day, or a past day the task was left on. `focusDays` is history: past days the task sat in focus before moving on. Nothing runs at midnight.
 
 **R2. Writing history.** On any change of `focusDate` from an old value O to a new value N (including N = none), the frontend sends `today` with the update, and Rust adds O to `focusDays` (no duplicates, kept sorted) when either:
-- O < today; or
-- O == today and N is another day (not none).
+- O < today.
+
+(Updated 2026-10-07: moving today's pin to another day no longer records today, so a deferred task leaves today's focus.)
 
 Nothing else writes `focusDays`. So these record nothing:
 - unpinning today (a mistake gets undone cleanly);

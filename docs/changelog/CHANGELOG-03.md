@@ -1,5 +1,17 @@
 # Changelog 03 — MonoCode Windows fork
 
+## 2026-10-07 — Task and import-dialog follow-ups
+- What: A task moved off today's pin to another day no longer lingers in Today's focus (today is no longer recorded as focus history on deferral; tasks already carrying today in their history keep it). The carry-over line has top spacing so it no longer touches New task. "Filter tasks" is a small icon button that expands smoothly into the input on click/focus or while a query is set. The Import session filter menu ("Show archived") is now compact.
+- Files: `src-tauri/src/tasks.rs` (`focus_history_addition` + test); `src/features/tasks/ui/TasksToolbar.tsx`; `src/features/tasks/ui/TasksView.tsx`; `src/features/provider-sessions/ui/ProviderConversationList.tsx`; `docs/specs/task-week-strip-plan.md` (R2 note).
+- Verified: tsc ✅; tasks + provider-sessions Vitest ✅ (308); `cargo test focus_history` ✅ (6); cargo fmt ✅.
+- Commit: uncommitted
+
+## 2026-10-07 — Import session in Settings, accent toggles, sidebar card order, Mono tasks
+- What: The sidebar "Add session" button moved to Settings → Migration as "Import session". Its dialog now loads Claude Code / Codex conversations as soon as it opens and when provider, account or project changes (search applies on Enter or when cleared), with a compact layout and a "Paste a session ID instead" shortcut. Switches follow the Appearance accent colour (danger and plain pin switches opt out). Sidebar session cards read title, then branch, then model. Session Manager toolbar controls sit on one aligned row. Monos are told to keep the user's to-dos in Tasks, and `tasks.list` / `tasks.write` accept `project` as an alias for `projectCwd` for Monos.
+- Files: `src/features/session-board/ui/SessionBoardView.tsx`; `src/app/shell/ProviderRail.tsx`, `ProjectRail.tsx`, `Sidebar.tsx`; `src/app/App.tsx`; `src/features/settings/ui/SettingsView.tsx`; `src/features/provider-sessions/ui/ImportSessionDialog.tsx` (renamed from `AddNativeSessionDialog.tsx`) and its tests; `src/styles/index.css`; `src/features/source-control/ui/DeleteWorktreeDialog.tsx`; `src/features/prompts/ui/SavedPromptForm.tsx`; `src/features/agent-app/model/agentApp.ts`; `src/features/monos/model/monoFiles.ts`; `src-tauri/src/control_cli.rs`; matching tests; `docs/specs/import-session-polish-plan.md`.
+- Verified: TypeScript ✅; Vitest on the changed areas ✅ (1,155 passed; 2 existing failures in `settings.test.ts` expect macOS `Command+Shift+Space` shortcut defaults on Windows, file untouched); `cargo test control_cli` ✅ (11); `cargo fmt --check` ✅. Lint not available (no config). Full suite and production build not run (later gates). Desktop checks are manual.
+- Commit: uncommitted
+
 ## 2026-10-07 — Keep Claude saved names searchable and menus above Add session
 - What: Claude Find now prefers the latest session-scoped saved custom title, then AI title, legacy summary and first prompt; full saved names remain searchable, including late metadata beyond the capped head scan. Add session filter/context menus use the dialog layer, and Escape closes nested menus one level at a time.
 - Files: `src-tauri/src/session_import.rs` / tests; `src-tauri/src/provider_sessions/tests.rs`; `src/features/files/ui/ExplorerMenu.tsx`; `src/features/provider-sessions/ui/ProviderConversationList.tsx`, `AddNativeSessionDialog.tsx`, and menu DOM test; L-71 and [repair plan](../specs/native-session-title-menu-repair-plan.md).

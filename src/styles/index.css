@@ -1900,6 +1900,17 @@ html.has-user-accent .primary-action:disabled {
   color: color-mix(in srgb, var(--color-content) 35%, transparent);
 }
 
+/* Switches follow the accent. data-switch-tone opts out: "danger" keeps red,
+   "plain" marks a pressed-style button that is not a track switch. */
+html.has-user-accent [role="switch"][aria-checked="true"]:not([data-switch-tone]):not(:disabled) {
+  background-color: var(--user-accent-color);
+}
+
+/* Checkbox switches draw their track in the sibling span. */
+html.has-user-accent input[role="switch"]:checked:not([data-switch-tone]) + span {
+  background-color: var(--user-accent-color);
+}
+
 .composer-field {
   color: transparent;
   caret-color: var(--color-content);

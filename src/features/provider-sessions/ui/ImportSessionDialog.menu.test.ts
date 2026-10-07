@@ -3,7 +3,7 @@ import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { AddNativeSessionDialog } from "./AddNativeSessionDialog";
+import { ImportSessionDialog } from "./ImportSessionDialog";
 import { ProviderConversationList } from "./ProviderConversationList";
 import { ExplorerMenu, type ExplorerMenuItem } from "../../files/ui/ExplorerMenu";
 import { Modal } from "../../../shared/ui/Modal";
@@ -149,23 +149,17 @@ async function openContextMenu(): Promise<HTMLElement> {
   return menu("Conversation actions");
 }
 
-describe("conversation menus in Add session", () => {
+describe("conversation menus in Import session", () => {
   it("keeps filter and point-anchored context menus above the dialog on Escape", async () => {
     await act(async () =>
       root.render(
-        createElement(AddNativeSessionDialog, {
+        createElement(ImportSessionDialog, {
           providers: ["claude"],
           onResume: vi.fn(async () => undefined),
           onClose: close,
         }),
       ),
     );
-    const find = [...document.body.querySelectorAll("button")].find(
-      (button) => button.textContent === "Find",
-    );
-    if (!find) throw new Error("Missing Find button");
-    await click(find);
-
     const dialog = document.body.querySelector('[role="dialog"][aria-modal="true"]');
     expect(dialog).not.toBeNull();
 
