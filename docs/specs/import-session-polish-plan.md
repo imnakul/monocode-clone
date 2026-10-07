@@ -1,5 +1,6 @@
-# Todo — Import session in Settings, accent toggles, sidebar card order, Session Manager spacing
+# Superseded — Import session in Settings, accent toggles, sidebar card order, Session Manager spacing
 
+- Superseded: implement the updated copy on `nakul/windows-support-upstream-0.8.0` (`docs/specs/import-session-polish-plan.md`, commit `28c68ab`). Do not implement this on 0.7.0.
 - Tier: standard · Snapshot: `2a35625` on `nakul/windows-support-upstream-0.7.0`, 2026-10-07 · Status: Todo
 - Skills: `frontend-ui`
 - Desktop UI checks are Nakul's. The implementer finishes with the manual checklist at the end.
