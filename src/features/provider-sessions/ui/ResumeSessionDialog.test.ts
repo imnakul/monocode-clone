@@ -3,7 +3,7 @@ import { act, createElement, StrictMode, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { ImportSessionDialog } from "./ImportSessionDialog";
+import { ResumeSessionDialog } from "./ResumeSessionDialog";
 import type {
   NativeProvider,
   ProviderConversation,
@@ -14,15 +14,18 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 // own tests; its native shell dependencies are irrelevant to identity lookup.
 vi.mock("../../../shared/ui/Modal", () => ({
   Modal: ({
+    title,
     children,
     onClose,
   }: {
+    title: string;
     children: ReactNode;
     onClose: () => void;
   }) =>
     createElement(
       "div",
-      { role: "dialog" },
+      { role: "dialog", "aria-label": title },
+      createElement("h2", null, title),
       children,
       createElement("button", { onClick: onClose }, "Close"),
     ),
@@ -72,7 +75,7 @@ async function render(
       createElement(
         StrictMode,
         null,
-        createElement(ImportSessionDialog, {
+        createElement(ResumeSessionDialog, {
           providers,
           onResume: resume,
           onClose: close,
@@ -108,7 +111,7 @@ const findCalls = () =>
   vi
     .mocked(invoke)
     .mock.calls.filter(([command]) => command === "provider_sessions_find");
-describe("Import session", () => {
+describe("Resume session", () => {
   it("looks up the exact native ID and selected account before opening the same row", async () => {
     await render();
     await type("claude --resume native-one");
@@ -362,7 +365,12 @@ describe("Loading native sessions", () => {
     expect(resume).not.toHaveBeenCalled();
   });
 });
-describe("Import session layout", () => {
+describe("Resume session layout", () => {
+  it("is called Resume session and never Import", async () => {
+    await render();
+    expect(container.querySelector("h2")?.textContent).toBe("Resume session");
+    expect(container.textContent).not.toContain("Import");
+  });
   it("shows the provider switch only for two providers and no account select for one account", async () => {
     await render();
     expect(
@@ -385,7 +393,7 @@ describe("Import session layout", () => {
       '[aria-label="Session ID or resume command"]',
     )!;
     const importButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Import",
+      (button) => button.textContent === "Resume",
     )!;
     for (const element of [searchInput, paste, importButton])
       expect(element.classList.contains("h-9")).toBe(true);

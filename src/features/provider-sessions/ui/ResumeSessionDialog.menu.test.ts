@@ -3,7 +3,7 @@ import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { ImportSessionDialog } from "./ImportSessionDialog";
+import { ResumeSessionDialog } from "./ResumeSessionDialog";
 import { ProviderConversationList } from "./ProviderConversationList";
 import { ExplorerMenu, type ExplorerMenuItem } from "../../files/ui/ExplorerMenu";
 import { Modal } from "../../../shared/ui/Modal";
@@ -149,11 +149,11 @@ async function openContextMenu(): Promise<HTMLElement> {
   return menu("Conversation actions");
 }
 
-describe("conversation menus in Import session", () => {
+describe("conversation menus in Resume session", () => {
   it("keeps filter and point-anchored context menus above the dialog on Escape", async () => {
     await act(async () =>
       root.render(
-        createElement(ImportSessionDialog, {
+        createElement(ResumeSessionDialog, {
           providers: ["claude"],
           onResume: vi.fn(async () => undefined),
           onClose: close,

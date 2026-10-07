@@ -56,6 +56,23 @@ describe("parseProviderHistory", () => {
     expect(JSON.stringify(items)).not.toContain("SECRET");
   });
 
+  it("hides Claude Code's auto-compaction summary, flagged or matched by text", () => {
+    const summary =
+      "This session is being continued from a previous conversation that ran out of context. Summary: ...";
+    const items = parseProviderHistory(
+      "claude",
+      jsonl(
+        { type: "user", message: { role: "user", content: "Before" } },
+        { type: "user", isCompactSummary: true, message: { role: "user", content: "Flagged summary" } },
+        { type: "user", message: { role: "user", content: summary } },
+        { type: "user", message: { role: "user", content: [{ type: "text", text: summary }] } },
+        { type: "user", message: { role: "user", content: "After" } },
+      ),
+      "0",
+    );
+    expect(items.map((item) => item.text)).toEqual(["Before", "After"]);
+  });
+
   it("keeps Codex messages and tool names, skipping injected context and reasoning", () => {
     const items = parseProviderHistory("codex", codexFixture as string, "7");
     expect(items.map((i) => [i.role, i.text])).toEqual([

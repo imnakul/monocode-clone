@@ -51,9 +51,10 @@ export function workInLabel(value: WorkIn): string {
 /**
  * "Work in" beside the branch in the session composer. Before the first
  * message it is a dropdown (This computer, Cloud, Remote — only the ones this
- * chat supports); once the chat has started the choice is fixed and shows as
- * an indicator, like Current checkout. A Remote chat's indicator still opens
- * the Remote Control menu (status, Retry, turn off).
+ * chat supports); once the chat has started the choice is fixed. A started
+ * Claude chat's chip ("This computer" or "Remote") opens the Remote Control
+ * menu (turn on, status, Retry, turn off), so Remote Control can be switched
+ * on for an existing chat.
  */
 export function WorkInPicker({
   started,
@@ -78,20 +79,14 @@ export function WorkInPicker({
       : "local";
 
   if (started) {
-    if (value === "remote" && remote)
-      return <RemoteControlButton remoteControl={remote} label="Remote" />;
-    // Only worth saying when another choice existed.
+    // Only worth showing when Remote Control is an option for this chat.
     if (!remote) return null;
     return (
-      <div
-        data-work-in="local"
-        title="Work in: This computer"
-        aria-label="Work in This computer"
-        className="-ml-1.5 flex h-6 min-w-0 shrink-0 items-center gap-1.5 px-1.5 text-[12px] text-content/45"
-      >
-        <Laptop aria-hidden className="size-3.5 shrink-0" />
-        <span className="truncate">This computer</span>
-      </div>
+      <RemoteControlButton
+        remoteControl={remote}
+        label={value === "remote" ? "Remote" : "This computer"}
+        icon={value === "remote" ? Computer : Laptop}
+      />
     );
   }
 

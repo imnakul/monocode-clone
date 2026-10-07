@@ -40,6 +40,7 @@ import { FileTypeIcon } from "../../features/files/ui/FileTypeIcon";
 import { HarnessIcon } from "../../features/sessions/ui/HarnessIcon";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { TerminalSpinner } from "../../features/sessions/ui/TerminalSpinner";
+import { ProviderCheckIndicator } from "../../features/providers/ui/ProviderCheckIndicator";
 import { TabLabel } from "../../shared/ui/TabLabel";
 import { WindowControls } from "./WindowControls";
 import { PixelMascot } from "../../features/projects/ui/PixelMascot";
@@ -1163,6 +1164,7 @@ function TitleBarComponent({
         ) : (
           <div className="flex-1" />
         )}
+        {embedded ? null : <ProviderCheckIndicator />}
         {trailingControls}
       </div>
       {tabMenu && contextTab ? (

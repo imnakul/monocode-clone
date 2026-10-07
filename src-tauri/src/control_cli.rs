@@ -244,9 +244,9 @@ Actions:
                   "focusDate":"2026-10-03","archived":false,
                   "sourceSessionId":"...","sourceBlockId":"..."}
                   Create or edit a task. Status values: todo, in_progress
-                  (Progress), blocked, review, completed. Old names draft and
-                  deferred are accepted and saved as todo (deferred also
-                  archives). focusDate (YYYY-MM-DD, local day) pins a task to
+                  (Progress), blocked, review (shown as "Verify"), completed.
+                  Old names draft and deferred are accepted and saved as todo
+                  (deferred also archives). focusDate (YYYY-MM-DD, local day) pins a task to
                   that day's Focus; null clears it. archived hides a task
                   without changing its status.
                   Completing records a completion time; reopening clears it.

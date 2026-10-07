@@ -79,15 +79,39 @@ describe("WorkInPicker", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("shows a fixed indicator once the chat has started", () => {
-    render({ started: true, enabled: true, remote: remote(false) });
-    expect(container.querySelector('[data-work-in="local"]')?.textContent).toBe(
-      "This computer",
-    );
-    expect(container.querySelector("[aria-haspopup]")).toBeNull();
-    render({ started: true, enabled: true, remote: remote(true) });
-    const chip = container.querySelector("[data-remote-control-button]");
-    expect(chip?.textContent).toBe("Remote");
-    expect(chip?.getAttribute("aria-haspopup")).toBe("menu");
+  it("lets a started local chat turn Remote Control on from This computer", () => {
+    const controls = remote(false);
+    render({ started: true, enabled: true, remote: controls });
+    const chip = container.querySelector<HTMLButtonElement>(
+      "[data-remote-control-button]",
+    )!;
+    expect(chip.textContent).toBe("This computer");
+    expect(chip.getAttribute("aria-haspopup")).toBe("menu");
+    act(() => chip.click());
+    const turnOn = [...document.querySelectorAll<HTMLElement>("[role=menuitem]")]
+      .find((item) => item.textContent?.includes("Turn on Remote Control"));
+    expect(turnOn).toBeDefined();
+    act(() => turnOn!.click());
+    expect(controls.onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("shows a started Remote chat as Remote with a turn-off menu", () => {
+    const controls = remote(true);
+    render({ started: true, enabled: true, remote: controls });
+    const chip = container.querySelector<HTMLButtonElement>(
+      "[data-remote-control-button]",
+    )!;
+    expect(chip.textContent).toBe("Remote");
+    act(() => chip.click());
+    const turnOff = [...document.querySelectorAll<HTMLElement>("[role=menuitem]")]
+      .find((item) => item.textContent?.includes("Turn off Remote Control"));
+    expect(turnOff).toBeDefined();
+    act(() => turnOff!.click());
+    expect(controls.onChange).toHaveBeenCalledWith(false);
+  });
+
+  it("shows nothing for a started chat without Remote Control (Codex, remote host)", () => {
+    render({ started: true, enabled: true });
+    expect(container.innerHTML).toBe("");
   });
 });

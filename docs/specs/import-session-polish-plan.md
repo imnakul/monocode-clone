@@ -229,11 +229,11 @@ Keep the drop-target and selection styling, handlers and `title` attributes unch
 
 | Where | Text |
 |---|---|
-| Settings → Migration header button | `Import session` |
-| Dialog title / description | `Import session` / `Continue a Claude Code or Codex conversation from this computer.` |
+| Settings → Migration header button | `Resume session` (renamed from `Import session`, 2026-10-07) |
+| Dialog title / description | `Resume session` / `Continue a Claude Code or Codex conversation from this computer.` |
 | Search placeholder | `Search by name, message, folder or ID` |
 | Paste disclosure | `Paste a session ID instead` |
-| Paste button | `Import` / `Importing…` |
+| Paste button | `Resume` / `Resuming…` |
 | Hint | `Must be on this computer. Close it in the other app first.` |
 | Sidebar rail heading | `Cloud sessions` |
 | Accent description | `Used for the send button, your message bubbles and switches.` |

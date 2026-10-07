@@ -3,7 +3,12 @@ import {
   ExplorerMenu,
   type ExplorerMenuItem,
 } from "../../files/ui/ExplorerMenu";
-import { Computer, Copy, RefreshCw } from "../../../shared/ui/icons";
+import {
+  Computer,
+  Copy,
+  RefreshCw,
+  type IconComponent,
+} from "../../../shared/ui/icons";
 import { copyText } from "../../../platform/tauri/clipboard";
 import { remoteControlView } from "../model/remoteControlView";
 import type { RemoteControlStatus } from "../../../integrations/harness/core/types";
@@ -26,9 +31,12 @@ export type RemoteControlControls = {
 export function RemoteControlButton({
   remoteControl,
   label,
+  icon: Icon = Computer,
 }: {
   remoteControl: RemoteControlControls;
   label?: string;
+  /** Defaults to the PC icon; a local chat's "This computer" chip passes a laptop. */
+  icon?: IconComponent;
 }): ReactElement {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [copied, setCopied] = useState(false);
@@ -98,7 +106,7 @@ export function RemoteControlButton({
           anchor ? "bg-content/8" : ""
         }`}
       >
-        <Computer aria-hidden className="size-3.5 shrink-0" strokeWidth={1.75} />
+        <Icon aria-hidden className="size-3.5 shrink-0" strokeWidth={1.75} />
         {label ? <span className="truncate">{label}</span> : null}
       </button>
       <span className="sr-only" role="status" aria-live="polite">

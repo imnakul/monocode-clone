@@ -40,11 +40,11 @@ const INPUT_CLASS =
   "h-9 w-full rounded-md border border-content/10 bg-content/5 pr-2.5 text-[13px] text-content outline-none placeholder:text-content/30 focus:border-content/25 disabled:opacity-50";
 
 /**
- * Imports a local Claude Code or Codex conversation. The list loads on open and
+ * Resumes a local Claude Code or Codex conversation. The list loads on open and
  * whenever provider, account or project changes; search text applies on Enter
  * (or when cleared) so typing never triggers a scan.
  */
-export function ImportSessionDialog({
+export function ResumeSessionDialog({
   providers,
   onResume,
   onClose,
@@ -221,7 +221,7 @@ export function ImportSessionDialog({
   const showAccountSelect = accounts.length > 1;
   return (
     <Modal
-      title="Import session"
+      title="Resume session"
       description="Continue a Claude Code or Codex conversation from this computer."
       onClose={close}
       size="md"
@@ -374,7 +374,7 @@ export function ImportSessionDialog({
               {busy ? (
                 <Loader className="size-3.5 animate-spin" strokeWidth={1.75} />
               ) : null}
-              {busy ? "Importing…" : "Import"}
+              {busy ? "Resuming…" : "Resume"}
             </button>
           </div>
         </details>

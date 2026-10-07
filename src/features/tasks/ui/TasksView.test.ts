@@ -537,7 +537,7 @@ describe("selection and peek", () => {
     await click(listRow("Fix installer"));
     await pickMenuItem(
       peek()!.querySelector<HTMLElement>('button[aria-label^="Task status"]')!,
-      "Review",
+      "Verify",
     );
     expect(rows.get("first")?.status).toBe("review");
   });
@@ -833,7 +833,7 @@ describe("board view", () => {
       "Todo column",
       "Progress column",
       "Blocked column",
-      "Review column",
+      "Verify column",
       "Completed column",
     ]);
     // The multi-select Status filter limits the board to the chosen columns.
@@ -841,7 +841,7 @@ describe("board view", () => {
     await pickOption("Status", "Completed");
     expect(columnLabels()).toEqual(["Todo column", "Completed column"]);
     await pickOption("Status", "All statuses");
-    expect(columnLabels()).toContain("Review column");
+    expect(columnLabels()).toContain("Verify column");
     expect(container.querySelector('[aria-label="Choose visible columns"]')).toBeNull();
   });
 
@@ -897,9 +897,9 @@ describe("board view", () => {
 
     it("moves a card optimistically and persists the status", async () => {
       await openBoard();
-      await drag("Fix installer", "Review");
+      await drag("Fix installer", "Verify");
       expect(
-        card("Fix installer").closest('[aria-label="Review column"]'),
+        card("Fix installer").closest('[aria-label="Verify column"]'),
       ).not.toBeNull();
       await act(async () => {
         await tick();
@@ -911,10 +911,10 @@ describe("board view", () => {
 
     it("cancels with Escape and does nothing when dropped on the same column", async () => {
       await openBoard();
-      await drag("Fix installer", "Review", false);
-      expect(byLabel("Review column").className).toContain("border-accent/40");
+      await drag("Fix installer", "Verify", false);
+      expect(byLabel("Verify column").className).toContain("border-accent/40");
       await escape();
-      expect(byLabel("Review column").className).not.toContain("border-accent/40");
+      expect(byLabel("Verify column").className).not.toContain("border-accent/40");
       expect(onClose).not.toHaveBeenCalled();
       await drag("Fix installer", "Blocked");
       expect(upserts()).toHaveLength(0);
@@ -954,7 +954,7 @@ describe("board view", () => {
     it("keeps the latest move when an earlier write finishes first (A)", async () => {
       await openBoard();
       const gates = deferUpserts();
-      await drag("Fix installer", "Review");
+      await drag("Fix installer", "Verify");
       await drag("Fix installer", "Todo");
       expect(inColumn("Fix installer", "Todo")).toBe(true);
       await act(async () => {
@@ -971,7 +971,7 @@ describe("board view", () => {
     it("ignores an earlier failure while a later move is pending (B)", async () => {
       await openBoard();
       const gates = deferUpserts();
-      await drag("Fix installer", "Review");
+      await drag("Fix installer", "Verify");
       await drag("Fix installer", "Todo");
       await act(async () => tick());
       await act(async () => gates[0].reject(new Error("first failed")));
@@ -983,7 +983,7 @@ describe("board view", () => {
     it("reverts and names the task when the latest move fails (C)", async () => {
       await openBoard();
       const gates = deferUpserts();
-      await drag("Fix installer", "Review");
+      await drag("Fix installer", "Verify");
       await act(async () => tick());
       rows.delete("first");
       await act(async () => gates[0].reject(new Error("Task was not found")));
@@ -1182,7 +1182,7 @@ describe("counts", () => {
       Todo: 1,
       Progress: 1,
       Blocked: 1,
-      Review: 0,
+      Verify: 0,
     });
     await pickOption("Project", "Personal");
     // The status facet now counts Personal tasks only.
@@ -1353,7 +1353,7 @@ describe("New task while the pane is open", () => {
     await render();
     await click(listRow("Fix installer"));
     expect(peek()).not.toBeNull();
-    await pickOption("Status", "Review");
+    await pickOption("Status", "Verify");
     await click(container.querySelector('button[aria-label^="Focus:"]'));
     await click(byLabel("New task"));
     await act(async () => {

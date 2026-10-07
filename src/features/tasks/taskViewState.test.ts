@@ -240,7 +240,7 @@ describe("grouping", () => {
     ).toEqual([2]);
     expect(groupTasks(tasks, "status").map((group) => group.label)).toEqual([
       "Todo",
-      "Review",
+      "Verify",
     ]);
   });
 });

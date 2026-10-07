@@ -293,6 +293,12 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
     label: "Tab animations",
     keywords: "motion open close resize transition",
   },
+  {
+    id: "check-providers-on-startup",
+    section: "general",
+    label: "Check providers when MonoCode opens",
+    keywords: "startup launch background provider models ready check refresh",
+  },
   ...(IS_WIN
     ? [
         {
@@ -1132,6 +1138,18 @@ export function loadCloseToTray(): boolean {
 
 export function saveCloseToTray(value: boolean) {
   writeFlag(CLOSE_TO_TRAY_KEY, value);
+}
+
+const CHECK_PROVIDERS_ON_STARTUP_KEY = "monocode.checkProvidersOnStartup";
+
+export const CHECK_PROVIDERS_ON_STARTUP_DEFAULT = true;
+
+export function loadCheckProvidersOnStartup(): boolean {
+  return readFlag(CHECK_PROVIDERS_ON_STARTUP_KEY) ?? CHECK_PROVIDERS_ON_STARTUP_DEFAULT;
+}
+
+export function saveCheckProvidersOnStartup(value: boolean) {
+  writeFlag(CHECK_PROVIDERS_ON_STARTUP_KEY, value);
 }
 
 const GRID_ARCADE_ENABLED_KEY = "monocode.gridArcadeEnabled";

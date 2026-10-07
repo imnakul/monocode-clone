@@ -360,6 +360,19 @@ keeps a running `sleep`/dev server alive and output intact on return;
 model preserved; (6) quit leaves no stray `pwsh`/ACP processes. Plan:
 `docs/specs/archive/lazy-terminal-harness-plan.md`.
 
+### Addendum 7 Oct 2026 — delayed, opt-out light provider check
+
+The policy above still holds for everything except one task. Two seconds after
+the app mounts, a light provider check now runs once in the background
+(`runProviderCheck` in `src/features/providers/model/providerCheck.ts`, started by
+`useStartupProviderCheck`). It probes availability and loads catalogs for
+visible providers only. It never runs the Antigravity handshake (only a manual
+Refresh all does), never touches hidden providers, and never normalises saved
+sessions' models. Settings → General → "Check providers when MonoCode opens"
+turns it off; then Settings → Providers runs it on first open instead. The
+title bar shows its progress, and Settings → Providers reuses the result
+rather than re-checking on every visit. Nothing starts before the 2 s delay.
+
 ## 12 Sept 2026 — 0.1.35-local5-queue-durability: Queue durability, SQLite migration 12, non-native steer cancellation, and lifecycle holds
 
 **What:** Fast-forward integration and closeout of `0.1.35-local5-queue-durability`. Replaces ephemeral in-memory queued messages with durable SQLite persistence across restarts and crashes, introduces a dedicated `QueueDurabilityScheduler` with bounded write latency and in-flight coalescing, protects against streaming starvation, resolves failure-to-held auto-dispatch races, orchestrates non-native Steer cancellation with a 15-second settlement barrier, and locks editing actions during transient steering.

@@ -312,7 +312,8 @@ import {
   // NOT called during boot (see the removed cold-start effect below). Live
   // provider discovery starts only on explicit provider interaction (model
   // picker, provider row visit, manual Recheck) or when an operation needs
-  // the runtime.
+  // the runtime. The one exception is runProviderCheck (providerCheck.ts):
+  // a light check 2 s after mount, which the user can turn off in Settings.
   stopHarnessSession,
   stopHarnessTextPrompts,
   stopStreaming,
@@ -461,7 +462,7 @@ import {
   restoreClaudeRemoteControlPreferences,
 } from "../features/provider-sessions/model/remoteControl";
 import { useEnabledNativeProviders } from "../features/provider-sessions/ui/useProviderConversations";
-import { ImportSessionDialog } from "../features/provider-sessions/ui/ImportSessionDialog";
+import { ResumeSessionDialog } from "../features/provider-sessions/ui/ResumeSessionDialog";
 import { emptyProviderListState } from "../features/provider-sessions/model/conversationStore";
 import { CloudSessionDialog } from "../features/provider-sessions/ui/CloudSessionDialog";
 import { useCloudRecords } from "../features/provider-sessions/ui/useCloudRecords";
@@ -710,6 +711,8 @@ import { protectSessionOpening } from "../features/sessions/model/draftCache";
 import { SessionSurface } from "../features/sessions/ui/SessionSurface";
 import { ProjectTerminalDock } from "../features/terminal/ui/ProjectTerminalDock";
 import { lazySurface } from "../shared/ui/lazySurface";
+import { useStartupProviderCheck } from "../features/providers/model/useStartupProviderCheck";
+import { OPEN_PROVIDER_SETTINGS_EVENT } from "../features/providers/ui/ProviderCheckIndicator";
 import { preloadNavigationWhenIdle } from "./model/preloadNavigation";
 import { requestTranscriptJump } from "../features/sessions/model/transcriptJump";
 import type { SettingsAnchor } from "../features/settings/ui/SettingsView";
@@ -1273,7 +1276,7 @@ function Workspace({
     loadSessionSidebarOpen,
   );
   const enabledNativeProviders = useEnabledNativeProviders();
-  const [importSessionOpen, setImportSessionOpen] = useState(false);
+  const [resumeSessionOpen, setResumeSessionOpen] = useState(false);
   const [selectedProviderRaw, setSelectedProvider] =
     useState<NativeProvider | null>(null);
   const selectedProvider =
@@ -6025,7 +6028,7 @@ function Workspace({
     saveSessionSidebarOpen(true);
   }, []);
 
-  const onImportNativeSession = useCallback(
+  const onResumeNativeSession = useCallback(
     async (row: ProviderConversation): Promise<void> => {
       const dependencies = liveNativeDependencies({
         liveSessions: () => sessionsRef.current,
@@ -12660,6 +12663,14 @@ function Workspace({
 
   const onOpenSettings = useCallback(() => openSettings(), [openSettings]);
   useEffect(() => {
+    const openProviders = () => openSettings("providers");
+    window.addEventListener(OPEN_PROVIDER_SETTINGS_EVENT, openProviders);
+    return () =>
+      window.removeEventListener(OPEN_PROVIDER_SETTINGS_EVENT, openProviders);
+  }, [openSettings]);
+  // The one provider task allowed at launch; see providerCheck.ts.
+  useStartupProviderCheck();
+  useEffect(() => {
     const openConnections = () => openSettings("connections");
     window.addEventListener(OPEN_CONNECTIONS_EVENT, openConnections);
     return () =>
@@ -13594,11 +13605,11 @@ function Workspace({
         >
           {compactTitleBar ? workspaceTitleBar : null}
           <SavePromptDialogHost />
-          {importSessionOpen ? (
-            <ImportSessionDialog
+          {resumeSessionOpen ? (
+            <ResumeSessionDialog
               providers={enabledNativeProviders}
-              onResume={onImportNativeSession}
-              onClose={() => setImportSessionOpen(false)}
+              onResume={onResumeNativeSession}
+              onClose={() => setResumeSessionOpen(false)}
             />
           ) : null}
           {cloudDialog ? (
@@ -14255,9 +14266,9 @@ function Workspace({
                   }
                   onOpenWhatsNew={onOpenWhatsNew}
                   onImportSessions={onImportSessions}
-                  onImportSession={
+                  onResumeSession={
                     enabledNativeProviders.length > 0
-                      ? () => setImportSessionOpen(true)
+                      ? () => setResumeSessionOpen(true)
                       : undefined
                   }
                   collapsedProjectRailMode={collapsedProjectRailMode}

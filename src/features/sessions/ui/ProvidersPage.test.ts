@@ -5,6 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HARNESSES } from "../model/session";
 import { probeHarnessAvailability } from "../../../integrations/harness/core/availability";
 import { refreshHarnessCatalogs } from "../../../integrations/harness/core/registry";
+import { recheckAntigravityCatalog } from "../../../integrations/harness/core/antigravityCatalog";
+import {
+  getProviderCheckSnapshot,
+  resetProviderCheck,
+  runProviderCheck,
+} from "../../providers/model/providerCheck";
 import { ProvidersPage } from "../../settings/ui/SettingsView";
 
 vi.mock("../../../integrations/harness/core/availability", async (importOriginal) => {
@@ -19,6 +25,17 @@ vi.mock("../../../integrations/harness/core/registry", async (importOriginal) =>
   return { ...actual, refreshHarnessCatalogs: vi.fn() };
 });
 
+vi.mock(
+  "../../../integrations/harness/core/antigravityCatalog",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../../../integrations/harness/core/antigravityCatalog")
+      >();
+    return { ...actual, recheckAntigravityCatalog: vi.fn() };
+  },
+);
+
 let container: HTMLDivElement;
 let root: Root;
 
@@ -30,6 +47,7 @@ function recheckButtons(): HTMLButtonElement[] {
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  resetProviderCheck();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -70,6 +88,7 @@ describe("Providers initial discovery", () => {
     recheckButtons()[0]?.click();
     expect(probeHarnessAvailability).toHaveBeenCalledTimes(1);
     expect(probeHarnessAvailability).toHaveBeenCalledWith({
+      force: false,
       exclude: ["antigravity"],
     });
     expect(refreshHarnessCatalogs).toHaveBeenCalledTimes(1);
@@ -97,8 +116,59 @@ describe("Providers initial discovery", () => {
     await act(async () => root.render(createElement(ProvidersPage)));
 
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
-      "Provider checks failed. Use Recheck to retry.",
+      "Some provider checks failed.",
     );
     expect(recheckButtons().every((button) => !button.disabled)).toBe(true);
+  });
+
+  it("shows an already completed check without probing again", async () => {
+    vi.mocked(probeHarnessAvailability).mockResolvedValue();
+    vi.mocked(refreshHarnessCatalogs).mockResolvedValue();
+    await runProviderCheck();
+    vi.mocked(probeHarnessAvailability).mockClear();
+    vi.mocked(refreshHarnessCatalogs).mockClear();
+
+    await act(async () => root.render(createElement(ProvidersPage)));
+
+    expect(probeHarnessAvailability).not.toHaveBeenCalled();
+    expect(refreshHarnessCatalogs).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain("Checking providers");
+    expect(recheckButtons().every((button) => !button.disabled)).toBe(true);
+  });
+
+  it("Refresh all forces a check including Antigravity and is disabled while it runs", async () => {
+    vi.mocked(probeHarnessAvailability).mockResolvedValue();
+    vi.mocked(refreshHarnessCatalogs).mockResolvedValue();
+    await runProviderCheck();
+    await act(async () => root.render(createElement(ProvidersPage)));
+    vi.mocked(probeHarnessAvailability).mockClear();
+    let finishAntigravity: (() => void) | undefined;
+    vi.mocked(recheckAntigravityCatalog).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishAntigravity = resolve;
+        }),
+    );
+    const refreshAll = (): HTMLButtonElement => {
+      const found = Array.from(
+        container.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((button) => button.textContent?.includes("Refresh all"));
+      if (!found) throw new Error("No Refresh all button");
+      return found;
+    };
+    expect(refreshAll().disabled).toBe(false);
+
+    await act(async () => refreshAll().click());
+
+    expect(getProviderCheckSnapshot().phase).toBe("checking");
+    expect(refreshAll().disabled).toBe(true);
+    expect(probeHarnessAvailability).toHaveBeenCalledWith({
+      force: true,
+      exclude: ["antigravity"],
+    });
+    expect(recheckAntigravityCatalog).toHaveBeenCalledTimes(1);
+
+    await act(async () => finishAntigravity?.());
+    expect(refreshAll().disabled).toBe(false);
   });
 });

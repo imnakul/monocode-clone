@@ -25,6 +25,7 @@ import {
   HARNESS_TITLE,
 } from "../../sessions/model/session";
 import { saveMaskEmails, saveShowRemainingUsage } from "../model/displayPrefs";
+import { resetProviderCheck } from "../../providers/model/providerCheck";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined),
@@ -99,6 +100,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   mockLocalStorage();
   vi.mocked(probeHarnessAvailability).mockReset().mockResolvedValue();
+  resetProviderCheck();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -779,21 +781,21 @@ describe("settings pages", () => {
     expect(onCollapsedProjectRailModeChange).toHaveBeenCalledWith("hidden");
   });
 
-  it("offers Import session in the Migration header only when a handler is given", async () => {
-    const importSession = () =>
+  it("offers Resume session in the Migration header only when a handler is given", async () => {
+    const resumeSession = () =>
       [...container.querySelectorAll("button")].find(
-        (candidate) => candidate.textContent === "Import session",
+        (candidate) => candidate.textContent === "Resume session",
       );
     await render("migration");
-    expect(importSession()).toBeUndefined();
+    expect(resumeSession()).toBeUndefined();
 
-    const onImportSession = vi.fn();
-    await render("migration", { onImportSession });
-    await act(async () => importSession()!.click());
-    expect(onImportSession).toHaveBeenCalledOnce();
+    const onResumeSession = vi.fn();
+    await render("migration", { onResumeSession });
+    await act(async () => resumeSession()!.click());
+    expect(onResumeSession).toHaveBeenCalledOnce();
 
-    await render("general", { onImportSession });
-    expect(importSession()).toBeUndefined();
+    await render("general", { onResumeSession });
+    expect(resumeSession()).toBeUndefined();
   });
 
   // The search index is hand-maintained; this is what keeps it honest.

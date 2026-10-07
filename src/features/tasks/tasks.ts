@@ -7,7 +7,7 @@ export const TASK_STATUS_LABELS = {
   todo: "Todo",
   in_progress: "Progress",
   blocked: "Blocked",
-  review: "Review",
+  review: "Verify",
   completed: "Completed",
 } as const;
 export type TaskStatus = keyof typeof TASK_STATUS_LABELS;

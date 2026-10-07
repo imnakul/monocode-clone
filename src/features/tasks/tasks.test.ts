@@ -12,6 +12,7 @@ import {
   normalizeFocusDays,
   TASKS_CHANGED_EVENT,
   parseTaskStatus,
+  TASK_STATUS_LABELS,
   taskStatus,
   updateTask,
   type Task,
@@ -31,6 +32,12 @@ function task(id: string, changes: Partial<Task> = {}): Task {
     ...changes,
   };
 }
+describe("Task status labels", () => {
+  it("shows review as Verify while the stored value stays review", () => {
+    expect(TASK_STATUS_LABELS.review).toBe("Verify");
+    expect(parseTaskStatus("review").status).toBe("review");
+  });
+});
 describe("shared Tasks filters", () => {
   const rows = [
     task("a", {

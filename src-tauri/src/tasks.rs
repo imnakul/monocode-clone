@@ -24,6 +24,14 @@ pub enum TaskStatus {
 }
 
 impl TaskStatus {
+    /// Statuses that mean the task was actually worked on.
+    fn was_worked_on(self) -> bool {
+        matches!(
+            self,
+            Self::InProgress | Self::Blocked | Self::Review | Self::Completed
+        )
+    }
+
     fn as_str(self) -> &'static str {
         match self {
             Self::Draft => "draft",
@@ -338,17 +346,24 @@ fn local_day_of(conn: &Connection, at_millis: i64) -> rusqlite::Result<String> {
 }
 
 /// R2/R3: on a change of `focus_date` from O to N (N = none included), the
-/// frontend sends `today`; the old day O is recorded only when O < today.
-/// Moving today's pin to another day (deferring it) records nothing, so the
-/// task leaves today's focus instead of lingering there. When O is none, R3 treats the
-/// created day C as O when C < today.
+/// frontend sends `today`. Only a task that was worked on (its status before or
+/// after the update is in progress, blocked, review or completed) records
+/// history; Draft/Todo/Deferred tasks record nothing, so a deferred untouched
+/// task leaves today's focus. O is recorded when O < today, or when O == today
+/// and N is another day. When O is none, R3 treats the created day C as O when
+/// C < today.
 fn focus_history_addition(
     old_focus_date: Option<&str>,
     new_focus_date: Option<&str>,
     created_day: Option<&str>,
     today: &str,
+    old_status: TaskStatus,
+    new_status: TaskStatus,
 ) -> Option<String> {
     if old_focus_date == new_focus_date {
+        return None;
+    }
+    if !old_status.was_worked_on() && !new_status.was_worked_on() {
         return None;
     }
     let effective_old = match old_focus_date {
@@ -359,7 +374,16 @@ fn focus_history_addition(
         },
     };
     let old = effective_old?;
-    (old < today).then(|| old.to_string())
+    if old < today {
+        Some(old.to_string())
+    } else if old == today {
+        match new_focus_date {
+            Some(next) if next != today => Some(old.to_string()),
+            _ => None,
+        }
+    } else {
+        None
+    }
 }
 
 fn normalize_focus_days(days: &[String]) -> Vec<String> {
@@ -419,6 +443,8 @@ fn upsert_task(conn: &Connection, input: &TaskUpsert) -> rusqlite::Result<Task> 
                 focus_date.as_deref(),
                 created_day.as_deref(),
                 day,
+                stored.status,
+                input.status,
             );
             if let Some(record) = addition {
                 if !focus_days.contains(&record) {
@@ -605,11 +631,21 @@ mod tests {
         }
     }
 
+    /// A worked-on (in progress) task, so focus history applies.
     fn with_focus(id: &str, focus_date: Option<&str>, today: Option<&str>) -> TaskUpsert {
+        with_focus_status(id, TaskStatus::InProgress, focus_date, today)
+    }
+
+    fn with_focus_status(
+        id: &str,
+        status: TaskStatus,
+        focus_date: Option<&str>,
+        today: Option<&str>,
+    ) -> TaskUpsert {
         TaskUpsert {
             focus_date: focus_date.map(str::to_string),
             today: today.map(str::to_string),
-            ..input(id, TaskStatus::Todo)
+            ..input(id, status)
         }
     }
 
@@ -1074,19 +1110,68 @@ mod tests {
     }
 
     #[test]
-    fn focus_history_does_not_keep_today_when_deferred_to_another_day() {
+    fn focus_history_follows_the_task_status() {
         let store = SessionStore::open_in_memory().unwrap();
         let conn = store.lock_conn().unwrap();
         let today = local_day(&conn, "");
         let tomorrow = local_day(&conn, "+1 day");
-        upsert_task(&conn, &with_focus("hist-2", Some(&today), None)).unwrap();
-        let planned =
-            upsert_task(&conn, &with_focus("hist-2", Some(&tomorrow), Some(&today))).unwrap();
-        assert!(planned.focus_days.is_empty());
-        // Unpinning today (a mistake undone) records nothing either.
-        upsert_task(&conn, &with_focus("hist-3", Some(&today), None)).unwrap();
-        let unpinned = upsert_task(&conn, &with_focus("hist-3", None, Some(&today))).unwrap();
-        assert!(unpinned.focus_days.is_empty());
+        let later = local_day(&conn, "+3 days");
+        // A todo task pinned today and deferred records nothing.
+        let todo = with_focus_status("hist-a", TaskStatus::Todo, Some(&today), None);
+        upsert_task(&conn, &todo).unwrap();
+        let moved = with_focus_status("hist-a", TaskStatus::Todo, Some(&later), Some(&today));
+        assert!(upsert_task(&conn, &moved).unwrap().focus_days.is_empty());
+        // A task in progress records today when moved to another day.
+        let work = with_focus_status("hist-b", TaskStatus::InProgress, Some(&today), None);
+        upsert_task(&conn, &work).unwrap();
+        let planned = with_focus_status(
+            "hist-b",
+            TaskStatus::InProgress,
+            Some(&tomorrow),
+            Some(&today),
+        );
+        assert_eq!(
+            upsert_task(&conn, &planned).unwrap().focus_days,
+            vec![today.clone()]
+        );
+        // Becoming completed in the same update counts as worked on.
+        let pinned = with_focus_status("hist-c", TaskStatus::Todo, Some(&today), None);
+        upsert_task(&conn, &pinned).unwrap();
+        let done = with_focus_status(
+            "hist-c",
+            TaskStatus::Completed,
+            Some(&tomorrow),
+            Some(&today),
+        );
+        assert_eq!(
+            upsert_task(&conn, &done).unwrap().focus_days,
+            vec![today.clone()]
+        );
+        // Unpinning today records nothing, whatever the status.
+        let pinned = with_focus_status("hist-d", TaskStatus::InProgress, Some(&today), None);
+        upsert_task(&conn, &pinned).unwrap();
+        let unpinned = with_focus_status("hist-d", TaskStatus::InProgress, None, Some(&today));
+        assert!(upsert_task(&conn, &unpinned).unwrap().focus_days.is_empty());
+    }
+
+    #[test]
+    fn focus_history_carry_over_depends_on_status() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let today = local_day(&conn, "");
+        let yesterday = local_day(&conn, "-1 day");
+        let todo = with_focus_status("hist-e", TaskStatus::Todo, Some(&yesterday), None);
+        upsert_task(&conn, &todo).unwrap();
+        let carried = with_focus_status("hist-e", TaskStatus::Todo, Some(&today), Some(&today));
+        assert!(upsert_task(&conn, &carried).unwrap().focus_days.is_empty());
+        let work = with_focus_status("hist-f", TaskStatus::InProgress, Some(&yesterday), None);
+        upsert_task(&conn, &work).unwrap();
+        let carried =
+            with_focus_status("hist-f", TaskStatus::InProgress, Some(&today), Some(&today));
+        assert_eq!(
+            upsert_task(&conn, &carried).unwrap().focus_days,
+            vec![yesterday]
+        );
     }
 
     #[test]

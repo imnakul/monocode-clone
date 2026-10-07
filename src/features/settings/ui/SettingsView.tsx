@@ -239,6 +239,11 @@ import {
   parseOpenCodeVersion,
 } from "../../../integrations/harness/providers/opencode/opencodeProtocol";
 import { refreshHarnessCatalogs } from "../../../integrations/harness/core/registry";
+import {
+  getProviderCheckSnapshot,
+  runProviderCheck,
+  subscribeProviderCheck,
+} from "../../providers/model/providerCheck";
 import { getCliCatalogSnapshot, subscribeCliCatalog } from "../../../integrations/harness/providers/antigravity-cli/antigravityCliCatalog";
 import { HELPER_ISOLATION } from "../../../integrations/harness/core/helperIsolation";
 import { loginHarness } from "../../../integrations/harness/core/auth";
@@ -395,6 +400,7 @@ import {
   currentKeybindings,
   loadClaudeHooks,
   loadNewChatExecution,
+  loadCheckProvidersOnStartup,
   loadCloseToTray,
   loadCollapsedProjectRailMode,
   loadComposerRunner,
@@ -417,6 +423,7 @@ import {
   saveClaudeHooks,
   saveNewChatExecution,
   type NewChatExecution,
+  saveCheckProvidersOnStartup,
   saveCloseToTray,
   saveCollapsedProjectRailMode,
   saveComposerRunner,
@@ -547,8 +554,8 @@ type Props = {
   onDeleteProject?: (path: string) => void;
   onOpenWhatsNew: (version: string) => void;
   onImportSessions: (sessions: Session[]) => void;
-  /** Opens the Import session dialog; absent while no native provider is enabled. */
-  onImportSession?: () => void;
+  /** Opens the Resume session dialog; absent while no native provider is enabled. */
+  onResumeSession?: () => void;
   collapsedProjectRailMode?: CollapsedProjectRailMode;
   onCollapsedProjectRailModeChange?: (mode: CollapsedProjectRailMode) => void;
 };
@@ -575,7 +582,7 @@ export function SettingsView({
   onDeleteProject,
   onOpenWhatsNew,
   onImportSessions,
-  onImportSession,
+  onResumeSession,
   collapsedProjectRailMode,
   onCollapsedProjectRailModeChange,
 }: Props) {
@@ -696,14 +703,14 @@ export function SettingsView({
                   title={settingsSectionLabel(section)}
                   description={settingsSectionDescription(section)}
                   action={
-                    section === "migration" && onImportSession ? (
-                      <SecondaryButton onClick={onImportSession}>
+                    section === "migration" && onResumeSession ? (
+                      <SecondaryButton onClick={onResumeSession}>
                         <ArrowDownCircle
                           aria-hidden
                           className="size-3.5"
                           strokeWidth={1.75}
                         />
-                        Import session
+                        Resume session
                       </SecondaryButton>
                     ) : undefined
                   }
@@ -981,6 +988,9 @@ function GeneralPage({
     loadTabAnimationsEnabled,
   );
   const [closeToTray, setCloseToTray] = useState(loadCloseToTray);
+  const [checkProvidersOnStartup, setCheckProvidersOnStartup] = useState(
+    loadCheckProvidersOnStartup,
+  );
   const [quickComposerEnabled, setQuickComposerEnabled] = useState(
     loadQuickComposerEnabled,
   );
@@ -1053,6 +1063,11 @@ function GeneralPage({
   const onTabAnimationsEnabled = (next: boolean) => {
     saveTabAnimationsEnabled(next);
     setTabAnimationsEnabled(next);
+  };
+
+  const onCheckProvidersOnStartup = (next: boolean) => {
+    saveCheckProvidersOnStartup(next);
+    setCheckProvidersOnStartup(next);
   };
 
   const onCloseToTray = (next: boolean) => {
@@ -1186,6 +1201,17 @@ function GeneralPage({
             label="Working agents"
             on={liveAgentsEnabled}
             onChange={onLiveAgentsEnabled}
+          />
+        </Row>
+        <Row
+          id="check-providers-on-startup"
+          label="Check providers when MonoCode opens"
+          description="Runs a quick background check a moment after launch, so models are ready when you start."
+        >
+          <Toggle
+            label="Check providers when MonoCode opens"
+            on={checkProvidersOnStartup}
+            onChange={onCheckProvidersOnStartup}
           />
         </Row>
         {IS_WIN && (
@@ -4107,10 +4133,15 @@ export function ProvidersPage({
   void providersRevision;
   const [choice, setChoice] = useState(loadLastModelChoice);
   const [defaultModels, setDefaultModels] = useState(loadDefaultModels);
-  const [initialStatus, setInitialStatus] = useState<
-    "checking" | "ready" | "error"
-  >("checking");
-  const initialLoading = initialStatus === "checking";
+  const check = useSyncExternalStore(
+    subscribeProviderCheck,
+    getProviderCheckSnapshot,
+    getProviderCheckSnapshot,
+  );
+  // Rows show their loading state only until the first run of this app session
+  // finishes; a later Refresh all keeps the results on screen.
+  const initialLoading =
+    check.phase === "checking" && check.completedAt === undefined;
   const [claudeHooks, setClaudeHooks] = useState(loadClaudeHooks);
   const [newChatExecution, setNewChatExecution] = useState(
     loadNewChatExecution,
@@ -4176,32 +4207,24 @@ export function ProvidersPage({
       )
     : (choice?.harness ?? null);
 
+  // Opening this page checks providers only when nothing has been checked in
+  // this app run (startup check off or not finished yet); otherwise it shows
+  // what the shared check already found.
   useEffect(() => {
-    let mounted = true;
-    // All rows mount together, so track both concurrent discovery paths as
-    // one page-level task. The blanket probe skips Antigravity's expensive
-    // handshake; its catalog supplies availability evidence instead.
-    const catalogIds = HARNESSES.filter(
-      (id) =>
-        !hasLiveCatalog(id) &&
-        (isHarnessAvailable(id) || !hasHarnessEvidence(id)),
-    );
-    void Promise.allSettled([
-      probeHarnessAvailability({ exclude: ["antigravity"] }),
-      refreshHarnessCatalogs(catalogIds),
-    ]).then((results) => {
-      if (!mounted) return;
-      setInitialStatus(
-        results.some((result) => result.status === "rejected")
-          ? "error"
-          : "ready",
-      );
-      void runUpdateCheck();
-    });
-    return () => {
-      mounted = false;
-    };
+    if (getProviderCheckSnapshot().phase === "idle") void runProviderCheck();
   }, []);
+  const updateCheckedRef = useRef(false);
+  useEffect(() => {
+    if (check.phase !== "ready" && check.phase !== "error") return;
+    if (updateCheckedRef.current) return;
+    updateCheckedRef.current = true;
+    void runUpdateCheck();
+  }, [check.phase, runUpdateCheck]);
+  const onRefreshAll = (): void => {
+    void runProviderCheck({ force: true, includeAntigravity: true }).then(
+      () => runUpdateCheck(),
+    );
+  };
 
   useEffect(() => {
     if (!scopeOptions.some((option) => option.value === scope)) {
@@ -4261,25 +4284,38 @@ export function ProvidersPage({
         title={settingsSectionLabel("providers")}
         description={settingsSectionDescription("providers")}
         action={
-          <div
-            role="status"
-            aria-live="polite"
-            className={
-              initialStatus === "ready"
-                ? "sr-only"
-                : "flex shrink-0 items-center gap-2 pt-1 text-[12px] text-content/55"
-            }
-          >
-            {initialLoading ? (
-              <>
-                <TerminalSpinner />
-                Checking providers…
-              </>
-            ) : initialStatus === "error" ? (
-              "Provider checks failed. Use Recheck to retry."
-            ) : (
-              "Provider checks complete."
-            )}
+          <div className="flex shrink-0 items-center gap-3">
+            <div
+              role="status"
+              aria-live="polite"
+              className={
+                check.phase === "ready" || check.phase === "idle"
+                  ? "sr-only"
+                  : "flex shrink-0 items-center gap-2 text-[12px] text-content/55"
+              }
+            >
+              {check.phase === "checking" ? (
+                <>
+                  <TerminalSpinner />
+                  Checking providers…
+                </>
+              ) : check.phase === "error" ? (
+                "Some provider checks failed."
+              ) : (
+                "Provider checks complete."
+              )}
+            </div>
+            <SecondaryButton
+              onClick={onRefreshAll}
+              disabled={check.phase === "checking"}
+            >
+              <RefreshCw
+                aria-hidden
+                strokeWidth={1.75}
+                className="size-3.5"
+              />
+              Refresh all
+            </SecondaryButton>
           </div>
         }
       />
