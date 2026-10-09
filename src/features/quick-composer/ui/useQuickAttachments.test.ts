@@ -334,7 +334,9 @@ it("shows a recoverable error when persisting a pasted image keeps failing", asy
       },
       preventDefault: vi.fn(),
     } as never);
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await vi.waitFor(() =>
+      expect(onError).toHaveBeenLastCalledWith("Disk full"),
+    );
   });
   expect(api.files).toEqual([]);
   expect(onError).toHaveBeenLastCalledWith("Disk full");

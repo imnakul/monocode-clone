@@ -147,7 +147,7 @@ describe("AgentTranscript collapsed work", () => {
     );
     expect(markup).toContain('data-monocode-tool-call="sessions.send"');
     expect(markup).toContain("private-marker");
-    expect(markup).toContain("Allow</button>");
+    expect(markup).toContain("Allow once</button>");
 
     const compound = renderToStaticMarkup(
       createElement(AgentTranscript, {
@@ -167,7 +167,7 @@ describe("AgentTranscript collapsed work", () => {
     );
     expect(compound).not.toContain("data-monocode-tool-call");
     expect(compound).toContain("echo extra");
-    expect(compound).toContain("Allow</button>");
+    expect(compound).toContain("Allow once</button>");
   });
 
   it("keeps a failed MonoCode call compact until its error is opened", () => {
@@ -282,7 +282,7 @@ describe("AgentTranscript collapsed work", () => {
       ),
     );
     const serverButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Allow MCP server for this chat",
+      (button) => button.textContent === "Always for chat",
     );
     expect(serverButton?.getAttribute("title")).toBe(
       "Allow tools from docs for this chat.",
@@ -1078,7 +1078,7 @@ describe("Mono inline work", () => {
     const approval = tool("approval", { requestId: 1 });
     const waiting = renderMono([user, approval], true);
     expect(waiting).toContain("hidden-detail-approval");
-    expect(waiting).toContain("Allow</button>");
+    expect(waiting).toContain("Allow once</button>");
     expect(waiting).toContain("Deny</button>");
     expect(waiting).toContain("Waiting for approval…");
     expect(waiting).not.toContain('aria-label="Show the steps');
@@ -1092,7 +1092,7 @@ describe("Mono inline work", () => {
     ]);
     expect(approved).toContain("Ran a command");
     expect(approved).not.toContain("hidden-detail-approval");
-    expect(approved).not.toContain("Allow</button>");
+    expect(approved).not.toContain("Allow once</button>");
   });
 
   it("keeps delegated tool work compact, including failed runs", () => {

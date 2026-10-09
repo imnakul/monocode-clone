@@ -12,6 +12,7 @@ the top of the table. Do not rewrite older sections.
 
 | Date | Section heading (search this) | Area |
 |---|---|---|
+| 7 Oct 2026 | MCP test fixtures use discovery paths and repository boundaries | Windows tests, MCP |
 | 6 Oct 2026 | Native session identity preserves Windows project paths | provider resume, drive/UNC paths |
 | 3 Oct 2026 | MCP config toggles preserve Windows line endings | MCP, config, CRLF |
 | 2 Oct 2026 | Windows 0.6.0 installer | installer, versioning, known test failures |
@@ -49,6 +50,14 @@ the top of the table. Do not rewrite older sections.
 | 24 Sept 2026 | round 3 landed in tree | upstream merge, CLI notices |
 
 ---
+
+## 7 Oct 2026 - MCP test fixtures use discovery paths and repository boundaries
+
+The Windows installer gates were blocked by test fixture mistakes, not failing production compilation. A PathBuf joined with `.codex/config.toml` retains the slash inside that component on Windows; MCP discovery joins `.codex` and `config.toml` separately and emits backslashes. Its exact config-path validation therefore rejected the test request before the read-only guard. Match the path emitted by discovery; retain the production validation.
+
+A discovery fixture without `.git` also walked above its temporary project into actual host configuration. Create the repository boundary in fixtures so assertions depend only on test-owned files. Both failures now pass in the full Rust suite. Attachment tests must await FileReader/persistence outcomes rather than a fixed short sleep; lazy editor imports must settle before polling DOM assertions.
+
+Evidence: `docs/notes/windows-0.8.0-local1-upstream-sync-importsession-build/README.md` (green full gates and verified installer).
 
 ## 6 Oct 2026 — Native session identity preserves Windows project paths
 

@@ -129,7 +129,7 @@ function ApprovalToastCard({
             className="min-w-16 flex-1 rounded-md bg-content px-2.5 py-1 text-[11px] font-medium text-background-base hover:bg-content/80 max-[319px]:basis-[calc(50%_-_0.25rem)]"
             onClick={() => onApproval(session.id, requestId, "allow")}
           >
-            Allow
+            Allow once
           </button>
           {notice.sessionScopeHint && !notice.serverScope ? (
             <button
@@ -154,7 +154,7 @@ function ApprovalToastCard({
                 onApproval(session.id, requestId, "allow", "server")
               }
             >
-              Allow MCP server for this chat
+              Always for chat
             </button>
           ) : null}
           <button

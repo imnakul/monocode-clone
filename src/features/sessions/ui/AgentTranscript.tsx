@@ -4584,7 +4584,7 @@ function ApprovalControls({
         className="rounded-md bg-content px-2.5 py-0.5 text-[11px] text-background-base hover:bg-content/80"
         onClick={() => onApproval(approval.requestId, "allow")}
       >
-        Allow
+        Allow once
       </button>
       {approval.sessionScopeHint && !approval.serverScope ? (
         <button
@@ -4605,7 +4605,7 @@ function ApprovalControls({
           className="rounded-md bg-content/10 px-2.5 py-0.5 text-[11px] text-content/85 hover:bg-content/20"
           onClick={() => onApproval(approval.requestId, "allow", "server")}
         >
-          Allow MCP server for this chat
+          Always for chat
         </button>
       ) : null}
       <button

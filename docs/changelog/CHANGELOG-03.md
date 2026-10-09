@@ -1,5 +1,24 @@
 # Changelog 03 — MonoCode Windows fork
 
+## 2026-10-07 16:38 IST - Shorten approval button labels
+- What: Approval notifications and transcript buttons now read "Allow once" and "Always for chat". Approval actions and their scope are unchanged.
+- Why: Use the shorter labels requested for the approval prompt.
+- Files: `src/features/sessions/ui/ApprovalToasts.tsx`; `src/features/sessions/ui/AgentTranscript.tsx`; their tests; `docs/LOCAL-FEATURES.md` (L-20).
+- Verified: TypeScript pass; targeted approval/transcript tests pass (53). Production build pass (existing CSS highlight/chunk-size warnings). Lint unavailable (no configured script/config). Manual desktop label check pending.
+- Commit: uncommitted
+
+## 2026-10-07 16:22 IST - Repair Windows build tests and archive local1 upstream-sync-importsession
+- What: Fixed test timing, Windows shortcut/path expectations and isolated MCP discovery from host configuration. Completed the previously blocked unsigned Windows installer and verified its archive copy; all earlier installers preserved.
+- Files: `src/features/quick-composer/ui/useQuickAttachments.test.ts`; `src/features/files/ui/FilePaneNavigation.test.ts`; `src/features/settings/model/settings.test.ts`; `src-tauri/src/mcp.rs` (test fixture); `src-tauri/src/mcp/controls/tests.rs`; version metadata and [build record](../notes/windows-0.8.0-local1-upstream-sync-importsession-build/README.md); `docs/WINDOWS-CHANGES.md`.
+- Verified: TypeScript, full web suite (6,302), Rust format/Clippy/check/tests (666 passed, 5 ignored), Windows NSIS build, version/signature and source/archive SHA-256 all pass. Lint unavailable. Manual desktop checks pending.
+- Commit: uncommitted
+
+## 2026-10-07 14:47 IST - Windows local1 upstream-sync-importsession build stopped before packaging
+- What: Updated version metadata for the requested local build, then stopped before packaging after the web and Rust gates reported failures that the runbook does not allow this run to waive.
+- Files: `package.json`, `package-lock.json`, `Cargo.toml`, `Cargo.lock`, `src-tauri/tauri.conf.json` (version only); per-run record and logs: `docs/notes/windows-0.8.0-local1-upstream-sync-importsession-build/README.md`.
+- Verified: tsc pass; web suite red (6,299 passed / 3 failed; full check 6,295 passed / 7 failed); Cargo fmt pass; cargo check pass; Rust gate red (664 passed / 2 failed / 5 ignored); build not run; manual: installer checks pending.
+- Commit: uncommitted
+
 ## 2026-10-07 12:40 IST — Verify label, startup provider check, Refresh all, Remote Control on existing chats, Resume session
 - What: Task status "Review" now reads "Verify" everywhere (stored value stays `review`; `tasks.write` unchanged). About 2 s after MonoCode opens, a light provider check runs once in the background (never the Antigravity handshake, hidden providers or saved sessions) with a title-bar "Checking providers…" / "Providers ready" indicator and an amber dot that opens Settings → Providers on failure; Settings → General can turn it off. Settings → Providers shows the shared result instead of re-checking on every visit and has a "Refresh all" button (forces a check including Antigravity). The composer's "Work in" chip on an existing Claude chat opens the Remote Control menu, so Remote Control can be turned on after a chat started. Focus history now records a day only for tasks that were worked on (Progress, Blocked, Verify, Done); moving a Todo task records nothing. "Import session" is renamed "Resume session", and Claude's auto-compaction summary no longer appears in resumed history.
 - Why: Verify covers both reviewing and testing; knowing when providers are ready; fixing the Remote Control regression from `1f5d585`; Todo tasks should not accumulate focus history; the old name hid what the dialog does.

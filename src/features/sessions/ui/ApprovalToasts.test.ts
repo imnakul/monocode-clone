@@ -69,7 +69,7 @@ it("hides muted project approval popups while another project's controls remain 
   expect(visibleRequests()).toHaveLength(1);
   expect(visibleRequests()[0]).toContain("Request work");
   const allow = [...document.querySelectorAll("button")].find(
-    (item) => item.textContent === "Allow",
+    (item) => item.textContent === "Allow once",
   )!;
   act(() => allow.click());
   expect(onApproval).toHaveBeenCalledWith("work", 1, "allow");
@@ -127,7 +127,7 @@ it("prefers the verified MCP server option over tool session approval and forwar
   expect(pending?.serverScope?.serverName).toBe("docs");
   await act(async () => render([{ ...pending!, session: capable.session }]));
   const serverButton = [...document.querySelectorAll("button")].find(
-    (button) => button.textContent === "Allow MCP server for this chat",
+    (button) => button.textContent === "Always for chat",
   );
   expect(serverButton?.getAttribute("title")).toBe(
     "Allow tools from docs for this chat.",
@@ -136,19 +136,19 @@ it("prefers the verified MCP server option over tool session approval and forwar
     ...document.querySelectorAll(".approval-toast > div button"),
   ].map((button) => button.textContent);
   expect(approvalButtons).toEqual([
-    "Allow",
-    "Allow MCP server for this chat",
+    "Allow once",
+    "Always for chat",
     "Deny",
   ]);
   act(() => serverButton?.click());
   expect(onApproval).toHaveBeenCalledWith("work", 1, "allow", "server");
 });
 
-it("keeps one-time approvals to Allow and Deny", async () => {
+it("keeps one-time approvals to Allow once and Deny", async () => {
   await act(async () => render([notice("work")]));
   const approvalButtons = [...document.querySelectorAll(".approval-toast > div button")]
     .map((button) => button.textContent);
-  expect(approvalButtons).toEqual(["Allow", "Deny"]);
+  expect(approvalButtons).toEqual(["Allow once", "Deny"]);
   expect(document.body.textContent).not.toContain("Allow for this chat");
 });
 

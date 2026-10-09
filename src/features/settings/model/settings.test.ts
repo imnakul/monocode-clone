@@ -71,7 +71,7 @@ import {
   saveQuickComposerShortcut,
   saveTabAnimationsEnabled,
 } from "./settings";
-import { IS_MAC, MOD, SHIFT } from "../../../platform/tauri/platform";
+import { IS_MAC, IS_WIN, MOD, SHIFT } from "../../../platform/tauri/platform";
 
 const KEY = "monocode.composerRunner";
 const MODEL_CONTROLS_KEY = "monocode.modelControls";
@@ -484,7 +484,9 @@ describe("quick composer shortcut setting", () => {
   beforeEach(mockLocalStorage);
 
   it("defaults to the existing shortcut and persists a custom binding", () => {
-    expect(loadQuickComposerShortcut()).toBe("Command+Shift+Space");
+    expect(loadQuickComposerShortcut()).toBe(
+      IS_WIN ? "Control+Shift+Space" : "Command+Shift+Space",
+    );
     saveQuickComposerShortcut("Command+Option+KeyK");
     expect(localStorage.getItem(QUICK_COMPOSER_SHORTCUT_KEY)).toBe(
       "Command+Option+KeyK",
@@ -494,7 +496,9 @@ describe("quick composer shortcut setting", () => {
 
   it("ignores malformed stored bindings", () => {
     localStorage.setItem(QUICK_COMPOSER_SHORTCUT_KEY, "Shift+Space");
-    expect(loadQuickComposerShortcut()).toBe("Command+Shift+Space");
+    expect(loadQuickComposerShortcut()).toBe(
+      IS_WIN ? "Control+Shift+Space" : "Command+Shift+Space",
+    );
   });
 });
 

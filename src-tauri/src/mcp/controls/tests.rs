@@ -376,7 +376,7 @@ fn preserves_symlinks_and_restrictive_config_permissions() {
 #[test]
 fn readonly_configuration_is_reported_without_replacing_it() {
     let fixture = Fixture::new();
-    let path = fixture.home().join(".codex/config.toml");
+    let path = fixture.home().join(".codex").join("config.toml");
     let raw = "[mcp_servers.docs]\ncommand='node'\n";
     fixture.write(&path, raw);
     let original = std::fs::metadata(&path).unwrap().permissions();
@@ -384,7 +384,8 @@ fn readonly_configuration_is_reported_without_replacing_it() {
     readonly.set_readonly(true);
     std::fs::set_permissions(&path, readonly).unwrap();
     let result = fixture.toggle("codex", "user", &path, "docs", false);
-    assert!(result.unwrap_err().contains("read-only"));
+    let error = result.unwrap_err();
+    assert!(error.contains("read-only"), "Unexpected error: {error}");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), raw);
     // Restore this test fixture's permissions before its RAII cleanup.
     std::fs::set_permissions(path, original).unwrap();

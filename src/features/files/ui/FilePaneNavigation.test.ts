@@ -80,10 +80,10 @@ describe("file pane source navigation", () => {
       editorNavigation: { path, line, column: 2, token: 1 },
     };
     await act(async () => root.render(createElement(FilePane, paneProps)));
-    await vi.waitFor(async () => {
-      await act(async () => {
-        await vi.dynamicImportSettled();
-      });
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+    await vi.waitFor(() => {
       expect(container.querySelector(".cm-editor")).not.toBeNull();
     });
     return EditorView.findFromDOM(
