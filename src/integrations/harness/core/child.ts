@@ -41,6 +41,37 @@ export function readHarnessTextFile(path: string): Promise<string> {
   });
 }
 
+export function prepareMonoCodexStore(
+  providerAccountId?: string,
+  threadId?: string,
+): Promise<{ home: string; hasThread: boolean }> {
+  return invoke("codex_mono_store_prepare", { providerAccountId, threadId });
+}
+
+export function copyMonoCodexThreads(
+  providerAccountId: string | undefined,
+  threadId: string,
+  paths: string[],
+  sqliteHome?: string,
+): Promise<void> {
+  return invoke("codex_mono_store_copy", {
+    providerAccountId,
+    threadId,
+    paths,
+    sqliteHome,
+  });
+}
+
+export function restoreMonoCodexAgentState(
+  providerAccountId: string | undefined,
+  threadId: string,
+): Promise<void> {
+  return invoke("codex_mono_store_restore_agent_state", {
+    providerAccountId,
+    threadId,
+  });
+}
+
 function invoke<T>(
   command: string,
   args?: Record<string, unknown>,
@@ -309,12 +340,15 @@ export async function spawnChild(
   command: string,
   args: string[],
   cwd: string,
-  account: { provider: "claude" | "codex"; id: string } | undefined,
-  binaryProvider: ConfigurableBinaryProvider,
+  account?: { provider: "claude" | "codex"; id: string },
+  binaryProvider?: ConfigurableBinaryProvider,
+  codexStore?: "mono",
 ): Promise<void> {
   livePid.delete(sessionId);
   pendingExit.delete(sessionId);
-  const binaryPath = configuredBinaryPath(binaryProvider);
+  const binaryPath = binaryProvider
+    ? configuredBinaryPath(binaryProvider)
+    : undefined;
   ownedChildren.add(sessionId);
   const pid = await invoke<number>("harness_spawn", {
     sessionId,
@@ -324,6 +358,7 @@ export async function spawnChild(
     account,
     binaryProvider,
     binaryPath,
+    ...(codexStore ? { codexStore } : {}),
   });
   if (typeof pid !== "number" || pid <= 0) return;
   livePid.set(sessionId, pid);

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import type { HarnessId } from "../../sessions/model/session";
+import type { HarnessId, RuntimeMode } from "../../sessions/model/session";
+import { AccessPicker } from "../../sessions/ui/AccessPicker";
 import { ModelPicker, ModelSettingRows } from "../../sessions/ui/ModelPicker";
 import type { MonoLook, MonoState } from "../model/mono";
 import {
@@ -14,6 +15,7 @@ import { memoryLines } from "../model/monoMemory";
 import { HabitPage } from "./HabitPage";
 import { NewHabitPage } from "./NewHabitPage";
 import { MonoProjects } from "./MonoProjects";
+import { MonoPreferencesPage } from "./MonoPreferencesPage";
 import { MonoSettingsPage } from "./MonoSettingsPage";
 import { habitActions, HabitsList, useHabits } from "./MonoHabits";
 import { MemoryPage, SoulPage } from "./MonoFilePages";
@@ -23,7 +25,7 @@ import { MonoSidebar, MonoSidebarHeader } from "./MonoSidebar";
 
 /** A page opened directly from Details, or one habit inside its list. */
 type Route =
-  | { kind: "habits" | "soul" | "memory" | "new-habit" }
+  | { kind: "habits" | "soul" | "memory" | "settings" | "new-habit" }
   | { kind: "habit"; id: string };
 
 type Props = {
@@ -36,16 +38,19 @@ type Props = {
   harness: HarnessId;
   model: string;
   modelSettings: Record<string, string>;
+  runtimeMode: RuntimeMode;
+  busy?: boolean;
   onModelChange: (harness: HarnessId, model: string) => void;
   onModelSettingsChange: (settings: Record<string, string>) => void;
+  onRuntimeModeChange: (mode: RuntimeMode) => void;
   onClose: () => void;
   onReset?: () => Promise<void>;
   windowControls?: ReactNode;
 };
 
 /**
- * The Mono's profile, model and projects in one panel. Its habits, soul and
- * memory open directly as pages that slide over it.
+ * The Mono's profile, model, permissions and projects in one panel. Its habits,
+ * soul, memory and settings open directly as pages that slide over it.
  */
 export function MonoDetails({
   open,
@@ -56,8 +61,11 @@ export function MonoDetails({
   harness,
   model,
   modelSettings,
+  runtimeMode,
+  busy = false,
   onModelChange,
   onModelSettingsChange,
+  onRuntimeModeChange,
   onClose,
   onReset,
   windowControls,
@@ -123,6 +131,20 @@ export function MonoDetails({
           node: <MemoryPage monoId={monoId} files={files} onBack={back} />,
         },
       ];
+    if (route.kind === "settings")
+      return [
+        {
+          key: "settings",
+          node: (
+            <MonoPreferencesPage
+              monoId={monoId}
+              agent={agent}
+              onBack={back}
+              onReset={onReset}
+            />
+          ),
+        },
+      ];
     if (route.kind === "new-habit")
       return [
         {
@@ -170,7 +192,6 @@ export function MonoDetails({
           monoId={monoId}
           agent={agent}
           onOpen={(page) => push({ kind: page })}
-          onReset={onReset}
           counts={{
             habits: habits?.length,
             memory: files ? memoryLines(files.memory).length : undefined,
@@ -200,6 +221,15 @@ export function MonoDetails({
                 <Property label={label}>{control}</Property>
               )}
             />
+            <Property label="Permissions">
+              <AccessPicker
+                value={runtimeMode}
+                onChange={onRuntimeModeChange}
+                busy={busy}
+                side="bottom"
+                variant="plain"
+              />
+            </Property>
             <Property label="Projects">
               <MonoProjects monoId={monoId} projects={agent.projects} />
             </Property>

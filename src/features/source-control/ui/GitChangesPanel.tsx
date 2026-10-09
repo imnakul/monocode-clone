@@ -419,8 +419,7 @@ function ChangedFiles({
   const canCommitPush =
     canCommit && hasRemote && !diverged && (!amend || !index?.headPushed);
   const canCommitPushPr = canCommitPush && !hasOpenPr && !onDefault;
-  const canEditMessage =
-    (staged.length > 0 || amend) && (!busy || busy === "generate");
+  const canEditMessage = !busy || busy === "generate";
 
   useEffect(
     () => () => {
@@ -1019,7 +1018,7 @@ function ChangedFiles({
   );
 }
 
-function usePrStatus(
+export function usePrStatus(
   cwd: string,
   branch: string | null | undefined,
 ): { pr: GitPr | null; reload: () => void } {
@@ -1081,7 +1080,7 @@ function syncStatusLabel(index: GitDiffIndex): string {
   return "No files";
 }
 
-function GitSyncActions({
+export function GitSyncActions({
   index,
   pr,
   busy,

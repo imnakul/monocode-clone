@@ -52,6 +52,9 @@ export type TextPromptInput = {
   providerAccountId?: string;
   model?: string;
   modelSettings?: Record<string, string>;
+  /** Codex defaults to unsaved threads; false allows resumable side questions. */
+  ephemeral?: boolean;
+  codexStore?: "mono";
   threadId?: string;
   onThreadId?: (threadId: string) => void;
   intent?: TurnIntent;
@@ -536,8 +539,8 @@ export async function refreshHarnessCatalogs(
       .filter((adapter) => wanted.has(adapter.id))
       .map(async (adapter) => {
         if (!adapter.refreshCatalog) return;
-        // A landed overlay counts as live and blocks repeats on the auto path;
-        // manual Recheck must be able to replace a stale or fallback catalog.
+        // Explicit dropdown opens and manual Recheck can replace stale or
+        // fallback catalogs; routine refreshes skip once a live list lands.
         if (!options?.force && hasLiveCatalog(adapter.id)) return;
         await adapter.refreshCatalog().catch((error: unknown) => {
           console.debug(`[monocode] ${adapter.id} catalog`, error);

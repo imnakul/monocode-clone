@@ -300,7 +300,7 @@ describe("Codex requests reach the chat and notifications", () => {
     expect(document.querySelector(".approval-toast")).toBeNull();
   });
 
-  it("keeps command approval visible and sends Allow from the toast", async () => {
+  it("keeps command approval visible and sends Allow once from the toast", async () => {
     await act(async () =>
       onLine(
         JSON.stringify({
@@ -314,7 +314,7 @@ describe("Codex requests reach the chat and notifications", () => {
         }),
       ),
     );
-    expect(container.textContent).toContain("Allow");
+    expect(container.textContent).toContain("Allow once");
     expect(document.querySelector(".approval-toast")).not.toBeNull();
     expect(invoke).toHaveBeenCalledWith(
       "show_notification",
@@ -325,7 +325,7 @@ describe("Codex requests reach the chat and notifications", () => {
     );
     await act(async () =>
       Array.from(document.querySelectorAll(".approval-toast button"))
-        .find((b) => b.textContent?.trim() === "Allow")!
+        .find((b) => b.textContent?.trim() === "Allow once")!
         .dispatchEvent(new MouseEvent("click", { bubbles: true })),
     );
     expect(sent.find((m) => m.id === 91)?.result).toEqual({
@@ -334,7 +334,7 @@ describe("Codex requests reach the chat and notifications", () => {
     expect(document.querySelector(".approval-toast")).toBeNull();
   });
 
-  it.each(["Allow", "Deny"])(
+  it.each(["Allow once", "Deny"])(
     "shows a required Boolean MCP confirmation and sends %s",
     async (choice) => {
       await act(async () =>
@@ -371,8 +371,8 @@ describe("Codex requests reach the chat and notifications", () => {
           .dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
       expect(sent.find((m) => m.id === 91)?.result).toEqual({
-        action: choice === "Allow" ? "accept" : "decline",
-        content: choice === "Allow" ? { approved: true } : null,
+        action: choice === "Allow once" ? "accept" : "decline",
+        content: choice === "Allow once" ? { approved: true } : null,
         _meta: null,
       });
       expect(document.querySelector(".approval-toast")).toBeNull();

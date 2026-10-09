@@ -124,6 +124,22 @@ beforeEach(() => {
 });
 
 describe("GitChangesPanel commit message generation", () => {
+  it("keeps a manual message editable when the file selection is empty", async () => {
+    vi.mocked(gitDiffIndex).mockResolvedValue(index({ files: [] }));
+    await renderPanel();
+
+    const message = container.querySelector<HTMLTextAreaElement>("textarea")!;
+    expect(message.disabled).toBe(false);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!.call(message, "Manual summary");
+      message.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(message.value).toBe("Manual summary");
+  });
+
   it("cancels promptly and ignores a late result after a retry", async () => {
     vi.mocked(gitDiffIndex).mockResolvedValue(
       index({

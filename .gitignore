@@ -21,6 +21,8 @@ build/
 target/
 gen/schemas/
 coverage/
+playwright-report/
+test-results/
 .vite/
 .turbo/
 *.tsbuildinfo
@@ -56,3 +58,5 @@ Desktop.ini
 
 # Personal working docs live here and must never be committed.
 
+# Local document preview mockup
+/work/mono-document-preview.html

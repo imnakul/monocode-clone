@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isMonoSession } from "../../monos/model/mono";
+import { sanitizeMonoSpawnedSessions } from "../../monos/model/monoSpawnedSessions";
 import {
   isWeakToolTitle,
   titleFromToolInput,
@@ -59,6 +60,7 @@ import {
 import { sanitizeProcessedUsage } from "../model/tokenAccounting";
 
 export type SessionSummary = {
+  sidebarHidden?: boolean;
   orchestrationLeadId?: string;
   orchestration?: OrchestrationSummary;
   id: string;
@@ -86,6 +88,7 @@ export type SessionSummary = {
 };
 
 type SessionRecord = {
+  sidebarHidden?: boolean;
   monoTranscript?: Session["monoTranscript"];
   orchestrationLeadId?: string;
   id: string;
@@ -112,6 +115,7 @@ type SessionRecord = {
 };
 
 type SessionUpsertPayload = {
+  sidebarHidden?: boolean;
   id: string;
   cwd: string;
   harness: string;
@@ -174,6 +178,7 @@ function persistableMeta(
     modelSettings: session.modelSettings,
     runtimeMode: session.runtimeMode,
     title: session.title,
+    ...(session.sidebarHidden === true ? { sidebarHidden: true } : {}),
     ...(queuedMessages.length
       ? {
           queuedMessages,
@@ -1022,6 +1027,9 @@ function sanitizeBlock(
   const completion = sanitizeMonoSessionCompletion(block.monoSessionCompletion);
   if (block.role === "user" && block.internal && completion)
     next.monoSessionCompletion = completion;
+  const spawned = sanitizeMonoSpawnedSessions(block.monoSpawnedSessions);
+  if (block.role === "user" && spawned.length)
+    next.monoSpawnedSessions = spawned;
   const turnMetrics = sanitizeTurnMetrics(block.turnMetrics);
   if (block.role === "user" && turnMetrics) next.turnMetrics = turnMetrics;
   if (block.tool) next.tool = block.tool;
@@ -1083,6 +1091,30 @@ function sanitizeBlock(
   if (noteCard) next.noteCard = noteCard;
   const review = sanitizeReview(block.review);
   if (review) next.review = review;
+  if (Array.isArray(block.artifactCards)) {
+    const cards = block.artifactCards.flatMap((card) => {
+      if (
+        !card ||
+        card.kind !== "document" ||
+        typeof card.id !== "string" ||
+        !isPersistableId(card.id) ||
+        typeof card.title !== "string" ||
+        !card.title.trim()
+      )
+        return [];
+      return [
+        {
+          id: card.id,
+          kind: "document" as const,
+          title: card.title.slice(0, 200),
+          ...(typeof card.summary === "string" && card.summary.trim()
+            ? { summary: card.summary.slice(0, 280) }
+            : {}),
+        },
+      ];
+    });
+    if (cards.length) next.artifactCards = cards;
+  }
   if (
     block.role === "user" &&
     typeof block.ciContext === "string" &&
@@ -1606,6 +1638,7 @@ function normalizeSummary(summary: SessionSummary): SessionSummary {
     archived: summary.archived || undefined,
     pinned: summary.pinned || undefined,
     draft: summary.draft || undefined,
+    sidebarHidden: summary.sidebarHidden === true || undefined,
     linkedWorkItem,
     ...(typeof summary.automationId === "string" &&
     isPersistableId(summary.automationId)
@@ -1624,6 +1657,7 @@ function recordToSession(record: SessionRecord): Session {
   const linkedWorkItem = sanitizeLinkedWorkItem(record.linkedWorkItem);
   return {
     id: record.id,
+    sidebarHidden: record.sidebarHidden === true || undefined,
     cwd: record.cwd,
     harness: asHarness(record.harness),
     model: record.model,

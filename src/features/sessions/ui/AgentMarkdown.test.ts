@@ -68,6 +68,19 @@ describe("AgentMarkdown inline code", () => {
 });
 
 describe("AgentMarkdown code fence highlighting", () => {
+  it("renders an incomplete Mermaid fence through the highlighted code fallback", () => {
+    const markup = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        text: "```mermaid\ngraph TD\nA --> B",
+        streaming: true,
+        revealOnMount: false,
+      }),
+    );
+
+    expect(markup).toContain('class="markdown-code-shell" dir="ltr"');
+    expect(markup).toContain('data-language="mermaid"');
+  });
+
   it("falls back to JS highlighting for a fence tagged text", () => {
     const markup = renderToStaticMarkup(
       createElement(AgentMarkdown, {

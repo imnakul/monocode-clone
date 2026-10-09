@@ -9,6 +9,7 @@ Supporting reference documents and implementation records. These are not active 
 - [local4-token-usage-hardening-record.md](local4-token-usage-hardening-record.md)
 - [orchestration-parking-30sept.md](orchestration-parking-30sept.md)
 - [UPSTREAM-AUTOMATION-INTAKE.md](UPSTREAM-AUTOMATION-INTAKE.md)
+- [upstream-0.10.0-intake.md](upstream-0.10.0-intake.md) — pinned snapshots, 204-path merge and preservation audit, conflict contracts, final validation and manual handoff.
 - [windows-provider-stabilization.md](windows-provider-stabilization.md)
 
 Historical or uncertain plans and audits: [archive index](archive/README.md).

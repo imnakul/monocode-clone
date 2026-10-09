@@ -999,7 +999,7 @@ describe("Mono inline work", () => {
   }
 
   it.each([true, false])(
-    "keeps the opening and reply around one combined work summary (busy=%s)",
+    "keeps narration hidden and shows the final reply only after completion (busy=%s)",
     (busy) => {
       const blocks: Block[] = [
         { id: "user", role: "user", text: "Check this", durationMs: 9_000 },
@@ -1030,18 +1030,17 @@ describe("Mono inline work", () => {
           : []),
       ];
       const markup = renderMono(blocks, busy);
-      const first = markup.indexOf("I will check the first part.");
-      const summary = markup.indexOf(
-        busy ? "Running command…" : "Ran 3 commands",
+      const header = markup.indexOf(
+        busy ? "Running command…" : "MonoCat worked for 9s",
       );
-      expect(first).toBeGreaterThan(markup.indexOf("MonoCat"));
-      expect(summary).toBeGreaterThan(first);
+      expect(header).toBeGreaterThanOrEqual(markup.indexOf("MonoCat"));
+      expect(markup).not.toContain("I will check the first part.");
       expect(markup).not.toContain(
         "The first part passed. Checking the next part.",
       );
       expect(markup.match(/data-mono-work/g)).toHaveLength(1);
       if (!busy)
-        expect(markup.indexOf("Everything passed.")).toBeGreaterThan(summary);
+        expect(markup.indexOf("Everything passed.")).toBeGreaterThan(header);
       expect(markup).not.toContain("hidden-detail-");
       expect(markup).not.toContain('aria-label="Show the work"');
       expect(markup).not.toContain("aria-expanded");
@@ -1050,7 +1049,7 @@ describe("Mono inline work", () => {
   );
 
   it.each([true, false])(
-    "keeps a single tool call behind its summary (busy=%s)",
+    "keeps a single tool call in the activity trail (busy=%s)",
     (busy) => {
       const markup = renderMono(
         [
@@ -1062,13 +1061,15 @@ describe("Mono inline work", () => {
         ],
         busy,
       );
-      expect(markup).toContain(busy ? "Running command…" : "Ran a command");
+      expect(markup).toContain(
+        busy ? "Running command…" : "MonoCat worked for 1s",
+      );
       expect(markup).not.toContain("hidden-detail-single");
       expect(markup).not.toContain("aria-expanded");
     },
   );
 
-  it("keeps approval controls available, then returns the call to its summary", () => {
+  it("keeps approval controls available, then returns the call to the activity trail", () => {
     const user: Block = {
       id: "user",
       role: "user",
@@ -1090,7 +1091,7 @@ describe("Mono inline work", () => {
         tool: { kind: "shell", status: "completed" },
       },
     ]);
-    expect(approved).toContain("Ran a command");
+    expect(approved).toContain("MonoCat worked for 1s");
     expect(approved).not.toContain("hidden-detail-approval");
     expect(approved).not.toContain("Allow once</button>");
   });
@@ -1117,8 +1118,8 @@ describe("Mono inline work", () => {
       },
       { id: "answer", role: "assistant", text: "The review could not finish." },
     ]);
-    expect(markup).toContain("I will ask for a review.");
-    expect(markup).toContain("Subagent failed");
+    expect(markup).not.toContain("I will ask for a review.");
+    expect(markup).not.toContain("Subagent failed");
     expect(markup).toContain("The review could not finish.");
     expect(markup).not.toContain("Private provider failure detail");
     expect(markup).not.toContain("Private delegated work");
@@ -1182,9 +1183,11 @@ describe("finished turn layout", () => {
     expect(markup).not.toContain("worked for");
     // Footer order: fork, side chat, then "Ran for · time", then note, session, copy.
     // Search only the footer row; the user message has its own note button.
-    const footer = markup.slice(
-      markup.indexOf('role="group" aria-label="Claude Sonnet 5, Ran for 54m'),
+    const labelAt = markup.indexOf(
+      'aria-label="Claude Sonnet 5, Ran for 54m',
     );
+    expect(labelAt).toBeGreaterThanOrEqual(0);
+    const footer = markup.slice(markup.lastIndexOf('<div role="group"', labelAt));
     expect(footer.length).toBeLessThan(markup.length);
     const at = (needle: string) => {
       const index = footer.indexOf(needle);

@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { probeHarnessAvailability } from "../../../integrations/harness/core/availability";
+import * as harnessRegistry from "../../../integrations/harness/core/registry";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { SettingsView } from "./SettingsView";
 import { rememberNotificationProjects } from "../../notifications/model/notificationProjects";
@@ -26,6 +27,12 @@ import {
 } from "../../sessions/model/session";
 import { saveMaskEmails, saveShowRemainingUsage } from "../model/displayPrefs";
 import { resetProviderCheck } from "../../providers/model/providerCheck";
+import {
+  createMono,
+  findMono,
+  monoLook,
+  updateMono,
+} from "../../monos/model/mono";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => undefined),
@@ -151,6 +158,32 @@ describe("settings pages", () => {
     expect(localStorage.getItem("monocode.sessionOpeningBehavior")).toBe(
       "both",
     );
+  });
+
+  it("saves each Mono's session visibility and restores it when settings reopen", async () => {
+    const mono = createMono();
+    const other = createMono();
+    const toggle = (id: string) =>
+      container.querySelector<HTMLButtonElement>(
+        `[role="switch"][aria-label="Show sessions started by ${monoLook(findMono(id)!).name} in sidebar"]`,
+      )!;
+    await render("monos");
+    expect(toggle(mono.id).getAttribute("aria-checked")).toBe("true");
+    expect(toggle(other.id).getAttribute("aria-checked")).toBe("true");
+    await act(async () => toggle(mono.id).click());
+    expect(toggle(mono.id).getAttribute("aria-checked")).toBe("false");
+    expect(findMono(mono.id)?.showStartedSessionsInSidebar).toBe(false);
+    expect(toggle(other.id).getAttribute("aria-checked")).toBe("true");
+    await render("general");
+    await render("monos");
+    expect(toggle(mono.id).getAttribute("aria-checked")).toBe("false");
+    await act(async () =>
+      updateMono(mono.id, (entry) => ({
+        ...entry,
+        showStartedSessionsInSidebar: true,
+      })),
+    );
+    expect(toggle(mono.id).getAttribute("aria-checked")).toBe("true");
   });
 
   it("keeps account emails blurred until clicked and hides them when settings reopen", async () => {
@@ -1205,6 +1238,28 @@ describe("settings search", () => {
 });
 
 describe("providers scope inheritance", () => {
+  it("refreshes a provider catalog once when its model menu opens", async () => {
+    const refresh = vi.spyOn(harnessRegistry, "refreshHarnessCatalogs");
+    await render("providers");
+    refresh.mockClear();
+
+    const modelMenu = container.querySelector<HTMLButtonElement>(
+      '[aria-label^="Claude Code model:"]',
+    )!;
+    expect(modelMenu).toBeTruthy();
+
+    await act(async () => modelMenu.click());
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenLastCalledWith(["claude"], { force: true });
+
+    await act(async () => modelMenu.click());
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    await act(async () => modelMenu.click());
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(refresh).toHaveBeenLastCalledWith(["claude"], { force: true });
+  });
+
   async function selectScope(label: string) {
     const trigger = container.querySelector<HTMLButtonElement>(
       '[aria-label^="Provider defaults scope"]',

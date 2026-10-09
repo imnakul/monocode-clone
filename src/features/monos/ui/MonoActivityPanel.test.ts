@@ -128,7 +128,7 @@ it("updates a live trail and keeps approval controls actionable", () => {
   expect(container.querySelectorAll("[data-mono-activity-block]")).toHaveLength(2);
   expect(container.textContent).toContain("Working");
   const allow = Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent === "Allow",
+    (button) => button.textContent === "Allow once",
   )!;
   act(() => allow.click());
   expect(onApproval).toHaveBeenCalledWith(42, "allow");

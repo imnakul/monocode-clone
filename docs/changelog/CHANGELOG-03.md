@@ -1,5 +1,11 @@
 # Changelog 03 — MonoCode Windows fork
 
+## 2026-10-09 — Integrate upstream 0.10.0
+- What: Merged pinned upstream main `416396c` (v0.9.0, v0.10.0 and 16 later commits) into the sync branch from live base `82907ac`. Resolved the 40 conflicts / 90 hunks under the approved keep-both contracts, retaining the Windows fork and L-01–L-73 behavior. OpenCode v2 selected-message fork and direct MCP server approval now use the verified v2 API fields.
+- Files: [upstream sync plan](../specs/upstream-0.10.0-sync-plan.md); [intake report](../notes/upstream-0.10.0-intake.md); [spec index](../specs/SPECS.md).
+- Verified: intake manifest exactly matches upstream's 204 changed paths; all 60 additions are tracked. Final `npm run check` passed: 600 web files / 6,617 tests, TypeScript, Rust format/Clippy and 705 Rust tests (2 ignored). Workspace cargo check, production build and release-channel tests (8) passed. Host TypeScript/build passed; the host suite has one pre-existing local-vs-remote Antigravity CLI parity assertion mismatch (103 passed, 1 failed, 5 skipped), documented in the intake report. The build reports existing CSS `::highlight` and large-chunk warnings. Base-only branch push is verified at `82907ac`; primary source/gate review passed and this merge commit is authorized for normal publication to the new branch. Later main `7d099eb` is a separate follow-up and does not block this validated snapshot. Windows/provider checks remain manual.
+- Commit: this merge commit; normal push to `origin/nakul/windows-support-upstream-0.10.0` (remote SHA recorded in task handoff)
+
 ## 2026-10-07 16:38 IST - Shorten approval button labels
 - What: Approval notifications and transcript buttons now read "Allow once" and "Always for chat". Approval actions and their scope are unchanged.
 - Why: Use the shorter labels requested for the approval prompt.

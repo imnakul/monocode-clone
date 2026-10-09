@@ -41,6 +41,10 @@ export type Mono = {
   color: string;
   /** Project folders it works on, in the order they were added. */
   projects: string[];
+  /** New sessions appear in the project sidebar unless explicitly disabled. */
+  showStartedSessionsInSidebar?: boolean;
+  /** Files the sessions it starts into a sidebar folder named after it. */
+  useSidebarFolders?: boolean;
   /** Superseded by SOUL.md; only read once, to seed it. */
   instructions?: string;
   /**
@@ -163,6 +167,10 @@ function parseMono(value: unknown): Mono | undefined {
           (path): path is string => typeof path === "string" && !!path,
         )
       : [],
+    ...(typeof entry.showStartedSessionsInSidebar === "boolean"
+      ? { showStartedSessionsInSidebar: entry.showStartedSessionsInSidebar }
+      : {}),
+    ...(entry.useSidebarFolders === true ? { useSidebarFolders: true } : {}),
     ...(instructions ? { instructions } : {}),
     ...(legacyProject ? { legacyProject } : {}),
   };

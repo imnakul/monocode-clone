@@ -61,6 +61,15 @@ export type BlockRole =
   | "system"
   | "handoff";
 
+/** A session created by a Mono during this conversation turn. */
+export type MonoSpawnedSession = {
+  sessionId: string;
+  cwd: string;
+  title: string;
+  harness: HarnessId;
+  model: string;
+};
+
 export type TaskListItemStatus =
   "pending" | "in_progress" | "completed" | "cancelled";
 
@@ -390,6 +399,8 @@ export type Block = {
   internal?: boolean;
   /** Hidden app prompt that starts a separate completion report in a Mono chat. */
   monoSessionCompletion?: MonoSessionCompletion;
+  /** Accepted session launches, kept on the originating user turn. */
+  monoSpawnedSessions?: MonoSpawnedSession[];
   handoff?: HandoffMeta;
   secondOpinion?: SecondOpinionMeta;
   /** Independent read-only side conversations anchored to this user turn. */
@@ -397,6 +408,8 @@ export type Block = {
   noteCard?: NoteCardMeta;
   /** CodeRabbit review report with per-issue fix buttons. Survives reloads. */
   review?: CodeReviewReport;
+  /** Saved artifacts attached to this turn; their bodies live outside chat. */
+  artifactCards?: import("../../artifacts/artifacts").ArtifactCard[];
   /** Exact CI repair instructions and evidence supplied with this user turn. */
   ciContext?: string;
   /** Mid-turn interjection chrome; system blocks only. Body lives in text. */
@@ -475,6 +488,8 @@ export const RUNTIME_MODE_HINT: Record<RuntimeMode, string> = {
 export type WorkspaceMode = "current" | "worktree";
 
 export type Session = {
+  /** Saved and accessible by id, but omitted from the normal session sidebar. */
+  sidebarHidden?: boolean;
   /** Receipt for an acknowledged floating-composer handoff. */
   quickLaunchAccepted?: boolean;
   /** Internal worker: displayed in its lead's panel rather than a workspace tab. */

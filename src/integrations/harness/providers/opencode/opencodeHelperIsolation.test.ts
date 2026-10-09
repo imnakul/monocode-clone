@@ -5,7 +5,10 @@ const state = vi.hoisted(() => ({
   createSession: vi.fn(),
   prompt: vi.fn(),
   abortSession: vi.fn(async () => undefined),
+  deleteSession: vi.fn(async () => undefined),
   closeEvents: vi.fn(async () => undefined),
+  unwatchChild: vi.fn(),
+  killChild: vi.fn(async () => undefined),
 }));
 
 vi.mock("../../core/child", () => ({
@@ -13,13 +16,13 @@ vi.mock("../../core/child", () => ({
   execChild: async () => "opencode 1.18.30",
   freeHarnessPort: async () => 4096,
   harnessHttp: vi.fn(),
-  killChild: async () => undefined,
+  killChild: state.killChild,
   openHarnessSse: async () => undefined,
   resolveOpenCodeBinary: async () => ({ path: "/fake/opencode" }),
   spawnChild: async (_id: string, _path: string, _args: string[]) => {
     state.onOutput?.("opencode server listening on http://127.0.0.1:4096");
   },
-  unwatchChild: () => undefined,
+  unwatchChild: state.unwatchChild,
   watchChild: (_id: string, output: (line: string) => void) => {
     state.onOutput = output;
   },
@@ -31,6 +34,7 @@ vi.mock("./opencodeClient", () => ({
     createSession: state.createSession,
     prompt: state.prompt,
     abortSession: state.abortSession,
+    deleteSession: state.deleteSession,
     closeEvents: state.closeEvents,
     subscribeEvents: vi.fn(async () => undefined),
   })),
@@ -44,7 +48,10 @@ beforeEach(() => {
   state.createSession.mockReset().mockResolvedValue({ id: "helper-session" });
   state.prompt.mockReset();
   state.abortSession.mockReset().mockResolvedValue(undefined);
+  state.deleteSession.mockReset().mockResolvedValue(undefined);
   state.closeEvents.mockReset().mockResolvedValue(undefined);
+  state.unwatchChild.mockReset();
+  state.killChild.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(async () => {
@@ -94,5 +101,25 @@ describe("OpenCode isolated helper runner", () => {
       }),
     ).rejects.toBeInstanceOf(HelperToolAttemptError);
     expect(state.abortSession).toHaveBeenCalledWith("helper-session");
+  });
+
+  it("keeps the tool-attempt error and completes teardown when session deletion fails", async () => {
+    state.prompt.mockResolvedValue({
+      parts: [{ type: "tool", tool: "bash", input: { command: "pwd" } }],
+    });
+    state.deleteSession.mockRejectedValueOnce(new Error("delete failed"));
+
+    await expect(
+      runOpenCodeTextPrompt({
+        helperOnly: true,
+        cwd: "/repo",
+        prompt: "Return a title.",
+      }),
+    ).rejects.toBeInstanceOf(HelperToolAttemptError);
+
+    expect(state.deleteSession).toHaveBeenCalledWith("helper-session");
+    expect(state.closeEvents).toHaveBeenCalled();
+    expect(state.unwatchChild).toHaveBeenCalled();
+    expect(state.killChild).toHaveBeenCalled();
   });
 });

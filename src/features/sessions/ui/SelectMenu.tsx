@@ -18,6 +18,7 @@ type Props = {
   value: string;
   options: readonly SelectMenuOption[];
   onChange: (value: string) => void;
+  onOpen?: () => void;
   className?: string;
   menuWidth?: number;
   maxHeight?: number;
@@ -28,6 +29,7 @@ export function SelectMenu({
   value,
   options,
   onChange,
+  onOpen,
   className = "w-44",
   menuWidth = 240,
   maxHeight = 360,
@@ -92,7 +94,10 @@ export function SelectMenu({
         aria-label={`${label}: ${current?.label ?? value}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          if (!open) onOpen?.();
+          setOpen(!open);
+        }}
         className={`flex h-7 w-full items-center gap-2 rounded-md border px-2 text-[12px] outline-none transition-colors ${
           open
             ? "border-content/20 bg-content/10 text-content"

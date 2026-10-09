@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MonoComposer } from "./MonoComposer";
 import { clearComposerDraft } from "../../sessions/model/draftCache";
+import { saveComposerAutocorrect } from "../../settings/model/displayPrefs";
 
 const { pick } = vi.hoisted(() => ({ pick: vi.fn() }));
 vi.mock("../../sessions/model/attachments", async (original) => ({
@@ -143,4 +144,47 @@ it("waits for attachment reads so they cannot leak into the next message", async
   act(submit);
   expect(onSubmit).toHaveBeenCalledExactlyOnceWith("With this file", [file]);
   expect(container.querySelector('[title="/tmp/note.txt"]')).toBeNull();
+});
+
+it("waits for delivery and keeps a rejected message available to retry", async () => {
+  let acknowledge!: (accepted: boolean) => void;
+  const onSubmit = vi.fn(
+    () =>
+      new Promise<boolean>((resolve) => {
+        acknowledge = resolve;
+      }),
+  );
+  render({ onSubmit });
+  type("Keep this draft");
+  act(() => {
+    submit();
+    submit();
+  });
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+  expect(field().value).toBe("Keep this draft");
+  expect(field().disabled).toBe(true);
+  await act(async () => {
+    acknowledge(false);
+  });
+  expect(field().value).toBe("Keep this draft");
+  expect(field().disabled).toBe(false);
+  act(() => submit());
+  await act(async () => {
+    acknowledge(true);
+  });
+  expect(field().value).toBe("");
+  expect(onSubmit).toHaveBeenCalledTimes(2);
+});
+
+it("follows the composer autocorrect setting", () => {
+  render();
+  expect(field().getAttribute("spellcheck")).toBe("true");
+  expect(field().getAttribute("autocorrect")).toBe("on");
+
+  act(() => saveComposerAutocorrect(false));
+  expect(field().getAttribute("spellcheck")).toBe("false");
+  expect(field().getAttribute("autocorrect")).toBe("off");
+
+  act(() => saveComposerAutocorrect(true));
+  expect(field().getAttribute("spellcheck")).toBe("true");
 });

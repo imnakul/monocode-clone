@@ -18,7 +18,6 @@ import {
 import { harden } from "rehype-harden";
 import {
   Block,
-  CodeBlock,
   Streamdown,
   defaultRehypePlugins,
   defaultRemarkPlugins,
@@ -57,6 +56,8 @@ import { InboxMedia } from "../../inbox/ui/InboxMedia";
 import { rehypeHardBreaks } from "./hardBreaks";
 import { rehypeWordFade, usePacedText, useWordFading } from "./wordFade";
 import { MarkdownTable, MarkdownTableContext } from "./MarkdownTable";
+import { isFenceBlock, parseStreamingMarkdown } from "./streamingMarkdown";
+import { HighlightedCodeBlock } from "./HighlightedCodeBlock";
 
 const MERMAID_BASE_CONFIG = {
   startOnLoad: false,
@@ -133,6 +134,7 @@ const FileOpenContext = createContext<{
 }>({});
 
 const RemoteMediaContext = createContext(false);
+const MarkdownFadeContext = createContext(false);
 
 const REVEAL_LABEL = IS_MAC
   ? "Reveal in Finder"
@@ -354,12 +356,8 @@ function MarkdownCode({
     (fence.language ? fileNameForLanguage(fence.language) : "");
   const lineNumbers = !/\bnoLineNumbers\b/.test(meta);
   const code = textContent(children);
-  // highlightLanguageFor swaps the fence language for "js" so Shiki still
-  // colors plaintext fences, but Streamdown's CodeBlock reuses that same
-  // value for the header label. Without this, a `text` fence would show a
-  // "js" header, and an untagged fence would gain a header it never had.
-  // Render our own label with the original language instead, and hide
-  // Streamdown's via CSS (see .markdown-code-fallback-label in index.css).
+  // Render the fallback label with the original language while using JS for
+  // syntax colors (see .markdown-code-fallback-label in index.css).
   const isPlaintextFallback = PLAINTEXT_FENCE_LANGUAGES.has(
     fence.language.toLowerCase(),
   );
@@ -382,8 +380,7 @@ function MarkdownCode({
         code
         disabled={incomplete}
       />
-      <CodeBlock
-        className={className}
+      <HighlightedCodeBlock
         code={code}
         isIncomplete={incomplete}
         language={highlightLanguageFor(fence.language)}
@@ -508,7 +505,14 @@ const MARKDOWN_COMPONENTS = {
  * comes from the block inside it.
  */
 function DirectionalBlock({ dir, ...props }: BlockProps) {
-  const block = <Block {...props} />;
+  const fading = useContext(MarkdownFadeContext);
+  // Streamdown retains a parsed prose tree after the fade plugin changes.
+  // Remount prose to remove its word spans, but keep literal fences mounted:
+  // rebuilding all their highlighted tokens at fade-end causes a long frame.
+  const fence = isFenceBlock(props.content);
+  const block = (
+    <Block key={fence ? "code" : fading ? "fade" : "plain"} {...props} />
+  );
   return dir ? (
     <div dir={dir} className="agent-markdown-block">
       {block}
@@ -640,24 +644,25 @@ export const AgentMarkdown = memo(function AgentMarkdown({
     <RemoteMediaContext.Provider value={remoteMedia}>
       <FileOpenContext.Provider value={fileOpen}>
         <>
-          <MarkdownTableContext.Provider value={tableActions}>
-            <Streamdown
-              // Streamdown keeps a parsed tree while the text is unchanged, so
-              // the plugin swap has to remount it once the fade is over.
-              key={fading ? "fade" : "plain"}
-              BlockComponent={DirectionalBlock}
-              className={`agent-markdown min-w-0 font-sans text-sm leading-6 ${fading ? "word-fading" : ""} ${className ?? ""}`}
-              components={MARKDOWN_COMPONENTS}
-              controls={false}
-              dir="auto"
-              isAnimating={!!streaming || paced.revealing}
-              plugins={MARKDOWN_PLUGINS}
-              remarkPlugins={remarkPlugins}
-              rehypePlugins={rehypePlugins}
-            >
-              {paced.text}
-            </Streamdown>
-          </MarkdownTableContext.Provider>
+          <MarkdownFadeContext.Provider value={fading}>
+            <MarkdownTableContext.Provider value={tableActions}>
+              <Streamdown
+                BlockComponent={DirectionalBlock}
+                className={`agent-markdown min-w-0 font-sans text-sm leading-6 ${fading ? "word-fading" : ""} ${className ?? ""}`}
+                components={MARKDOWN_COMPONENTS}
+                controls={false}
+                dir="auto"
+                isAnimating={!!streaming || paced.revealing}
+                parseIncompleteMarkdown={false}
+                parseMarkdownIntoBlocksFn={parseStreamingMarkdown}
+                plugins={MARKDOWN_PLUGINS}
+                remarkPlugins={remarkPlugins}
+                rehypePlugins={rehypePlugins}
+              >
+                {paced.text}
+              </Streamdown>
+            </MarkdownTableContext.Provider>
+          </MarkdownFadeContext.Provider>
           {fileMenu ? (
             <ExplorerMenu
               x={fileMenu.x}
@@ -806,7 +811,7 @@ function MermaidBlock({
           <FileTypeIcon name="diagram.mmd" isDir={false} />
         </span>
         <CodeCopyButton code={code} />
-        <CodeBlock
+        <HighlightedCodeBlock
           code={code}
           isIncomplete={incomplete}
           language="mermaid"

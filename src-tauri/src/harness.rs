@@ -997,6 +997,7 @@ pub fn harness_spawn(
     account: Option<HarnessAccount>,
     binary_provider: Option<String>,
     binary_path: Option<String>,
+    codex_store: Option<String>,
 ) -> Result<u32, String> {
     let workdir = expand_home(&cwd);
     if !workdir.is_dir() {
@@ -1023,6 +1024,27 @@ pub fn harness_spawn(
         .stderr(Stdio::piped());
     prepare_child(&mut cmd, &command)?;
     apply_provider_account(&app, &mut cmd, account.as_ref())?;
+    let codex_store = match codex_store.as_deref() {
+        None => None,
+        Some("mono")
+            if binary_provider.as_deref() == Some("codex")
+                && account.as_ref().is_some_and(|a| a.provider == "codex")
+                && args.first().is_some_and(|a| a == "app-server") =>
+        {
+            let store =
+                crate::codex_mono_store::prepare(&app, account.as_ref().map(|a| a.id.as_str()))?;
+            let private_path = serde_json::to_string(&store.home).map_err(|e| e.to_string())?;
+            // Explicit config takes precedence over CODEX_SQLITE_HOME. Override
+            // both so a user's sqlite_home cannot index Monos in the Codex app.
+            cmd.env("CODEX_HOME", &store.home)
+                .env("CODEX_SQLITE_HOME", &store.home)
+                .args(["-c", &format!("sqlite_home={private_path}")]);
+            Some(Arc::new(store))
+        }
+        Some(_) => {
+            return Err("Private Mono storage is only supported for Codex app-server".into())
+        }
+    };
 
     crate::control::configure_child(&app, &session_id, &mut cmd);
 
@@ -1067,9 +1089,19 @@ pub fn harness_spawn(
 
     let stdout_app = app.clone();
     let stdout_id = session_id.clone();
+    let wait_store = codex_store.clone();
+    let stdout_store = codex_store;
     thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
             let Ok(line) = line else { break };
+            if let Some(store) = &stdout_store {
+                if line.contains("\"turn/completed\"")
+                    || line.contains("\"item/started\"")
+                    || line.contains("\"account/updated\"")
+                {
+                    store.sync_auth();
+                }
+            }
             let _ = stdout_app.emit(
                 STDOUT_EVENT,
                 HarnessLine {
@@ -1100,6 +1132,9 @@ pub fn harness_spawn(
     let wait_pid = pid;
     thread::spawn(move || {
         let code = child.wait().ok().and_then(|status| status.code());
+        if let Some(store) = wait_store {
+            store.sync_auth();
+        }
         if let Some(host) = wait_app.try_state::<HarnessHost>() {
             if host.remove_if_pid(&wait_id, wait_pid).is_some() {
                 host.stop_sse(&wait_id);
@@ -1452,10 +1487,25 @@ const EXEC_ALLOWED_ARGS: &[&[&str]] = &[
     &["--print", "/credits", "--print-timeout", "30s"],
 ];
 
-fn exec_args_allowed(args: &[String]) -> bool {
-    EXEC_ALLOWED_ARGS
-        .iter()
-        .any(|a| a.len() == args.len() && a.iter().zip(args).all(|(x, y)| x == y))
+// OpenCode 2.x runs as a background service; other providers' CLIs may give
+// these subcommands unrelated meanings, so they stay OpenCode-only.
+const OPENCODE_EXEC_ALLOWED_ARGS: &[&[&str]] = &[
+    &["service", "status"],
+    &["service", "start"],
+    &["service", "get", "password"],
+];
+
+fn exec_args_allowed(binary_provider: Option<&str>, args: &[String]) -> bool {
+    let matches = |a: &&[&str]| a.len() == args.len() && a.iter().zip(args).all(|(x, y)| x == y);
+    EXEC_ALLOWED_ARGS.iter().any(matches)
+        || (binary_provider == Some("opencode") && OPENCODE_EXEC_ALLOWED_ARGS.iter().any(matches))
+        || (binary_provider == Some("grok")
+            && args.len() == 4
+            && args[0] == "--no-auto-update"
+            && args[1] == "sessions"
+            && args[2] == "delete"
+            && args[3].len() == 36
+            && uuid::Uuid::parse_str(&args[3]).is_ok())
 }
 
 /// Must be a path a resolver would hand back, not an arbitrary binary
@@ -1496,7 +1546,7 @@ pub(crate) fn is_resolved_harness_binary(
     resolved.is_ok_and(|path| resolved_binary_matches(&path, Path::new(command)))
 }
 
-/// One-shot capture of stdout (used for `cursor-agent --list-models`).
+/// One-shot provider commands: catalog probes and temporary-session cleanup.
 #[tauri::command]
 pub async fn harness_exec(
     command: String,
@@ -1505,7 +1555,7 @@ pub async fn harness_exec(
     binary_provider: Option<String>,
     binary_path: Option<String>,
 ) -> Result<String, String> {
-    if !exec_args_allowed(&args) {
+    if !exec_args_allowed(binary_provider.as_deref(), &args) {
         return Err("harness_exec: unsupported arguments".into());
     }
     let cli_report = args.first().is_some_and(|arg| arg == "--print");
@@ -3052,6 +3102,9 @@ fn validate_configured_harness_binary_identity(
     }
 }
 
+/// Prefers whatever `codex` the user's own shell resolves, like
+/// `resolve_claude`. Trying `~/.local/bin/codex` first picks the ChatGPT app's
+/// wrapper, pinned to an older bundled CLI, over a newer Homebrew or npm install.
 fn resolve_codex() -> Option<PathBuf> {
     let home = dirs_home().map(PathBuf::from);
     let mut candidates: Vec<PathBuf> = Vec::new();
@@ -3093,27 +3146,17 @@ fn resolve_codex() -> Option<PathBuf> {
             );
         }
     }
-    if let Some(home) = &home {
-        candidates.push(home.join(".local/bin/codex"));
-        candidates.push(home.join(".bun/bin/codex"));
-        candidates.push(home.join(".bun/bin/codex.exe"));
-        candidates.push(home.join(".bun/bin/codex.cmd"));
-        candidates.push(home.join(".npm-global/bin/codex"));
-        candidates.push(home.join(".cargo/bin/codex"));
-        candidates.push(home.join("n/bin/codex"));
-    }
-    candidates.push(PathBuf::from("/opt/homebrew/bin/codex"));
-    candidates.push(PathBuf::from("/usr/local/bin/codex"));
-    candidates.push(PathBuf::from("/usr/bin/codex"));
-    candidates.push(PathBuf::from("/snap/bin/codex"));
-    if let Some(from_shell) = which_via_login_shell("codex") {
-        candidates.push(from_shell);
-    }
 
     #[cfg(not(windows))]
     {
+        // Match the user's interactive Codex install first. Keep login-shell
+        // discovery off Windows so startup never spawns a console there.
+        if let Some(from_shell) = which_via_login_shell("codex") {
+            candidates.push(from_shell);
+        }
         if let Some(home) = &home {
             candidates.push(home.join(".local/bin/codex"));
+            candidates.push(home.join(".bun/bin/codex"));
             candidates.push(home.join(".npm-global/bin/codex"));
             candidates.push(home.join(".cargo/bin/codex"));
             candidates.push(home.join("n/bin/codex"));
@@ -3122,9 +3165,6 @@ fn resolve_codex() -> Option<PathBuf> {
         candidates.push(PathBuf::from("/usr/local/bin/codex"));
         candidates.push(PathBuf::from("/usr/bin/codex"));
         candidates.push(PathBuf::from("/snap/bin/codex"));
-        if let Some(from_shell) = which_via_login_shell("codex") {
-            candidates.push(from_shell);
-        }
         // The macOS app bundle is a usable fallback. The Windows Store bundle is
         // intentionally not used: its resources are package-protected and are not
         // a stable external CLI installation boundary.
@@ -3455,6 +3495,51 @@ fn resolve_antigravity_cli() -> Option<PathBuf> {
     antigravity_cli_candidates(home.as_deref(), local.as_deref())
         .into_iter()
         .find(|path| is_executable_file(path))
+}
+
+#[cfg(test)]
+mod opencode_probe_tests {
+    use super::*;
+
+    #[cfg(unix)]
+    fn fake_opencode(name: &str, version: &str, help: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "monocode-opencode-probe-{name}-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("opencode");
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then printf '%s\\n' '{version}'; exit 0; fi\nif [ \"$1\" = \"serve\" ] && [ \"$2\" = \"--help\" ]; then printf '%s\\n' '{help}'; exit 0; fi\nprintf '%s\\n' 'unknown command'\n"
+        );
+        std::fs::write(&path, script).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn probes_v1_and_v2_opencode_serve_protocol_without_starting_server() {
+        for (name, version) in [("v1", "opencode 1.14.19"), ("v2", "opencode v2.0.19")] {
+            let path = fake_opencode(name, version, "Usage: opencode serve --hostname --port");
+            assert_eq!(
+                probe_provider_binary("opencode", &path).unwrap().as_deref(),
+                Some(version)
+            );
+            std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_opencode_binary_without_the_expected_serve_protocol() {
+        let path = fake_opencode("wrong-cli", "some other cli 2.0", "Usage: another command");
+        let error = probe_provider_binary("opencode", &path).unwrap_err();
+        assert!(error.contains("expected serve --help protocol"), "{error}");
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
 }
 
 #[cfg(test)]
@@ -4862,11 +4947,13 @@ mod tests {
     fn allows_only_fixed_read_only_antigravity_reports() {
         for report in ["/usage", "/quota", "/credits"] {
             assert!(exec_args_allowed(
+                Some("antigravity-cli"),
                 &["--print", report, "--print-timeout", "30s"].map(String::from)
             ));
         }
         for report in ["hello", "/learn", "/remote-control", "/fork"] {
             assert!(!exec_args_allowed(
+                Some("antigravity-cli"),
                 &["--print", report, "--print-timeout", "30s"].map(String::from)
             ));
         }
@@ -5385,32 +5472,78 @@ mod exec_allowlist_tests {
 
     #[test]
     fn allows_known_catalog_args() {
-        assert!(exec_args_allowed(&args(&["--version"])));
-        assert!(exec_args_allowed(&args(&["--list-models"])));
-        assert!(exec_args_allowed(&args(&["models", "--verbose"])));
-        assert!(exec_args_allowed(&args(&["models", "--json"])));
-        assert!(exec_args_allowed(&args(&["models"])));
-        assert!(exec_args_allowed(&args(&[
-            "models",
-            "--output-format",
-            "json"
-        ])));
-        assert!(exec_args_allowed(&args(&[
-            "--output-format",
-            "json",
-            "models"
-        ])));
-        assert!(exec_args_allowed(&args(&["status", "--json"])));
-        assert!(exec_args_allowed(&args(&["agent", "list"])));
+        for provider in [
+            None,
+            Some("cursor"),
+            Some("opencode"),
+            Some("grok"),
+            Some("antigravity-cli"),
+        ] {
+            for allowed in [
+                &["--version"][..],
+                &["--list-models"][..],
+                &["models", "--verbose"][..],
+                &["models", "--json"][..],
+                &["models"][..],
+                &["models", "--output-format", "json"][..],
+                &["--output-format", "json", "models"][..],
+                &["status", "--json"][..],
+                &["agent", "list"][..],
+            ] {
+                assert!(exec_args_allowed(provider, &args(allowed)));
+            }
+        }
+    }
+
+    #[test]
+    fn allows_service_args_only_for_opencode() {
+        for service in [
+            &["service", "status"][..],
+            &["service", "start"][..],
+            &["service", "get", "password"][..],
+        ] {
+            assert!(exec_args_allowed(Some("opencode"), &args(service)));
+            assert!(!exec_args_allowed(None, &args(service)));
+            assert!(!exec_args_allowed(Some("cursor"), &args(service)));
+        }
+    }
+
+    #[test]
+    fn allows_grok_cleanup_only_for_one_valid_session_id() {
+        let cleanup = args(&[
+            "--no-auto-update",
+            "sessions",
+            "delete",
+            "550e8400-e29b-41d4-a716-446655440000",
+        ]);
+        assert!(exec_args_allowed(Some("grok"), &cleanup));
+        for provider in [None, Some("cursor"), Some("opencode")] {
+            assert!(!exec_args_allowed(provider, &cleanup));
+        }
+        for id in ["", "--all", "../sessions", "invalid"] {
+            let mut rejected = cleanup.clone();
+            rejected[3] = id.to_string();
+            assert!(!exec_args_allowed(Some("grok"), &rejected));
+        }
+        let mut extra = cleanup;
+        extra.push("--all".to_string());
+        assert!(!exec_args_allowed(Some("grok"), &extra));
     }
 
     #[test]
     fn rejects_other_args() {
-        assert!(!exec_args_allowed(&args(&[])));
-        assert!(!exec_args_allowed(&args(&["--help"])));
-        assert!(!exec_args_allowed(&args(&["--version", "--json"])));
-        assert!(!exec_args_allowed(&args(&["-c", "id"])));
-        assert!(!exec_args_allowed(&args(&["agent", "list", "--json"])));
+        for rejected in [
+            &[][..],
+            &["--help"][..],
+            &["--version", "--json"][..],
+            &["-c", "id"][..],
+            &["agent", "list", "--json"][..],
+            &["service", "stop"][..],
+            &["service", "get"][..],
+            &["service", "status", "--json"][..],
+        ] {
+            assert!(!exec_args_allowed(Some("opencode"), &args(rejected)));
+        }
     }
 }
 

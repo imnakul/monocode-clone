@@ -29,7 +29,6 @@ function revealButton() {
 }
 
 it("masks a revealed email again when masking is turned off and back on", async () => {
-  saveMaskEmails(true);
   await act(async () =>
     root.render(createElement(PrivateEmail, { email: "user@example.com" })),
   );

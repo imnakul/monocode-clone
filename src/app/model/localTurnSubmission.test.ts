@@ -319,7 +319,8 @@ function nativePreparationDispatch(
     `
     const { current, sessionId, prepared, prepareNativeInput, providerAccountId,
       intent, operatorAccess, orchestrator, editedResend, acceptEditedResend,
-      options, turnGen, gen, sendHarnessTurn, sessionWorkCwd } = bindings;
+      options, turnGen, gen, sendHarnessTurn, sessionWorkCwd, mono,
+      migrateMonoCodexSession } = bindings;
     return (${expression})("Check once");
   `,
     {
@@ -379,4 +380,46 @@ it("forwards the validated native input exactly once when the generation remains
     prepareNativeInput: async (): Promise<unknown> => nativeInput,
   });
   expect(sendHarnessTurn).toHaveBeenCalledExactlyOnceWith(nativeInput);
+});
+
+it("does not send a Mono Codex prompt if Stop arrives during store migration", async () => {
+  const current = newSession("codex", "/repo");
+  current.providerSessionId = "native-thread";
+  const turnGen = { current: new Map([[current.id, 1]]) };
+  const sendHarnessTurn = vi.fn();
+  let finishMigration!: () => void;
+  const migrateMonoCodexSession = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finishMigration = resolve;
+      }),
+  );
+  const done = nativePreparationDispatch({
+    current,
+    sessionId: current.id,
+    prepared: [],
+    providerAccountId: "default",
+    intent: "default",
+    operatorAccess: false,
+    orchestrator: { run: () => undefined },
+    editedResend: false,
+    options: undefined,
+    gen: 1,
+    mono: true,
+    turnGen,
+    sendHarnessTurn,
+    migrateMonoCodexSession,
+    prepareNativeInput: async (): Promise<unknown> => ({
+      nativeResume: { providerSessionId: "native-thread" },
+    }),
+  });
+
+  await vi.waitFor(() => expect(migrateMonoCodexSession).toHaveBeenCalledOnce());
+  expect(migrateMonoCodexSession).toHaveBeenCalledWith(
+    expect.objectContaining({ threadId: "native-thread" }),
+  );
+  turnGen.current.set(current.id, 2);
+  finishMigration();
+  await done;
+  expect(sendHarnessTurn).not.toHaveBeenCalled();
 });

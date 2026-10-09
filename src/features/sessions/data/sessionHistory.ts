@@ -117,6 +117,7 @@ export function summaryFromSession(
   return {
     id: session.id,
     orchestrationLeadId: session.orchestrationLeadId,
+    sidebarHidden: session.sidebarHidden,
     cwd: session.cwd,
     harness: session.harness,
     model: session.model,
@@ -211,6 +212,7 @@ export function historyWithLiveSessions(
         JSON.stringify(stored.activeTurnModel) !==
           JSON.stringify(activeTurnModel) ||
         stored.title !== session.title ||
+        !!stored.sidebarHidden !== !!session.sidebarHidden ||
         stored.linkedWorkItem?.url !== linkedWorkItem?.url
       ) {
         rows[storedIndex] = {
@@ -218,6 +220,7 @@ export function historyWithLiveSessions(
           model: session.model,
           harness: session.harness,
           title: session.title,
+          sidebarHidden: session.sidebarHidden,
           draft: draft || undefined,
           ...(activeTurnModel
             ? { activeTurnModel }
