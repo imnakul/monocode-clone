@@ -130,6 +130,17 @@ pub struct SessionUpsert {
     pub queue_status: Option<String>,
     #[serde(default)]
     pub automation_id: Option<String>,
+    #[serde(default)]
+    pub sidechat: Option<SidechatMeta>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SidechatMeta {
+    pub source_session_id: String,
+    pub source_title: String,
+    #[serde(default)]
+    pub source_context: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,6 +182,8 @@ pub struct SessionSummary {
     pub linked_work_item: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub automation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidechat: Option<SidechatMeta>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,6 +224,8 @@ pub struct SessionRecord {
     #[serde(default)]
     pub draft: bool,
     pub automation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidechat: Option<SidechatMeta>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -237,6 +252,19 @@ pub fn session_upsert(
     if let Some(automation_id) = &session.automation_id {
         if !automation_id.is_empty() {
             validate_id(automation_id, "automation")?;
+        }
+    }
+    if let Some(sidechat) = &session.sidechat {
+        validate_id(&sidechat.source_session_id, "sidechat source session")?;
+        if sidechat.source_title.trim().is_empty() || sidechat.source_title.len() > 512 {
+            return Err("Sidechat source title is required".into());
+        }
+        if sidechat
+            .source_context
+            .as_ref()
+            .is_some_and(|context| context.len() > 512_000)
+        {
+            return Err("Sidechat source context exceeds the size limit".into());
         }
     }
     if !session.model_settings.is_object() {
@@ -286,6 +314,15 @@ pub fn session_list_by_project(
 pub fn session_list_scratch(store: State<'_, SessionStore>) -> Result<Vec<SessionSummary>, String> {
     let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
     list_scratch(&conn).map_err(|e| e.to_string())
+}
+
+/// Saved sidechats retain their project cwd, so Chats uses a separate list.
+#[tauri::command(async)]
+pub fn session_list_sidechats(
+    store: State<'_, SessionStore>,
+) -> Result<Vec<SessionSummary>, String> {
+    let conn = store.conn.lock().map_err(|_| "Session store is locked")?;
+    list_sidechats(&conn).map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
@@ -794,6 +831,8 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         ("is_draft", "INTEGER NOT NULL DEFAULT 0"),
         ("automation_id", "TEXT"),
         ("sidebar_hidden", "INTEGER NOT NULL DEFAULT 0"),
+        ("sidechat_json", "TEXT"),
+        ("is_sidechat", "INTEGER NOT NULL DEFAULT 0"),
     ] {
         ensure_session_column(conn, column, decl)?;
     }
@@ -972,6 +1011,45 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             params![now_millis()],
         )?;
     }
+    if current < 20 {
+        ensure_session_column(conn, "sidechat_json", "TEXT")?;
+        ensure_session_column(conn, "is_sidechat", "INTEGER NOT NULL DEFAULT 0")?;
+        conn.execute(
+            "UPDATE sessions SET is_sidechat = CASE WHEN sidechat_json IS NULL THEN 0 ELSE 1 END",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (20, ?1)",
+            params![now_millis()],
+        )?;
+    }
+    if current < 21 {
+        // Keep the large source-context JSON out of the hot project-listing
+        // index. A compact marker handles both project filtering and the
+        // separate saved-sidechat listing.
+        ensure_session_column(conn, "sidechat_json", "TEXT")?;
+        ensure_session_column(conn, "is_sidechat", "INTEGER NOT NULL DEFAULT 0")?;
+        conn.execute(
+            "UPDATE sessions SET is_sidechat = CASE WHEN sidechat_json IS NULL THEN 0 ELSE 1 END",
+            [],
+        )?;
+        conn.execute_batch(
+            "DROP INDEX IF EXISTS sessions_cwd_cover_idx;
+             CREATE INDEX sessions_cwd_cover_idx
+               ON sessions (cwd, has_user_message, updated_at DESC, id, harness,
+                            model, runtime_mode, title, provider_session_id,
+                            created_at, branch, archived, pinned,
+                            linked_work_item_json, worktree_cwd, worktree_removed,
+                            is_draft, automation_id, sidebar_hidden, is_sidechat);
+             DROP INDEX IF EXISTS sessions_sidechat_list_idx;
+             CREATE INDEX sessions_sidechat_list_idx
+               ON sessions (updated_at DESC, id) WHERE is_sidechat = 1;",
+        )?;
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (21, ?1)",
+            params![now_millis()],
+        )?;
+    }
     // Create even when a version row already exists (another build may have
     // used the same numbers, or a previous run recorded the version without
     // the table). Restore writes into these; missing tables look like a
@@ -1011,7 +1089,9 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
                         model, runtime_mode, title, provider_session_id,
                         created_at, branch, archived, pinned,
                         linked_work_item_json, worktree_cwd, worktree_removed,
-                        is_draft, automation_id, sidebar_hidden);",
+                        is_draft, automation_id, sidebar_hidden, is_sidechat);
+         CREATE INDEX IF NOT EXISTS sessions_sidechat_list_idx
+           ON sessions (updated_at DESC, id) WHERE is_sidechat = 1;",
     )?;
     crate::notes::ensure_notes_table(conn)?;
     crate::tasks::ensure_tasks_table(conn)?;
@@ -1174,6 +1254,12 @@ pub(crate) fn upsert_session(
         .as_ref()
         .map(|value| value.trim())
         .filter(|value| !value.is_empty());
+    let sidechat_json = session
+        .sidechat
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
     let git = crate::fs::git_info_for(&crate::fs::expand_home(
         session
             .worktree_cwd
@@ -1265,8 +1351,8 @@ pub(crate) fn upsert_session(
            context_used, context_window, worktree_cwd, has_user_message,
            linked_work_item_json, queued_messages_json, queue_status,
            provider_account_id, worktree_removed, is_draft, automation_id,
-           sidebar_hidden
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
+           sidebar_hidden, sidechat_json, is_sidechat
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            harness = excluded.harness,
@@ -1289,7 +1375,9 @@ pub(crate) fn upsert_session(
            worktree_removed = excluded.worktree_removed,
            is_draft = excluded.is_draft,
            automation_id = excluded.automation_id,
-           sidebar_hidden = excluded.sidebar_hidden",
+           sidebar_hidden = excluded.sidebar_hidden,
+           sidechat_json = excluded.sidechat_json,
+           is_sidechat = excluded.is_sidechat",
         params![
             session.id,
             session.cwd,
@@ -1315,6 +1403,8 @@ pub(crate) fn upsert_session(
             i64::from(is_draft),
             automation_id,
             i64::from(session.sidebar_hidden),
+            sidechat_json,
+            i64::from(session.sidechat.is_some()),
         ],
     )?;
 
@@ -1343,6 +1433,11 @@ pub(crate) fn upsert_session(
         draft: is_draft,
         linked_work_item: session.linked_work_item.clone(),
         automation_id: automation_id.map(str::to_owned),
+        sidechat: session.sidechat.as_ref().map(|sidechat| SidechatMeta {
+            source_session_id: sidechat.source_session_id.clone(),
+            source_title: sidechat.source_title.clone(),
+            source_context: None,
+        }),
     })
 }
 
@@ -1816,6 +1911,7 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
             draft: row.get::<_, i64>(16)? != 0,
             linked_work_item,
             automation_id: nonempty(row.get(17)?),
+            sidechat: None,
         })
     };
 
@@ -1829,6 +1925,7 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
              FROM sessions
              WHERE cwd = ?1
                AND has_user_message = 1
+               AND is_sidechat = 0
                AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
                AND id NOT IN (SELECT session_id FROM orchestration_workers)
              ORDER BY updated_at DESC, id ASC",
@@ -1849,6 +1946,7 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
              FROM sessions
              WHERE cwd IN ({placeholders})
                AND has_user_message = 1
+               AND is_sidechat = 0
                AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
                AND id NOT IN (SELECT session_id FROM orchestration_workers)
              ORDER BY updated_at DESC, id ASC"
@@ -1870,6 +1968,7 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
                     worktree_removed, is_draft, automation_id, sidebar_hidden
              FROM sessions
              WHERE has_user_message = 1
+               AND is_sidechat = 0
                AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
                AND id NOT IN (SELECT session_id FROM orchestration_workers)
                AND REPLACE(LOWER(cwd), '\\', '/') = ?1
@@ -1892,6 +1991,55 @@ fn list_by_project(conn: &Connection, cwd: &str) -> rusqlite::Result<Vec<Session
     Ok(deduplicated)
 }
 
+fn list_sidechats(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
+    let mut statement = conn.prepare(
+        "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
+                created_at, updated_at, branch, worktree_cwd, worktree_removed,
+                linked_work_item_json, archived, pinned, is_draft,
+                automation_id, sidebar_hidden, sidechat_json
+         FROM sessions
+         WHERE has_user_message = 1 AND is_sidechat = 1 AND archived = 0
+           AND inbox_ask IS NULL
+           AND id NOT IN (SELECT session_id FROM orchestration_workers)
+         ORDER BY updated_at DESC, id ASC",
+    )?;
+    let rows = statement.query_map([], |row| {
+        let sidechat: Option<SidechatMeta> =
+            optional_json(row.get(18)?).and_then(|value| serde_json::from_value(value).ok());
+        Ok(SessionSummary {
+            id: row.get(0)?,
+            cwd: row.get(1)?,
+            harness: row.get(2)?,
+            model: row.get(3)?,
+            runtime_mode: row.get(4)?,
+            title: row.get(5)?,
+            provider_session_id: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
+            branch: nonempty(row.get(9)?),
+            orchestration_lead_id: None,
+            orchestration: None,
+            repo: None,
+            additions: 0,
+            deletions: 0,
+            archived: row.get::<_, i64>(13)? != 0,
+            pinned: row.get::<_, i64>(14)? != 0,
+            draft: row.get::<_, i64>(15)? != 0,
+            automation_id: nonempty(row.get(16)?),
+            sidebar_hidden: row.get::<_, i64>(17)? != 0,
+            worktree_cwd: row.get(10)?,
+            worktree_removed: row.get::<_, i64>(11)? != 0,
+            linked_work_item: optional_json(row.get(12)?),
+            sidechat: sidechat.map(|source| SidechatMeta {
+                source_session_id: source.source_session_id,
+                source_title: source.source_title,
+                source_context: None,
+            }),
+        })
+    })?;
+    rows.collect()
+}
+
 fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
     let mut statement = conn.prepare(
         "SELECT id, cwd, harness, model, runtime_mode, title, provider_session_id,
@@ -1902,6 +2050,7 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
          FROM sessions
          WHERE has_user_message = 1
            AND linked_work_item_json IS NOT NULL
+           AND is_sidechat = 0
            AND id NOT IN (SELECT id FROM sessions WHERE inbox_ask IS NOT NULL)
            AND id NOT IN (SELECT session_id FROM orchestration_workers)
          ORDER BY updated_at DESC, id ASC",
@@ -1933,6 +2082,7 @@ fn list_linked(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
             draft: row.get::<_, i64>(16)? != 0,
             linked_work_item: optional_json(row.get(12)?),
             automation_id: nonempty(row.get(17)?),
+            sidechat: None,
         })
     })?;
     rows.collect()
@@ -1947,6 +2097,7 @@ fn list_scratch(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
                 sidebar_hidden
          FROM sessions
          WHERE has_user_message = 1
+           AND is_sidechat = 0
            AND (cwd LIKE '%.monocode/scratch/%'
              OR cwd LIKE '%.monocode\\scratch\\%')
          ORDER BY updated_at DESC, id ASC",
@@ -1976,6 +2127,7 @@ fn list_scratch(conn: &Connection) -> rusqlite::Result<Vec<SessionSummary>> {
             draft: row.get::<_, i64>(12)? != 0,
             automation_id: nonempty(row.get(13)?),
             sidebar_hidden: row.get::<_, i64>(14)? != 0,
+            sidechat: None,
         })
     })?;
     rows.collect()
@@ -2184,7 +2336,7 @@ fn get_session_record(
                 provider_session_id, {blocks}, created_at, updated_at,
                 context_used, context_window, branch, worktree_cwd,
                 linked_work_item_json, queued_messages_json, queue_status, provider_account_id, worktree_removed, is_draft,
-                automation_id, sidebar_hidden
+                automation_id, sidebar_hidden, sidechat_json
          FROM sessions
          WHERE id = ?1 AND inbox_ask IS NULL"
         ),
@@ -2241,6 +2393,8 @@ fn get_session_record(
                 provider_account_id: row.get(18)?,
                 draft: row.get::<_, i64>(20)? != 0,
                 automation_id: nonempty(row.get(21)?),
+                sidechat: optional_json(row.get(23)?)
+                    .and_then(|value| serde_json::from_value(value).ok()),
                 created_at: row.get(9)?,
                 updated_at: row.get(10)?,
             })
@@ -2446,6 +2600,7 @@ mod tests {
             queued_messages: None,
             queue_status: None,
             automation_id: None,
+            sidechat: None,
         }
     }
 
@@ -2582,7 +2737,7 @@ mod tests {
                        ON sessions (cwd, has_user_message, updated_at DESC, id, harness,
                                     model, runtime_mode, title, provider_session_id,
                                     created_at, branch, archived, pinned, linked_work_item_json);
-                     DELETE FROM schema_migrations WHERE version IN (16, 17, 18, 19);",
+                     DELETE FROM schema_migrations WHERE version IN (16, 17, 18, 19, 20, 21);",
                 )
                 .unwrap();
                 migrate(&conn).unwrap();
@@ -2807,6 +2962,73 @@ mod tests {
     }
 
     #[test]
+    fn saved_sidechats_keep_project_identity_and_list_separately_from_project_chats() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        upsert_session(&conn, &sample("source", "/tmp/project", "Source")).unwrap();
+        let mut sidechat = sample("sidechat", "/tmp/project", "Sidechat — Source");
+        sidechat.sidechat = Some(SidechatMeta {
+            source_session_id: "source".into(),
+            source_title: "Source".into(),
+            source_context: Some("bounded source snapshot".into()),
+        });
+        upsert_session(&conn, &sidechat).unwrap();
+
+        let project = list_by_project(&conn, "/tmp/project").unwrap();
+        assert_eq!(
+            project
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            ["source"]
+        );
+        let chats = list_sidechats(&conn).unwrap();
+        assert_eq!(chats.len(), 1);
+        assert_eq!(chats[0].id, "sidechat");
+        assert_eq!(chats[0].cwd, "/tmp/project");
+        assert_eq!(
+            chats[0].sidechat.as_ref().unwrap().source_session_id,
+            "source"
+        );
+        assert_eq!(chats[0].sidechat.as_ref().unwrap().source_context, None);
+
+        let restored = get_session(&conn, "sidechat").unwrap().unwrap();
+        assert_eq!(restored.cwd, "/tmp/project");
+        assert_eq!(restored.sidechat, sidechat.sidechat);
+        assert_eq!(
+            restored.provider_session_id.as_deref(),
+            Some("acp-session-1")
+        );
+    }
+
+    #[test]
+    fn malformed_sidechat_metadata_does_not_break_session_reads_or_chats_listing() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let conn = store.lock_conn().unwrap();
+        let mut sidechat = sample("sidechat", "/tmp/project", "Sidechat");
+        sidechat.sidechat = Some(SidechatMeta {
+            source_session_id: "source".into(),
+            source_title: "Source".into(),
+            source_context: None,
+        });
+        upsert_session(&conn, &sidechat).unwrap();
+        conn.execute(
+            "UPDATE sessions SET sidechat_json = ?1 WHERE id = ?2",
+            params![r#"{"sourceSessionId":17,"sourceTitle":false}"#, sidechat.id],
+        )
+        .unwrap();
+
+        assert!(get_session(&conn, &sidechat.id)
+            .unwrap()
+            .unwrap()
+            .sidechat
+            .is_none());
+        let chats = list_sidechats(&conn).unwrap();
+        assert_eq!(chats.len(), 1);
+        assert!(chats[0].sidechat.is_none());
+    }
+
+    #[test]
     fn sidebar_visibility_migration_keeps_existing_sessions_visible() {
         let store = SessionStore::open_in_memory().unwrap();
         let conn = store.lock_conn().unwrap();
@@ -2814,7 +3036,7 @@ mod tests {
         conn.execute_batch(
             "DROP INDEX sessions_cwd_cover_idx;
              ALTER TABLE sessions DROP COLUMN sidebar_hidden;
-             DELETE FROM schema_migrations WHERE version = 19;",
+             DELETE FROM schema_migrations WHERE version IN (19, 20, 21);",
         )
         .unwrap();
         migrate(&conn).unwrap();
@@ -4226,7 +4448,7 @@ mod tests {
     }
 
     #[test]
-    fn fresh_schema_reaches_version_19_and_has_all_columns_and_index() {
+    fn fresh_schema_reaches_version_21_and_has_all_columns_and_index() {
         let store = SessionStore::open_in_memory().unwrap();
         let conn = store.conn.lock().unwrap();
 
@@ -4235,12 +4457,14 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 19);
+        assert_eq!(version, 21);
 
         for column in [
             "linked_work_item_json",
             "queued_messages_json",
             "queue_status",
+            "sidechat_json",
+            "is_sidechat",
         ] {
             let count: i64 = conn
                 .query_row(
@@ -4260,12 +4484,14 @@ mod tests {
             )
             .unwrap();
         assert!(index_sql.contains("linked_work_item_json"));
+        assert!(index_sql.contains("is_sidechat"));
+        assert!(!index_sql.contains("sidechat_json"));
         assert!(!index_sql.contains("queued_messages_json"));
         assert!(!index_sql.contains("queue_status"));
     }
 
     #[test]
-    fn upstream_v13_database_upgrades_to_v19_and_gains_queue_columns() {
+    fn upstream_v13_database_upgrades_to_v21_and_gains_queue_columns() {
         let path = std::env::temp_dir().join(format!(
             "monocode-upgrade-v13-to-v14-{}-{}.db",
             std::process::id(),
@@ -4327,7 +4553,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 19);
+        assert_eq!(version, 21);
 
         let stored = get_session(&conn, "upstream-s1").unwrap().unwrap();
         assert_eq!(stored.id, "upstream-s1");
@@ -4351,7 +4577,7 @@ mod tests {
     }
 
     #[test]
-    fn local5_v12_database_upgrades_to_v19_and_preserves_queued_data() {
+    fn local5_v12_database_upgrades_to_v20_and_preserves_queued_data() {
         let path = std::env::temp_dir().join(format!(
             "monocode-upgrade-local5-to-v14-{}-{}.db",
             std::process::id(),
@@ -4408,7 +4634,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 19);
+        assert_eq!(version, 21);
 
         let stored = get_session(&conn, "local5-s1").unwrap().unwrap();
         assert_eq!(stored.id, "local5-s1");
@@ -4444,7 +4670,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 19);
+        assert_eq!(version, 21);
     }
 
     #[test]
@@ -4468,7 +4694,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 19);
+        assert_eq!(version, 21);
     }
 
     #[test]
@@ -4528,7 +4754,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 19);
+        assert_eq!(version, 21);
     }
 
     #[cfg(windows)]
@@ -4708,6 +4934,7 @@ mod tests {
                 linked_work_item: None,
                 draft: false,
                 automation_id: None,
+                sidechat: None,
             }))
             .unwrap()
             .collect::<Result<Vec<_>, _>>()

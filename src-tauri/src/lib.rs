@@ -12,6 +12,8 @@ mod codex_mono_store;
 mod control;
 pub mod control_cli;
 mod cursor_store;
+mod devin_config;
+mod devin_usage;
 mod external_editor;
 mod fs;
 mod gitlab;
@@ -19,6 +21,7 @@ mod harness;
 mod harness_updates;
 mod inbox_media;
 mod jira;
+mod jsonc;
 mod linear;
 mod link_preview;
 #[cfg(target_os = "macos")]
@@ -420,6 +423,7 @@ pub fn run() {
             fs::git_stage_all,
             fs::git_unstage_all,
             fs::git_commit,
+            fs::git_locate_files,
             fs::git_head_message,
             fs::git_staged_context,
             fs::git_push,
@@ -507,6 +511,8 @@ pub fn run() {
             fs::retain_managed_wallpaper,
             fs::clear_managed_wallpaper,
             fs::read_binary_file,
+            fs::canonicalize_project_image_path,
+            fs::read_project_image_file,
             fs::write_attachment,
             fs::ensure_scratch_chat,
             fs::save_generated_image,
@@ -538,6 +544,7 @@ pub fn run() {
             harness::harness_resolve_pi,
             harness::harness_resolve_fx,
             harness::harness_resolve_grok,
+            harness::harness_resolve_devin,
             harness::harness_resolve_antigravity,
             harness::harness_resolve_antigravity_cli,
             harness::harness_resolve_cline,
@@ -564,6 +571,7 @@ pub fn run() {
             antigravity_cli::antigravity_cli_agents,
             rate_limits::fetch_claude_usage,
             rate_limits::fetch_opencode_go_usage,
+            devin_usage::fetch_devin_usage,
             pty::pty_spawn,
             pty::pty_replay,
             pty::pty_write,
@@ -574,6 +582,7 @@ pub fn run() {
             session_store::session_upsert,
             session_store::session_list_by_project,
             session_store::session_list_scratch,
+            session_store::session_list_sidechats,
             session_store::session_rebase_project,
             session_store::session_list_linked,
             session_store::session_search,

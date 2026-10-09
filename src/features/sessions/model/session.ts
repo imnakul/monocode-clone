@@ -32,7 +32,8 @@ export type HarnessId =
   | "antigravity"
   | "antigravity-cli"
   | "cline"
-  | "hermes";
+  | "hermes"
+  | "devin";
 
 export const HARNESSES: HarnessId[] = [
   "claude",
@@ -47,6 +48,7 @@ export const HARNESSES: HarnessId[] = [
   "antigravity-cli",
   "cline",
   "hermes",
+  "devin",
 ];
 
 export type BlockRole =
@@ -317,6 +319,8 @@ export type TurnModel = {
   harness: HarnessId;
   id: string;
   name: string;
+  /** Settings recorded for this turn when the provider exposed them. */
+  settings?: Record<string, string>;
 };
 
 /** Provider-reported token accounting for one user turn. */
@@ -568,10 +572,15 @@ export type Session = {
   /** One-shot composer text when opening a session from Inbox. */
   composerSeed?: string;
   /**
-   * Sidechat source thread. Context is attached from this session at each
-   * send — never copied at open — so questions always use the latest state.
+   * A saved sidechat belongs to a separate Chat while retaining the source
+   * project's cwd. The source transcript is read on each send when available;
+   * this bounded snapshot is only the recovery path if the source was removed.
    */
-  sidechat?: { sourceSessionId: string };
+  sidechat?: {
+    sourceSessionId: string;
+    sourceTitle: string;
+    sourceContext?: string;
+  };
   /** Inbox issue/PR chip shown above the composer. In-memory, one-shot. */
   inboxCard?: InboxComposerCard;
   /** GitHub issue or pull request shown on the persisted session card. */
@@ -625,6 +634,7 @@ export const HARNESS_LABEL: Record<HarnessId, string> = {
   "antigravity-cli": "antigravity-cli",
   cline: "cline",
   hermes: "hermes",
+  devin: "devin",
 };
 
 export const HARNESS_TITLE: Record<HarnessId, string> = {
@@ -640,6 +650,7 @@ export const HARNESS_TITLE: Record<HarnessId, string> = {
   "antigravity-cli": "Antigravity CLI",
   cline: "Cline",
   hermes: "Hermes Agent",
+  devin: "Devin",
 };
 
 /** These headless transports cannot receive attachment prompt blocks. */

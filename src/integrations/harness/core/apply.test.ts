@@ -61,6 +61,60 @@ describe("follow-up readiness", () => {
   });
 });
 
+describe("external turn metadata", () => {
+  it("keeps a phone model on its system boundary instead of a queued local prompt", () => {
+    const composer = newSession("claude", "/repo", "claude-sonnet-4-5");
+    let session = applyHarnessEvent(composer, {
+      type: "externalTurn.started",
+      turnId: "phone-turn",
+    });
+    session = {
+      ...session,
+      blocks: [
+        ...session.blocks,
+        {
+          id: "local-queued",
+          role: "user",
+          text: "Run this after the phone answer",
+          turnModel: {
+            harness: "claude",
+            id: "composer-model",
+            name: "Next local model",
+          },
+        },
+      ],
+    };
+    session = applyHarnessEvent(session, {
+      type: "externalTurn.event",
+      turnId: "phone-turn",
+      event: {
+        type: "turn.model",
+        turnModel: {
+          harness: "claude",
+          id: "claude-opus-4-5",
+          name: "Claude Opus 4.5",
+          settings: { effort: "high" },
+        },
+      },
+    });
+
+    expect(session.blocks.find((block) => block.externalTurnId === "phone-turn"))
+      .toMatchObject({
+        role: "system",
+        turnModel: {
+          id: "claude-opus-4-5",
+          settings: { effort: "high" },
+        },
+      });
+    expect(session.blocks.find((block) => block.id === "local-queued")?.turnModel)
+      ?.toMatchObject({ id: "composer-model" });
+    expect(sanitizeSessionForPersist(session).blocks[0]?.turnModel).toMatchObject({
+      id: "claude-opus-4-5",
+      settings: { effort: "high" },
+    });
+  });
+});
+
 describe("background work", () => {
   it("tracks what a yielded turn waits on and drops it when the turn ends", () => {
     let session = appendUser(newSession("claude", "/tmp"), "hi");

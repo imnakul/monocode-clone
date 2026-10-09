@@ -742,6 +742,7 @@ describe("hydrateWorkspaceSnapshot", () => {
       harness: "codex",
       id: "codex:gpt-5.6-sol",
       name: "GPT-5.6-Sol",
+      settings: { reasoningEffort: "high", serviceTier: "priority" },
     });
   });
 

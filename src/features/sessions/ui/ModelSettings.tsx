@@ -45,7 +45,9 @@ export function ModelSettings({
     const order = [
       "variant",
       "agent",
+      "lead",
       "effort",
+      "sidekick",
       "reasoning",
       "thinking",
       "fast",

@@ -13,11 +13,28 @@ import {
 import { shouldPersistSession, type SessionSummary } from "./sessionStore";
 
 function activeTurnModelFor(session: Session) {
-  if (!session.busy) return undefined;
+  if (!session.busy && !session.externalTurnId) return undefined;
+  if (session.externalTurnId) {
+    return [...session.blocks]
+      .reverse()
+      .find(
+        (block) =>
+          block.externalTurnId === session.externalTurnId && block.turnModel,
+      )?.turnModel;
+  }
   const activeUserTurn = [...session.blocks]
     .reverse()
     .find((block) => block.role === "user" && !block.draft);
   return activeUserTurn?.turnModel;
+}
+
+function activeRunKeyFor(session: Session): string | undefined {
+  if (session.externalTurnId) return `external:${session.externalTurnId}`;
+  if (!session.busy) return undefined;
+  const activeUserTurn = [...session.blocks]
+    .reverse()
+    .find((block) => block.role === "user" && !block.draft);
+  return activeUserTurn ? `local:${activeUserTurn.id}` : undefined;
 }
 
 export type SessionGitHint = {
@@ -122,6 +139,9 @@ export function summaryFromSession(
     harness: session.harness,
     model: session.model,
     ...(activeTurnModel ? { activeTurnModel } : {}),
+    ...(activeRunKeyFor(session)
+      ? { activeRunKey: activeRunKeyFor(session) }
+      : {}),
     runtimeMode: session.runtimeMode,
     title: session.title,
     draft: !!sessionDraftBlock(session),
@@ -132,6 +152,14 @@ export function summaryFromSession(
       ? { linkedWorkItem: session.linkedWorkItem }
       : {}),
     ...(session.automationId ? { automationId: session.automationId } : {}),
+    ...(session.sidechat
+      ? {
+          sidechat: {
+            sourceSessionId: session.sidechat.sourceSessionId,
+            sourceTitle: session.sidechat.sourceTitle,
+          },
+        }
+      : {}),
     ...(!session.worktreeRemoved && (session.branch || git?.branch)
       ? { branch: session.branch || git?.branch }
       : {}),
@@ -185,16 +213,23 @@ export function historyWithLiveSessions(
     (entry) =>
       !inboxIds.has(entry.id) &&
       !entry.orchestrationLeadId &&
+      !entry.sidechat &&
       !workerIds.has(entry.id) &&
       sameProjectPath(entry.cwd, cwd),
   );
   const hint = projectGitHint(rows, gitOverlayForCwd(cwd, git));
   for (const session of sessions) {
     // Ephemeral sessions are never chats of the project, even while busy.
-    if (session.ephemeral || session.inboxAsk || workerIds.has(session.id))
+    if (
+      session.ephemeral ||
+      session.sidechat ||
+      session.inboxAsk ||
+      workerIds.has(session.id)
+    )
       continue;
     if (!sameProjectPath(session.cwd, cwd)) continue;
-    const live = session.busy || sessionNeedsInput(session);
+    const live =
+      session.busy || !!session.externalTurnId || sessionNeedsInput(session);
     if (!shouldPersistSession(session) && !live) continue;
     const storedIndex = rows.findIndex((row) => row.id === session.id);
     if (storedIndex >= 0) {
@@ -202,6 +237,7 @@ export function historyWithLiveSessions(
       const draft = !!sessionDraftBlock(session);
       const automationId = session.automationId || stored.automationId;
       const activeTurnModel = activeTurnModelFor(session);
+      const activeRunKey = activeRunKeyFor(session);
       // Live title and work item land before the next persist, e.g. mid-turn.
       const linkedWorkItem = session.linkedWorkItem ?? stored.linkedWorkItem;
       if (
@@ -211,6 +247,7 @@ export function historyWithLiveSessions(
         stored.harness !== session.harness ||
         JSON.stringify(stored.activeTurnModel) !==
           JSON.stringify(activeTurnModel) ||
+        stored.activeRunKey !== activeRunKey ||
         stored.title !== session.title ||
         !!stored.sidebarHidden !== !!session.sidebarHidden ||
         stored.linkedWorkItem?.url !== linkedWorkItem?.url
@@ -225,6 +262,7 @@ export function historyWithLiveSessions(
           ...(activeTurnModel
             ? { activeTurnModel }
             : { activeTurnModel: undefined }),
+          ...(activeRunKey ? { activeRunKey } : { activeRunKey: undefined }),
           ...(automationId ? { automationId } : {}),
           ...(linkedWorkItem ? { linkedWorkItem } : {}),
         };

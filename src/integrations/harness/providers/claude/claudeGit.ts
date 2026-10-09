@@ -20,9 +20,10 @@ const GIT_TIMEOUT_MS = 90_000;
 export async function generateClaudeCommitMessage(
   cwd: string,
   signal?: AbortSignal,
+  paths?: readonly string[],
 ): Promise<string> {
   signal?.throwIfAborted();
-  const context = await gitStagedContext(cwd);
+  const context = await gitStagedContext(cwd, paths);
   signal?.throwIfAborted();
   const output = await runClaudeTextPrompt({
     helperOnly: true,

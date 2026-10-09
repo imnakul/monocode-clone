@@ -1,7 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { basename, pickFiles as pickFilePaths } from "../../../platform/tauri/fs";
 import type { Attachment, AttachmentKind } from "./session";
-import { readBinaryFile } from "../../../platform/tauri/fs";
+import {
+  canonicalizeProjectImagePath,
+  readBinaryFile,
+  readProjectImageFile,
+} from "../../../platform/tauri/fs";
 
 export const MAX_ATTACHMENTS = 20;
 export const MAX_EMBED_BYTES = 20 * 1024 * 1024;
@@ -206,6 +210,7 @@ export function sniffImageMime(bytes: Uint8Array): string | null {
 
 const PREVIEW_URL_CACHE = 50;
 const previewUrls = new Map<string, string>();
+const projectPreviewUrls = new Map<string, string>();
 
 function cachePreviewUrl(path: string, url: string): void {
   if (previewUrls.has(path)) return;
@@ -237,6 +242,44 @@ export async function loadAttachmentPreviewUrl(
     const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
     cachePreviewUrl(path, url);
     return url;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Local Markdown images use a distinct cache and validate canonical project
+ * containment before every cache lookup. A path cached by an ordinary
+ * user-selected attachment can never satisfy this restricted read.
+ */
+export async function loadProjectImagePreviewUrl(
+  path: string,
+  cwd: string,
+): Promise<string | null> {
+  if (!cwd.trim() || cwd.startsWith("remote://") || path.startsWith("remote://"))
+    return null;
+  try {
+    const canonical = await canonicalizeProjectImagePath(path, cwd);
+    const key = `${canonical.root}\0${canonical.path}`;
+    const hit = projectPreviewUrls.get(key);
+    if (hit) return hit;
+    const bytes = await readProjectImageFile(path, cwd);
+    const mime = sniffImageMime(bytes);
+    if (!mime) return null;
+    const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    if (!projectPreviewUrls.has(key)) {
+      projectPreviewUrls.set(key, url);
+      while (projectPreviewUrls.size > PREVIEW_URL_CACHE) {
+        const oldest = projectPreviewUrls.keys().next();
+        if (oldest.done) break;
+        const evicted = projectPreviewUrls.get(oldest.value);
+        projectPreviewUrls.delete(oldest.value);
+        if (evicted) URL.revokeObjectURL(evicted);
+      }
+    } else {
+      URL.revokeObjectURL(url);
+    }
+    return projectPreviewUrls.get(key) ?? null;
   } catch {
     return null;
   }

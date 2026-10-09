@@ -847,6 +847,33 @@ describe("sidebar session rename", () => {
   });
 });
 
+describe("sidebar working chat cards", () => {
+  it("shows one phone-working chat and restores it for a later run after hiding", () => {
+    props.busySessionIds = new Set();
+    props.workingSessionIds = new Set(["session-1"]);
+    props.sessions = [
+      { ...props.sessions[0], activeRunKey: "external:turn-one" },
+    ];
+    act(() => render());
+
+    expect(container.querySelectorAll("[data-session-card]")).toHaveLength(1);
+    expect(card().textContent).toContain("Working...");
+    const dismiss = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Hide working chat"]',
+    );
+    expect(dismiss).not.toBeNull();
+    act(() => dismiss!.click());
+    expect(container.querySelector('[data-session-card="session-1"]')).toBeNull();
+
+    props.sessions = [
+      { ...props.sessions[0], activeRunKey: "external:turn-two" },
+    ];
+    act(() => render());
+    expect(card().textContent).toContain("Working...");
+    expect(container.querySelectorAll("[data-session-card]")).toHaveLength(1);
+  });
+});
+
 describe("sidebar project picker", () => {
   it("focuses the project search input when opened", async () => {
     // Hold animation frames so the deferred focus retry runs on demand.

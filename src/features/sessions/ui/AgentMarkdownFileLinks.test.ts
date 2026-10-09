@@ -4,6 +4,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentMarkdown } from "./AgentMarkdown";
 
+const { mockInvoke } = vi.hoisted(() => ({ mockInvoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: mockInvoke,
+  convertFileSrc: (path: string) => path,
+}));
+
 describe("markdown file navigation", () => {
   let root: Root;
   let container: HTMLDivElement;
@@ -12,6 +18,7 @@ describe("markdown file navigation", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     onOpenFile.mockClear();
+    mockInvoke.mockReset();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -20,19 +27,46 @@ describe("markdown file navigation", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
-  async function render(text: string) {
+  async function render(text: string, cwd = "/repo") {
     await act(async () =>
       root.render(
         createElement(AgentMarkdown, {
           text,
-          cwd: "/repo",
+          cwd,
           onOpenFile,
         }),
       ),
     );
+  }
+
+  function mockProjectImages() {
+    mockInvoke.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === "canonicalize_project_image_path") {
+        const cwd = String(args?.cwd ?? "");
+        const path = String(args?.path ?? "");
+        if (!cwd || !path.startsWith(cwd.replace(/\\/g, "/")))
+          return Promise.reject(new Error("Image is outside the project"));
+        return Promise.resolve({ root: cwd, path });
+      }
+      if (command === "read_project_image_file")
+        return Promise.resolve(
+          new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).buffer,
+        );
+      if (command === "notes_image_path")
+        return Promise.resolve("/notes/image.png");
+      return Promise.reject(new Error(`Unexpected command: ${command}`));
+    });
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:project-image");
+  }
+
+  async function flushImageLoad() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   }
 
   it("keeps protocol methods and ordinary identifiers as code, not file chips", async () => {
@@ -196,5 +230,145 @@ describe("markdown file navigation", () => {
       "https://example.com/docs",
     ]);
     expect(onOpenFile).not.toHaveBeenCalled();
+  });
+
+  it("normalizes Windows paths with spaces before Streamdown sanitizes image URLs", async () => {
+    mockProjectImages();
+    await render(
+      String.raw`![Diagram](<E:\My Project\images\final%20diagram.png>)`,
+      "E:/My Project",
+    );
+    await flushImageLoad();
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "canonicalize_project_image_path",
+      expect.objectContaining({
+        cwd: "E:/My Project",
+        path: "E:/My Project/images/final diagram.png",
+      }),
+    );
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "read_project_image_file",
+      expect.objectContaining({
+        cwd: "E:/My Project",
+        path: "E:/My Project/images/final diagram.png",
+      }),
+    );
+    expect(container.querySelector('img[alt="Diagram"]')).not.toBeNull();
+    expect(container.querySelector('img[alt="Diagram"]')?.getAttribute("src"))
+      .toBe("blob:project-image");
+  });
+
+  it("normalizes relative reference images and keeps note-asset images on their existing path", async () => {
+    mockProjectImages();
+    await render(
+      [
+        "![Inline definition][inline-image]",
+        "[inline-image]: ./assets/inline%20diagram.png",
+        "",
+        "![Workspace image][workspace-image]",
+        "",
+        "[workspace-image]: ./assets/my%20diagram.png",
+        "",
+        "![Note image](/note-assets/note-1/123-image.png)",
+      ].join("\n"),
+    );
+    await flushImageLoad();
+
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "canonicalize_project_image_path",
+      expect.objectContaining({
+        cwd: "/repo",
+        path: "/repo/assets/my diagram.png",
+      }),
+    );
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "canonicalize_project_image_path",
+      expect.objectContaining({
+        cwd: "/repo",
+        path: "/repo/assets/inline diagram.png",
+      }),
+    );
+    expect(container.querySelector('[data-note-image="/note-assets/note-1/123-image.png"]'))
+      .not.toBeNull();
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "notes_image_path",
+      expect.objectContaining({
+        asset: "/note-assets/note-1/123-image.png",
+      }),
+    );
+  });
+
+  it("uses the first reference definition and ignores definitions in code fences", async () => {
+    mockProjectImages();
+    await render(
+      [
+        "```markdown",
+        "[diagram]: ./assets/code-example.png",
+        "```",
+        "",
+        "![Diagram][diagram]",
+        "",
+        "[diagram]: ./assets/first%20diagram.png",
+        "",
+        "[diagram]: ./assets/second-diagram.png",
+      ].join("\n"),
+    );
+    await flushImageLoad();
+
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "canonicalize_project_image_path",
+      expect.objectContaining({
+        cwd: "/repo",
+        path: "/repo/assets/first diagram.png",
+      }),
+    );
+    expect(mockInvoke).not.toHaveBeenCalledWith(
+      "canonicalize_project_image_path",
+      expect.objectContaining({
+        path: "/repo/assets/code-example.png",
+      }),
+    );
+    expect(mockInvoke).not.toHaveBeenCalledWith(
+      "canonicalize_project_image_path",
+      expect.objectContaining({
+        path: "/repo/assets/second-diagram.png",
+      }),
+    );
+  });
+
+  it("shows an open-file fallback when a scoped image cannot be previewed or decoded", async () => {
+    mockInvoke.mockImplementation((command: string) =>
+      command === "canonicalize_project_image_path"
+        ? Promise.resolve({ root: "/repo", path: "/repo/assets/bad.png" })
+        : command === "read_project_image_file"
+          ? Promise.resolve(
+              new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).buffer,
+            )
+          : Promise.reject(new Error("Unexpected command")),
+    );
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:bad-image");
+    await render("![Broken diagram](assets/bad.png)");
+    await flushImageLoad();
+    const broken = container.querySelector<HTMLImageElement>(
+      'img[alt="Broken diagram"]',
+    );
+    expect(broken).not.toBeNull();
+    await act(async () => broken!.dispatchEvent(new Event("error")));
+    expect(container.querySelector('[aria-label="Broken diagram"]')?.textContent)
+      .toBe("Broken diagram");
+    const open = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open Broken diagram"]',
+    );
+    expect(open).not.toBeNull();
+    await act(async () => open!.click());
+    expect(onOpenFile).toHaveBeenCalledWith("/repo/assets/bad.png");
+  });
+
+  it("keeps web images blocked and preserves their alt text", async () => {
+    mockProjectImages();
+    await render("![Remote diagram](https://example.com/image.png)");
+    expect(container.querySelector('[data-blocked-image-source="true"]')?.textContent)
+      .toBe("Remote diagram");
+    expect(mockInvoke).not.toHaveBeenCalled();
   });
 });

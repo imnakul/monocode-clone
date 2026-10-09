@@ -1151,6 +1151,7 @@ const LocalSessionPane = memo(function LocalSessionPane({
                         : undefined
                     }
                     busy={!!session.busy && !monoTranscript.viewingOlderPage}
+                    externalTurnId={session.externalTurnId}
                     visible={visible}
                     cwd={workCwd}
                     agentName={agent?.name}

@@ -73,7 +73,7 @@ describe("ChatPanel shared-hover continuity", () => {
     expect(markup).not.toContain("data-shared-hover-highlight");
   });
 
-  it("applies continuity to Sidechats in their own scoped list", () => {
+  it("renders durable sidechats through the ordinary saved-chat card path", () => {
     const sidechats = [
       makeChat("sc1", "Sidechat 1"),
       makeChat("sc2", "Sidechat 2"),
@@ -90,12 +90,29 @@ describe("ChatPanel shared-hover continuity", () => {
       }),
     );
 
-    // Sidechats ul has continuity and contains both sidechats
-    expect(markup).toMatch(
-      new RegExp(
-        `Sidechats[\\s\\S]*?<ul[^>]*${SHARED_HOVER_CONTINUITY_ATTR}[^>]*>[\\s\\S]*?Sidechat 1[\\s\\S]*?Sidechat 2`,
-      ),
+    expect(markup).toContain('data-session-card="sc1"');
+    expect(markup).toContain('data-session-card="sc2"');
+    expect(markup).toContain(SHARED_HOVER_CONTINUITY_ATTR);
+    expect(markup).not.toContain("Sidechats");
+    expect(markup).not.toContain("Temporary rows");
+  });
+
+  it("filters archived sidechats from the active Chats list", () => {
+    const markup = renderToStaticMarkup(
+      createElement(ChatPanel, {
+        chats: [],
+        sidechats: [
+          makeChat("active-sidechat", "Active sidechat"),
+          { ...makeChat("archived-sidechat", "Archived sidechat"), archived: true },
+        ],
+        creating: false,
+        error: null,
+        onSelect: () => {},
+        onNew: () => {},
+      }),
     );
+    expect(markup).toContain("Active sidechat");
+    expect(markup).not.toContain("Archived sidechat");
   });
 
   it("groups contiguous ordinary chats into scoped continuity regions separated by dividers", () => {

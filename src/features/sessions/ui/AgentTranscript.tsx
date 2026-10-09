@@ -202,6 +202,8 @@ type Props = {
   onLoadEarlier?: (beforePrepend: () => void) => Promise<void>;
   onReturnToLatest?: () => void;
   busy?: boolean;
+  /** Provider activity started outside MonoCode, which may precede a queued local turn. */
+  externalTurnId?: string;
   cwd?: string;
   /** Who the turns are by, in place of the model: a Mono's name. */
   agentName?: string;
@@ -287,6 +289,7 @@ function AgentTranscriptComponent({
   onLoadEarlier,
   onReturnToLatest,
   busy,
+  externalTurnId,
   cwd,
   agentName,
   agentMascot,
@@ -680,7 +683,14 @@ function AgentTranscriptComponent({
   );
   const turns = turnCache.group(blocks, managed, inlineWork);
   // A scheduled update can land while the chat's own turn is still running.
-  const activeTurnIndex = turns.reduce(
+  const externalTurnIndex = externalTurnId
+    ? turns.findIndex((turn) =>
+        turn.some((block) => block.externalTurnId === externalTurnId),
+      )
+    : -1;
+  const activeTurnIndex = externalTurnIndex >= 0
+    ? externalTurnIndex
+    : turns.reduce(
     (latest, turn, index) =>
       turn[0].monoHabit || turn[0].role === "handoff" ? latest : index,
     -1,
@@ -1023,6 +1033,9 @@ function AgentTranscriptComponent({
               ? monoTurnUserBlock(runs[runs.length - 1], messageDeliveries)
               : userBlock;
           const habit = turn[0].monoHabit;
+          const externalTurnActive =
+            !!externalTurnId &&
+            turn.some((block) => block.externalTurnId === externalTurnId);
           // Older saved reports may have lost their habit tag. A Mono's
           // standalone reply still needs its identity and response actions.
           const standaloneReply =
@@ -1037,9 +1050,10 @@ function AgentTranscriptComponent({
                 )
               : userBlock?.durationMs;
           const settled = !(
-            busy &&
-            !standaloneReply &&
-            firstVisibleTurn + turnIndex === activeTurnIndex
+            externalTurnActive ||
+            (busy &&
+              !standaloneReply &&
+              firstVisibleTurn + turnIndex === activeTurnIndex)
           );
           const proposals = turn.filter((block) => block.orchestration);
           const artifacts = artifactCards(turn);
@@ -1083,7 +1097,13 @@ function AgentTranscriptComponent({
           const workStillRunning = activityStillRunning(turn);
           // New turns carry immutable model provenance. Legacy turns do not,
           // so omit their model instead of rewriting history from the picker.
-          const turnModel = userBlock?.turnModel;
+          const providerReportedModel = turn.find(
+            (block) => block.role === "assistant" && block.turnModel,
+          )?.turnModel;
+          const turnModel =
+            providerReportedModel ??
+            userBlock?.turnModel ??
+            turn.find((block) => block.turnModel)?.turnModel;
           const turnHarness = harness
             ? (turnModel?.harness ?? harnessForTurn(blocks, turn, harness))
             : undefined;
@@ -1106,8 +1126,10 @@ function AgentTranscriptComponent({
           // A Mono's turns are its own, whichever model ran them.
           const turnModelName =
             agentName ??
-            turnModel?.name ??
-            (live ? currentModelName : undefined);
+            (turnModel?.settings?.effort
+              ? `${turnModel.name} · ${turnModel.settings.effort}`
+              : turnModel?.name) ??
+            (live && !externalTurnActive ? currentModelName : undefined);
           // The fold line speaks for the main agent only. A delegated run has
           // its own row, which says who is working and how it went, so saying
           // it again here would be two lines telling the same story.
@@ -4387,7 +4409,7 @@ function ActivityToolRow({
       ) : null}
       {errorOpen && errorDetail ? (
         <pre
-          className={`min-w-0 whitespace-pre-wrap break-words py-1 font-mono text-[12px] leading-5 text-red-400/80 ${bare ? "" : "pl-5"}`}
+        className={`min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] py-1 font-mono text-[12px] leading-5 text-red-400/80 ${bare ? "" : "pl-5"}`}
         >
           {errorDetail}
         </pre>
@@ -4461,12 +4483,12 @@ function MonoCodeCallRow({
         <div className="flex min-w-0 items-center gap-1.5 py-1">{summary}</div>
       )}
       {errorOpen && hasError ? (
-        <pre className="min-w-0 whitespace-pre-wrap break-words py-1 pl-5 font-mono text-[12px] leading-5 text-red-400/80">
+        <pre className="min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] py-1 pl-5 font-mono text-[12px] leading-5 text-red-400/80">
           {output}
         </pre>
       ) : null}
       {pendingApproval ? (
-        <pre className="max-h-32 min-w-0 overflow-auto whitespace-pre-wrap break-all py-1 pl-5 font-mono text-[12px] leading-5 text-content/70">
+        <pre className="max-h-32 min-w-0 overflow-auto whitespace-pre-wrap break-all [overflow-wrap:anywhere] py-1 pl-5 font-mono text-[12px] leading-5 text-content/70">
           {call.command}
         </pre>
       ) : null}
@@ -4693,7 +4715,7 @@ function ToolCall({
         </div>
       )}
       {open && expandable ? (
-        <pre className="mt-1.5 min-w-0 whitespace-pre-wrap break-words px-2.5 font-mono text-[12px] leading-5 text-content/55">
+        <pre className="mt-1.5 min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] px-2.5 font-mono text-[12px] leading-5 text-content/55">
           {expanded}
         </pre>
       ) : null}

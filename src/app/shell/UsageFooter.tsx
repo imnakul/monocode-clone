@@ -104,6 +104,7 @@ export function UsageFooter({
   const wantCli = providers.includes("antigravity-cli");
   const cliAccountKey = runtimeProviderBinaryPath("antigravity-cli") ?? getCustomBinary("antigravity-cli") ?? "default";
   const cliLimits = antigravityCliLimitsForModel(useCachedRateLimits("antigravity-cli", cliAccountKey), session?.model);
+  const wantDevin = providers.includes("devin");
   const [now, setNow] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
   const [, setAccountsVersion] = useState(0);
@@ -126,6 +127,7 @@ export function UsageFooter({
   const cachedClaude = useCachedRateLimits("claude", claudeAccountId);
   const cachedCodex = useCachedRateLimits("codex", codexAccountId);
   const opencode = useCachedRateLimits("opencode");
+  const devin = useCachedRateLimits("devin");
   const claude = claudeAccountAvailable
     ? cachedClaude
     : unavailableRateLimits(
@@ -154,6 +156,7 @@ export function UsageFooter({
       void loadRateLimits("codex", codexAccountId);
     if (wantOpencode) void loadRateLimits("opencode");
     if (wantCli) void loadRateLimits("antigravity-cli", cliAccountKey);
+    if (wantDevin) void loadRateLimits("devin");
   }, [
     claudeAccountAvailable,
     claudeAccountId,
@@ -164,6 +167,7 @@ export function UsageFooter({
     wantOpencode,
     wantCli,
     cliAccountKey,
+    wantDevin,
   ]);
 
   const refresh = useCallback(() => {
@@ -176,6 +180,7 @@ export function UsageFooter({
       jobs.push(loadRateLimits("codex", codexAccountId, true));
     if (wantOpencode) jobs.push(loadRateLimits("opencode", "default", true));
     if (wantCli) jobs.push(loadRateLimits("antigravity-cli", cliAccountKey, true));
+    if (wantDevin) jobs.push(loadRateLimits("devin", "default", true));
     const run = Promise.allSettled(jobs)
       .then(() => undefined)
       .finally(() => {
@@ -194,6 +199,7 @@ export function UsageFooter({
     wantOpencode,
     wantCli,
     cliAccountKey,
+    wantDevin,
   ]);
 
   useEffect(() => {
@@ -311,6 +317,11 @@ export function UsageFooter({
     [codexAccountId, reconnectProvider],
   );
 
+  const reconnectDevin = useCallback(
+    () => reconnectProvider("devin", "default"),
+    [reconnectProvider],
+  );
+
   const selectAccount = useCallback(
     (provider: ProviderAccountProvider, accountId: string) => {
       selectProviderAccount(provider, project, accountId);
@@ -337,7 +348,7 @@ export function UsageFooter({
   );
 
   const showOpencodeChip = wantOpencode && opencode.status !== "unavailable";
-  const showUsage = wantClaude || wantCodex || showOpencodeChip || wantCli;
+  const showUsage = wantClaude || wantCodex || showOpencodeChip || wantCli || wantDevin;
   const showTerminals = terminals.length > 0;
   const showTerminalButton = Boolean(onNewTerminal || onShowTerminal);
   const terminalLabel = projectTerminalActive
@@ -416,6 +427,15 @@ export function UsageFooter({
               now={now}
               project={project}
               remainingQuota={remainingQuota}
+            />
+          ) : null}
+          {wantDevin ? (
+            // Devin has one login per machine, so there is no account picker.
+            <UsageProviderChip
+              limits={devin}
+              now={now}
+              project={project}
+              onReconnect={reconnectDevin}
             />
           ) : null}
           <button

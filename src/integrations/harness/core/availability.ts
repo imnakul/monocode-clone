@@ -2,6 +2,7 @@ import type { HarnessId } from "../../../features/sessions/model/session";
 import { HARNESSES } from "../../../features/sessions/model/session";
 import { probeHarnessBinary } from "./child";
 import { isLiveHarness } from "./registry";
+import { IS_WIN } from "../../../platform/tauri/platform";
 import {
   harnessAvailabilityProbedAt,
   markHarnessAvailabilityProbed,
@@ -41,6 +42,12 @@ const CLI: Record<HarnessId, { name: string; install?: string }> = {
   hermes: {
     name: "Hermes Agent CLI",
     install: "Install from hermes-agent.nousresearch.com, then run hermes model",
+  },
+  devin: {
+    name: "Devin CLI",
+    install: IS_WIN
+      ? "irm https://static.devin.ai/cli/setup.ps1 | iex"
+      : "curl -fsSL https://cli.devin.ai/install.sh | bash",
   },
 };
 

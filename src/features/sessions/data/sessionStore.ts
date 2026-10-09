@@ -69,6 +69,8 @@ export type SessionSummary = {
   model: string;
   /** Model handling the current user turn; memory-only live-session metadata. */
   activeTurnModel?: TurnModel;
+  /** Stable key for dismissing the current working-card presentation. */
+  activeRunKey?: string;
   runtimeMode: RuntimeMode;
   title: string;
   providerSessionId?: string;
@@ -85,6 +87,7 @@ export type SessionSummary = {
   draft?: boolean;
   linkedWorkItem?: LinkedWorkItem;
   automationId?: string;
+  sidechat?: Pick<NonNullable<Session["sidechat"]>, "sourceSessionId" | "sourceTitle">;
 };
 
 type SessionRecord = {
@@ -110,6 +113,7 @@ type SessionRecord = {
   worktreeRemoved?: boolean;
   linkedWorkItem?: LinkedWorkItem | null;
   automationId?: string | null;
+  sidechat?: Session["sidechat"];
   createdAt: number;
   updatedAt: number;
 };
@@ -135,6 +139,7 @@ type SessionUpsertPayload = {
   worktreeRemoved?: boolean;
   linkedWorkItem?: LinkedWorkItem;
   automationId?: string;
+  sidechat?: Session["sidechat"];
 };
 
 /** Only real chats belong in project history — blank tabs stay ephemeral. */
@@ -170,6 +175,7 @@ function persistableMeta(
         session.queueHoldReason,
       )
     : [];
+  const sidechat = persistableSidechat(session.sidechat);
   return {
     id: session.id,
     cwd: normalizeProjectPath(session.cwd),
@@ -179,6 +185,7 @@ function persistableMeta(
     runtimeMode: session.runtimeMode,
     title: session.title,
     ...(session.sidebarHidden === true ? { sidebarHidden: true } : {}),
+    ...(sidechat ? { sidechat } : {}),
     ...(queuedMessages.length
       ? {
           queuedMessages,
@@ -202,6 +209,56 @@ function persistableMeta(
     ...(session.automationId && isPersistableId(session.automationId)
       ? { automationId: session.automationId }
       : {}),
+  };
+}
+
+function persistableSidechat(
+  value: unknown,
+): Session["sidechat"] | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const sourceSessionId =
+    typeof record.sourceSessionId === "string"
+      ? record.sourceSessionId.trim()
+      : "";
+  const sourceTitle =
+    typeof record.sourceTitle === "string" ? record.sourceTitle.trim() : "";
+  if (!sourceSessionId || !isPersistableId(sourceSessionId) || !sourceTitle) {
+    return undefined;
+  }
+  const titleEncoder = new TextEncoder();
+  let boundedTitle = "";
+  let titleBytes = 0;
+  for (const point of sourceTitle) {
+    const width = titleEncoder.encode(point).byteLength;
+    if (titleBytes + width > 512) break;
+    boundedTitle += point;
+    titleBytes += width;
+  }
+  if (!boundedTitle) return undefined;
+  const sourceContext = record.sourceContext;
+  if (typeof sourceContext !== "string" || !sourceContext.trim()) {
+    return { sourceSessionId, sourceTitle: boundedTitle };
+  }
+  // The source bundle is already capped by buildForkBundle. Keep a hard byte
+  // limit at the storage boundary as a second guard against oversized metadata.
+  const encoder = new TextEncoder();
+  const encoded = encoder.encode(sourceContext);
+  if (encoded.byteLength <= 512_000) {
+    return { sourceSessionId, sourceTitle: boundedTitle, sourceContext };
+  }
+  let prefix = "";
+  let bytes = 0;
+  for (const point of sourceContext) {
+    const width = encoder.encode(point).byteLength;
+    if (bytes + width > 500_000) break;
+    prefix += point;
+    bytes += width;
+  }
+  return {
+    sourceSessionId,
+    sourceTitle: boundedTitle,
+    sourceContext: `${prefix}… [context snapshot capped]`,
   };
 }
 
@@ -546,6 +603,12 @@ export async function listSessionsByProject(
 /** Every persisted scratch chat, whatever its leaf directory. */
 export async function listScratchSessions(): Promise<SessionSummary[]> {
   const rows = await invoke<SessionSummary[]>("session_list_scratch");
+  return rows.map(normalizeSummary);
+}
+
+/** Saved sidechats keep their project cwd and are listed in Chats separately. */
+export async function listSidechatSessions(): Promise<SessionSummary[]> {
+  const rows = await invoke<SessionSummary[]>("session_list_sidechats");
   return rows.map(normalizeSummary);
 }
 
@@ -972,7 +1035,13 @@ function sanitizeBlock(
   if (block.role === "user" && typeof block.sentAt === "number")
     next.sentAt = block.sentAt;
   const turnModel = sanitizeTurnModel(block.turnModel);
-  if (block.role === "user" && turnModel) next.turnModel = turnModel;
+  if (
+    (block.role === "user" ||
+      (typeof block.externalTurnId === "string" &&
+        isPersistableId(block.externalTurnId))) &&
+    turnModel
+  )
+    next.turnModel = turnModel;
   if (block.role === "user" && block.draft) next.draft = true;
   if (
     block.role === "user" &&
@@ -1427,7 +1496,13 @@ function sanitizeTurnModel(value: unknown): TurnModel | undefined {
   ) {
     return undefined;
   }
-  return { harness: harness as HarnessId, id, name };
+  const settings = sanitizeStringRecord(record.settings);
+  return {
+    harness: harness as HarnessId,
+    id,
+    name,
+    ...(settings ? { settings } : {}),
+  };
 }
 
 function sanitizeInterjection(
@@ -1624,6 +1699,7 @@ function sanitizeReview(value: Block["review"]): CodeReviewReport | undefined {
 
 function normalizeSummary(summary: SessionSummary): SessionSummary {
   const linkedWorkItem = sanitizeLinkedWorkItem(summary.linkedWorkItem);
+  const sidechat = persistableSidechat(summary.sidechat);
   return {
     ...summary,
     harness: asHarness(summary.harness),
@@ -1640,6 +1716,14 @@ function normalizeSummary(summary: SessionSummary): SessionSummary {
     draft: summary.draft || undefined,
     sidebarHidden: summary.sidebarHidden === true || undefined,
     linkedWorkItem,
+    ...(sidechat
+      ? {
+          sidechat: {
+            sourceSessionId: sidechat.sourceSessionId,
+            sourceTitle: sidechat.sourceTitle,
+          },
+        }
+      : { sidechat: undefined }),
     ...(typeof summary.automationId === "string" &&
     isPersistableId(summary.automationId)
       ? { automationId: summary.automationId }
@@ -1655,6 +1739,7 @@ function recordToSession(record: SessionRecord): Session {
     : [];
   const restoredQueue = restoreQueuedMessages(record.queuedMessages);
   const linkedWorkItem = sanitizeLinkedWorkItem(record.linkedWorkItem);
+  const sidechat = persistableSidechat(record.sidechat);
   return {
     id: record.id,
     sidebarHidden: record.sidebarHidden === true || undefined,
@@ -1667,6 +1752,7 @@ function recordToSession(record: SessionRecord): Session {
         : {},
     runtimeMode: asRuntimeMode(record.runtimeMode),
     title: record.title,
+    ...(sidechat ? { sidechat } : {}),
     blocks,
     ...(record.monoTranscript ? { monoTranscript: record.monoTranscript } : {}),
     busy: false,

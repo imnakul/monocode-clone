@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   attachmentsFromFiles,
   filesFromClipboard,
+  loadAttachmentPreviewUrl,
+  loadProjectImagePreviewUrl,
   mergeAttachments,
   sniffImageMime,
 } from "./attachments";
@@ -129,6 +131,79 @@ describe("sniffImageMime", () => {
     expect(
       sniffImageMime(new TextEncoder().encode("<html><h1>not an image")),
     ).toBeNull();
+  });
+});
+
+describe("project Markdown image previews", () => {
+  const png = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  ]);
+
+  beforeEach(() => {
+    mockInvoke.mockReset();
+    vi.spyOn(URL, "createObjectURL").mockImplementation(
+      (() => `blob:project-${Math.random()}`) as typeof URL.createObjectURL,
+    );
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+  });
+
+  it("validates containment before cache lookup and never uses the attachment cache", async () => {
+    mockInvoke.mockImplementation((command: string) => {
+      if (command === "read_binary_file") return Promise.resolve(png.buffer);
+      if (command === "canonicalize_project_image_path")
+        return Promise.reject(new Error("outside project"));
+      return Promise.reject(new Error(`unexpected invoke: ${command}`));
+    });
+    expect(await loadAttachmentPreviewUrl("/outside/shared.png")).toMatch(
+      /^blob:/,
+    );
+    expect(await loadProjectImagePreviewUrl("/outside/shared.png", "/repo")).toBe(
+      null,
+    );
+    expect(mockInvoke).toHaveBeenCalledWith("canonicalize_project_image_path", {
+      path: "/outside/shared.png",
+      cwd: "/repo",
+    });
+    expect(mockInvoke).not.toHaveBeenCalledWith(
+      "read_project_image_file",
+      expect.anything(),
+    );
+  });
+
+  it("scopes cached bytes by canonical project and revalidates on cache hits", async () => {
+    const canonicalCalls: string[] = [];
+    const reads: string[] = [];
+    mockInvoke.mockImplementation((command: string, args: { cwd?: string }) => {
+      if (command === "canonicalize_project_image_path") {
+        canonicalCalls.push(args.cwd ?? "");
+        return Promise.resolve({
+          root: args.cwd === "/repo" ? "/repo" : "/repo/sub",
+          path: "/repo/sub/image.png",
+        });
+      }
+      if (command === "read_project_image_file") {
+        reads.push(args.cwd ?? "");
+        return Promise.resolve(png.buffer);
+      }
+      return Promise.reject(new Error(`unexpected invoke: ${command}`));
+    });
+
+    const outer = await loadProjectImagePreviewUrl("/repo/sub/image.png", "/repo");
+    const outerAgain = await loadProjectImagePreviewUrl(
+      "/repo/sub/image.png",
+      "/repo",
+    );
+    const nested = await loadProjectImagePreviewUrl(
+      "/repo/sub/image.png",
+      "/repo/sub",
+    );
+
+    expect(outer).toMatch(/^blob:/);
+    expect(outerAgain).toBe(outer);
+    expect(nested).toMatch(/^blob:/);
+    expect(nested).not.toBe(outer);
+    expect(canonicalCalls).toEqual(["/repo", "/repo", "/repo/sub"]);
+    expect(reads).toEqual(["/repo", "/repo/sub"]);
   });
 });
 

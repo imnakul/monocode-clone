@@ -349,6 +349,18 @@ function groupTranscriptTurns(
       }
       continue;
     }
+    if (
+      block.role === "system" &&
+      block.externalTurnId &&
+      current.length > 0 &&
+      !current.some((entry) => entry.externalTurnId === block.externalTurnId)
+    ) {
+      // An assistant-first Remote Control response has no user boundary yet.
+      // Keep it separate from the previous answer (and any queued local prompt)
+      // so its live state remains attached to the phone turn.
+      turns.push(current);
+      current = [];
+    }
     if (block.role === "handoff" || block.monoHabit || block.branchOrigin) {
       if (current.length > 0) turns.push(current);
       turns.push([block]);

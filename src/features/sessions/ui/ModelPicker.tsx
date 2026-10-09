@@ -108,7 +108,9 @@ const MODEL_MENU_FRAME_HEIGHT = MODEL_MENU_HEIGHT + 2;
 
 const SETTING_ORDER = [
   "fast",
+  "lead",
   "effort",
+  "sidekick",
   "reasoning",
   "reasoningEffort",
   "serviceTier",
@@ -124,6 +126,8 @@ const PILL_ORDER = [
   "reasoning",
   "reasoningEffort",
   "variant",
+  "lead",
+  "sidekick",
   "fast",
   "thinking",
   "serviceTier",

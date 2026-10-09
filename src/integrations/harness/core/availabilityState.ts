@@ -21,6 +21,7 @@ function emptyAvailability(): HarnessAvailability {
     "antigravity-cli": false,
     cline: false,
     hermes: false,
+    devin: false,
   };
 }
 

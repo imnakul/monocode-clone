@@ -24,9 +24,21 @@ function render(
   blocks: Block[],
   busy = false,
   latestTurnAccessory?: ReactNode,
+  externalTurnId?: string,
 ) {
   return renderToStaticMarkup(
-    createElement(AgentTranscript, { blocks, busy, latestTurnAccessory }),
+    createElement(AgentTranscript, {
+      blocks,
+      busy,
+      latestTurnAccessory,
+      ...(externalTurnId
+        ? {
+            externalTurnId,
+            harness: "claude" as const,
+            model: "composer-model",
+          }
+        : {}),
+    }),
   );
 }
 
@@ -46,6 +58,62 @@ afterEach(() => {
 });
 
 describe("AgentTranscript collapsed work", () => {
+  it("keeps an assistant-first phone shimmer and model on its own turn beside a queued local prompt", () => {
+    const markup = render(
+      [
+        { id: "old-user", role: "user", text: "Finished earlier" },
+        { id: "old-answer", role: "assistant", text: "Earlier answer" },
+        {
+          id: "phone-boundary",
+          role: "system",
+          text: "Claude is answering a message sent from another device.",
+          externalTurnId: "phone-turn",
+          startedAt: 1,
+          turnModel: {
+            harness: "claude",
+            id: "claude-opus-4-5",
+            name: "Claude Opus 4.5",
+            settings: { effort: "high" },
+          },
+        },
+        {
+          id: "phone-answer",
+          role: "assistant",
+          text: "Working from the phone.",
+          externalTurnId: "phone-turn",
+          streaming: true,
+        },
+        {
+          id: "local-queued",
+          role: "user",
+          text: "Run this after the phone answer",
+          sentAt: 2,
+          turnModel: {
+            harness: "claude",
+            id: "composer-model",
+            name: "Composer model",
+          },
+        },
+      ],
+      true,
+      undefined,
+      "phone-turn",
+    );
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    const phoneTurn = container.querySelector<HTMLElement>(
+      '[data-transcript-turn="phone-boundary"]',
+    );
+    const live = phoneTurn?.querySelector(".shimmer-text");
+    expect(live?.textContent).toContain("Claude Opus 4.5 · high working");
+    expect(
+      container.querySelector(
+        '[data-transcript-turn="local-queued"] [role="status"]',
+      ),
+    ).toBeNull();
+    expect(phoneTurn?.querySelector("[data-transcript-search-item]")).not.toBeNull();
+  });
+
   it("renders native, composer and prefix origins as separate accessible divider rows", () => {
     const source = { ...newSession("claude", "/repo"), id: "source", title: "Original", providerSessionId: "provider", blocks: [
       { id: "u1", role: "user" as const, text: "hello" }, { id: "a1", role: "assistant" as const, text: "reply" },
@@ -185,6 +253,40 @@ describe("AgentTranscript collapsed work", () => {
     expect(markup).toContain("monocode app notes.list");
     expect(markup).toContain("Show error details for MonoCode: List notes");
     expect(markup).not.toContain("Connection refused");
+  });
+
+  it("wraps expanded tool output while preserving its exact text", async () => {
+    mountedContainer = document.createElement("div");
+    document.body.append(mountedContainer);
+    mountedRoot = createRoot(mountedContainer);
+    const output = "first line\nvery-long-unbroken-output-token";
+    await act(async () => {
+      mountedRoot!.render(
+        createElement(AgentTranscript, {
+          blocks: [
+            { id: "user", role: "user", text: "Inspect" },
+            {
+              id: "tool-error",
+              role: "tool",
+              text: "Run command",
+              tool: { kind: "shell", status: "failed", detail: output },
+            },
+          ],
+          busy: false,
+        }),
+      );
+    });
+    const expand = mountedContainer.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Show error details"]',
+    );
+    expect(expand).not.toBeNull();
+    await act(async () => expand!.click());
+    const detail = [...mountedContainer.querySelectorAll("pre")].find(
+      (pre) => pre.textContent === output,
+    );
+    expect(detail).not.toBeNull();
+    expect(detail?.className).toContain("[overflow-wrap:anywhere]");
+    expect(detail?.textContent).toBe(output);
   });
 
   it("offers the saved CI context in a collapsed disclosure beside the short request", () => {

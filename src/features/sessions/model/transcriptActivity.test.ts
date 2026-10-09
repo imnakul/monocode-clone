@@ -655,6 +655,31 @@ describe("turnCopyText", () => {
 });
 
 describe("groupTurns", () => {
+  it("splits assistant-first external activity from completed and queued turns", () => {
+    const turns = groupTurns([
+      { id: "old-user", role: "user", text: "Earlier" },
+      { id: "old-answer", role: "assistant", text: "Done" },
+      {
+        id: "phone-boundary",
+        role: "system",
+        text: "Claude is answering a message sent from another device.",
+        externalTurnId: "phone-turn",
+      },
+      {
+        id: "phone-answer",
+        role: "assistant",
+        text: "Working",
+        externalTurnId: "phone-turn",
+      },
+      { id: "queued-local", role: "user", text: "After the phone turn" },
+    ]);
+    expect(turns.map((turn) => turn.map((block) => block.id))).toEqual([
+      ["old-user", "old-answer"],
+      ["phone-boundary", "phone-answer"],
+      ["queued-local"],
+    ]);
+  });
+
   it("keeps habit reports and relayed approvals outside conversation turns", () => {
     const monoHabit = { id: "habit", name: "Morning check", at: 1_000 };
     const turns = groupTurns([

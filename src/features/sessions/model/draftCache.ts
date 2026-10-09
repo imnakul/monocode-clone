@@ -18,6 +18,26 @@
  * too).
  */
 import type { McpTag } from "./mcpPicker";
+import type { Attachment } from "./session";
+
+export const COMPOSER_INPUT_RESTORE_EVENT = "monocode:restore-composer-input";
+
+export type ComposerInputRestore = {
+  sessionId: string;
+  text: string;
+  attachments: Attachment[];
+};
+
+/** Restore a failed asynchronous submission into its still-open composer. */
+export function restoreComposerInput(input: ComposerInputRestore): void {
+  setComposerDraft(input.sessionId, input.text);
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<ComposerInputRestore>(COMPOSER_INPUT_RESTORE_EVENT, {
+      detail: input,
+    }),
+  );
+}
 
 const drafts = new Map<string, string>();
 const mcpTags = new Map<string, McpTag[]>();

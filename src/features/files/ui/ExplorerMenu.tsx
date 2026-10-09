@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useId,
   useMemo,
   useRef,
@@ -95,6 +96,23 @@ export function ExplorerMenu({
   const menuLayer = layer ?? (anchor ? LAYER.submenu : undefined);
   const submenuLayer = layer === undefined ? LAYER.submenu : layer + 1;
   const isDialogMenu = layer !== undefined && layer >= LAYER.dialogPopover;
+
+  useLayoutEffect(() => {
+    const item = menuRef.current?.querySelector<HTMLElement>(
+      `[data-menu-index="${active}"]`,
+    );
+    if (item && typeof item.scrollIntoView === "function")
+      item.scrollIntoView({ block: "nearest" });
+  }, [active]);
+
+  useLayoutEffect(() => {
+    if (!submenu || submenuActive < 0) return;
+    const item = submenuRef.current?.querySelector<HTMLElement>(
+      `[data-menu-index="${submenuActive}"]`,
+    );
+    if (item && typeof item.scrollIntoView === "function")
+      item.scrollIntoView({ block: "nearest" });
+  }, [submenu, submenuActive]);
 
   const cancelClose = () => {
     if (closeTimer.current != null) clearTimeout(closeTimer.current);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   HISTORY_PAGE_ITEMS,
   historyBlocks,
@@ -6,12 +6,24 @@ import {
   NativeHistoryStore,
   parseProviderHistory,
   reconcileNativeHistory,
+  saveClaudeComposerSeed,
+  seedClaudeComposerFromHistory,
   trimHistoryBefore,
   visibleHistoryItems,
   withHistory,
   type HistoryLoader,
 } from "./history";
-import { newSession, type Block } from "../../sessions/model/session";
+import {
+  newSession,
+  type Block,
+  type Session,
+} from "../../sessions/model/session";
+import {
+  resetHarnessModelOverlays,
+  setHarnessModels,
+} from "../../sessions/model/models";
+
+afterEach(() => resetHarnessModelOverlays());
 
 const jsonl = (...rows: unknown[]): string => rows.map((row) => JSON.stringify(row)).join("\n") + "\n";
 
@@ -56,6 +68,73 @@ describe("parseProviderHistory", () => {
     expect(JSON.stringify(items)).not.toContain("SECRET");
   });
 
+  it("keeps only the bound Claude session and attaches explicit assistant model settings", () => {
+    const items = parseProviderHistory(
+      "claude",
+      jsonl(
+        {
+          type: "assistant",
+          sessionId: "other-session",
+          message: { model: "claude-opus-4-5", content: "Wrong session" },
+        },
+        {
+          type: "assistant",
+          sessionId: "native-session",
+          message: {
+            model: "claude-sonnet-4-5",
+            modelSettings: { effort: "high" },
+            content: [
+              {
+                type: "tool_use",
+                name: "Task",
+                input: { model: "nested-helper-model", effort: "max" },
+              },
+              { type: "text", text: "The root assistant replied." },
+            ],
+          },
+        },
+        {
+          type: "assistant",
+          sessionId: "native-session",
+          isSidechain: true,
+          message: { model: "claude-opus-4-5", content: "Helper reply" },
+        },
+        {
+          type: "assistant",
+          sessionId: "native-session",
+          message: {
+            model: "claude-opus-4-5",
+            effort: "invented",
+            content: "An unsupported effort is not shown.",
+          },
+        },
+      ),
+      "0",
+      "native-session",
+    );
+    expect(items.map((item) => item.text)).toEqual([
+      "The root assistant replied.",
+      "Task",
+      "An unsupported effort is not shown.",
+    ]);
+    expect(items[0]?.turnModel).toMatchObject({
+      harness: "claude",
+      id: "claude-sonnet-4-5",
+      settings: { effort: "high" },
+    });
+    const blocks = historyBlocks(items, "claude", {
+      hasEarlier: false,
+      hiddenCount: 0,
+    });
+    expect(blocks[0]?.turnModel?.id).toBe("claude-sonnet-4-5");
+    expect(items[2]?.turnModel).toMatchObject({
+      harness: "claude",
+      id: "claude-opus-4-5",
+    });
+    expect(items[2]?.turnModel).not.toHaveProperty("settings");
+    expect(JSON.stringify(items)).not.toContain("nested-helper-model");
+  });
+
   it("hides Claude Code's auto-compaction summary, flagged or matched by text", () => {
     const summary =
       "This session is being continued from a previous conversation that ran out of context. Summary: ...";
@@ -93,6 +172,315 @@ describe("parseProviderHistory", () => {
     const [item] = parseProviderHistory("claude", jsonl({ type: "user", message: { content: big } }), "0");
     expect(item.text.length).toBeLessThan(20_100);
     expect(item.text.endsWith("[truncated]")).toBe(true);
+  });
+});
+
+describe("seedClaudeComposerFromHistory", () => {
+  it("uses known native model metadata for a new blank chat without rewriting history", () => {
+    setHarnessModels("claude", [
+      {
+        id: "claude:opus-4.5",
+        harness: "claude",
+        name: "Opus 4.5",
+        nativeId: "claude-opus-4-5",
+        settings: [
+          {
+            id: "effort",
+            label: "Reasoning",
+            kind: "select",
+            value: "high",
+            options: [
+              { value: "low", label: "Low" },
+              { value: "high", label: "High" },
+            ],
+          },
+        ],
+      },
+    ]);
+    const session = newSession("claude", "/repo", "claude:sonnet-5");
+    const items = parseProviderHistory(
+      "claude",
+      jsonl({
+        type: "assistant",
+        message: {
+          model: "claude-opus-4-5",
+          modelSettings: { effort: "high" },
+          content: "Native answer",
+        },
+      }),
+      "0",
+    );
+    const seeded = seedClaudeComposerFromHistory(session, items);
+    expect(seeded.model).toBe("claude:opus-4.5");
+    expect(seeded.modelSettings).toMatchObject({ effort: "high" });
+    expect(seeded.blocks).toBe(session.blocks);
+    expect(items[0].turnModel?.settings).toEqual({ effort: "high" });
+  });
+
+  it("keeps history effort metadata when no loaded catalog supports composer effort", () => {
+    const session = newSession("claude", "/repo", "claude:sonnet-5");
+    const items = parseProviderHistory(
+      "claude",
+      jsonl({
+        type: "assistant",
+        message: {
+          model: "claude-opus-4-5",
+          effort: "high",
+          content: "Native answer",
+        },
+      }),
+      "0",
+    );
+
+    const seeded = seedClaudeComposerFromHistory(session, items);
+    expect(seeded.model).toBe("claude:opus-4.5");
+    expect(seeded.modelSettings?.effort).toBeUndefined();
+    expect(items[0].turnModel?.settings).toEqual({ effort: "high" });
+  });
+
+  it("uses the latest trusted model from a tool-only assistant record", () => {
+    const session = newSession("claude", "/repo", "claude:sonnet-5");
+    const items = parseProviderHistory(
+      "claude",
+      jsonl({
+        type: "assistant",
+        sessionId: "native-session",
+        message: {
+          model: "claude-opus-4-5",
+          content: [{ type: "tool_use", name: "Read", input: {} }],
+        },
+      }),
+      "0",
+      "native-session",
+    );
+    expect(items).toMatchObject([
+      { role: "tool", text: "Read", turnModel: { id: "claude-opus-4-5" } },
+    ]);
+    expect(seedClaudeComposerFromHistory(session, items).model).toBe(
+      "claude:opus-4.5",
+    );
+  });
+
+  it("retries both async saves from the latest session controls", async () => {
+    setHarnessModels("claude", [
+      {
+        id: "claude:opus-4.5",
+        harness: "claude",
+        name: "Opus 4.5",
+        nativeId: "claude-opus-4-5",
+        settings: [
+          {
+            id: "effort",
+            label: "Reasoning",
+            kind: "select",
+            value: "high",
+            options: [
+              { value: "low", label: "Low" },
+              { value: "high", label: "High" },
+            ],
+          },
+        ],
+      },
+    ]);
+    const captured = newSession("claude", "/repo", "claude:sonnet-5");
+    const seeded = seedClaudeComposerFromHistory(
+      captured,
+      parseProviderHistory(
+        "claude",
+        jsonl({
+          type: "assistant",
+          message: {
+            model: "claude-opus-4-5",
+            modelSettings: { effort: "high" },
+            content: "Native answer",
+          },
+        }),
+        "0",
+      ),
+    );
+    let latest: Session | undefined = captured;
+    const applied: Session[] = [];
+    const saves: Array<{
+      session: Session;
+      resolve: (saved: boolean) => void;
+    }> = [];
+    const operation = saveClaudeComposerSeed(seeded, {
+      getLatest: () => latest,
+      isAvailable: () => true,
+      isSameNativeSession: (session) =>
+        session.id === captured.id &&
+        session.harness === captured.harness &&
+        session.cwd === captured.cwd,
+      canSeed: (session) =>
+        session.model === captured.model &&
+        JSON.stringify(session.modelSettings) ===
+          JSON.stringify(captured.modelSettings) &&
+        !session.busy &&
+        !session.externalTurnId &&
+        !session.blocks.some((block) => block.role === "user"),
+      save: (session) =>
+        new Promise((resolve) => saves.push({ session, resolve })),
+      apply: (session) => applied.push(session),
+    });
+
+    await vi.waitFor(() => expect(saves).toHaveLength(1));
+    latest = {
+      ...latest!,
+      runtimeMode: "auto-accept-edits",
+      title: "Changed during the first save",
+    };
+    saves[0].resolve(true);
+
+    await vi.waitFor(() => expect(saves).toHaveLength(2));
+    latest = {
+      ...latest!,
+      remoteControlStatus: "on",
+      workspaceMode: "worktree",
+      worktreeCwd: "/repo/.worktrees/native",
+    };
+    saves[1].resolve(true);
+
+    await vi.waitFor(() => expect(saves).toHaveLength(3));
+    expect(saves[2].session).toMatchObject({
+      model: "claude:opus-4.5",
+      modelSettings: { effort: "high" },
+      runtimeMode: "auto-accept-edits",
+      title: "Changed during the first save",
+      remoteControlStatus: "on",
+      workspaceMode: "worktree",
+      worktreeCwd: "/repo/.worktrees/native",
+    });
+    saves[2].resolve(true);
+
+    const result = await operation;
+    expect(result.kind).toBe("saved");
+    expect(applied).toHaveLength(1);
+    if (result.kind === "saved") {
+      expect(result.session.runtimeMode).toBe("auto-accept-edits");
+      expect(result.session.remoteControlStatus).toBe("on");
+      expect(result.session.worktreeCwd).toBe("/repo/.worktrees/native");
+      expect(applied[0]).toMatchObject({
+        runtimeMode: "auto-accept-edits",
+        remoteControlStatus: "on",
+        worktreeCwd: "/repo/.worktrees/native",
+      });
+    }
+  });
+
+  it("does not apply a seed after close, a newer choice, or a save error", async () => {
+    const captured = newSession("claude", "/repo", "claude:sonnet-5");
+    const seeded = { ...captured, model: "claude:opus-4.5" };
+    const makeDependencies = (
+      getLatest: () => Session | undefined,
+      isAvailable: () => boolean,
+      save: (session: Session) => Promise<boolean>,
+      applied: Session[],
+    ) => ({
+      getLatest,
+      isAvailable,
+      isSameNativeSession: (session: Session) =>
+        session.id === captured.id && session.harness === captured.harness,
+      canSeed: (session: Session) => session.model === captured.model,
+      save,
+      apply: (session: Session) => applied.push(session),
+    });
+
+    let closedLatest: Session | undefined = captured;
+    let open = true;
+    const afterClose: Session[] = [];
+    const closed = await saveClaudeComposerSeed(
+      seeded,
+      makeDependencies(
+        () => closedLatest,
+        () => open,
+        async () => {
+          closedLatest = undefined;
+          open = false;
+          return true;
+        },
+        afterClose,
+      ),
+    );
+    expect(closed.kind).toBe("skipped");
+    expect(afterClose).toEqual([]);
+
+    let changedLatest: Session | undefined = captured;
+    const afterChoice: Session[] = [];
+    let writes = 0;
+    const changedChoice = await saveClaudeComposerSeed(
+      seeded,
+      makeDependencies(
+        () => changedLatest,
+        () => true,
+        async (session) => {
+          writes++;
+          if (writes === 1)
+            changedLatest = { ...session, model: "claude:haiku-4.5" };
+          return true;
+        },
+        afterChoice,
+      ),
+    );
+    expect(changedChoice.kind).toBe("skipped");
+    expect(writes).toBe(2);
+    expect(afterChoice).toEqual([]);
+
+    let changingLatest: Session | undefined = captured;
+    const afterExhaustion: Session[] = [];
+    let changingWrites = 0;
+    const exhausted = await saveClaudeComposerSeed(seeded, {
+      ...makeDependencies(
+        () => changingLatest,
+        () => true,
+        async (session) => {
+          changingWrites++;
+          changingLatest = {
+            ...session,
+            title: `Changed during write ${changingWrites}`,
+          };
+          return true;
+        },
+        afterExhaustion,
+      ),
+      maxAttempts: 1,
+    });
+    expect(exhausted.kind).toBe("error");
+    expect(changingWrites).toBe(2);
+    expect(afterExhaustion).toEqual([]);
+
+    const afterError: Session[] = [];
+    const failed = await saveClaudeComposerSeed(
+      seeded,
+      makeDependencies(
+        () => captured,
+        () => true,
+        async () => {
+          throw new Error("storage unavailable");
+        },
+        afterError,
+      ),
+    );
+    expect(failed.kind).toBe("error");
+    expect(afterError).toEqual([]);
+  });
+
+  it("does not replace a user's selected composer after a turn exists", () => {
+    const session = newSession("claude", "/repo", "claude:sonnet-5");
+    session.blocks = [{ id: "user", role: "user", text: "My own turn" }];
+    const seeded = seedClaudeComposerFromHistory(session, [
+      {
+        id: "history:assistant",
+        role: "assistant",
+        text: "Native answer",
+        turnModel: {
+          harness: "claude",
+          id: "claude-opus-4-5",
+          name: "Opus 4.5",
+        },
+      },
+    ]);
+    expect(seeded).toBe(session);
+    expect(seeded.model).toBe("claude:sonnet-5");
   });
 });
 

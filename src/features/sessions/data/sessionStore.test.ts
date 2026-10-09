@@ -158,6 +158,34 @@ it("persists sidebar visibility without making the session ephemeral", () => {
   expect(persistFingerprint(hidden)).not.toBe(persistFingerprint(session));
 });
 
+it("persists saved sidechat identity and a bounded source fallback", () => {
+  const session = {
+    ...newSession("claude", "/repo"),
+    id: "sidechat",
+    sidechat: {
+      sourceSessionId: "source",
+      sourceTitle: "Review login flow",
+      sourceContext: "Context from the source chat",
+    },
+    blocks: [{ id: "u", role: "user" as const, text: "Why does this fail?" }],
+  };
+  expect(shouldPersistSession(session)).toBe(true);
+  expect(sanitizeSessionForPersist(session).sidechat).toEqual(session.sidechat);
+  expect(
+    persistFingerprint({
+      ...session,
+      sidechat: { ...session.sidechat, sourceContext: "new context" },
+    }),
+  ).not.toBe(persistFingerprint(session));
+  expect(shouldPersistSession({ ...session, ephemeral: true })).toBe(false);
+
+  const malformed = {
+    ...session,
+    sidechat: { sourceSessionId: "/outside", sourceTitle: 3 },
+  } as unknown as Session;
+  expect(sanitizeSessionForPersist(malformed).sidechat).toBeUndefined();
+});
+
 it("fingerprints queued message edits, ordering, errors and pause state", () => {
   const session = newSession("codex", "/tmp");
   const first = { id: "first", text: "One", attachments: [] };

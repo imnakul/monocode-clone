@@ -2,6 +2,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AgentMarkdown } from "./AgentMarkdown";
+import { collectMarkdownImageDefinitions } from "../../files/model/markdownFileLinks";
+import { parseStreamingMarkdown } from "./streamingMarkdown";
 
 describe("AgentMarkdown text direction", () => {
   it("detects direction independently for RTL and LTR blocks", () => {
@@ -79,6 +81,9 @@ describe("AgentMarkdown code fence highlighting", () => {
 
     expect(markup).toContain('class="markdown-code-shell" dir="ltr"');
     expect(markup).toContain('data-language="mermaid"');
+    expect(markup).toContain("!whitespace-pre-wrap");
+    expect(markup).toContain("!w-full");
+    expect(markup).toContain("![overflow-wrap:anywhere]");
   });
 
   it("falls back to JS highlighting for a fence tagged text", () => {
@@ -167,6 +172,33 @@ describe("AgentMarkdown code fence highlighting", () => {
     );
 
     expect(markup).not.toContain("markdown-code-fallback-label");
+  });
+});
+
+describe("Markdown image reference collection", () => {
+  it("ignores fenced definitions and keeps the first real definition", () => {
+    const source = [
+      "```markdown",
+      "[diagram]: ./code-example.png",
+      "```",
+      "",
+      "![Diagram][diagram]",
+      "",
+      "[diagram]: ./first.png",
+      "",
+      "[diagram]: ./second.png",
+    ].join("\n");
+    expect([...collectMarkdownImageDefinitions(source)]).toEqual([
+      ["diagram", "./first.png"],
+    ]);
+    const fencedOnly = [
+      "```markdown",
+      "![Literal][diagram]",
+      "[diagram]: ./code-example.png",
+      "```",
+    ].join("\n");
+    expect(collectMarkdownImageDefinitions(fencedOnly).size).toBe(0);
+    expect(parseStreamingMarkdown(fencedOnly)).toEqual([fencedOnly]);
   });
 });
 

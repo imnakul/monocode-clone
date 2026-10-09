@@ -3,6 +3,7 @@ import {
   Check,
   CheckCircle,
   Copy,
+  Plus,
   Target,
   Trash2,
 } from "../../../shared/ui/icons";
@@ -43,6 +44,7 @@ export type TaskEditorProps = {
   onDelete: (id: string) => Promise<void>;
   onOpenSource: (sessionId: string, blockId?: string) => void | Promise<void>;
   onOpenBeside?: (task: Task) => void;
+  onCreateAnother?: (projectCwd?: string) => Promise<void> | void;
   /** A brand-new task: put the cursor in the title, not the description. */
   autoFocusTitle?: boolean;
 };
@@ -58,6 +60,7 @@ export function TaskEditor({
   cwd,
   onDelete,
   onOpenSource,
+  onCreateAnother,
   autoFocusTitle = false,
 }: TaskEditorProps) {
   const [copied, setCopied] = useState(false);
@@ -71,6 +74,12 @@ export function TaskEditor({
   const deletingRef = useRef(false);
   const alive = useRef(true);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const saving = useRef<Promise<void> | null>(null);
+  const savedChanges = useRef<Record<string, unknown>>({});
+  const savedValues = useRef<Record<string, unknown>>({});
+  const observedTaskValues = useRef<Record<string, unknown>>({});
+  const creatingAnother = useRef(false);
+  const [creatingAnotherTask, setCreatingAnotherTask] = useState(false);
   const source = useRef<HTMLTextAreaElement>(null);
   const lock = useLockOverscroll<HTMLDivElement>();
   const marks = useProjectMarks();
@@ -90,10 +99,36 @@ export function TaskEditor({
   const completed = relativeTime(task.completedAt);
   const save = useCallback(async () => {
     clearTimeout(timer.current);
-    const snapshot = editsRef.current;
-    if (!Object.keys(snapshot).length || deletingRef.current) return;
-    try {
+    if (deletingRef.current) return;
+    if (saving.current) {
+      await saving.current;
+      if (
+        Object.entries(editsRef.current).some(
+          ([key, value]) =>
+            !sameChange(value, savedChanges.current[key as keyof TaskChanges]),
+        )
+      ) {
+        await save();
+      }
+      return;
+    }
+    const snapshot = Object.fromEntries(
+      Object.entries(editsRef.current).filter(
+        ([key, value]) =>
+          !sameChange(value, savedChanges.current[key as keyof TaskChanges]),
+      ),
+    ) as TaskChanges;
+    if (!Object.keys(snapshot).length) return;
+    const operation = (async () => {
       const saved = await updateTask(task.id, snapshot);
+      for (const key of Object.keys(snapshot) as (keyof TaskChanges)[]) {
+        // Compare future edits with what the user submitted. The backend may
+        // normalize a title while its field is focused; comparing against that
+        // normalized value would repeatedly resubmit the same trailing space.
+        savedChanges.current[key] = snapshot[key];
+        const stored = shownValue(saved, key);
+        savedValues.current[key] = stored ? stored.value : snapshot[key];
+      }
       // Keep every edit until the task shown here has caught up (the effect
       // below drops it): clearing it now would show the old value until the
       // list refresh lands, then jump the caret to the end.
@@ -108,29 +143,99 @@ export function TaskEditor({
         if (!stored) delete remaining[key];
         // Otherwise show what was stored (it may be normalised).
         else remaining = { ...remaining, [key]: stored.value };
+        if (key !== "title" || !titleFocused.current) {
+          if (stored) savedChanges.current[key] = stored.value;
+        }
       }
       editsRef.current = remaining;
       if (alive.current) {
         setEdits(remaining);
         setError(null);
       }
+    })();
+    saving.current = operation;
+    try {
+      await operation;
     } catch (error) {
       if (alive.current) setError(message(error));
+      throw error;
+    } finally {
+      if (saving.current === operation) saving.current = null;
+    }
+    if (
+      Object.entries(editsRef.current).some(
+        ([key, value]) =>
+          !sameChange(value, savedChanges.current[key as keyof TaskChanges]),
+      )
+    ) {
+      await save();
     }
   }, [task.id]);
+  const flushEdits = useCallback(async () => {
+    clearTimeout(timer.current);
+    await save();
+    if (saving.current) await saving.current;
+    if (
+      Object.entries(editsRef.current).some(
+        ([key, value]) =>
+          !sameChange(value, savedChanges.current[key as keyof TaskChanges]),
+      )
+    ) {
+      await save();
+    }
+  }, [save]);
   // Drop an edit once the task prop shows the same value.
   useEffect(() => {
+    const trackedKeys = [
+      "title",
+      "body",
+      "status",
+      "tags",
+      "projectCwd",
+      "focusDate",
+    ] as const;
+    for (const key of trackedKeys) {
+      const shown = shownValue(task, key);
+      if (!shown) continue;
+      const previous = observedTaskValues.current[key];
+      const acknowledged = savedValues.current[key];
+      if (
+        key === "title" &&
+        titleFocused.current &&
+        previous !== undefined &&
+        acknowledged !== undefined &&
+        !sameChange(shown.value, acknowledged) &&
+        !sameChange(shown.value, previous)
+      ) {
+        delete savedChanges.current.title;
+        delete savedValues.current.title;
+      }
+      observedTaskValues.current[key] = shown.value;
+    }
     const current = editsRef.current;
     const keys = (Object.keys(current) as (keyof TaskChanges)[]).filter(
       (key) => {
-        if (key === "title" && titleFocused.current) return false;
         const shown = shownValue(task, key);
+        if (key === "title" && titleFocused.current) {
+          if (shown && sameChange(current[key], shown.value)) {
+            savedChanges.current.title = current.title;
+            savedValues.current.title = shown.value;
+          }
+          return false;
+        }
         return !!shown && sameChange(current[key], shown.value);
       },
     );
     if (!keys.length) return;
     const next = { ...current };
-    for (const key of keys) delete next[key];
+    for (const key of keys) {
+      delete next[key];
+      // A saved acknowledgment is only useful while this edit is still
+      // pending in the editor. A later external update must not suppress a
+      // deliberate return to the user's earlier value.
+      delete savedChanges.current[key];
+      delete savedValues.current[key];
+    }
     editsRef.current = next;
     setEdits(next);
   }, [task]);
@@ -138,8 +243,8 @@ export function TaskEditor({
     editsRef.current = { ...editsRef.current, ...changes };
     setEdits(editsRef.current);
     clearTimeout(timer.current);
-    if (immediate) void save();
-    else timer.current = setTimeout(() => void save(), 400);
+    if (immediate) void save().catch(() => undefined);
+    else timer.current = setTimeout(() => void save().catch(() => undefined), 400);
   };
   useEffect(() => {
     if (!autoFocusTitle) return;
@@ -158,7 +263,7 @@ export function TaskEditor({
     return () => {
       alive.current = false;
       clearTimeout(timer.current);
-      void save();
+      void save().catch(() => undefined);
     };
     // The editor is keyed by task ID; changing its saved fields must not reset it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -184,6 +289,33 @@ export function TaskEditor({
         setDeleting(false);
         setActionError(message(error));
       }
+    }
+  };
+  const createAnother = async () => {
+    if (
+      !onCreateAnother ||
+      creatingAnother.current ||
+      deletingRef.current ||
+      !alive.current
+    ) {
+      return;
+    }
+    creatingAnother.current = true;
+    setCreatingAnotherTask(true);
+    setActionError(null);
+    const projectCwd =
+      editsRef.current.projectCwd === null
+        ? undefined
+        : (editsRef.current.projectCwd ?? task.projectCwd);
+    try {
+      await flushEdits();
+      if (!alive.current || deletingRef.current) return;
+      await onCreateAnother(projectCwd);
+    } catch (error) {
+      if (alive.current) setActionError(message(error));
+    } finally {
+      creatingAnother.current = false;
+      if (alive.current) setCreatingAnotherTask(false);
     }
   };
   const copy = async () => {
@@ -215,6 +347,23 @@ export function TaskEditor({
   return (
     <div
       ref={lock}
+      onKeyDown={(event) => {
+        if (
+          !onCreateAnother ||
+          event.defaultPrevented ||
+          event.key !== "Enter" ||
+          !event.shiftKey ||
+          !(event.metaKey || event.ctrlKey) ||
+          event.nativeEvent.isComposing ||
+          event.nativeEvent.keyCode === 229 ||
+          event.repeat
+        ) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        void createAnother();
+      }}
       className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none select-text"
     >
       <div className={outer}>
@@ -239,6 +388,23 @@ export function TaskEditor({
               onChange={(next) => edit({ status: next }, true)}
             />
             <span className="ml-auto flex items-center gap-0.5">
+              {onCreateAnother ? (
+                <button
+                  type="button"
+                  aria-label="New task"
+                  title="Save this task and create another"
+                  disabled={creatingAnotherTask || deleting}
+                  onClick={() => void createAnother()}
+                  className={`${actionClass} disabled:opacity-40`}
+                >
+                  {creatingAnotherTask ? (
+                    <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+                  ) : (
+                    <Plus aria-hidden className="size-3.5" strokeWidth={1.75} />
+                  )}
+                  New task
+                </button>
+              ) : null}
               <TaskFocusChip
                 task={{ ...task, focusDate }}
                 today={today}
@@ -315,9 +481,16 @@ export function TaskEditor({
               const typed = editsRef.current.title;
               if (typed !== undefined && typed.trim() !== typed)
                 edit({ title: typed.trim() }, true);
-              else void save();
+              else void save().catch(() => undefined);
             }}
             onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                event.shiftKey &&
+                (event.metaKey || event.ctrlKey)
+              ) {
+                return; // Let the editor-scoped New task shortcut handle it.
+              }
               if (event.key !== "Enter") return;
               event.preventDefault();
               event.currentTarget.blur();
@@ -370,7 +543,7 @@ export function TaskEditor({
               <button
                 type="button"
                 className="shrink-0 underline hover:no-underline"
-                onClick={() => void save()}
+                onClick={() => void save().catch(() => undefined)}
               >
                 Retry
               </button>

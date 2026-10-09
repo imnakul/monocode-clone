@@ -249,6 +249,8 @@ export function applyHarnessEvent(
       blocks[index] = { ...blocks[index], providerForkPoint: event.providerForkPoint };
       return { ...session, blocks };
     }
+    case "turn.model":
+      return applyTurnModel(session, event.turnModel);
     case "turn.started": {
       const index = lastMatchingBlock(
         session.blocks,
@@ -366,6 +368,23 @@ function applyExternalTranscriptEvents(session: Session, turnId: string, events:
     pendingQuestion: projected.pendingQuestion,
     pendingForm: projected.pendingForm,
   };
+}
+
+function applyTurnModel(session: Session, turnModel: Block["turnModel"]): Session {
+  if (!turnModel) return session;
+  let index = lastMatchingBlock(
+    session.blocks,
+    (block) => block.role === "user" && !block.draft,
+  );
+  // Assistant-first phone activity starts with a system boundary. While
+  // applying its nested events, the projected session contains only that
+  // external turn, so the boundary is unambiguous.
+  if (index < 0)
+    index = session.blocks.findIndex((block) => !!block.externalTurnId);
+  if (index < 0) return session;
+  const blocks = session.blocks.slice();
+  blocks[index] = { ...blocks[index], turnModel };
+  return { ...session, blocks };
 }
 
 function mergeTurnMetrics(
@@ -613,6 +632,9 @@ function turnModelFields(session: Session) {
       harness: session.harness,
       id: session.model,
       name: model.name,
+      ...(Object.keys(session.modelSettings).length
+        ? { settings: { ...session.modelSettings } }
+        : {}),
     },
   };
 }

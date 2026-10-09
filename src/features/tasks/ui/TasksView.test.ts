@@ -39,6 +39,7 @@ vi.mock("@tauri-apps/api/webview", () => ({
 }));
 
 let root: Root, container: HTMLDivElement, rows: Map<string, Task>;
+let upserts: TaskUpsert[];
 const sourceOpen = vi.fn();
 const openBeside = vi.fn();
 const onClose = vi.fn();
@@ -61,6 +62,7 @@ beforeEach(() => {
   localStorage.clear();
   invalidateTasks();
   sourceOpen.mockReset();
+  upserts = [];
   openBeside.mockReset();
   onClose.mockReset();
   copy.mockReset().mockResolvedValue();
@@ -110,10 +112,12 @@ beforeEach(() => {
       if (command === "tasks_get") return rows.get(args?.id as string) ?? null;
       if (command === "tasks_upsert") {
         const { archived, ...input } = args?.task as TaskUpsert;
+        upserts.push(input);
         const old = rows.get(input.id);
         // Like the database: archiving stamps a time once, unarchiving clears it.
         const saved: Task = {
           ...input,
+          title: input.title.trim(),
           createdAt: old?.createdAt ?? 20,
           updatedAt: (old?.updatedAt ?? 20) + 1,
           archivedAt: archived ? (old?.archivedAt ?? 30) : undefined,
@@ -139,15 +143,17 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function render() {
+async function render(
+  recents = [
+    { path: "/work/project", openedAt: 1 },
+    { path: "/work/other", openedAt: 2 },
+  ],
+) {
   await act(async () =>
     root.render(
       createElement(TasksView, {
         cwd: "/work/project",
-        recents: [
-          { path: "/work/project", openedAt: 1 },
-          { path: "/work/other", openedAt: 2 },
-        ],
+        recents,
         onClose,
         onOpenSource: sourceOpen,
         onOpenBeside: openBeside,
@@ -273,13 +279,6 @@ function listTitles() {
     ),
   ].map((entry) => entry.textContent);
 }
-function upserts() {
-  return vi
-    .mocked(invoke)
-    .mock.calls.filter(([command]) => command === "tasks_upsert")
-    .map(([, args]) => (args as { task: TaskUpsert }).task);
-}
-
 describe("Tasks list view", () => {
   it("defaults to a full-width List with no sidebar, newest first", async () => {
     await render();
@@ -561,7 +560,7 @@ describe("selection and peek", () => {
     await act(async () => {
       await tick();
     });
-    expect(upserts().some((task) => task.title === "Renamed installer")).toBe(
+    expect(upserts.some((task) => task.title === "Renamed installer")).toBe(
       true,
     );
     expect(rows.get("first")?.title).toBe("Renamed installer");
@@ -679,6 +678,146 @@ describe("creating tasks", () => {
       (entry) => entry.title === "Untitled" && entry.projectCwd,
     )!;
     expect(created.projectCwd).toBe("/work/project");
+  });
+
+  it("flushes a focused trailing-space title once before creating the next task", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    act(() => input("Task title").focus());
+    await change("Task title", "Fix installer   ");
+    const originalWrites = upserts.filter((item) => item.id === "first").length;
+    const title = input("Task title");
+    await act(async () => {
+      title.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await tick(20);
+    });
+    expect(rows.get("first")?.title).toBe("Fix installer");
+    expect(upserts.filter((item) => item.id === "first")).toHaveLength(
+      originalWrites + 1,
+    );
+    expect([...rows.values()].filter((item) => item.title === "Untitled")).toHaveLength(1);
+    expect(input("Task title").value).toBe("Untitled");
+  });
+
+  it("does not resubmit an exact title that autosaved before New task", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    act(() => input("Task title").focus());
+    await change("Task title", "Saved while focused");
+    await act(async () => tick(450));
+    await act(async () => {
+      window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
+      await tick(0);
+    });
+    const writesBeforeCreate = upserts.filter((item) => item.id === "first").length;
+
+    await click(byLabel("New task"));
+
+    expect(upserts.filter((item) => item.id === "first")).toHaveLength(
+      writesBeforeCreate,
+    );
+    expect([...rows.values()].filter((item) => item.title === "Untitled"))
+      .toHaveLength(1);
+  });
+
+  it("ignores repeated and composing New task shortcuts", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    const title = input("Task title");
+    for (const options of [
+      { repeat: true },
+      { isComposing: true },
+    ]) {
+      await act(async () => {
+        title.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            ctrlKey: true,
+            shiftKey: true,
+            bubbles: true,
+            cancelable: true,
+            ...options,
+          }),
+        );
+      });
+    }
+    expect([...rows.values()].filter((item) => item.title === "Untitled"))
+      .toHaveLength(0);
+    expect(peek()).not.toBeNull();
+  });
+
+  it("saves a value again after refreshed task data changed away from it", async () => {
+    await render();
+    await click(listRow("Fix installer"));
+    await change("Task title", "A");
+    await act(async () => tick(450));
+    expect(rows.get("first")?.title).toBe("A");
+
+    const publishTaskChange = async () => {
+      await act(async () => {
+        window.dispatchEvent(new Event(TASKS_CHANGED_EVENT));
+        await tick(0);
+      });
+    };
+    await publishTaskChange(); // The editor observes the save it just made.
+    rows.set("first", { ...rows.get("first")!, title: "B", updatedAt: 50 });
+    await publishTaskChange(); // An external writer replaces that value.
+
+    await change("Task title", "A");
+    await act(async () => tick(450));
+    expect(rows.get("first")?.title).toBe("A");
+    expect(upserts.filter((item) => item.id === "first")).toHaveLength(2);
+  });
+
+  it("shows every project in the create menu and scrolls keyboard focus into view", async () => {
+    const original = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    try {
+      const recents = Array.from({ length: 10 }, (_, index) => ({
+        path: `/work/project-${index + 1}`,
+        openedAt: 100 - index,
+      }));
+      await render(recents);
+      await click(byLabel("Choose where the task is filed"));
+      const menu = document.querySelector<HTMLElement>(
+        '[role="menu"][aria-label="Choose where the task is filed"]',
+      )!;
+      const choices = [...menu.querySelectorAll('[role="menuitemcheckbox"]')];
+      expect(choices).toHaveLength(13); // recents, task projects, and Personal
+      expect(choices.map((item) => item.textContent)).toContain("project-10");
+      for (let index = 0; index < 9; index++) {
+        await act(async () => {
+          menu.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "ArrowDown",
+              bubbles: true,
+            }),
+          );
+        });
+      }
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+    } finally {
+      if (original) {
+        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", original);
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+      }
+    }
   });
 
   it("disables the create buttons while a create is pending", async () => {
@@ -952,7 +1091,7 @@ describe("board view", () => {
       expect(byLabel("Verify column").className).not.toContain("border-accent/40");
       expect(onClose).not.toHaveBeenCalled();
       await drag("Fix installer", "Blocked");
-      expect(upserts()).toHaveLength(0);
+      expect(upserts).toHaveLength(0);
       expect(
         card("Fix installer").closest('[aria-label="Blocked column"]'),
       ).not.toBeNull();
@@ -1329,7 +1468,7 @@ describe("focus, archive and the task menu", () => {
     expect(container.textContent).toContain("1 unfinished from earlier focus");
     await click(button("Carry over"));
     expect(rows.get("docs")?.focusDate).toBe(localDay());
-    const carried = upserts().at(-1);
+    const carried = upserts.at(-1);
     expect(carried).toMatchObject({ focusDate: localDay(), today: localDay() });
     expect(listTitles()).toEqual(["Ship docs"]);
   });
@@ -1369,7 +1508,7 @@ describe("focus, archive and the task menu", () => {
     await click(menuItem("Focus on"));
     await click(menuItem("Today"));
     expect(rows.get("first")?.focusDate).toBe(localDay());
-    expect(upserts().at(-1)).toMatchObject({
+    expect(upserts.at(-1)).toMatchObject({
       focusDate: localDay(),
       today: localDay(),
     });

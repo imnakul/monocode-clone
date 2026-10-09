@@ -16,6 +16,7 @@ import {
   type ReactNode,
 } from "react";
 import { harden } from "rehype-harden";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import {
   Block,
   Streamdown,
@@ -36,11 +37,16 @@ import { boundedCode } from "../../files/editor/codeHighlightPlugin";
 import { createLazyMermaidPlugin } from "../../files/editor/mermaidPlugin";
 import {
   displayPath,
+  isEqualOrInside,
   isExtensionlessFileName,
   resolveWorkspaceFileReference,
 } from "../../../shared/lib/paths";
 import type { EditorNavigation, OpenFileFn } from "../../search/model/search";
-import { remarkWorkspaceFileLinks } from "../../files/model/markdownFileLinks";
+import {
+  collectMarkdownImageDefinitions,
+  PROJECT_MARKDOWN_IMAGE_PREFIX,
+  remarkWorkspaceFileLinks,
+} from "../../files/model/markdownFileLinks";
 import { isAtxHeadingLine } from "../../files/model/markdownSource";
 import { useColorScheme } from "../../../shared/hooks/useColorScheme";
 import { useLockOverscroll } from "../../../shared/hooks/useLockOverscroll";
@@ -53,6 +59,8 @@ import {
 import { isNoteImagePath } from "../../notes";
 import { IS_MAC, IS_WIN } from "../../../platform/tauri/platform";
 import { InboxMedia } from "../../inbox/ui/InboxMedia";
+import { ImageLightbox } from "../../../shared/ui/ImageLightbox";
+import { loadProjectImagePreviewUrl } from "../model/attachments";
 import { rehypeHardBreaks } from "./hardBreaks";
 import { rehypeWordFade, usePacedText, useWordFading } from "./wordFade";
 import { MarkdownTable, MarkdownTableContext } from "./MarkdownTable";
@@ -74,9 +82,25 @@ const mermaid = createLazyMermaidPlugin({
 
 const MARKDOWN_PLUGINS = { code: boundedCode, mermaid };
 
+const PROJECT_IMAGE_SANITIZE_SCHEMA = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    code: [...(defaultSchema.attributes?.code ?? []), "metastring"],
+  },
+  protocols: {
+    ...defaultSchema.protocols,
+    href: [...(defaultSchema.protocols?.href ?? []), "tel"],
+    src: [
+      ...(defaultSchema.protocols?.src ?? []),
+      PROJECT_MARKDOWN_IMAGE_PREFIX.slice(0, -1),
+    ],
+  },
+};
+
 const MARKDOWN_REHYPE_PLUGINS: PluggableList = [
   defaultRehypePlugins.raw,
-  defaultRehypePlugins.sanitize,
+  [rehypeSanitize, PROJECT_IMAGE_SANITIZE_SCHEMA],
   [
     harden,
     {
@@ -84,6 +108,7 @@ const MARKDOWN_REHYPE_PLUGINS: PluggableList = [
       // relative note URLs reach that component without changing link parsing.
       allowedImagePrefixes: ["*"],
       allowedLinkPrefixes: ["*"],
+      allowedProtocols: ["*"],
       allowDataImages: true,
       imageBlockPolicy: "remove" as const,
     },
@@ -435,6 +460,100 @@ function CodeCopyButton({ code }: { code: string }) {
 
 type MarkdownImageProps = ComponentProps<"img"> & { node?: unknown };
 
+function ProjectMarkdownImage({
+  path,
+  alt,
+  ...props
+}: Omit<MarkdownImageProps, "src" | "node"> & { path: string }) {
+  const { cwd, onOpenFile, onFileContextMenu } = useContext(FileOpenContext);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [decodeFailed, setDecodeFailed] = useState(false);
+  const insideProject =
+    !!cwd &&
+    !cwd.startsWith("remote://") &&
+    isEqualOrInside(path, cwd);
+
+  useEffect(() => {
+    if (!insideProject || !cwd) {
+      setPreview(null);
+      return;
+    }
+    let current = true;
+    setDecodeFailed(false);
+    setPreview(null);
+    void loadProjectImagePreviewUrl(path, cwd).then((url) => {
+      if (current) setPreview(url);
+    });
+    return () => {
+      current = false;
+    };
+  }, [cwd, insideProject, path]);
+
+  const label =
+    alt?.trim() ||
+    path.split(/[\\/]/).filter(Boolean).slice(-1)[0] ||
+    "Image";
+  if (!insideProject) {
+    return (
+      <span className="markdown-image-alt" role="img" aria-label={label}>
+        {alt || label}
+      </span>
+    );
+  }
+  if (!preview || decodeFailed) {
+    return (
+      <span className="markdown-image-fallback">
+        <span role="img" aria-label={label}>
+          {alt || label}
+        </span>
+        {onOpenFile ? (
+          <button
+            type="button"
+            className="ml-2 text-sky-400/90 hover:underline"
+            aria-label={`Open ${label}`}
+            onClick={() => onOpenFile(path)}
+            onContextMenu={(event) => onFileContextMenu?.(event, path)}
+          >
+            Open file
+          </button>
+        ) : null}
+      </span>
+    );
+  }
+  return (
+    <>
+      <button
+        type="button"
+        className="inline-block max-w-full cursor-zoom-in"
+        aria-label={`View ${label}`}
+        onClick={() => setLightboxOpen(true)}
+        onContextMenu={(event) => onFileContextMenu?.(event, path)}
+      >
+        <img
+          {...props}
+          src={preview}
+          alt={alt ?? ""}
+          draggable={false}
+          loading="lazy"
+          onError={() => {
+            setDecodeFailed(true);
+            setPreview(null);
+          }}
+          className={`max-h-[min(28rem,70vh)] max-w-full rounded-lg object-contain ${props.className ?? ""}`}
+        />
+      </button>
+      {lightboxOpen ? (
+        <ImageLightbox
+          src={preview}
+          alt={alt ?? ""}
+          onClose={() => setLightboxOpen(false)}
+        />
+      ) : null}
+    </>
+  );
+}
+
 const noteImageSrcCache = new Map<string, string>();
 
 function NoteAssetImage({
@@ -482,11 +601,37 @@ function MarkdownImage({
   if (url.startsWith("data:image/")) {
     return <img {...props} src={url} alt={alt ?? ""} />;
   }
+  if (url.startsWith(PROJECT_MARKDOWN_IMAGE_PREFIX)) {
+    try {
+      const path = decodeURIComponent(
+        url.slice(PROJECT_MARKDOWN_IMAGE_PREFIX.length),
+      );
+      return <ProjectMarkdownImage {...props} path={path} alt={alt} />;
+    } catch {
+      return alt ? (
+        <span className="markdown-image-alt" role="img" aria-label={alt}>
+          {alt}
+        </span>
+      ) : null;
+    }
+  }
   if (isNoteImagePath(url)) {
     return <NoteAssetImage {...props} asset={url} alt={alt} />;
   }
-  if (!allowRemoteMedia || !url || !isInboxMediaUrl(url)) return null;
-  return <InboxMedia src={url} alt={alt} />;
+  if (allowRemoteMedia && url && isInboxMediaUrl(url))
+    return <InboxMedia src={url} alt={alt ?? ""} />;
+  if (alt)
+    return (
+      <span
+        className="markdown-image-alt"
+        role="img"
+        aria-label={alt}
+        data-blocked-image-source={url ? "true" : undefined}
+      >
+        {alt}
+      </span>
+    );
+  return null;
 }
 
 const MARKDOWN_COMPONENTS = {
@@ -559,10 +704,23 @@ export const AgentMarkdown = memo(function AgentMarkdown({
     () => ({ cwd, onOpenFile, onFileContextMenu }),
     [cwd, onOpenFile, onFileContextMenu],
   );
+  const imageDefinitions = useMemo(
+    () => collectMarkdownImageDefinitions(text),
+    [text],
+  );
+  const imageDefinitionsRef = useRef(imageDefinitions);
+  imageDefinitionsRef.current = imageDefinitions;
+  const parseMarkdownBlocks = useCallback(
+    (value: string) => parseStreamingMarkdown(value, imageDefinitionsRef.current),
+    [],
+  );
   const remarkPlugins = useMemo<PluggableList>(
     () => [
       ...Object.values(defaultRemarkPlugins),
-      [remarkWorkspaceFileLinks, { cwd }],
+      [
+        remarkWorkspaceFileLinks,
+        { cwd, imageDefinitions: () => imageDefinitionsRef.current },
+      ],
     ],
     [cwd],
   );
@@ -654,7 +812,7 @@ export const AgentMarkdown = memo(function AgentMarkdown({
                 dir="auto"
                 isAnimating={!!streaming || paced.revealing}
                 parseIncompleteMarkdown={false}
-                parseMarkdownIntoBlocksFn={parseStreamingMarkdown}
+                parseMarkdownIntoBlocksFn={parseMarkdownBlocks}
                 plugins={MARKDOWN_PLUGINS}
                 remarkPlugins={remarkPlugins}
                 rehypePlugins={rehypePlugins}

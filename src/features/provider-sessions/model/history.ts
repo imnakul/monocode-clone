@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Block, HarnessId } from "../../sessions/model/session";
+import type { Block, HarnessId, Session } from "../../sessions/model/session";
+import {
+  mergeModelSettings,
+  resolveModel,
+} from "../../sessions/model/models";
 import type { NativeProvider } from "./providerSessions";
 import { PROVIDER_LABEL } from "./conversationSummary";
 
@@ -12,13 +16,194 @@ export type HistoryItem = {
   at?: number;
   /** Stable provider record identity, when the transcript supplies one. */
   nativeId?: string;
+  /** Provider-reported turn model, kept separate from MonoCode's composer choice. */
+  turnModel?: NonNullable<Block["turnModel"]>;
 };
+
+/** Seed a new blank Claude chat from the latest provider-reported assistant model.
+ * This changes only the next-message composer choice; history remains read-only. */
+export function seedClaudeComposerFromHistory(
+  session: Session,
+  items: readonly HistoryItem[],
+): Session {
+  if (
+    session.harness !== "claude" ||
+    session.busy ||
+    session.externalTurnId ||
+    session.blocks.some((block) => block.role === "user")
+  )
+    return session;
+  const latest = [...items]
+    .reverse()
+    .find(
+      (item) =>
+        (item.role === "assistant" || item.role === "tool") &&
+        item.turnModel?.harness === "claude" &&
+        !!item.turnModel.id,
+    )?.turnModel;
+  if (!latest) return session;
+  const model = resolveModel("claude", latest.id);
+  return {
+    ...session,
+    model: model.id,
+    // The recovered values seed the next composer selection. Keep compatible
+    // local defaults when history did not record a setting, and let explicit
+    // provider metadata take precedence when it did.
+    modelSettings: mergeModelSettings(model, {
+      ...session.modelSettings,
+      ...latest.settings,
+    }),
+  };
+}
+
+export type ClaudeComposerSeedSaveResult =
+  | { kind: "saved"; session: Session }
+  | { kind: "skipped" }
+  | { kind: "error"; error: unknown };
+
+export type ClaudeComposerSeedSaveDependencies = {
+  getLatest: () => Session | undefined;
+  isAvailable: () => boolean;
+  isSameNativeSession: (session: Session) => boolean;
+  canSeed: (session: Session) => boolean;
+  save: (session: Session) => Promise<boolean>;
+  apply: (session: Session) => void;
+  maxAttempts?: number;
+};
+
+/**
+ * Persist Claude's imported composer choice without losing session controls
+ * changed during an asynchronous native-session write. It retries from the
+ * latest captured state a bounded number of times, restores a newer composer
+ * choice if one won the race, and reports an unconfirmed save to its caller.
+ */
+export async function saveClaudeComposerSeed(
+  seeded: Session,
+  dependencies: ClaudeComposerSeedSaveDependencies,
+): Promise<ClaudeComposerSeedSaveResult> {
+  const maxAttempts = Math.max(1, dependencies.maxAttempts ?? 3);
+  const latestNativeSession = (): Session | undefined => {
+    if (!dependencies.isAvailable()) return undefined;
+    const latest = dependencies.getLatest();
+    return latest && dependencies.isSameNativeSession(latest)
+      ? latest
+      : undefined;
+  };
+
+  const persistLatestUntilStable = async (): Promise<
+    | { kind: "restored" }
+    | { kind: "skipped" }
+    | { kind: "error"; error: unknown }
+  > => {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const latest = latestNativeSession();
+      if (!latest) return { kind: "skipped" };
+      let saved: boolean;
+      try {
+        saved = await dependencies.save(latest);
+      } catch (error) {
+        if (!latestNativeSession()) return { kind: "skipped" };
+        return { kind: "error", error };
+      }
+      if (!saved) {
+        if (!latestNativeSession()) return { kind: "skipped" };
+        return {
+          kind: "error",
+          error: new Error("The current native chat could not be restored."),
+        };
+      }
+      const afterSave = latestNativeSession();
+      if (!afterSave) return { kind: "skipped" };
+      if (afterSave === latest) return { kind: "restored" };
+    }
+    return {
+      kind: "error",
+      error: new Error(
+        "The current native chat kept changing while its latest state was being saved.",
+      ),
+    };
+  };
+
+  let seedWasWritten = false;
+  const failedSeedSave = async (
+    error: unknown,
+  ): Promise<ClaudeComposerSeedSaveResult> => {
+    if (!latestNativeSession()) return { kind: "skipped" };
+    if (seedWasWritten) {
+      const restored = await persistLatestUntilStable();
+      if (restored.kind === "error") return restored;
+      if (restored.kind === "skipped") return restored;
+    }
+    return { kind: "error", error };
+  };
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const latest = latestNativeSession();
+    if (!latest) return { kind: "skipped" };
+    if (!dependencies.canSeed(latest)) {
+      if (!seedWasWritten) return { kind: "skipped" };
+      const restored = await persistLatestUntilStable();
+      return restored.kind === "error"
+        ? restored
+        : { kind: "skipped" };
+    }
+    const candidate: Session = {
+      ...latest,
+      model: seeded.model,
+      modelSettings: seeded.modelSettings,
+    };
+    let saved: boolean;
+    try {
+      saved = await dependencies.save(candidate);
+    } catch (error) {
+      return failedSeedSave(error);
+    }
+    if (!saved) {
+      return failedSeedSave(
+        new Error("The imported Claude model choice was not saved."),
+      );
+    }
+    seedWasWritten = true;
+
+    const afterSave = latestNativeSession();
+    if (!afterSave) return { kind: "skipped" };
+    if (!dependencies.canSeed(afterSave)) {
+      const restored = await persistLatestUntilStable();
+      return restored.kind === "error"
+        ? restored
+        : { kind: "skipped" };
+    }
+    if (afterSave === latest) {
+      dependencies.apply(candidate);
+      return { kind: "saved", session: candidate };
+    }
+  }
+
+  const restored = await persistLatestUntilStable();
+  if (restored.kind === "error") return restored;
+  if (restored.kind === "skipped") return restored;
+  return {
+    kind: "error",
+    error: new Error(
+      "The imported Claude model choice could not be confirmed because the native chat kept changing.",
+    ),
+  };
+}
 
 export const HISTORY_BLOCK_PREFIX = "history:";
 /** Per-message cap; provider transcripts embed very large pastes. */
 const MAX_ITEM_CHARS = 20_000;
 /** Messages shown per step; "Show earlier" reveals more. */
 export const HISTORY_PAGE_ITEMS = 200;
+const CLAUDE_TURN_EFFORTS = new Set([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultracode",
+  "ultrathink",
+]);
 
 export function isHistoryBlock(block: Pick<Block, "id">): boolean {
   return block.id.startsWith(HISTORY_BLOCK_PREFIX);
@@ -69,9 +254,18 @@ function parseLines(jsonl: string): Record<string, unknown>[] {
   return out;
 }
 
-function claudeItems(lines: Record<string, unknown>[]): Omit<HistoryItem, "id">[] {
+function claudeItems(
+  lines: Record<string, unknown>[],
+  expectedNativeId?: string,
+): Omit<HistoryItem, "id">[] {
   const items: Omit<HistoryItem, "id">[] = [];
   for (const rec of lines) {
+    if (
+      expectedNativeId &&
+      typeof rec.sessionId === "string" &&
+      rec.sessionId !== expectedNativeId
+    )
+      continue;
     if (rec.isSidechain === true || rec.isMeta === true) continue;
     if (rec.isCompactSummary === true || rec.isVisibleInTranscriptOnly === true) continue;
     if (rec.type !== "user" && rec.type !== "assistant") continue;
@@ -98,9 +292,42 @@ function claudeItems(lines: Record<string, unknown>[]): Omit<HistoryItem, "id">[
       }
     const text = texts.join("\n\n").trim();
     const identity = typeof rec.uuid === "string" ? { nativeId: rec.uuid } : {};
+    const modelId =
+      role === "assistant" && typeof message.model === "string"
+        ? message.model.trim()
+        : "";
+    const modelSettings = record(message.modelSettings);
+    const rawEffort =
+      typeof message.effort === "string"
+        ? message.effort.trim()
+        : typeof modelSettings?.effort === "string"
+          ? modelSettings.effort.trim()
+          : "";
+    const effort = CLAUDE_TURN_EFFORTS.has(rawEffort) ? rawEffort : "";
+    const turnModel = modelId
+      ? {
+          harness: "claude" as const,
+          id: modelId,
+          name: resolveModel("claude", modelId).name,
+          ...(effort ? { settings: { effort } } : {}),
+        }
+      : undefined;
     if (text && !(role === "user" && injectedUserText(text)))
-      items.push({ role, text: cap(text), ...at(rec), ...identity });
-    for (const name of tools) items.push({ role: "tool", text: name, ...at(rec), ...identity });
+      items.push({
+        role,
+        text: cap(text),
+        ...at(rec),
+        ...identity,
+        ...(turnModel ? { turnModel } : {}),
+      });
+    for (const name of tools)
+      items.push({
+        role: "tool",
+        text: name,
+        ...at(rec),
+        ...identity,
+        ...(turnModel ? { turnModel } : {}),
+      });
   }
   return items;
 }
@@ -152,9 +379,13 @@ export function parseProviderHistory(
   provider: NativeProvider,
   jsonl: string,
   idPrefix: string,
+  expectedNativeId?: string,
 ): HistoryItem[] {
   const lines = parseLines(jsonl);
-  const items = provider === "claude" ? claudeItems(lines) : codexItems(lines);
+  const items =
+    provider === "claude"
+      ? claudeItems(lines, expectedNativeId)
+      : codexItems(lines);
   return items.map((item, index) => ({
     ...item,
     id: `${HISTORY_BLOCK_PREFIX}${idPrefix}:${index}`,
@@ -175,11 +406,13 @@ export function historyBlocks(
           role: "tool",
           text: item.text,
           tool: { title: item.text, kind: "other", status: "completed" },
+          ...(item.turnModel ? { turnModel: item.turnModel } : {}),
         }
       : {
           id: item.id,
           role: item.role,
           text: item.text,
+          ...(item.turnModel ? { turnModel: item.turnModel } : {}),
           ...(item.at && item.role === "user" ? { startedAt: item.at } : {}),
         },
   );
@@ -358,6 +591,21 @@ export const tauriHistoryLoader: HistoryLoader = {
     }),
 };
 
+function nativeIdFromKey(key: string, provider: NativeProvider): string | undefined {
+  try {
+    const parts: unknown = JSON.parse(key);
+    return Array.isArray(parts) &&
+      parts.length === 3 &&
+      parts[0] === provider &&
+      typeof parts[2] === "string" &&
+      parts[2].trim()
+      ? parts[2]
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export type NativeHistoryState =
   | { status: "none" }
   | { status: "loading" }
@@ -385,7 +633,10 @@ export class NativeHistoryStore {
   private states = new Map<string, NativeHistoryState>();
   private started = new Set<string>();
   private requests = new Map<string, object>();
-  private cursors = new Map<string, { key: string; accountId: string; end: number }>();
+  private cursors = new Map<
+    string,
+    { key: string; accountId: string; end: number; nativeId?: string }
+  >();
   private listeners = new Set<() => void>();
   private version = 0;
 
@@ -431,8 +682,19 @@ export class NativeHistoryStore {
       }
       const chunk = await this.loader.read({ key: source.key, provider: harness, accountId });
       if (this.requests.get(sessionId) !== request) return;
-      this.cursors.set(sessionId, { key: source.key, accountId, end: chunk.start });
-      const items = parseProviderHistory(harness, chunk.text, String(chunk.start));
+      const nativeId = nativeIdFromKey(source.key, harness);
+      this.cursors.set(sessionId, {
+        key: source.key,
+        accountId,
+        end: chunk.start,
+        nativeId,
+      });
+      const items = parseProviderHistory(
+        harness,
+        chunk.text,
+        String(chunk.start),
+        nativeId,
+      );
       this.set(sessionId, {
         status: "ready",
         provider: harness,
@@ -475,7 +737,12 @@ export class NativeHistoryStore {
       const latest = this.get(sessionId);
       if (latest.status !== "ready" || this.requests.get(sessionId) !== request) return;
       this.cursors.set(sessionId, { ...cursor, end: chunk.start });
-      const earlier = parseProviderHistory(state.provider, chunk.text, String(chunk.start));
+      const earlier = parseProviderHistory(
+        state.provider,
+        chunk.text,
+        String(chunk.start),
+        cursor.nativeId,
+      );
       const items = [...earlier, ...latest.items];
       this.set(sessionId, {
         ...latest,

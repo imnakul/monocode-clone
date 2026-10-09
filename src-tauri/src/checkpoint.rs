@@ -1907,6 +1907,39 @@ mod tests {
     }
 
     #[test]
+    fn mono_changes_in_two_repositories_can_be_kept_independently() {
+        let home = tmp("mono-multiple-repos");
+        for name in ["a", "b"] {
+            let repo = home.0.join(name);
+            std::fs::create_dir(&repo).unwrap();
+            assert!(init_git_commit(&repo, &[("file.txt", "old\n")]));
+        }
+        let cwd = home.0.to_string_lossy().into_owned();
+        let paths: Vec<String> = ["a/file.txt", "b/file.txt"]
+            .into_iter()
+            .map(|path| home.0.join(path).to_string_lossy().into_owned())
+            .collect();
+        let (_root, store) = store();
+        store.begin_turn("mono", &cwd, "turn").unwrap();
+        store.prepare("mono", &cwd, &paths).unwrap();
+        for path in &paths {
+            std::fs::write(path, "mono change\n").unwrap();
+        }
+        store.capture("mono", &cwd, &paths).unwrap();
+        store.finish_turn("mono", &cwd, "turn").unwrap();
+        assert_eq!(
+            relatives(&store.status("mono", &cwd).unwrap()),
+            vec!["a/file.txt", "b/file.txt"]
+        );
+        store.keep("mono", &cwd, Some("a/file.txt")).unwrap();
+        assert_eq!(
+            relatives(&store.status("mono", &cwd).unwrap()),
+            vec!["b/file.txt"]
+        );
+        assert_eq!(std::fs::read_to_string(&paths[1]).unwrap(), "mono change\n");
+    }
+
+    #[test]
     fn late_capture_is_not_attributed_to_the_session() {
         let repo = tmp("late-capture");
         if !init_git_commit(&repo.0, &[("a.txt", "head\n")]) {

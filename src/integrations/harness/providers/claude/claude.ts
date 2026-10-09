@@ -2,12 +2,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { parseClaudeContextUsage } from "./claudeProtocol";
 import type { NativeContextBreakdown } from "../../../../features/sessions/model/contextBreakdown";
 import { TurnNotReadyError } from "../../core/types";
-import { nativeModelId } from "../../../../features/sessions/model/models";
+import {
+  nativeModelId,
+  resolveModel,
+} from "../../../../features/sessions/model/models";
 import { sameProviderAccountId } from "../../../../features/providers/model/providerAccounts";
 import type {
   RuntimeMode,
   TaskListItem,
   TaskListMeta,
+  TurnModel,
 } from "../../../../features/sessions/model/session";
 import { loadClaudeHooks } from "../../../../features/settings/model/settings";
 import {
@@ -228,6 +232,7 @@ type Live = {
   externalTurn: boolean;
   externalLive?: Live;
   externalTurnId?: string;
+  externalTurnModel?: TurnModel;
   externalSeen?: Set<string>;
   externalTurnWait: Promise<void> | null;
   externalTurnDone: (() => void) | null;
@@ -1382,6 +1387,7 @@ function beginExternalClaudeTurn(live: Live, rec: Record<string, unknown>): void
   const state: Live = {
     ...live, externalTurn: false, externalLive: undefined, externalTurnWait: null,
     externalTurnDone: null, externalTurnId: undefined, externalSeen: undefined,
+    externalTurnModel: undefined,
     activeTurn: true, cancelled: false, muteUpdates: false, manualCompaction: false,
     forkPending: false, expectModel: undefined, emittedAssistant: "", emittedReasoning: "",
     lastAssistantUuid: undefined, pendingAssistantBoundary: false,
@@ -1405,6 +1411,22 @@ function handleExternalClaudeLine(live: Live, rec: Record<string, unknown>): voi
   const uuid = stringField(rec, "uuid");
   if (uuid && live.externalSeen?.has(uuid)) return;
   if (uuid) live.externalSeen?.add(uuid);
+  const turnModel = externalClaudeTurnModel(rec);
+  if (turnModel) {
+    const previous = state.externalTurnModel;
+    // message_start can carry the explicit effort before the assistant record.
+    // Keep it when that same model is repeated without settings, but never let
+    // a newly selected model inherit the previous model's effort.
+    const next =
+      previous?.id === turnModel.id && !turnModel.settings?.effort &&
+      previous.settings?.effort
+        ? { ...turnModel, settings: previous.settings }
+        : turnModel;
+    if (JSON.stringify(next) !== JSON.stringify(previous)) {
+      state.externalTurnModel = next;
+      state.onEvent({ type: "turn.model", turnModel: next });
+    }
+  }
   const text = externalUserText(rec);
   if (text) live.onEvent({ type: "externalTurn.user", turnId, text, nativeId: uuid });
   if (handleAgentLifecycle(state, rec)) return;
@@ -1417,6 +1439,51 @@ function handleExternalClaudeLine(live: Live, rec: Record<string, unknown>): voi
     case "result": handleResult(state, rec); break;
   }
 }
+
+/** Model metadata belongs to the phone turn only when it came from Claude's
+ * root assistant message. Tool inputs and subagent messages are excluded. */
+function externalClaudeTurnModel(
+  rec: Record<string, unknown>,
+): TurnModel | undefined {
+  if (isSubagentMessage(rec)) return undefined;
+  let message: Record<string, unknown> | null = null;
+  if (rec.type === "assistant") {
+    message = asRecord(rec.message);
+    if (message?.role && message.role !== "assistant") return undefined;
+  } else if (rec.type === "stream_event") {
+    const event = asRecord(rec.event);
+    if (event?.type !== "message_start") return undefined;
+    message = asRecord(event.message);
+    if (message?.role && message.role !== "assistant") return undefined;
+  } else {
+    return undefined;
+  }
+  const id = stringField(message, "model")?.trim();
+  if (!id) return undefined;
+  const modelSettings = asRecord(message?.modelSettings);
+  const rawEffort =
+    stringField(message, "effort")?.trim() ??
+    stringField(modelSettings, "effort")?.trim();
+  const effort = rawEffort && CLAUDE_TURN_EFFORTS.has(rawEffort)
+    ? rawEffort
+    : undefined;
+  return {
+    harness: "claude",
+    id,
+    name: resolveModel("claude", id).name,
+    ...(effort ? { settings: { effort } } : {}),
+  };
+}
+
+const CLAUDE_TURN_EFFORTS = new Set([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultracode",
+  "ultrathink",
+]);
 
 /** Control requests use the real connection; their UI belongs to the phone turn. */
 function emitClaudeEvent(live: Live, event: HarnessEvent): void {

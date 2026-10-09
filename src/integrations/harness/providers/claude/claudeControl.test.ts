@@ -802,13 +802,69 @@ describe("Claude Remote Control", () => {
       uuid: "phone-user-id",
       message: { role: "user", content: "phone message" },
     });
+    emit(0, {
+      type: "stream_event",
+      session_id: "sess_1",
+      event: {
+        type: "message_start",
+        message: {
+          role: "assistant",
+          model: "claude-sonnet-5",
+          effort: "high",
+        },
+      },
+    });
+    emit(0, {
+      type: "assistant",
+      session_id: "sess_1",
+      uuid: "phone-model-same",
+      message: { role: "assistant", model: "claude-sonnet-5", content: [] },
+    });
+    // A replay of the same UUID cannot regress metadata after deduplication.
+    emit(0, {
+      type: "assistant",
+      session_id: "sess_1",
+      uuid: "phone-model-same",
+      message: {
+        role: "assistant",
+        model: "claude-opus-5",
+        effort: "xhigh",
+        content: [],
+      },
+    });
+    // A real model change clears the previous model's explicit effort.
+    emit(0, {
+      type: "assistant",
+      session_id: "sess_1",
+      uuid: "phone-model-changed",
+      message: { role: "assistant", model: "claude-opus-5", content: [] },
+    });
+    // Unknown effort values and tool records do not create authoritative data.
+    emit(0, {
+      type: "assistant",
+      session_id: "sess_1",
+      uuid: "phone-invalid-effort",
+      message: {
+        role: "assistant",
+        model: "claude-opus-5",
+        effort: "invented",
+        content: [],
+      },
+    });
+    emit(0, {
+      type: "tool_progress",
+      session_id: "sess_1",
+      tool_use_id: "phone-tool-metadata",
+      message: { model: "wrong-tool-model", effort: "max" },
+      content: "working",
+    });
     for (const text of ["phone ", "reply"]) emit(0, {
       type: "stream_event", session_id: "sess_1",
       event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } },
     });
     const phoneAssistant = {
       type: "assistant", uuid: "phone-assistant-id", session_id: "sess_1",
-      message: { content: [{ type: "text", text: "phone reply" }], usage: { input_tokens: 9, output_tokens: 4 } },
+      message: { model: "claude-opus-5", content: [{ type: "text", text: "phone reply" }], usage: { input_tokens: 9, output_tokens: 4 } },
     };
     emit(0, phoneAssistant);
     emit(0, phoneAssistant);
@@ -831,6 +887,16 @@ describe("Claude Remote Control", () => {
     const phoneEvents = (): HarnessEvent[] => events.flatMap((event) =>
       event.type === "externalTurn.event" ? [event.event] : [],
     );
+    const phoneModels = phoneEvents()
+      .filter((event) => event.type === "turn.model")
+      .map((event) => event.turnModel);
+    expect(phoneModels).toHaveLength(2);
+    expect(phoneModels[0]).toMatchObject({
+      harness: "claude",
+      settings: { effort: "high" },
+    });
+    expect(phoneModels[1]).toMatchObject({ harness: "claude" });
+    expect(phoneModels[1]).not.toHaveProperty("settings");
     await waitFor(
       () => phoneEvents().some((event) => event.type === "approval.requested"),
       "phone permission approval",

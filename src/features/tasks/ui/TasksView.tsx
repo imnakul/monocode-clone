@@ -30,9 +30,8 @@ import {
   ExplorerMenu,
   type ExplorerMenuItem,
 } from "../../files/ui/ExplorerMenu";
-import { noteProjectChoices, type NoteProjectChoice } from "../../notes/notes";
+import type { NoteProjectChoice } from "../../notes/notes";
 import {
-  loadRecents,
   looksLikeProject,
   type RecentProject,
 } from "../../projects/model/recents";
@@ -330,13 +329,14 @@ export function TasksView({
     return [...new Map(paths.map((path) => [pathKey(path), path])).values()];
   }, [recents, tasks, cwd]);
 
+  const creatingRef = useRef(false);
   const create = async (projectCwd?: string) => {
-    if (creating) return;
+    if (creatingRef.current || !alive.current) return;
+    creatingRef.current = true;
     setCreating(true);
     setActionError(null);
     try {
       const task = await createTask({ projectCwd, status: "todo" });
-      if (!alive.current) return;
       if (!alive.current) return;
       // Always show the new task: clear every filter that could hide it (Today
       // keeps it, as a task created today is in today's focus), and put it in
@@ -356,6 +356,7 @@ export function TasksView({
     } catch (error) {
       if (alive.current) setActionError(message(error));
     } finally {
+      creatingRef.current = false;
       if (alive.current) setCreating(false);
     }
   };
@@ -498,9 +499,32 @@ export function TasksView({
     );
 
   const createChoices = useMemo<NoteProjectChoice[]>(
-    () =>
-      menu?.kind === "create" ? noteProjectChoices(cwd, loadRecents()) : [],
-    [cwd, menu?.kind],
+    () => {
+      if (menu?.kind !== "create") return [];
+      const choices: NoteProjectChoice[] = [];
+      const seen = new Set<string>();
+      const addProject = (path: string | undefined) => {
+        if (!path || !looksLikeProject(path)) return;
+        const fingerprint = pathKey(path);
+        if (seen.has(fingerprint)) return;
+        seen.add(fingerprint);
+        choices.push({
+          id: `project:${path}`,
+          kind: "project",
+          path,
+          current: !!cwd && fingerprint === pathKey(cwd),
+        });
+      };
+      addProject(cwd);
+      for (const path of projects) addProject(path);
+      choices.push({
+        id: "personal",
+        kind: "personal",
+        current: !cwd || !looksLikeProject(cwd),
+      });
+      return choices;
+    },
+    [cwd, menu?.kind, projects],
   );
   const menuItems = useMemo<ExplorerMenuItem[]>(() => {
     if (menu?.kind !== "create") return [];
@@ -827,6 +851,7 @@ export function TasksView({
             onDelete={remove}
             onOpenSource={onOpenSource}
             onOpenBeside={onOpenBeside}
+            onCreateAnother={create}
             autoFocusTitle={peekTask.id === newTaskId}
           />
         ) : null}

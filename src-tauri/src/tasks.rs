@@ -675,7 +675,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 19, "tasks do not add a global migration version");
+        assert_eq!(version, 21, "tasks do not add a global migration version");
     }
 
     #[test]

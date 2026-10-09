@@ -43,6 +43,7 @@ import type { ComposerTurnOptions, Attachment } from "../model/session";
 import {
   clearComposerDraft,
   getComposerDraft,
+  restoreComposerInput,
   setComposerDraft,
 } from "../model/draftCache";
 import type { UserQuestionPrompt } from "../model/userQuestion";
@@ -905,6 +906,75 @@ describe("Composer question focus", () => {
     );
     expect(container.querySelector("textarea")?.value).toBe("");
     expect(onDraftChange).toHaveBeenLastCalledWith("");
+  });
+
+  it("restores a failed async prompt without replacing newer text or attachments", async () => {
+    const originalAttachment: Attachment = {
+      id: "failed-sidechat-file",
+      name: "diagram.png",
+      mimeType: "image/png",
+      kind: "image",
+      size: 12,
+      data: "iVBORw0KGgo=",
+    };
+    const newerAttachment: Attachment = {
+      id: "newer-composer-file",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      kind: "file",
+      size: 8,
+      path: "/repo/notes.txt",
+    };
+    const onDraftChange = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          sessionId: "sidechat-restore",
+          focused: true,
+          harness: "claude" as const,
+          model: "claude-sonnet",
+          runtimeMode: "supervised" as const,
+          executionCwd: "/repo",
+          hideProjectPicker: true,
+          hideBranchPicker: true,
+          initialDraft: "",
+          onDraftChange,
+          onFocus: vi.fn(),
+          onCwdChange: vi.fn(),
+          onModelChange: vi.fn(),
+          onRuntimeModeChange: vi.fn(),
+          onSubmit: vi.fn(),
+        }),
+      ),
+    );
+
+    await act(async () =>
+      restoreComposerInput({
+        sessionId: "sidechat-restore",
+        text: "A newer question",
+        attachments: [newerAttachment],
+      }),
+    );
+    await act(async () =>
+      restoreComposerInput({
+        sessionId: "sidechat-restore",
+        text: "Ask about this diagram",
+        attachments: [originalAttachment],
+      }),
+    );
+
+    expect(container.querySelector("textarea")?.value).toBe(
+      "Ask about this diagram\n\nA newer question",
+    );
+    expect(
+      container.querySelector('button[aria-label="Remove diagram.png"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('button[aria-label="Remove notes.txt"]'),
+    ).not.toBeNull();
+    expect(getComposerDraft("sidechat-restore")).toBe(
+      "Ask about this diagram\n\nA newer question",
+    );
   });
 
   it("keeps drafts and blocks sending until a working copy is selected", async () => {

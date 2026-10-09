@@ -176,6 +176,7 @@ export type DiscoveredSkill = {
     | "antigravity"
     | "hermes"
     | "antigravity"
+    | "devin"
     | "monocode";
 };
 
@@ -349,7 +350,9 @@ export function gitCommit(
   amend = false,
   paths?: string[],
 ): Promise<void> {
-  return invoke<void>("git_commit", { cwd, message, amend, paths });
+  return invoke<void>("git_commit", {
+    cwd, message, amend, ...(paths === undefined ? {} : { paths }),
+  });
 }
 
 export function gitHeadMessage(cwd: string): Promise<string> {
@@ -362,8 +365,10 @@ export type GitStagedContext = {
   patch: string;
 };
 
-export function gitStagedContext(cwd: string): Promise<GitStagedContext> {
-  return invoke<GitStagedContext>("git_staged_context", { cwd });
+export function gitStagedContext(cwd: string, paths?: readonly string[]): Promise<GitStagedContext> {
+  return invoke<GitStagedContext>("git_staged_context", {
+    cwd, ...(paths === undefined ? {} : { paths }),
+  });
 }
 
 export function gitPush(cwd: string): Promise<void> {
@@ -663,6 +668,36 @@ export async function readBinaryFile(path: string): Promise<Uint8Array> {
     path,
   });
   // A connected machine sends the bytes as base64 inside its JSON reply.
+  return typeof buffer === "string"
+    ? Uint8Array.from(atob(buffer), (char) => char.charCodeAt(0))
+    : new Uint8Array(buffer);
+}
+
+export type CanonicalProjectImagePath = {
+  root: string;
+  path: string;
+};
+
+/** Validate a Markdown image's canonical location before consulting a cache. */
+export function canonicalizeProjectImagePath(
+  path: string,
+  cwd: string,
+): Promise<CanonicalProjectImagePath> {
+  return invokeLocal<CanonicalProjectImagePath>(
+    "canonicalize_project_image_path",
+    { path, cwd },
+  );
+}
+
+/** Read bytes through the native project-containment check. */
+export async function readProjectImageFile(
+  path: string,
+  cwd: string,
+): Promise<Uint8Array> {
+  const buffer = await invokeLocal<ArrayBuffer | string>(
+    "read_project_image_file",
+    { path, cwd },
+  );
   return typeof buffer === "string"
     ? Uint8Array.from(atob(buffer), (char) => char.charCodeAt(0))
     : new Uint8Array(buffer);

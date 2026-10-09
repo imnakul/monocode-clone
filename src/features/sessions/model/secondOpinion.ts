@@ -17,6 +17,10 @@ const CI_BASE_LIMIT = 900;
 
 export const SECOND_OPINION_TITLE = "Second opinion";
 
+export function secondOpinionSessionTitle(sourceTitle: string): string {
+  return `${SECOND_OPINION_TITLE} — ${sourceTitle.trim() || "Untitled"}`;
+}
+
 /** Which provider produced this turn, walking back through handoff dividers. */
 export function harnessForTurn(
   blocks: Block[],

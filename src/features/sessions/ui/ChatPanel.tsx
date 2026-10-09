@@ -30,6 +30,7 @@ import {
   type SessionListDropTarget,
 } from "../model/sessionFolders";
 import type { SessionSummary } from "../data/sessionStore";
+import { compareSessionSummaries } from "../data/sessionHistory";
 
 type Props = {
   chats: SessionSummary[];
@@ -45,7 +46,6 @@ type Props = {
   onRename?: (sessionId: string, title: string) => void;
   onDelete?: (sessionId: string) => void;
   onNew: () => void;
-  onSelectSidechat?: (sessionId: string) => void;
 };
 
 /** Storage key for chat folders. Bare (not a path) so every scratch chat
@@ -69,12 +69,19 @@ export function ChatPanel({
   onRename,
   onDelete,
   onNew,
-  onSelectSidechat,
 }: Props) {
+  const allChats = useMemo(() => {
+    const byId = new Map<string, SessionSummary>();
+    for (const chat of [...chats, ...sidechats]) {
+      if (chat.archived) continue;
+      byId.set(chat.id, { ...byId.get(chat.id), ...chat });
+    }
+    return [...byId.values()].sort(compareSessionSummaries);
+  }, [chats, sidechats]);
   const insertMotion = useRef<SessionInsertMotion>({ cwd: "", seen: new Set() });
   useLayoutEffect(() => {
     insertMotion.current.cwd = CHAT_FOLDERS_KEY;
-    for (const chat of [...chats, ...sidechats]) insertMotion.current.seen.add(chat.id);
+    for (const chat of allChats) insertMotion.current.seen.add(chat.id);
   });
   const [folders, setFolders] = useState<SessionFolder[]>(() =>
     loadSessionFolders(CHAT_FOLDERS_KEY),
@@ -120,12 +127,12 @@ export function ChatPanel({
   };
 
   const ungrouped = useMemo(
-    () => ungroupedSessions(chats, folders),
-    [chats, folders],
+    () => ungroupedSessions(allChats, folders),
+    [allChats, folders],
   );
   const entries = useMemo(
-    () => buildSessionList(chats, folders, ungrouped),
-    [chats, folders, ungrouped],
+    () => buildSessionList(allChats, folders, ungrouped),
+    [allChats, folders, ungrouped],
   );
   const groupedEntries = useMemo(
     () => groupSessionListEntries(entries),
@@ -133,7 +140,7 @@ export function ChatPanel({
   );
 
   const menuChat = menu
-    ? chats.find((chat) => chat.id === menu.sessionId)
+    ? allChats.find((chat) => chat.id === menu.sessionId)
     : undefined;
   const menuFolderId = menu
     ? folderContaining(folders, menu.sessionId)?.id
@@ -330,40 +337,7 @@ export function ChatPanel({
         </p>
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-none p-1.5">
-        {sidechats.length > 0 ? (
-          <div className="mb-1">
-            <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-content/40">
-              Sidechats
-            </p>
-            <ul data-session-list data-shared-hover-continuity className="flex flex-col gap-0.5">
-              {sidechats.map((chat) => (
-                <SessionListItem key={chat.id} session={chat} cwd={CHAT_FOLDERS_KEY} motion={insertMotion}>
-                  <SessionCard
-                    session={chat}
-                    isActive={chat.id === activeSessionId}
-                    busy={busySessionIds?.has(chat.id) ?? false}
-                    done={false}
-                    needsApproval={
-                      approvalSessionIds?.has(chat.id) ?? false
-                    }
-                    now={now}
-                    onSelect={(sessionId) =>
-                      onSelectSidechat?.(sessionId)
-                    }
-                    onContextMenu={(event) => {
-                      // Temporary rows have no record to pin, rename, or
-                      // delete — swallow the gesture instead of showing the
-                      // browser menu over a dead end.
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }}
-                  />
-                </SessionListItem>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {entries.length === 0 && sidechats.length === 0 ? (
+        {entries.length === 0 ? (
           <p className="px-3 py-2 text-[12px] text-content/50">
             No chats yet. Start one above — chats live outside any project and
             resume anytime.

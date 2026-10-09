@@ -461,7 +461,11 @@ import {
   type NativeProvider,
   type ProviderConversation,
 } from "../features/provider-sessions/model/providerSessions";
-import { nativeHistoryStore } from "../features/provider-sessions/model/history";
+import {
+  nativeHistoryStore,
+  saveClaudeComposerSeed,
+  seedClaudeComposerFromHistory,
+} from "../features/provider-sessions/model/history";
 import { prepareNativeInput } from "../features/provider-sessions/model/nativeInput";
 import { liveNativeDependencies } from "../features/provider-sessions/model/providerActions";
 import {
@@ -556,6 +560,7 @@ import {
   getSession,
   listLinkedSessions,
   listScratchSessions,
+  listSidechatSessions,
   listSessionsByProject,
   persistFingerprint,
   rebaseProjectSessions,
@@ -711,6 +716,7 @@ import {
   SECOND_OPINION_TITLE,
   buildSecondOpinionRequest,
   harnessForTurn,
+  secondOpinionSessionTitle,
   turnEditedFiles,
   turnUserRequest,
 } from "../features/sessions/model/secondOpinion";
@@ -728,7 +734,10 @@ import {
   loadSessionOpeningBehavior,
   resolveOpeningBehavior,
 } from "../features/settings/model/openingBehavior";
-import { protectSessionOpening } from "../features/sessions/model/draftCache";
+import {
+  protectSessionOpening,
+  restoreComposerInput,
+} from "../features/sessions/model/draftCache";
 import { SessionSurface } from "../features/sessions/ui/SessionSurface";
 import { ProjectTerminalDock } from "../features/terminal/ui/ProjectTerminalDock";
 import { lazySurface } from "../shared/ui/lazySurface";
@@ -874,6 +883,7 @@ import {
   sidechatContextBlock,
   sidechatTitle,
 } from "../features/sessions/model/fork";
+import { SidechatSubmitPreflight } from "../features/sessions/model/sidechatSubmit";
 import { planBranch } from "../features/sessions/model/branchPlan";
 import { sendBranchTurn } from "../features/sessions/model/branchFlow";
 import {
@@ -968,6 +978,11 @@ type SubmitOptions = ComposerTurnOptions & {
   refreshTitle?: boolean;
   /** Internal guard for the retry after resolving a renamed project. */
   projectLocationReady?: boolean;
+  /** Internal source snapshot prepared before submitting a saved sidechat turn. */
+  sidechatContextPrepared?: {
+    sourceTitle: string;
+    sourceContext?: string;
+  };
 };
 
 type Submit = (
@@ -1527,6 +1542,7 @@ function Workspace({
    * lives in its own leaf directory no project query reaches), so they get
    * their own listing, loaded once at boot and refreshed in Chat mode. */
   const [scratchHistory, setScratchHistory] = useState<SessionSummary[]>([]);
+  const [sidechatHistory, setSidechatHistory] = useState<SessionSummary[]>([]);
   const [, refreshRemoteTabTitles] = useState(0);
   useEffect(() => {
     const updated = () => refreshRemoteTabTitles((value) => value + 1);
@@ -1794,6 +1810,11 @@ function Workspace({
             mergeProjectHistorySummary(current, summary),
           );
         }
+        if (summary.sidechat) {
+          setSidechatHistory((current) =>
+            mergeHistorySummary(current, summary),
+          );
+        }
       },
     });
   }, []);
@@ -1834,6 +1855,7 @@ function Workspace({
   const workspaceSyncKey = useRef<string | null>(null);
   const observedSessions = useRef(new Map<string, Session>());
   const pendingPersist = useRef(new Map<string, Session>());
+  const sidechatContextPreflights = useRef(new SidechatSubmitPreflight());
   const removingSessionIds = useRef(new Set<string>());
   const loadedSessionCache = useRef(new Map<string, Session>());
   const sessionLoads = useRef(new Map<string, Promise<Session | null>>());
@@ -2150,6 +2172,17 @@ function Workspace({
   }
   const busySessionIds = busySessionIdsRef.current;
 
+  // Sidebar-only presentation includes remote phone turns. Keep the shared
+  // local busy set unchanged for submission, stop, notification and auto-resume
+  // behavior; an external turn cannot authorize a local Continue.
+  const workingSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const session of sessions) {
+      if (session.busy || session.externalTurnId) ids.add(session.id);
+    }
+    return ids;
+  }, [sessions]);
+
   /** Probe the active session's harness for its live model catalog whenever
    * the active harness changes. Catalogs load lazily (probing spawns a CLI
    * process) and the boot refresh runs before restored sessions land, so a
@@ -2167,7 +2200,8 @@ function Workspace({
       active?.harness === "claude" ||
       active?.harness === "codex" ||
       active?.harness === "opencode" ||
-      active?.harness === "antigravity-cli"
+      active?.harness === "antigravity-cli" ||
+      active?.harness === "devin"
     ) {
       return [active.harness];
     }
@@ -2291,7 +2325,7 @@ function Workspace({
     () =>
       liveAgentsEnabled
         ? liveAgentsFromSessions(
-            promptableSessions,
+            promptableSessions.filter((session) => !session.sidechat),
             unseenFinishedIds,
             new Set(
               listMonos().flatMap((mono) =>
@@ -2484,13 +2518,29 @@ function Workspace({
     }
   }, []);
 
+  const refreshSidechatHistory = useCallback(async () => {
+    try {
+      setSidechatHistory(await listSidechatSessions());
+    } catch {
+      // A failed revalidate keeps the already-loaded Chat rows.
+    }
+  }, []);
+
   useEffect(() => {
     void refreshScratchHistory();
   }, [refreshScratchHistory]);
 
   useEffect(() => {
+    void refreshSidechatHistory();
+  }, [refreshSidechatHistory]);
+
+  useEffect(() => {
     if (mode === "chat") void refreshScratchHistory();
   }, [mode, refreshScratchHistory]);
+
+  useEffect(() => {
+    if (mode === "chat") void refreshSidechatHistory();
+  }, [mode, refreshSidechatHistory]);
 
   useEffect(() => {
     if (!inboxViewOpen) return;
@@ -3572,6 +3622,7 @@ function Workspace({
           ),
         );
         for (const sessionId of gone) {
+          sidechatContextPreflights.current.cancel(sessionId);
           persistSession(sessionsRef.current.find((s) => s.id === sessionId));
           rememberRemoteSession(sessionId);
           rememberRemotePendingWorktree(sessionId);
@@ -3637,6 +3688,7 @@ function Workspace({
           ),
         );
         for (const sessionId of sessionIds) {
+          sidechatContextPreflights.current.cancel(sessionId);
           persistSession(
             sessionsRef.current.find((session) => session.id === sessionId),
           );
@@ -4170,6 +4222,7 @@ function Workspace({
         sessionsRef.current.some((session) => session.id === paneId),
       );
       if (!sessionIds.includes(closingId)) return;
+      sidechatContextPreflights.current.cancel(closingId);
       const nextTab = closeLeaf(activeTab, closingId);
       if (!nextTab) {
         const closePlan = planWorkspaceTabClose({
@@ -5429,6 +5482,11 @@ function Workspace({
         setSessions((prev) =>
           prev.map((session) => (session.id === sessionId ? updated : session)),
         );
+        if (updated.sidechat) {
+          setSidechatHistory((current) =>
+            mergeHistorySummary(current, summaryFromSession(updated)),
+          );
+        }
         loadedSessionCache.current.delete(sessionId);
         persistSession(updated);
       } else {
@@ -5447,8 +5505,15 @@ function Workspace({
         queueSchedulerRef.current?.initSession(sessionId, queueKey);
       }
       void refreshHistory(sidebarCwd);
+      void refreshSidechatHistory();
     },
-    [invalidateLoadedSession, persistSession, refreshHistory, sidebarCwd],
+    [
+      invalidateLoadedSession,
+      persistSession,
+      refreshHistory,
+      refreshSidechatHistory,
+      sidebarCwd,
+    ],
   );
 
   const checkOpenWorktreeFiles = useCallback((path: string) => {
@@ -5615,12 +5680,15 @@ function Workspace({
       const open = sessionsRef.current.find(
         (session) => session.id === sessionId,
       );
-      const summary = history.find((entry) => entry.id === sessionId);
+      const summary =
+        history.find((entry) => entry.id === sessionId) ??
+        sidechatHistory.find((entry) => entry.id === sessionId);
       const seed = open ?? summary;
       const label = seed
         ? sessionDisplayTitle(seed.title, seed.harness)
         : "this session";
       removingSessionIds.current.add(sessionId);
+      sidechatContextPreflights.current.cancel(sessionId);
       let deleteWorktreePath: string | undefined;
       if (mode === "delete" && !skipDeleteConfirm) {
         deleteConfirmationPending.current = true;
@@ -5724,6 +5792,7 @@ function Workspace({
               }
 
               const { removal } = change;
+              sidechatContextPreflights.current.cancel(sessionId);
               lastPersisted.current.delete(sessionId);
               pendingPersist.current.delete(sessionId);
               queueSchedulerRef.current?.removeSession(sessionId);
@@ -5774,11 +5843,17 @@ function Workspace({
                     }),
                   );
                 }
+                setSidechatHistory((current) =>
+                  current.filter((entry) => entry.id !== sessionId),
+                );
               } else {
                 setHistory((current) =>
                   current.filter((entry) => entry.id !== sessionId),
                 );
                 void refreshHistory(sidebarCwd);
+                setSidechatHistory((current) =>
+                  current.filter((entry) => entry.id !== sessionId),
+                );
               }
             },
           },
@@ -5827,6 +5902,7 @@ function Workspace({
           },
         });
         const removed = await remover.remove(sessionId);
+        if (removed) void refreshSidechatHistory();
         if (removed && mode === "delete") {
           // Provider files and the sticky archive flag stay; only the native
           // link and the Remote Control preference belong to this chat.
@@ -5874,7 +5950,9 @@ function Workspace({
       history,
       invalidateLoadedSession,
       refreshHistory,
+      refreshSidechatHistory,
       sidebarCwd,
+      sidechatHistory,
       stopSessionForRemoval,
       tabCloseScope,
       onRemoveWorktree,
@@ -5892,6 +5970,7 @@ function Workspace({
             entry.id === sessionId ? { ...entry, archived: false } : entry,
           ),
         );
+        void refreshSidechatHistory();
         return true;
       } catch (error) {
         void message(
@@ -5904,7 +5983,7 @@ function Workspace({
         return false;
       }
     },
-    [onRemoveHistorySession],
+    [onRemoveHistorySession, refreshSidechatHistory],
   );
 
   const onArchiveFocusedSession = useCallback(
@@ -5962,6 +6041,17 @@ function Workspace({
         }
         if (!open) return current;
         return mergeProjectHistorySummary(current, {
+          ...summaryFromSession(open),
+          pinned,
+        });
+      });
+      setSidechatHistory((current) => {
+        const existing = current.find((entry) => entry.id === sessionId);
+        if (existing) {
+          return mergeHistorySummary(current, { ...existing, pinned });
+        }
+        if (!open?.sidechat) return current;
+        return mergeHistorySummary(current, {
           ...summaryFromSession(open),
           pinned,
         });
@@ -6205,6 +6295,9 @@ function Workspace({
 
   const onResumeNativeSession = useCallback(
     async (row: ProviderConversation): Promise<void> => {
+      const previouslyStored = row.monocodeSessionId
+        ? await getSession(row.monocodeSessionId)
+        : null;
       const dependencies = liveNativeDependencies({
         liveSessions: () => sessionsRef.current,
         getStored: getSession,
@@ -6212,6 +6305,7 @@ function Workspace({
       });
       // Never rebind/reload a running MonoCode chat underneath its stream.
       const live = await dependencies.findNativeSession?.(row);
+      const newlyAttached = !live && !previouslyStored;
       const session = live?.busy
         ? live
         : await openProviderConversation(row, dependencies);
@@ -6229,15 +6323,90 @@ function Workspace({
       setFilePickerOpen(false);
       setSelectedProvider(null);
       await onSelectHistorySession(session.id);
-      if (!session.busy)
-        void nativeHistoryStore.ensureLoaded(
+      if (!session.busy) {
+        await nativeHistoryStore.ensureLoaded(
           session.id,
           session.harness,
           session.providerAccountId ?? "default",
         );
+        const history = nativeHistoryStore.get(session.id);
+        const current = sessionsRef.current.find(
+          (entry) => entry.id === session.id,
+        );
+        const matchesNativeSession = (entry: Session | undefined): boolean =>
+          !!entry &&
+          entry.id === session.id &&
+          entry.harness === session.harness &&
+          entry.providerSessionId === session.providerSessionId &&
+          (entry.providerAccountId ?? "default") ===
+            (session.providerAccountId ?? "default") &&
+          sameProjectPath(entry.cwd, session.cwd);
+        const matchesCapturedComposer = (entry: Session | undefined): boolean =>
+          !!entry &&
+          matchesNativeSession(entry) &&
+          entry.model === session.model &&
+          JSON.stringify(entry.modelSettings) ===
+            JSON.stringify(session.modelSettings) &&
+          !entry.busy &&
+          !entry.externalTurnId &&
+          !entry.blocks.some((block) => block.role === "user");
+        if (
+          newlyAttached &&
+          current &&
+          matchesCapturedComposer(current)
+        ) {
+          const seeded =
+            history.status === "ready"
+              ? seedClaudeComposerFromHistory(current, history.items)
+              : current;
+          if (seeded !== current) {
+            const result = await saveClaudeComposerSeed(seeded, {
+              getLatest: () =>
+                sessionsRef.current.find((entry) => entry.id === session.id),
+              isAvailable: () =>
+                !removingSessionIds.current.has(session.id),
+              isSameNativeSession: matchesNativeSession,
+              canSeed: matchesCapturedComposer,
+              save: async (candidate) =>
+                !!(await upsertNativeResumeSession(candidate)),
+              apply: (candidate) => {
+                const next = sessionsRef.current.map((entry) =>
+                  entry.id === session.id ? candidate : entry,
+                );
+                sessionsRef.current = next;
+                setSessions(next);
+              },
+            });
+            if (result.kind === "error") {
+              const stillOpen = sessionsRef.current.some(
+                (entry) =>
+                  entry.id === session.id &&
+                  entry.providerSessionId === session.providerSessionId &&
+                  entry.harness === session.harness,
+              );
+              if (
+                stillOpen &&
+                !removingSessionIds.current.has(session.id)
+              ) {
+                enqueueHarnessEvent(session.id, {
+                  type: "status",
+                  text: `Could not save the imported Claude model choice: ${String(result.error)}`,
+                });
+                flushHarnessEvents();
+              }
+            }
+          }
+        }
+      }
       void refreshHistory(sidebarCwdRef.current);
     },
-    [onSelectHistorySession, onArchiveHistorySession, refreshHistory],
+    [
+      onSelectHistorySession,
+      onArchiveHistorySession,
+      enqueueHarnessEvent,
+      flushHarnessEvents,
+      refreshHistory,
+    ],
   );
 
   const providerRailEntries = useMemo<ProviderRailEntry[]>(
@@ -7609,6 +7778,7 @@ function Workspace({
       )
         return false;
       const storedCurrent = sessionsRef.current.find((s) => s.id === sessionId);
+      if (sidechatContextPreflights.current.has(sessionId)) return false;
       if (options?.appRequestId && storedCurrent?.busy) return false;
       if (
         options?.ciRepair &&
@@ -7626,6 +7796,66 @@ function Workspace({
         )
       )
         return false;
+      if (storedCurrent.sidechat && !options?.sidechatContextPrepared) {
+        if (
+          !tabsRef.current.some((tab) => leafIds(tab.layout).includes(sessionId))
+        ) {
+          return false;
+        }
+        const sidechat = storedCurrent.sidechat;
+        return sidechatContextPreflights.current.submit({
+          sessionId,
+          sourceSessionId: sidechat.sourceSessionId,
+          fallback: {
+            sourceTitle: sidechat.sourceTitle,
+            ...(sidechat.sourceContext
+              ? { sourceContext: sidechat.sourceContext }
+              : {}),
+          },
+          findLiveSource: () =>
+            sessionsRef.current.find(
+              (session) => session.id === sidechat.sourceSessionId,
+            ),
+          loadSavedSource: getSession,
+          isStillOpen: () =>
+            !removingSessionIds.current.has(sessionId) &&
+            sessionsRef.current.some((session) => session.id === sessionId) &&
+            tabsRef.current.some((tab) =>
+              leafIds(tab.layout).includes(sessionId),
+            ),
+          submitPrepared: (preparedSessionId, prepared) =>
+            submitAfterProjectSyncRef.current(
+              preparedSessionId,
+              text,
+              attachments,
+              { ...options, sidechatContextPrepared: prepared },
+            ),
+          onAsyncFailure: (message) => {
+            const existingTurnInput =
+              !!options?.draftBlockId || !!options?.queuedMessageId;
+            const savedAsDraft = existingTurnInput
+              ? false
+              : onSaveDraft(sessionId, text, attachments);
+            if (!existingTurnInput && !savedAsDraft)
+              restoreComposerInput({ sessionId, text, attachments });
+            const statusText = savedAsDraft
+              ? `${message} The message was saved as a draft.`
+              : existingTurnInput
+                ? `${message} The original message remains available to retry.`
+                : `${message} The message remains in the composer.`;
+            enqueueHarnessEvent(sessionId, {
+              type: "status",
+              text: statusText,
+            });
+            flushHarnessEvents();
+            options?.onSettled?.({
+              status: "failed",
+              text: "",
+              error: message,
+            });
+          },
+        });
+      }
       const draftBlock = options?.draftBlockId
         ? storedCurrent.blocks.find(
             (block) =>
@@ -7646,6 +7876,21 @@ function Workspace({
       let current = options?.buildTarget
         ? withPlanBuildTarget(draftCleared, options.buildTarget)
         : draftCleared;
+      if (current.sidechat && options?.sidechatContextPrepared) {
+        current = {
+          ...current,
+          sidechat: {
+            ...current.sidechat,
+            sourceTitle: options.sidechatContextPrepared.sourceTitle,
+            ...(options.sidechatContextPrepared.sourceContext
+              ? {
+                  sourceContext:
+                    options.sidechatContextPrepared.sourceContext,
+                }
+              : {}),
+          },
+        };
+      }
       const editedResend = options?.resendEdited
         ? createEditedResendAttempt(current, options.onResendRejected)
         : undefined;
@@ -7685,26 +7930,13 @@ function Workspace({
           return false;
         }
       }
-      // Sidechats carry no context of their own: attach the source thread's
-      // latest state to every send (or send plain if it closed meanwhile).
-      // Visible blocks keep the user's words; only the harness prompt
-      // carries the sidechat context bundle.
-      let sendText = text;
-      const sidechatSource =
-        current.ephemeral && current.sidechat
-          ? sessionsRef.current.find(
-              (s) => s.id === current.sidechat?.sourceSessionId,
-            )
-          : undefined;
-      if (current.ephemeral && current.sidechat) {
-        const context = sidechatSource
-          ? sidechatContextBlock(
-              sessionDisplayTitle(sidechatSource.title, sidechatSource.harness),
-              sidechatSource.blocks,
-            )
-          : null;
-        sendText = context ? `${context}\n\n---\n\n${text}` : text;
-      }
+      // Attach the source thread's latest state to every send. Saved sidechats
+      // also keep a bounded source snapshot for recovery after the parent
+      // closes; visible turns remain independent in the sidechat.
+      const sidechatContext = options?.sidechatContextPrepared?.sourceContext;
+      const sendText = sidechatContext
+        ? `${sidechatContext}\n\n---\n\n${text}`
+        : text;
       const noteCard =
         options && "noteCard" in options ? options.noteCard : current.noteCard;
       const handoffCard =
@@ -7938,6 +8170,9 @@ function Workspace({
                 ? appendQueuedMessage(
                     {
                       ...s,
+                    ...(current.sidechat
+                      ? { sidechat: current.sidechat }
+                      : {}),
                       inboxCard: rawCommand ? s.inboxCard : undefined,
                       noteCard: rawCommand ? s.noteCard : undefined,
                       handoffCard: rawCommand ? s.handoffCard : undefined,
@@ -7974,6 +8209,7 @@ function Workspace({
           if (s.id !== sessionId) return s;
           let next: Session = {
             ...s,
+            ...(current.sidechat ? { sidechat: current.sidechat } : {}),
             inboxCard: rawCommand ? s.inboxCard : undefined,
             noteCard: rawCommand ? s.noteCard : undefined,
             handoffCard: rawCommand ? s.handoffCard : undefined,
@@ -8188,6 +8424,7 @@ function Workspace({
             const titled = isFirstTurn ? titleSeed : selected.title;
             let next: Session = {
               ...selected,
+              ...(current.sidechat ? { sidechat: current.sidechat } : {}),
               providerAccountId,
               usageLimit: undefined,
               worktreePreparing: createDraftWorktree
@@ -9135,6 +9372,7 @@ function Workspace({
       dismissNoticesForContinuedSession,
       enqueueHarnessEvent,
       flushHarnessEvents,
+      onSaveDraft,
       routeRemoteControlEvent,
     ],
   );
@@ -10452,7 +10690,7 @@ function Workspace({
           resolveModel(harness, model),
           modelSettings,
         ),
-        title: formatSessionTitle(harness, SECOND_OPINION_TITLE),
+        title: secondOpinionSessionTitle(source.title),
       };
       openSessionBeside(sourceId, session, source.cwd);
       onSubmit(session.id, request.prompt, [], request.options);
@@ -11366,20 +11604,15 @@ function Workspace({
     [appendTab],
   );
 
-  /**
-   * Sidechat: a temporary session beside the thread, inheriting its
-   * provider and model (changeable in its own composer). The composer
-   * stays empty with a Codex-style notice; the source thread's latest
-   * context attaches to each send. Ephemeral: never persisted, never
-   * listed, gone on close or quit.
-   */
+  /** A separate saved Chat beside the source, with source context attached per send. */
   const onSidechat = useCallback(
     (sourceId: string, turn: Block[]) => {
       const source = sessionsRef.current.find((s) => s.id === sourceId);
       const lastId = turn.length > 0 ? turn[turn.length - 1]?.id : undefined;
       if (!source || !lastId) return;
-      const cwd = sessionWorkCwd(source);
+      const cwd = source.cwd;
       const display = sessionDisplayTitle(source.title, source.harness);
+      const sourceContext = sidechatContextBlock(display, source.blocks);
       const session = {
         ...newSession(
           source.harness,
@@ -11389,8 +11622,16 @@ function Workspace({
           source.modelSettings,
         ),
         title: formatSessionTitle(source.harness, sidechatTitle(display)),
-        ephemeral: true,
-        sidechat: { sourceSessionId: sourceId },
+        ...(source.providerAccountId
+          ? { providerAccountId: source.providerAccountId }
+          : {}),
+        ...(source.worktreeCwd ? { worktreeCwd: source.worktreeCwd } : {}),
+        ...(source.branch ? { branch: source.branch } : {}),
+        sidechat: {
+          sourceSessionId: sourceId,
+          sourceTitle: display,
+          ...(sourceContext ? { sourceContext } : {}),
+        },
       };
       openSessionBeside(sourceId, session, cwd, true);
     },
@@ -12702,6 +12943,7 @@ function Workspace({
           (session) =>
             !session.inboxAsk &&
             !session.ephemeral &&
+            !session.sidechat &&
             !session.orchestrationLeadId &&
             sameProjectPath(session.cwd, sidebarCwd),
         )
@@ -12728,21 +12970,22 @@ function Workspace({
     [scratchHistory, sessions],
   );
 
-  /** Live sidechats: presence, not history — open now, gone on close. */
-  const sidechatSessions = useMemo(
-    () =>
-      sessions
-        .filter((session) => session.ephemeral && session.sidechat)
-        .map((session) => summaryFromSession(session)),
-    [sessions],
-  );
-
-  const onSelectSidechat = useCallback(
-    (sessionId: string) => {
-      focusOpenSession(sessionId);
-    },
-    [focusOpenSession],
-  );
+  /** Merge live values over saved Chats rows without duplicating entries. */
+  const sidechatSessions = useMemo(() => {
+    let rows = sidechatHistory;
+    for (const session of sessions) {
+      if (!session.sidechat || session.ephemeral) continue;
+      const live = summaryFromSession(session);
+      const stored = rows.find((row) => row.id === session.id);
+      rows = mergeHistorySummary(rows, {
+        ...stored,
+        ...live,
+        createdAt: stored?.createdAt ?? live.createdAt,
+        updatedAt: stored?.updatedAt ?? live.updatedAt,
+      });
+    }
+    return rows.filter((row) => !row.archived);
+  }, [sessions, sidechatHistory]);
 
   const onNewChat = useCallback(async () => {
     if (creatingChat) return;
@@ -14116,8 +14359,9 @@ function Workspace({
               onModeChange={onModeChange}
               chatSessions={chatSessions}
               sidechatSessions={sidechatSessions}
-              onSelectSidechat={onSelectSidechat}
+              onSelectChatSession={onSelectHistorySession}
               onNewChat={onNewChat}
+              creatingChat={creatingChat}
               chatError={chatError}
               filesSearchOpen={filesSearchOpen}
               onFilesSearchOpenChange={setFilesSearchOpen}
@@ -14125,6 +14369,7 @@ function Workspace({
               searchFocusToken={searchFocusToken}
               sessions={sidebarHistory}
               busySessionIds={busySessionIds}
+              workingSessionIds={workingSessionIds}
               approvalSessionIds={approvalSessionIds}
               activeSessionId={activeSessionId}
               status={historyFailed ? "error" : "idle"}

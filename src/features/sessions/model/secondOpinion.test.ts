@@ -4,11 +4,21 @@ import {
   buildSecondOpinionCard,
   buildSecondOpinionPrompt,
   harnessForTurn,
+  secondOpinionSessionTitle,
   secondOpinionTargets,
   turnEditedFiles,
   turnReport,
   turnUserRequest,
 } from "./secondOpinion";
+
+describe("secondOpinionSessionTitle", () => {
+  it("names the new chat after its source conversation", () => {
+    expect(secondOpinionSessionTitle("  Fix the installer  ")).toBe(
+      "Second opinion — Fix the installer",
+    );
+    expect(secondOpinionSessionTitle("   ")).toBe("Second opinion — Untitled");
+  });
+});
 
 function user(id: string, text: string): Block {
   return { id, role: "user", text };

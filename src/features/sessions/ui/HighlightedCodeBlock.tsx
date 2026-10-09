@@ -23,7 +23,11 @@ const HighlightedLine = memo(function HighlightedLine({
   numbered: boolean;
 }) {
   return (
-    <span className={numbered ? "markdown-code-numbered-line" : undefined}>
+    <span
+      className={`!w-full !min-w-0 !whitespace-pre-wrap ![overflow-wrap:anywhere] ${
+        numbered ? "markdown-code-numbered-line" : ""
+      }`}
+    >
       {tokens.length && !(tokens.length === 1 && tokens[0].content === "")
         ? tokens.map((token, index) => {
             const style: Record<string, string> = { ...token.htmlStyle };
@@ -83,8 +87,9 @@ const HighlightedBody = memo(function HighlightedBody({
     });
   }, [result, lineNumbers, cachedLines]);
   return (
-    <pre>
+    <pre className="!w-full !min-w-0 !whitespace-pre-wrap ![overflow-wrap:anywhere]">
       <code
+        className="!w-full !min-w-0 !whitespace-pre-wrap ![overflow-wrap:anywhere]"
         style={
           lineNumbers
             ? { counterReset: `line ${(startLine ?? 1) - 1}` }
@@ -146,8 +151,9 @@ export function HighlightedCodeBlock({
             startLine={startLine}
           />
         ) : (
-          <pre>
+          <pre className="!w-full !min-w-0 !whitespace-pre-wrap ![overflow-wrap:anywhere]">
             <code
+              className="!w-full !min-w-0 !whitespace-pre-wrap ![overflow-wrap:anywhere]"
               style={
                 lineNumbers
                   ? { counterReset: `line ${(startLine ?? 1) - 1}` }
@@ -157,9 +163,9 @@ export function HighlightedCodeBlock({
               {source.split("\n").map((line, index) => (
                 <span
                   key={index}
-                  className={
-                    lineNumbers ? "markdown-code-numbered-line" : undefined
-                  }
+                  className={`!w-full !min-w-0 !whitespace-pre-wrap ![overflow-wrap:anywhere] ${
+                    lineNumbers ? "markdown-code-numbered-line" : ""
+                  }`}
                 >
                   {line || "\n"}
                 </span>

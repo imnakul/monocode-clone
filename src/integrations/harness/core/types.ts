@@ -4,6 +4,7 @@ import type {
   InterjectionMeta,
   RuntimeMode,
   TaskListItem,
+  TurnModel,
   ToolPreview,
   TurnIntent,
   TurnMetrics,
@@ -29,6 +30,7 @@ export type HarnessEvent =
     }
   | { type: "turn.started"; providerTurnId: string }
   | { type: "turn.forkPoint"; providerForkPoint: string }
+  | { type: "turn.model"; turnModel: TurnModel }
   | { type: "turn.ready" }
   | {
       type: "session.configChanged";

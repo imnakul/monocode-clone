@@ -41,6 +41,7 @@ import {
   Share,
   Settings,
   StickyNote,
+  X,
   Zap,
 } from "../../shared/ui/icons";
 import {
@@ -201,10 +202,14 @@ import { SharedHoverHighlight } from "../../features/sessions/ui/SharedHoverHigh
 import {
   isMonoSession,
   listMonos,
+  MONO_STATUS_LABEL,
   monoLook,
   monosSnapshot,
   subscribeMonos,
+  type MonoStatus,
 } from "../../features/monos/model/mono";
+import { MonoRailMascot } from "../../features/monos/ui/MonoRailMascot";
+import { useRailMonosPinned } from "../../features/settings/model/displayPrefs";
 import type { PickerMonos } from "../../features/projects/ui/SearchableProjectPicker";
 import { isHabitRun } from "../../features/monos/model/monoHabits";
 import type { MonoRailProps } from "./MonoRailSection";
@@ -269,6 +274,8 @@ type Props = {
   open: boolean;
   sessions: SessionSummary[];
   busySessionIds: Set<string>;
+  /** Presentation-only local and Claude Remote Control activity. */
+  workingSessionIds?: Set<string>;
   approvalSessionIds: Set<string>;
   activeSessionId?: string;
   /** Open tabs, including blank ones not yet in history. */
@@ -380,7 +387,6 @@ type Props = {
   chatSessions?: SessionSummary[];
   sidechatSessions?: SessionSummary[];
   onSelectChatSession?: (sessionId: string) => void;
-  onSelectSidechat?: (sessionId: string) => void;
   onNewChat?: () => void;
   creatingChat?: boolean;
   chatError?: string | null;
@@ -406,6 +412,7 @@ function SidebarComponent({
   open,
   sessions,
   busySessionIds,
+  workingSessionIds,
   approvalSessionIds,
   activeSessionId,
   openSessions = [],
@@ -494,7 +501,6 @@ function SidebarComponent({
   chatSessions = [],
   sidechatSessions = [],
   onSelectChatSession,
-  onSelectSidechat,
   onNewChat,
   creatingChat = false,
   chatError = null,
@@ -623,7 +629,7 @@ function SidebarComponent({
           )
           .map((session) => session.id),
       )
-    : busySessionIds;
+    : (workingSessionIds ?? busySessionIds);
   const listedApprovalSessionIds = remoteProject
     ? new Set(
         remote.sessions
@@ -704,6 +710,9 @@ function SidebarComponent({
     null,
   );
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [dismissedWorkingRuns, setDismissedWorkingRuns] = useState(
+    () => new Map<string, string>(),
+  );
   const [sessionFolders, setSessionFolders] = useState<SessionFolder[]>(() =>
     loadSessionFolders(cwd),
   );
@@ -775,7 +784,17 @@ function SidebarComponent({
         filterSessionsByTime(
           filterSessionsByHarness(
             filterSessionsByArchive(
-              listedSessions,
+              listedSessions.filter((session) => {
+                const runKey = session.activeRunKey;
+                const working =
+                  listedBusySessionIds.has(session.id) &&
+                  !listedApprovalSessionIds.has(session.id);
+                return !(
+                  working &&
+                  runKey &&
+                  dismissedWorkingRuns.get(session.id) === runKey
+                );
+              }),
               sessionFilters.showArchived,
             ),
             sessionFilters.hiddenHarnesses,
@@ -1699,8 +1718,12 @@ function SidebarComponent({
     for (const session of listedSessions) motion.seen.add(session.id);
   });
 
-  const renderSessionCard = (session: SessionSummary, compact = false) =>
-    renamingSessionId === session.id && onRenameSession ? (
+  const renderSessionCard = (session: SessionSummary, compact = false) => {
+    const runKey = session.activeRunKey;
+    const working =
+      listedBusySessionIds.has(session.id) &&
+      !listedApprovalSessionIds.has(session.id);
+    return renamingSessionId === session.id && onRenameSession ? (
       <SessionRenameRow
         session={session}
         isActive={session.id === activeListedSessionId}
@@ -1741,9 +1764,18 @@ function SidebarComponent({
         onArchive={onArchiveSession ? cardActions.archive : undefined}
         onRename={onRenameSession ? cardActions.rename : undefined}
         onDelete={onDeleteSession ? cardActions.delete : undefined}
+        onDismissWorking={
+          working && runKey
+            ? () =>
+                setDismissedWorkingRuns((current) =>
+                  new Map(current).set(session.id, runKey),
+                )
+            : undefined
+        }
         remoteControl={remoteControlSessionIds?.has(session.id) ?? false}
       />
     );
+  };
 
   const onSessionFiltersChange = (next: SessionSidebarFilters) => {
     setSessionFilters(next);
@@ -1898,7 +1930,6 @@ function SidebarComponent({
         <ChatPanel
           chats={chatSessions}
           sidechats={sidechatSessions}
-          onSelectSidechat={onSelectSidechat}
           activeSessionId={activeSessionId}
           busySessionIds={busySessionIds}
           approvalSessionIds={approvalSessionIds}
@@ -2896,20 +2927,26 @@ function CompactProjectRail({
     monosSnapshot,
     monosSnapshot,
   );
+  const monosPinned = useRailMonosPinned();
+  const monoItems = useMemo(() => {
+    if (!monos) return [];
+    return listMonos().map((mono) => ({
+      id: mono.id,
+      ...monoLook(mono),
+      status: monos.states.get(mono.id)?.status ?? "idle",
+    }));
+    // The roster is read through its snapshot.
+  }, [monos, monosSnap]);
   const pickerMonos = useMemo((): PickerMonos | undefined => {
     if (!monos) return undefined;
     return {
-      items: listMonos().map((mono) => ({
-        id: mono.id,
-        ...monoLook(mono),
-        status: monos.states.get(mono.id)?.status ?? "idle",
-      })),
+      // Pinned Monos have their own buttons; the picker keeps "New mono".
+      items: monosPinned ? [] : monoItems,
       activeId: monos.activeId,
       onOpen: monos.onOpen,
       onCreate: monos.onCreate,
     };
-    // The roster is read through its snapshot.
-  }, [monos, monosSnap]);
+  }, [monos, monoItems, monosPinned]);
   const [inboxMenu, setInboxMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -2959,6 +2996,37 @@ function CompactProjectRail({
           icon={PanelLeft}
           onClick={onTogglePanel}
         />
+        {monos && monosPinned && monoItems.length ? (
+          <>
+            <div
+              role="group"
+              aria-label="Monos"
+              data-compact-rail-monos
+              className="flex flex-col items-center gap-1.5"
+            >
+              {monoItems.map((mono) => (
+                <CompactRailMono
+                  key={mono.id}
+                  name={mono.name}
+                  mascot={mono.mascot}
+                  color={mono.color}
+                  status={mono.status}
+                  active={mono.id === monos.activeId}
+                  unseen={
+                    mono.id !== monos.activeId &&
+                    !!monos.unseenIds?.has(mono.id)
+                  }
+                  onClick={() => monos.onOpen(mono.id)}
+                />
+              ))}
+            </div>
+            <span
+              aria-hidden
+              data-compact-rail-monos-divider
+              className="h-px w-6 shrink-0 bg-stroke"
+            />
+          </>
+        ) : null}
         {onSelectProject ? (
           <SearchableProjectPickerWithMenu
             cwd={cwd}
@@ -3065,6 +3133,49 @@ function CompactProjectRail({
         />
       ) : null}
     </nav>
+  );
+}
+
+function CompactRailMono({
+  name,
+  mascot,
+  color,
+  status,
+  active,
+  unseen,
+  onClick,
+}: {
+  name: string;
+  mascot: string;
+  color: string;
+  status: MonoStatus;
+  active: boolean;
+  unseen: boolean;
+  onClick: () => void;
+}) {
+  const label = `${name}, ${MONO_STATUS_LABEL[status]}`;
+  return (
+    <button
+      type="button"
+      title={`${name}\n${MONO_STATUS_LABEL[status]}`}
+      aria-label={unseen ? `${label}, new` : label}
+      aria-current={active ? "true" : undefined}
+      data-compact-rail-mono
+      onClick={onClick}
+      className={`relative grid size-8 shrink-0 place-items-center rounded-md active:scale-[0.97] ${
+        active
+          ? "bg-selection"
+          : "opacity-65 hover:bg-content/10 hover:opacity-100"
+      }`}
+    >
+      <MonoRailMascot name={mascot} color={color} status={status} />
+      {unseen ? (
+        <span
+          aria-hidden
+          className="absolute bottom-1 left-1/2 size-1 -translate-x-1/2 rounded-full bg-content/60"
+        />
+      ) : null}
+    </button>
   );
 }
 
@@ -3462,6 +3573,7 @@ const SessionCard = memo(function SessionCard({
   onListDropTargetChange,
   onContextMenu,
   onArchive,
+  onDismissWorking,
   onRename,
   onDelete,
   remoteControl = false,
@@ -3495,6 +3607,7 @@ const SessionCard = memo(function SessionCard({
     e: ReactMouseEvent<HTMLDivElement>,
   ) => void;
   onArchive?: (sessionId: string, archived: boolean) => void;
+  onDismissWorking?: () => void;
   onRename?: (sessionId: string) => void;
   onDelete?: (sessionId: string) => void;
   /** Remote Control is turned on for this chat: show the accent PC icon. */
@@ -3838,7 +3951,9 @@ const SessionCard = memo(function SessionCard({
             const focused = event.currentTarget.ownerDocument.activeElement;
             if (focused instanceof HTMLElement) focused.blur();
           }}
-          className="rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
+          className={`rounded-sm outline-none focus-visible:ring-1 focus-visible:ring-accent/50 ${
+            onDismissWorking ? "pr-6" : ""
+          }`}
         >
           <span className="relative flex min-w-0 items-center gap-1.5">
             {session.pinned ? (
@@ -3972,6 +4087,23 @@ const SessionCard = memo(function SessionCard({
           </span>
         ) : null}
       </div>
+      {onDismissWorking ? (
+        <button
+          type="button"
+          data-no-drag
+          data-tauri-drag-region="false"
+          title="Hide working chat"
+          aria-label="Hide working chat"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDismissWorking();
+          }}
+          className="pointer-events-none absolute right-1 top-1 grid size-5 place-items-center rounded-md text-content/50 opacity-0 hover:bg-content/10 hover:text-content group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+        >
+          <X className="size-3" strokeWidth={1.75} />
+        </button>
+      ) : null}
       {orchestration && orchestrationTooltipOpen ? (
         <Popover
           anchor={orchestrationTooltipRootRef}

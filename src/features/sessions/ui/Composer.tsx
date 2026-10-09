@@ -199,7 +199,13 @@ import {
   taggedMcpServers,
   type McpTag,
 } from "../model/mcpPicker";
-import { getComposerMcpTags, setComposerMcpTags } from "../model/draftCache";
+import {
+  COMPOSER_INPUT_RESTORE_EVENT,
+  getComposerMcpTags,
+  setComposerDraft,
+  setComposerMcpTags,
+  type ComposerInputRestore,
+} from "../model/draftCache";
 import { type McpConnection } from "../../settings/model/mcp";
 import {
   getCachedMcpSettings,
@@ -693,6 +699,34 @@ export function Composer({
     },
     [inboxCard, noteCard, handoffCard],
   );
+
+  useEffect(() => {
+    const restore = (event: Event) => {
+      const input = (event as CustomEvent<ComposerInputRestore>).detail;
+      if (!input || input.sessionId !== sessionId) return;
+      pasteGenerationRef.current += 1;
+      draftRevisionRef.current += 1;
+      const currentText = ref.current?.value ?? draft;
+      const text =
+        !currentText || currentText === input.text
+          ? input.text
+          : `${input.text}\n\n${currentText}`;
+      const files = mergeAttachments(input.attachments, attachmentsRef.current);
+      setComposerDraft(sessionId, text);
+      attachmentsRef.current = files;
+      borrowedAttachmentIdsRef.current.clear();
+      setAttachments(files);
+      setDraft(text);
+      if (ref.current) {
+        ref.current.value = text;
+        resizeComposer(ref.current);
+        ref.current.setSelectionRange(text.length, text.length);
+      }
+      syncHasValue(text, files);
+    };
+    window.addEventListener(COMPOSER_INPUT_RESTORE_EVENT, restore);
+    return () => window.removeEventListener(COMPOSER_INPUT_RESTORE_EVENT, restore);
+  }, [draft, sessionId, syncHasValue]);
 
   // A leading mode command in the text shows the same pill as picking the mode.
   const operatorThreadEnabled = !remote && operatorEnabledInThread(blocks);
